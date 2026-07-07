@@ -3,7 +3,7 @@
 //! File mutations: [`file_ops`]. Write policy: [`policy`].
 //! Other handlers: `tx/{ast,md,patch,replace,search,tidy}_op`.
 
-use super::output::{TxExecResult, TxLintResult, TxReadResult, TxSearchResult};
+use super::output::{TxDocMutation, TxExecResult, TxLintResult, TxReadResult, TxSearchResult};
 use super::validate::op_label;
 use crate::ops::doc::{
     FileFormat, MutationResult, apply_doc_mutation, detect_format, parse_doc,
@@ -213,6 +213,8 @@ pub(crate) struct TxState<'a> {
     pub(crate) tx_reads: &'a mut Vec<TxReadResult>,
     pub(crate) tx_searches: &'a mut Vec<TxSearchResult>,
     pub(crate) tx_lints: &'a mut Vec<TxLintResult>,
+    /// Doc delete / delete-where summaries for plan/MCP JSON (#1439).
+    pub(crate) tx_mutations: &'a mut Vec<TxDocMutation>,
     /// Files targeted by write operations (Replace, TidyFix, Doc mutations,
     /// Md mutations, Patch, AST transforms, etc.). Write policy is only
     /// applied to these files, not to files loaded solely for reading (#1108).
@@ -239,6 +241,7 @@ pub(crate) struct TxStateFixture {
     pub reads: Vec<TxReadResult>,
     pub searches: Vec<TxSearchResult>,
     pub lints: Vec<TxLintResult>,
+    pub mutations: Vec<TxDocMutation>,
     pub write_targets: HashSet<PathBuf>,
 }
 
@@ -253,6 +256,7 @@ impl TxStateFixture {
             reads: Vec::new(),
             searches: Vec::new(),
             lints: Vec::new(),
+            mutations: Vec::new(),
             write_targets: HashSet::new(),
         }
     }
@@ -266,6 +270,7 @@ impl TxStateFixture {
             tx_reads: &mut self.reads,
             tx_searches: &mut self.searches,
             tx_lints: &mut self.lints,
+            tx_mutations: &mut self.mutations,
             write_targets: &mut self.write_targets,
             replace_hint: None,
             cwd,
@@ -341,16 +346,48 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
     // (the old code silently discarded the bool/count return value).
     // Update is strict: no-match means the selector was wrong.
     let strict_no_match = matches!(op, Operation::DocUpdate { .. });
+    let is_delete = matches!(
+        op,
+        Operation::DocDelete { .. } | Operation::DocDeleteWhere { .. }
+    );
+    let op_name = match op {
+        Operation::DocDelete { .. } => "doc.delete",
+        Operation::DocDeleteWhere { .. } => "doc.delete_where",
+        _ => "",
+    };
 
     match apply_doc_mutation(root, mutation).map_err(path_err(path))? {
         MutationResult::Applied | MutationResult::AlreadyExists => Ok(()),
+        MutationResult::Removed(count) => {
+            if is_delete {
+                tx.tx_mutations.push(TxDocMutation {
+                    path: path.to_string(),
+                    op: op_name.to_string(),
+                    changed: true,
+                    removed: count,
+                });
+            }
+            Ok(())
+        }
         MutationResult::NoMatch if strict_no_match => {
             let label = op_label(op);
             Err(crate::exit::NoMatchError {
                 msg: format!("{path}: {label} matched nothing"),
             })?
         }
-        MutationResult::NoMatch => Ok(()),
+        MutationResult::NoMatch => {
+            // Idempotent delete/delete-where: still report removed:0 so MCP/tx
+            // JSON can distinguish no-op from real deletes (#1439).
+            if is_delete {
+                tx.tx_mutations.push(TxDocMutation {
+                    path: path.to_string(),
+                    op: op_name.to_string(),
+                    changed: false,
+                    removed: 0,
+                });
+            }
+            Ok(())
+        }
         MutationResult::TypeError(msg) => {
             anyhow::bail!("{path}: {msg}");
         }
@@ -460,6 +497,7 @@ pub(crate) fn execute_and_collect(
     let mut tx_reads: Vec<TxReadResult> = Vec::new();
     let mut tx_searches: Vec<TxSearchResult> = Vec::new();
     let mut tx_lints: Vec<TxLintResult> = Vec::new();
+    let mut tx_mutations: Vec<TxDocMutation> = Vec::new();
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
     let mut replace_hint: Option<String> = None;
 
@@ -509,6 +547,7 @@ pub(crate) fn execute_and_collect(
             tx_reads: &mut tx_reads,
             tx_searches: &mut tx_searches,
             tx_lints: &mut tx_lints,
+            tx_mutations: &mut tx_mutations,
             write_targets: &mut write_targets,
             replace_hint: None,
             cwd,
@@ -589,6 +628,7 @@ pub(crate) fn execute_and_collect(
         tx_reads,
         tx_searches,
         tx_lints,
+        tx_mutations,
         no_effective_changes,
         replace_no_matches,
         replace_hint,

@@ -32,7 +32,7 @@ mod tidy_op;
 
 // output.rs
 pub use output::{
-    TxChange, TxLintResult, TxOutput, TxReadResult, TxSearchMatch, TxSearchResult,
+    TxChange, TxDocMutation, TxLintResult, TxOutput, TxReadResult, TxSearchMatch, TxSearchResult,
     exit_code_from_tx_output,
 };
 pub(crate) use output::{

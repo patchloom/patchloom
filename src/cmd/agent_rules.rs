@@ -413,10 +413,11 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
              | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\
              | 9 | Tx operation staging failure (`operation_failed`) |\n\n\
-             **Doc write JSON tip:** With `--json`, every doc write success includes \
-             `changed` (bool). `doc delete` / `doc delete-where` also include `removed` \
-             (usize). Exit 0 with `removed: 0` means idempotent cleanup (nothing matched); \
-             do not assume data was deleted from exit code alone.\n\n",
+             **Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, \
+             doc delete success includes `changed` (bool) and `removed` (usize). Multi-op \
+             plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with \
+             `removed: 0` means idempotent cleanup (nothing matched); do not assume data \
+             was deleted from exit status alone.\n\n",
         );
     }
 

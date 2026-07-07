@@ -957,11 +957,47 @@ async fn test_mcp_doc_delete_round_trip() {
     assert!(!is_error, "doc_delete should succeed: {val}");
     assert_eq!(val["ok"], true, "doc_delete ok: {val}");
     assert_eq!(val["files_changed"], 1, "doc_delete files_changed: {val}");
+    assert_eq!(val["changed"], true, "doc_delete changed: {val}");
+    assert_eq!(val["removed"], 1, "doc_delete removed: {val}");
+    assert_eq!(
+        val["mutations"][0]["op"], "doc.delete",
+        "mutations[0].op: {val}"
+    );
+    assert_eq!(
+        val["mutations"][0]["removed"], 1,
+        "mutations[0].removed: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert!(v.get("debug").is_none(), "doc_delete should remove key");
     assert_eq!(v["name"], "app", "doc_delete should preserve other keys");
+    client.cancel().await.unwrap();
+}
+
+/// #1439: MCP doc_delete missing key is ok with removed:0 / changed:false.
+#[tokio::test]
+async fn test_mcp_doc_delete_missing_key_reports_removed_zero() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"name":"app"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_delete",
+        serde_json::json!({"path": "config.json", "selector": "missing"}),
+    )
+    .await;
+    assert!(!is_error, "idempotent delete should not be an error: {val}");
+    assert_eq!(val["ok"], true, "payload: {val}");
+    assert_eq!(val["files_changed"], 0, "payload: {val}");
+    assert_eq!(val["changed"], false, "payload: {val}");
+    assert_eq!(val["removed"], 0, "payload: {val}");
+    assert_eq!(val["mutations"][0]["changed"], false, "payload: {val}");
+    assert_eq!(val["mutations"][0]["removed"], 0, "payload: {val}");
     client.cancel().await.unwrap();
 }
 
@@ -1125,6 +1161,12 @@ async fn test_mcp_doc_delete_where_round_trip() {
         val["files_changed"], 1,
         "doc_delete_where files_changed: {val}"
     );
+    assert_eq!(val["changed"], true, "doc_delete_where changed: {val}");
+    assert_eq!(val["removed"], 1, "doc_delete_where removed: {val}");
+    assert_eq!(
+        val["mutations"][0]["op"], "doc.delete_where",
+        "mutations op: {val}"
+    );
 
     let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -1136,6 +1178,101 @@ async fn test_mcp_doc_delete_where_round_trip() {
     );
     assert_eq!(items[0]["name"], "keep");
     assert_eq!(items[1]["name"], "keep2");
+    client.cancel().await.unwrap();
+}
+
+/// #1439: MCP delete-where zero matches is ok with removed:0.
+#[tokio::test]
+async fn test_mcp_doc_delete_where_zero_match_reports_removed_zero() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"name":"keep"},{"name":"also"}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_delete_where",
+        serde_json::json!({
+            "path": "config.json",
+            "selector": "items",
+            "predicate": "name=nobody"
+        }),
+    )
+    .await;
+    assert!(!is_error, "idempotent delete-where should succeed: {val}");
+    assert_eq!(val["ok"], true, "payload: {val}");
+    assert_eq!(val["files_changed"], 0, "payload: {val}");
+    assert_eq!(val["changed"], false, "payload: {val}");
+    assert_eq!(val["removed"], 0, "payload: {val}");
+    assert_eq!(val["mutations"].as_array().unwrap().len(), 1);
+    assert_eq!(val["mutations"][0]["removed"], 0, "payload: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    assert!(
+        content.contains("keep") && content.contains("also"),
+        "file unchanged: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// #1439: multi-op plan surfaces per-op mutation stats and aggregates.
+#[tokio::test]
+async fn test_mcp_tx_plan_doc_delete_mutations_summary() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("a.json"),
+        r#"{"items":[{"name":"a"},{"name":"b"},{"name":"a"}]}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("b.json"), r#"{"x":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "doc.delete_where",
+                "path": "a.json",
+                "selector": "items",
+                "predicate": "name=a"
+            },
+            {
+                "op": "doc.delete",
+                "path": "b.json",
+                "selector": "missing"
+            }
+        ]
+    });
+    let (is_error, val) =
+        call_tool_value(&client, "execute_plan", serde_json::json!({"plan": plan})).await;
+    assert!(!is_error, "plan should succeed: {val}");
+    assert_eq!(val["ok"], true, "payload: {val}");
+    // One file modified (a.json), b.json is no-op.
+    assert_eq!(val["files_changed"], 1, "payload: {val}");
+    assert_eq!(val["changed"], true, "any mutation changed: {val}");
+    assert_eq!(val["removed"], 2, "2 from a + 0 from b: {val}");
+    let mutations = val["mutations"].as_array().expect("mutations array");
+    assert_eq!(mutations.len(), 2, "payload: {val}");
+    assert_eq!(mutations[0]["op"], "doc.delete_where");
+    assert_eq!(mutations[0]["removed"], 2);
+    assert_eq!(mutations[0]["changed"], true);
+    assert_eq!(mutations[1]["op"], "doc.delete");
+    assert_eq!(mutations[1]["removed"], 0);
+    assert_eq!(mutations[1]["changed"], false);
+
+    let a: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("a.json")).unwrap()).unwrap();
+    assert_eq!(a["items"].as_array().unwrap().len(), 1);
+    assert_eq!(a["items"][0]["name"], "b");
     client.cancel().await.unwrap();
 }
 

@@ -250,7 +250,7 @@ mod basic {
             },
         )
         .unwrap();
-        assert!(matches!(result, MutationResult::Applied));
+        assert!(matches!(result, MutationResult::Removed(1)));
         assert_eq!(root, json!({"a": 1}));
     }
 
@@ -354,7 +354,7 @@ mod basic {
             },
         )
         .unwrap();
-        assert!(matches!(result, MutationResult::Applied));
+        assert!(matches!(result, MutationResult::Removed(1)));
         assert_eq!(root["items"].as_array().unwrap().len(), 1);
     }
 
