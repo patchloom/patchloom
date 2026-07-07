@@ -548,3 +548,16 @@ fn test_read_contain_allows_in_workspace() {
         .code(0)
         .stdout(predicate::str::contains("hello"));
 }
+
+#[test]
+fn test_read_empty_path_rejected() {
+    let dir = TempDir::new().unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["read", ""])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("path must not be empty"));
+}
