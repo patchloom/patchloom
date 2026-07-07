@@ -1077,7 +1077,7 @@ fn test_md_replace_section_contain_rejects_parent_escape() {
             "--apply",
         ])
         .assert()
-        .failure()
+        .code(1)
         .stderr(
             predicate::str::contains("escapes")
                 .or(predicate::str::contains("rejected"))
