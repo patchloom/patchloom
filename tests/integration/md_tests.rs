@@ -1103,5 +1103,6 @@ fn test_md_lint_alias_invokes_lint_agents() {
     patchloom_in(dir.path())
         .args(["md", "lint", "AGENTS.md"])
         .assert()
-        .success();
+        .code(0)
+        .stderr(predicate::str::contains("unrecognized").not());
 }
