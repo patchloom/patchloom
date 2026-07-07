@@ -132,8 +132,8 @@ These flags affect how Patchloom reports results or chooses which files to touch
 <!-- ref:global-flag:cwd -->
 ### `--cwd`
 
-- **What it does:** Sets the working directory used to resolve relative paths.
-- **Use when:** You are invoking Patchloom from outside the target repo, or you want scripts to behave predictably regardless of the caller's current directory.
+- **What it does:** Sets the working directory used to resolve relative paths for operation targets **and** meta-input files: `tx` plan files, `batch` ops files, `patch` patch files, `explain` plan files, and `--files-from` list files (absolute meta paths are unchanged).
+- **Use when:** You are invoking Patchloom from outside the target repo, or you want scripts to behave predictably regardless of the caller's current directory. Example: `patchloom --cwd /repo batch ops.txt` finds `/repo/ops.txt`.
 - **Prefer instead:** Use a plan level `cwd` in `tx` when the directory choice should travel with the plan itself, but keep it inside the invocation root. Relative plan `cwd` values resolve from the caller's working directory (`--cwd` or the process cwd), not from the plan file location.
 - **Not a sandbox:** Without `--contain`, paths may escape via `../` or absolute paths. MCP always enforces containment; use `--contain` for the same on CLI.
 
@@ -222,6 +222,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Checks or applies a unified diff.
 - **Use when:** The change already exists as a patch, or you want stale context detection instead of search and replace semantics.
+- **Paths:** A relative patch file path is resolved under `--cwd`. Paths *inside* the unified diff are also resolved against `--cwd`.
 - **Prefer instead:** Use `replace`, `doc`, or `md` when you want to describe the mutation directly instead of carrying a diff artifact.
 - **Related:** `patch check`, `patch apply`, `patch merge`, `tx patch.apply`
 
@@ -302,6 +303,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
 - **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 26 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 

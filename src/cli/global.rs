@@ -305,6 +305,19 @@ impl GlobalFlags {
         }
     }
 
+    /// Resolve a user-supplied path against [`Self::resolve_cwd`].
+    ///
+    /// Absolute paths are returned unchanged (`Path::join` replaces the base).
+    /// Relative paths become `<cwd>/<path>`. Use for meta-inputs (`tx` plans,
+    /// `batch` ops files, `patch` files, `--files-from` lists) so `--cwd` is
+    /// consistent across commands.
+    pub fn resolve_user_path(
+        &self,
+        path: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<std::path::PathBuf> {
+        Ok(self.resolve_cwd()?.join(path.as_ref()))
+    }
+
     /// Build a workspace [`PathGuard`] when `--contain` is set.
     ///
     /// Returns `Ok(None)` when containment is off (default CLI behavior).
@@ -422,16 +435,7 @@ impl GlobalFlags {
                 .filter(|l| !l.is_empty())
                 .collect()
         } else {
-            let list_path = {
-                let p = std::path::Path::new(source);
-                if p.is_absolute() {
-                    p.to_path_buf()
-                } else if let Some(ref cwd) = self.cwd {
-                    std::path::Path::new(cwd).join(p)
-                } else {
-                    p.to_path_buf()
-                }
-            };
+            let list_path = self.resolve_user_path(source)?;
             let content = std::fs::read_to_string(&list_path).map_err(|e| {
                 anyhow::anyhow!("failed to read --files-from '{}': {e}", list_path.display())
             })?;
@@ -730,6 +734,29 @@ mod tests {
         };
         let err = g.resolve_cwd().unwrap_err().to_string();
         assert!(err.contains("not a directory"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn resolve_user_path_joins_relative_under_cwd() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        };
+        let resolved = g.resolve_user_path("ops.txt").unwrap();
+        assert_eq!(resolved, dir.path().join("ops.txt"));
+    }
+
+    #[test]
+    fn resolve_user_path_keeps_absolute() {
+        let dir = tempfile::tempdir().unwrap();
+        let abs = dir.path().join("abs.txt");
+        let g = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        };
+        let resolved = g.resolve_user_path(&abs).unwrap();
+        assert_eq!(resolved, abs);
     }
 
     #[test]

@@ -47,8 +47,7 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .path
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("path is required when --stdin is not set"))?;
-        let cwd = global.resolve_cwd()?;
-        let full = cwd.join(p);
+        let full = global.resolve_user_path(p)?;
         let content = std::fs::read_to_string(&full)
             .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", full.display()))?;
         (content, Some(p.to_string()))

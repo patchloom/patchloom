@@ -220,7 +220,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let plan_path = if args.plan == "-" {
         None
     } else {
-        Some(global.resolve_cwd()?.join(&args.plan))
+        Some(global.resolve_user_path(&args.plan)?)
     };
     let plan_text = if args.plan == "-" {
         std::io::read_to_string(std::io::stdin())?
