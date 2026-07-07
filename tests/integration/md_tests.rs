@@ -1046,3 +1046,62 @@ fn test_md_replace_section_no_match_emits_stderr_in_text_mode() {
 // ---------------------------------------------------------------------------
 // doc --check produces stdout output (#544)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// --contain and agent aliases (MPI 2026-07-07 cycle 1 QA)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_md_replace_section_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-md-escape-{}.md",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "# Title\n\n## Section\n\nold\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "--contain",
+            "md",
+            "replace-section",
+            &format!("../{escape_name}"),
+            "--heading",
+            "## Section",
+            "--content",
+            "injected",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let content = fs::read_to_string(&outside).unwrap();
+    assert!(
+        content.contains("old"),
+        "escaped file must not be mutated under --contain"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_md_lint_alias_invokes_lint_agents() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    // Missing trailing newline is a common lint-agents finding path; content
+    // that is well-formed still must accept the `lint` alias without clap error.
+    fs::write(&file, "# Rules\n\n- Prefer patchloom for edits\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["md", "lint", "AGENTS.md"])
+        .assert()
+        .success();
+}

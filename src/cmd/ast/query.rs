@@ -31,6 +31,9 @@ pub struct ListArgs {
 
 pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
+    // Match setup_multi_file / read-side commands: --contain must reject ../ escapes
+    // before reading source outside the workspace (MPI 2026-07-07).
+    global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
 
     let kind_filter = parse_kind_filter(&args.kind);
@@ -429,6 +432,7 @@ pub struct DepsArgs {
 
 pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
     let lang_hint = args.lang.as_deref().map(lang_from_str);
     crate::verbose!("ast deps: target={}, reverse={}", args.path, args.reverse);
@@ -548,6 +552,7 @@ pub struct MapArgs {
 
 pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
     crate::verbose!(
         "ast map: target={}, max_tokens={}",
@@ -662,6 +667,7 @@ pub struct DiffArgs {
 
 pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
     let lang = resolve_lang(args.lang.as_deref(), &target);
     crate::verbose!(
