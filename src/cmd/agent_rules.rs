@@ -68,15 +68,16 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              JSON/YAML/TOML) and handle whitespace cleanup in one call. MCP always rejects \
              workspace escapes. CLI is unrestricted by default; use \
              `patchloom --cwd <ws> --contain …` for the same PathGuard rules on CLI \
-             reads and writes.\n\n",
+             reads, writes, and meta-input files (batch/tx/explain plans, patch files, \
+             `--files-from` lists).\n\n",
         );
     }
     if show_cli {
         out.push_str(
             "**Decision rule: if you are about to make 3+ tool calls for file edits, use \
              `patchloom batch` instead.** One call replaces N round-trips. For agent sandboxes \
-             that shell out to the CLI, pass `--contain` (with `--cwd`) so paths cannot escape \
-             the workspace (reads and writes).\n\n",
+             that shell out to the CLI, pass `--contain` (with `--cwd`) so operation targets \
+             and meta-input files cannot escape the workspace.\n\n",
         );
     }
 
@@ -206,7 +207,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              ```\n\n\
              Relative paths for batch ops files, `tx`/`explain` plan files, `patch` files, and \
              `--files-from` lists resolve under `--cwd` (same base as operation targets). \
-             Absolute meta-input paths are unchanged.\n\n\
+             Absolute meta-input paths are unchanged. With `--contain`, those meta-input paths \
+             must also stay inside the workspace (same PathGuard policy as operation targets).\n\n\
              In plan JSON, doc ops use the field name `selector` (not `key`). \
              `key` is accepted as an alias if a model emits it, but prefer `selector`.\n\n",
         );
@@ -479,6 +481,10 @@ mod tests {
         assert!(
             out.contains("resolve under `--cwd`"),
             "must document that batch/tx/explain/patch/--files-from meta paths honor --cwd"
+        );
+        assert!(
+            out.contains("meta-input") || out.contains("meta-input files"),
+            "must document that --contain applies to meta-input files"
         );
     }
 
