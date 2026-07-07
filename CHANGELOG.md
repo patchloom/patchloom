@@ -29,6 +29,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.10.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.9.0...patchloom-v0.10.0) (2026-07-07)
+
+
+### Features
+
+* add --contain for optional CLI workspace path guarding ([#1407](https://github.com/patchloom/patchloom/issues/1407)) ([4a088a4](https://github.com/patchloom/patchloom/commit/4a088a45c5cc1c4c1bf6a94613843ec37d070048))
+* MCP/tx doc delete mutation summary (changed/removed) ([#1441](https://github.com/patchloom/patchloom/issues/1441)) ([7eb321f](https://github.com/patchloom/patchloom/commit/7eb321f6f4affd14c71cc00e28988d1c55520213)), closes [#1439](https://github.com/patchloom/patchloom/issues/1439)
+* post-rewrite follow-ups (MCP meta, EngineContext, break shims) ([#1387](https://github.com/patchloom/patchloom/issues/1387)) ([43ed437](https://github.com/patchloom/patchloom/commit/43ed437bc4f3711ac7d05e1e880610238f4a42bb)), closes [#1383](https://github.com/patchloom/patchloom/issues/1383) [#1384](https://github.com/patchloom/patchloom/issues/1384) [#1385](https://github.com/patchloom/patchloom/issues/1385) [#1386](https://github.com/patchloom/patchloom/issues/1386) [#1382](https://github.com/patchloom/patchloom/issues/1382)
+
+
+### Bug Fixes
+
+* --contain AllowIfContained, stdin files-from errors, meta tests ([#1452](https://github.com/patchloom/patchloom/issues/1452)) ([fff5a5e](https://github.com/patchloom/patchloom/commit/fff5a5ec8f2988c678cea3ef0823c8a15ca5ac96)), closes [#1449](https://github.com/patchloom/patchloom/issues/1449) [#1450](https://github.com/patchloom/patchloom/issues/1450) [#1451](https://github.com/patchloom/patchloom/issues/1451)
+* --files-from under --cwd; contain before append exists-check ([#1419](https://github.com/patchloom/patchloom/issues/1419)) ([42aa936](https://github.com/patchloom/patchloom/commit/42aa9367c90b6ee08aa0e123f59413dc0da44610))
+* accept "command" as alias for "cmd" in tx format/validate steps ([#1323](https://github.com/patchloom/patchloom/issues/1323)) ([d515bc0](https://github.com/patchloom/patchloom/commit/d515bc0244048fb5099c9ab007ebc31e52b0c4dd))
+* accept value= predicate for scalar doc delete-where ([#1425](https://github.com/patchloom/patchloom/issues/1425)) ([7cc3e08](https://github.com/patchloom/patchloom/commit/7cc3e0884f693013b980a0f1d81364daa117378c))
+* add test-library-hygiene to make check and fix CONTRIBUTING.md stale reference ([#1364](https://github.com/patchloom/patchloom/issues/1364)) ([d0b93e3](https://github.com/patchloom/patchloom/commit/d0b93e3987736f379db88a8da431e77a7d38f96c))
+* agent-friendly replace aliases and patch - stdin ([#1423](https://github.com/patchloom/patchloom/issues/1423)) ([2154174](https://github.com/patchloom/patchloom/commit/2154174605296fb1e569c7d4e5a57f60bc379c64))
+* agent-rules --json now emits structured JSON output ([#1322](https://github.com/patchloom/patchloom/issues/1322)) ([92ef0fd](https://github.com/patchloom/patchloom/commit/92ef0fd6692e8ad35b68c90c9320386b52083569))
+* apply --contain to meta-input paths (plans, ops, files-from) ([#1447](https://github.com/patchloom/patchloom/issues/1447)) ([b1ed678](https://github.com/patchloom/patchloom/commit/b1ed67855a3049193b6494116f30ebaaae257faa))
+* ast and doc commands emit JSON on no-match paths ([#1321](https://github.com/patchloom/patchloom/issues/1321)) ([f2ae6df](https://github.com/patchloom/patchloom/commit/f2ae6df6a4ee20f4538a5b760d9a3c7b35c4f499))
+* ast read and md dedupe-headings exit code consistency ([#1347](https://github.com/patchloom/patchloom/issues/1347)) ([86aa80a](https://github.com/patchloom/patchloom/commit/86aa80aae1f769d0cff09ce670569161d7a73a8c))
+* ast rename NoMatchError handler, dedup run_context_replace, add integration tests ([#1335](https://github.com/patchloom/patchloom/issues/1335)) ([83aace4](https://github.com/patchloom/patchloom/commit/83aace4352d44235c7e2112d4350fea7a5f8a20d))
+* bounded regex compilation, ast quiet/JSON guards, error-path tests ([#1357](https://github.com/patchloom/patchloom/issues/1357)) ([55aa095](https://github.com/patchloom/patchloom/commit/55aa0957da0554fc7d144c02b5766ff55421ced5))
+* box plan validation errors and strengthen verify/explain asserts ([#1403](https://github.com/patchloom/patchloom/issues/1403)) ([6225faf](https://github.com/patchloom/patchloom/commit/6225faf04cadafde511af6f1bc97af0d36a0deb4))
+* bump crossbeam-epoch for RUSTSEC-2026-0204 ([#1438](https://github.com/patchloom/patchloom/issues/1438)) ([c34ba23](https://github.com/patchloom/patchloom/commit/c34ba231f8623f5610551ad0df70df47fe9b741d))
+* clarify doc.update uses selector predicates, not --where ([#1431](https://github.com/patchloom/patchloom/issues/1431)) ([1664b32](https://github.com/patchloom/patchloom/commit/1664b328cf5a09951bc705d3d855e5bd979fce22))
+* close PathGuard containment gaps in PatchApply and glob-replace ([#1367](https://github.com/patchloom/patchloom/issues/1367)) ([49057d8](https://github.com/patchloom/patchloom/commit/49057d86faaf506b326c410c719b9c7c9f3676d7)), closes [#1363](https://github.com/patchloom/patchloom/issues/1363) [#1361](https://github.com/patchloom/patchloom/issues/1361)
+* complete CLI --contain for all write paths ([#1410](https://github.com/patchloom/patchloom/issues/1410)) ([7a242fe](https://github.com/patchloom/patchloom/commit/7a242fe1edafcd26916d8a98bd5427cf85f65610))
+* context-based replace now respects --json/--jsonl flags ([#1317](https://github.com/patchloom/patchloom/issues/1317)) ([c689b88](https://github.com/patchloom/patchloom/commit/c689b88e5ccae5aba7335b8ea265f460c5fee48b))
+* context-replace emits ok:false on no-match and guards stderr ([#1365](https://github.com/patchloom/patchloom/issues/1365)) ([02f6148](https://github.com/patchloom/patchloom/commit/02f61480a80f279f9a0ae7f85502d48f7d0a51d7))
+* correct JSON ok field semantics and assertion quality ([#1360](https://github.com/patchloom/patchloom/issues/1360)) ([9456580](https://github.com/patchloom/patchloom/commit/94565807cc0985356dd672056a78ad8ded5187fb))
+* doc key alias + ast rename usage hint from runtime scenarios ([#1420](https://github.com/patchloom/patchloom/issues/1420)) ([cfd6057](https://github.com/patchloom/patchloom/commit/cfd6057e1dfd1afeddce4a2ad3d3b136f01d92cc))
+* drop indent spaces from feature-gated MCP instruction lines ([#1399](https://github.com/patchloom/patchloom/issues/1399)) ([e946a80](https://github.com/patchloom/patchloom/commit/e946a808df6a85750c12841749fc99049c5bddef))
+* emit stderr for no-match errors in text mode and add test coverage ([#1338](https://github.com/patchloom/patchloom/issues/1338)) ([ecfc12a](https://github.com/patchloom/patchloom/commit/ecfc12a4ca318f1bfcc492130baaec6b4b18a208))
+* emit stderr for silent no-match errors in doc and undo commands ([#1340](https://github.com/patchloom/patchloom/issues/1340), [#1341](https://github.com/patchloom/patchloom/issues/1341)) ([#1343](https://github.com/patchloom/patchloom/issues/1343)) ([694eb71](https://github.com/patchloom/patchloom/commit/694eb71758162c0645fa186976972488aa5e7eff))
+* emit stderr for silent no-match/ambiguous errors in replace and search commands ([#1344](https://github.com/patchloom/patchloom/issues/1344)) ([387acfa](https://github.com/patchloom/patchloom/commit/387acfa0bfac2aff5eb3e50b7eb41e9d889ba137))
+* enforce --contain on CLI reads as well as writes ([#1417](https://github.com/patchloom/patchloom/issues/1417)) ([93a64a7](https://github.com/patchloom/patchloom/commit/93a64a7381fe7daf38e857bc8dd524fe7bc45cfa))
+* enforce --contain on CLI tx plans ([#1412](https://github.com/patchloom/patchloom/issues/1412)) ([40aad6a](https://github.com/patchloom/patchloom/commit/40aad6a5a3d1b62b2785da1f9b18b4a2111a0898))
+* expose schema --tier as clap ValueEnum ([#1427](https://github.com/patchloom/patchloom/issues/1427)) ([ecadbe1](https://github.com/patchloom/patchloom/commit/ecadbe18e256e86a468d58dd5fea1eb6ae2897d6))
+* fail --contain replace before scanning escaped paths ([#1415](https://github.com/patchloom/patchloom/issues/1415)) ([b4d3c55](https://github.com/patchloom/patchloom/commit/b4d3c557326ef84160a6cba67b2c7420d62be3e0))
+* fallback replace path ignores context/fuzzy + Unicode tests ([#1316](https://github.com/patchloom/patchloom/issues/1316)) ([f757ed2](https://github.com/patchloom/patchloom/commit/f757ed227b5e3aaa75ffdff5f72aaf1f62d99fb4))
+* feature-gate custom MCP inventory to match list_tools ([#1395](https://github.com/patchloom/patchloom/issues/1395)) ([c7ea986](https://github.com/patchloom/patchloom/commit/c7ea986629ce13340474354f04d00d7fdcc8401c))
+* feature-gate verify HashMap and VerifyResult for non-ast builds ([#1398](https://github.com/patchloom/patchloom/issues/1398)) ([9b312c6](https://github.com/patchloom/patchloom/commit/9b312c67e8d928c2643d1e79d7533b076b1d775a))
+* honor --contain for --files-from path lists ([#1418](https://github.com/patchloom/patchloom/issues/1418)) ([d029776](https://github.com/patchloom/patchloom/commit/d029776e1235e9312accead653b931be25a29b99))
+* JSON output for no-match cases across doc, search, and md commands ([#1319](https://github.com/patchloom/patchloom/issues/1319)) ([279c2a3](https://github.com/patchloom/patchloom/commit/279c2a392249c76e2bad9aa00b1bee4e7920be81))
+* MCP key alias for doc params; lock ast rename order hint ([#1421](https://github.com/patchloom/patchloom/issues/1421)) ([5f0e8b3](https://github.com/patchloom/patchloom/commit/5f0e8b3fd2f54908bf0205c4fb90b674c72a85dd))
+* migrate redundant json flag checks to emit_json() return value ([#1326](https://github.com/patchloom/patchloom/issues/1326)) ([2cfc157](https://github.com/patchloom/patchloom/commit/2cfc15732feb0b9064d421f911b6ea0cc4b8c935)), closes [#1324](https://github.com/patchloom/patchloom/issues/1324)
+* MPI rotation - exit codes, JSON output, backup perms, editorconfig, docs ([#1354](https://github.com/patchloom/patchloom/issues/1354)) ([49b3188](https://github.com/patchloom/patchloom/commit/49b31888a446b8a75489da55a99b1ba636a24ca5))
+* name workspace root in --contain escape errors ([#1414](https://github.com/patchloom/patchloom/issues/1414)) ([a862a54](https://github.com/patchloom/patchloom/commit/a862a542ba23ef073ddfc2c7121805a99d805504))
+* patch apply now respects --json/--jsonl flags ([#1318](https://github.com/patchloom/patchloom/issues/1318)) ([5b615f3](https://github.com/patchloom/patchloom/commit/5b615f3611b572665fe7cc95381e283b58fd653d))
+* pin release installers and doc write JSON mutation summary ([#1437](https://github.com/patchloom/patchloom/issues/1437)) ([90b91e0](https://github.com/patchloom/patchloom/commit/90b91e06bab28826b5a9195c26ce69e19628b254)), closes [#1433](https://github.com/patchloom/patchloom/issues/1433) [#1434](https://github.com/patchloom/patchloom/issues/1434) [#1436](https://github.com/patchloom/patchloom/issues/1436)
+* preserve inline table format during doc set operations ([#1328](https://github.com/patchloom/patchloom/issues/1328)) ([404c9b4](https://github.com/patchloom/patchloom/commit/404c9b4655f963c9b10f71b1ce34e0e85f8c47ae))
+* replace string-based error classification with typed NoMatchError ([#1334](https://github.com/patchloom/patchloom/issues/1334)) ([004e78e](https://github.com/patchloom/patchloom/commit/004e78e4c670db63b3bf038a54a535aa91faf391)), closes [#1331](https://github.com/patchloom/patchloom/issues/1331) [#1332](https://github.com/patchloom/patchloom/issues/1332) [#1333](https://github.com/patchloom/patchloom/issues/1333)
+* resolve batch and patch input paths under --cwd ([#1444](https://github.com/patchloom/patchloom/issues/1444)) ([9be6776](https://github.com/patchloom/patchloom/commit/9be6776e9a5f93650f2b05bb5e1116a3eb4df157))
+* resolve bugs [#1349](https://github.com/patchloom/patchloom/issues/1349) and [#1350](https://github.com/patchloom/patchloom/issues/1350) (exit code and .patchloom exclusion) ([#1352](https://github.com/patchloom/patchloom/issues/1352)) ([a9d63fc](https://github.com/patchloom/patchloom/commit/a9d63fc68a2e55fa3a39e260d25f6823a819d0a9))
+* return CHANGES_DETECTED exit code in default preview mode ([#1345](https://github.com/patchloom/patchloom/issues/1345)) ([519401c](https://github.com/patchloom/patchloom/commit/519401c24574199c01f2fc8c030ed6bc177cbd43))
+* return CHANGES_DETECTED in default mode for tx, batch, and patch commands ([#1346](https://github.com/patchloom/patchloom/issues/1346)) ([d5693b3](https://github.com/patchloom/patchloom/commit/d5693b311929a6abe374025092fdd932c970e47a))
+* split WritePolicyOverride into config vs plan types ([#1356](https://github.com/patchloom/patchloom/issues/1356)) ([aaff244](https://github.com/patchloom/patchloom/commit/aaff2441016337e9f14a302f826431e51b25b832))
+* tidy fix defaults match tidy check issues ([#1424](https://github.com/patchloom/patchloom/issues/1424)) ([1f2d2a9](https://github.com/patchloom/patchloom/commit/1f2d2a95adea35c3a1c7b05de9d236418f035fc3))
+* undo --json emits structured output on apply success and no-sessions ([#1320](https://github.com/patchloom/patchloom/issues/1320)) ([ae6c4f4](https://github.com/patchloom/patchloom/commit/ae6c4f4a083002b6b95f34ebe801a0b299f98c42))
+* use numeric version in agent-rules tx plan example ([#1329](https://github.com/patchloom/patchloom/issues/1329)) ([0e13065](https://github.com/patchloom/patchloom/commit/0e1306568caa949973e9b309c87738aac5bbf771))
+* use old/new consistently for ast rename across surfaces ([#1426](https://github.com/patchloom/patchloom/issues/1426)) ([35b5268](https://github.com/patchloom/patchloom/commit/35b5268f389c2b971c293ffa8fc33c36dc63944d))
+* wire context anchoring through replace_in_content fuzzy fallback ([#1312](https://github.com/patchloom/patchloom/issues/1312)) ([5a9a7e5](https://github.com/patchloom/patchloom/commit/5a9a7e5c664a843f368c5b66fe0f28138eb490f5))
+* write_dispatch preview mode returns exit 0 instead of exit 2 ([#1348](https://github.com/patchloom/patchloom/issues/1348)) ([f419929](https://github.com/patchloom/patchloom/commit/f41992993e4a5d2eda49ac8305f150f53a16bf9f))
+
 ## [0.9.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.8.0...patchloom-v0.9.0) (2026-07-01)
 
 
