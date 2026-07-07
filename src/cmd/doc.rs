@@ -303,9 +303,11 @@ fn preview_removed_count(cwd: &std::path::Path, op: &Operation) -> Option<usize>
             delete_where(&mut root, &sel, &predicate).ok()
         }
         DocMutation::Delete { .. } => match apply_doc_mutation(&mut root, mutation).ok()? {
-            MutationResult::Applied => Some(1),
+            MutationResult::Removed(n) => Some(n),
             MutationResult::NoMatch => Some(0),
-            MutationResult::AlreadyExists | MutationResult::TypeError(_) => None,
+            MutationResult::Applied
+            | MutationResult::AlreadyExists
+            | MutationResult::TypeError(_) => None,
         },
         _ => None,
     }

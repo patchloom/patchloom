@@ -22,12 +22,35 @@ pub struct TxOutput {
     pub searches: Vec<TxSearchResult>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub lints: Vec<TxLintResult>,
+    /// Per-op doc delete / delete-where summaries (#1439). Empty when the plan
+    /// had no such ops. Prefer this for multi-op plans; top-level `changed` /
+    /// `removed` are aggregates when present.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub mutations: Vec<TxDocMutation>,
+    /// Aggregate of [`TxDocMutation::changed`] when `mutations` is non-empty.
+    /// Mirrors CLI doc write JSON so agents can treat exit 0 + `removed: 0`
+    /// as an idempotent no-op without re-reading the file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changed: Option<bool>,
+    /// Sum of [`TxDocMutation::removed`] when `mutations` is non-empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removed: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup_session: Option<String>,
+}
+
+/// One doc delete / delete-where outcome inside a plan/tx report (#1439).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxDocMutation {
+    pub path: String,
+    /// Plan op name, e.g. `doc.delete` or `doc.delete_where`.
+    pub op: String,
+    pub changed: bool,
+    pub removed: usize,
 }
 
 /// A single file change in a plan/tx report.
@@ -88,10 +111,23 @@ pub(crate) struct TxExecResult {
     pub(crate) tx_reads: Vec<TxReadResult>,
     pub(crate) tx_searches: Vec<TxSearchResult>,
     pub(crate) tx_lints: Vec<TxLintResult>,
+    pub(crate) tx_mutations: Vec<TxDocMutation>,
     pub(crate) no_effective_changes: bool,
     pub(crate) replace_no_matches: bool,
     /// "Did you mean?" hints when a replace found zero matches.
     pub(crate) replace_hint: Option<String>,
+}
+
+/// Apply mutation summaries onto a [`TxOutput`] (aggregates + list).
+pub(crate) fn attach_mutations(output: &mut TxOutput, mutations: Vec<TxDocMutation>) {
+    if mutations.is_empty() {
+        return;
+    }
+    let changed = mutations.iter().any(|m| m.changed);
+    let removed = mutations.iter().map(|m| m.removed).sum();
+    output.changed = Some(changed);
+    output.removed = Some(removed);
+    output.mutations = mutations;
 }
 
 pub(crate) fn build_tx_output(
@@ -156,6 +192,9 @@ pub(crate) fn build_tx_output(
         reads: Vec::new(),
         searches: Vec::new(),
         lints: Vec::new(),
+        mutations: Vec::new(),
+        changed: None,
+        removed: None,
         error_kind: None,
         error: None,
         backup_session: None,
@@ -178,6 +217,7 @@ pub(crate) fn build_full_tx_output(
     output.reads = std::mem::take(&mut result.tx_reads);
     output.searches = std::mem::take(&mut result.tx_searches);
     output.lints = std::mem::take(&mut result.tx_lints);
+    attach_mutations(&mut output, std::mem::take(&mut result.tx_mutations));
     output
 }
 
@@ -220,6 +260,9 @@ pub(crate) fn build_error_output(
         reads: Vec::new(),
         searches: Vec::new(),
         lints: Vec::new(),
+        mutations: Vec::new(),
+        changed: None,
+        removed: None,
         error_kind: Some(error_kind.to_string()),
         error: Some(format!(
             "{error_kind}: {}",
@@ -335,6 +378,9 @@ mod tests {
             reads: Vec::new(),
             searches: Vec::new(),
             lints: Vec::new(),
+            mutations: Vec::new(),
+            changed: None,
+            removed: None,
             error_kind: None,
             error: None,
             backup_session: None,
@@ -352,10 +398,48 @@ mod tests {
             reads: Vec::new(),
             searches: Vec::new(),
             lints: Vec::new(),
+            mutations: Vec::new(),
+            changed: None,
+            removed: None,
             error_kind: Some(kind.to_string()),
             error: Some("test error".to_string()),
             backup_session: None,
         }
+    }
+
+    #[test]
+    fn attach_mutations_sets_aggregates() {
+        let mut out = ok_output("success");
+        attach_mutations(
+            &mut out,
+            vec![
+                TxDocMutation {
+                    path: "a.json".into(),
+                    op: "doc.delete_where".into(),
+                    changed: true,
+                    removed: 2,
+                },
+                TxDocMutation {
+                    path: "b.json".into(),
+                    op: "doc.delete".into(),
+                    changed: false,
+                    removed: 0,
+                },
+            ],
+        );
+        assert_eq!(out.changed, Some(true));
+        assert_eq!(out.removed, Some(2));
+        assert_eq!(out.mutations.len(), 2);
+        assert_eq!(out.mutations[0].removed, 2);
+    }
+
+    #[test]
+    fn attach_mutations_empty_is_noop() {
+        let mut out = ok_output("success");
+        attach_mutations(&mut out, Vec::new());
+        assert_eq!(out.changed, None);
+        assert_eq!(out.removed, None);
+        assert!(out.mutations.is_empty());
     }
 
     #[test]

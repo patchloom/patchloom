@@ -778,6 +778,12 @@ pub enum DocMutation {
 pub enum MutationResult {
     /// The mutation was applied and the document was modified.
     Applied,
+    /// A delete / delete-where removed this many items (always >= 1).
+    ///
+    /// Callers that only care about "did anything change" can treat this like
+    /// [`Applied`](Self::Applied). Callers that need counts (CLI/MCP JSON)
+    /// use the payload for `removed`.
+    Removed(usize),
     /// The selector matched nothing (e.g. delete on a missing key).
     NoMatch,
     /// The path already exists (used by `Ensure` when no write is needed).
@@ -807,7 +813,7 @@ pub fn apply_doc_mutation(
         DocMutation::Delete { selector } => {
             let sel = selector::parse_anyhow(&selector)?;
             if delete_at_selector(root, &sel)? {
-                Ok(MutationResult::Applied)
+                Ok(MutationResult::Removed(1))
             } else {
                 Ok(MutationResult::NoMatch)
             }
@@ -874,7 +880,7 @@ pub fn apply_doc_mutation(
             if removed == 0 {
                 Ok(MutationResult::NoMatch)
             } else {
-                Ok(MutationResult::Applied)
+                Ok(MutationResult::Removed(removed))
             }
         }
     }

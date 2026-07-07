@@ -278,7 +278,7 @@ dependencies[name=react].version # predicate filter
 | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |
 | 9 | Tx operation staging failure (`operation_failed`) |
 
-**Doc write JSON tip:** With `--json`, every doc write success includes `changed` (bool). `doc delete` / `doc delete-where` also include `removed` (usize). Exit 0 with `removed: 0` means idempotent cleanup (nothing matched); do not assume data was deleted from exit code alone.
+**Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, doc delete success includes `changed` (bool) and `removed` (usize). Multi-op plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with `removed: 0` means idempotent cleanup (nothing matched); do not assume data was deleted from exit status alone.
 
 ## Operations (from schema registry)
 
@@ -290,7 +290,7 @@ dependencies[name=react].version # predicate filter
 - `file.rename`: Rename (move) a file.
 - `tidy.fix`: Normalize whitespace, line endings, and final newline in a file.
 - `doc.set`: Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.
-- `doc.delete`: Delete a value at a selector path in a JSON, YAML, or TOML file. CLI --json success includes changed and removed (0 on missing key; exit 0 is idempotent).
+- `doc.delete`: Delete a value at a selector path in a JSON, YAML, or TOML file. CLI --json and MCP/tx success include changed and removed (0 on missing key; exit 0 / ok is idempotent).
 - `doc.merge`: Deep-merge a JSON object into the root of a document.
 - `doc.append`: Append a value to an array at a selector path.
 - `doc.move`: Move a value from one selector path to another within the same file.
@@ -304,7 +304,7 @@ dependencies[name=react].version # predicate filter
 - `patch.apply`: Apply a unified diff patch to one or more files. Supports three-way merge on stale context.
 - `doc.prepend`: Prepend a value to the beginning of an array at a selector path.
 - `doc.update`: Set a new value at every location matching a selector. Use wildcards (items[*].enabled) or selector predicates (items[name=foo].v). Not a separate --where flag; the filter is part of the selector string.
-- `doc.delete_where`: Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path. CLI --json success includes changed and removed (0 when no elements match; exit 0 is idempotent).
+- `doc.delete_where`: Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path. CLI --json and MCP/tx success include changed and removed (0 when no elements match; exit 0 / ok is idempotent).
 - `search`: Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores: literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.
 - `read`: Read file contents with optional line range.
 - `md.dedupe_headings`: Remove duplicate markdown headings in a file.

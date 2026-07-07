@@ -221,6 +221,7 @@ pub fn execute_precomputed(
         tx_reads: Vec::new(),
         tx_searches: Vec::new(),
         tx_lints: Vec::new(),
+        tx_mutations: Vec::new(),
         no_effective_changes,
         replace_no_matches: false,
         replace_hint: None,
