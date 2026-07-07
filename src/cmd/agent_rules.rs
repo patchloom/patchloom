@@ -208,7 +208,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              Relative paths for batch ops files, `tx`/`explain` plan files, `patch` files, and \
              `--files-from` lists resolve under `--cwd` (same base as operation targets). \
              Absolute meta-input paths are unchanged. With `--contain`, those meta-input paths \
-             must also stay inside the workspace (same PathGuard policy as operation targets).\n\n\
+             (and operation targets) must resolve inside the workspace: absolute paths under \
+             `--cwd` are allowed; `../` escapes and absolute paths outside the workspace are \
+             rejected.\n\n\
              In plan JSON, doc ops use the field name `selector` (not `key`). \
              `key` is accepted as an alias if a model emits it, but prefer `selector`.\n\n",
         );

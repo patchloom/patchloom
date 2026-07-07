@@ -329,7 +329,7 @@ fn test_files_from_resolves_list_under_cwd() {
 /// (meta-input read). Previously only entries inside the list were checked, so an
 /// absolute list path like /etc/passwd was opened and leaked via skip messages.
 #[test]
-fn test_files_from_contain_rejects_absolute_list_path() {
+fn test_files_from_contain_rejects_absolute_list_path_outside_workspace() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("inside.txt"), "ok\n").unwrap();
 
@@ -347,10 +347,32 @@ fn test_files_from_contain_rejects_absolute_list_path() {
         .assert()
         .failure()
         .stderr(
-            predicate::str::contains("absolute")
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("absolute"))
                 .or(predicate::str::contains("rejected"))
                 .or(predicate::str::contains("workspace guard")),
         );
+}
+
+/// #1451: absolute --files-from list path under --cwd is allowed with --contain.
+#[test]
+fn test_files_from_contain_allows_absolute_list_inside_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "findme here\n").unwrap();
+    let list = dir.path().join("list.txt");
+    fs::write(&list, "inside.txt\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .arg("--contain")
+        .arg("--files-from")
+        .arg(list.to_str().unwrap())
+        .args(["search", "findme"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("findme"));
 }
 
 #[test]

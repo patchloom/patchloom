@@ -52,6 +52,65 @@ fn test_explain_relative_plan_respects_cwd() {
         .stdout(predicates::str::contains("Create file test.txt"));
 }
 
+/// #1450: explain plan meta-path must not escape under --contain.
+#[test]
+fn test_explain_contain_rejects_plan_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-explain-outside-{}.json",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(
+        &outside,
+        r#"{"version": 1, "operations": [{"op": "file.create", "path": "x.txt", "content": "leak"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "explain",
+            &format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicates::str::contains("escapes")
+                .or(predicates::str::contains("rejected"))
+                .or(predicates::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}
+
+/// #1451: absolute explain plan under --cwd is allowed with --contain.
+#[test]
+fn test_explain_contain_allows_absolute_plan_inside_workspace() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": 1, "operations": [{"op": "file.create", "path": "test.txt", "content": "hi"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["--contain", "explain"])
+        .arg(plan.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Create file test.txt"));
+}
+
 #[test]
 fn test_explain_json_output() {
     let dir = TempDir::new().unwrap();

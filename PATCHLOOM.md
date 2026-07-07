@@ -92,7 +92,7 @@ For complex plans needing format/validate lifecycle, regex replace, or `--nth`, 
 patchloom tx plan.json --apply
 ```
 
-Relative paths for batch ops files, `tx`/`explain` plan files, `patch` files, and `--files-from` lists resolve under `--cwd` (same base as operation targets). Absolute meta-input paths are unchanged. With `--contain`, those meta-input paths must also stay inside the workspace (same PathGuard policy as operation targets).
+Relative paths for batch ops files, `tx`/`explain` plan files, `patch` files, and `--files-from` lists resolve under `--cwd` (same base as operation targets). Absolute meta-input paths are unchanged. With `--contain`, those meta-input paths (and operation targets) must resolve inside the workspace: absolute paths under `--cwd` are allowed; `../` escapes and absolute paths outside the workspace are rejected.
 
 In plan JSON, doc ops use the field name `selector` (not `key`). `key` is accepted as an alias if a model emits it, but prefer `selector`.
 

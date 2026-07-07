@@ -192,13 +192,39 @@ mod tests {
     }
 
     #[test]
-    fn create_with_contain_rejects_absolute_path_even_inside_workspace() {
-        // AbsolutePathPolicy::Reject matches MCP: absolute paths are refused
-        // even when the resolved location is under --cwd.
+    fn create_with_contain_allows_absolute_path_inside_workspace() {
+        // CLI --contain uses AllowIfContained (#1451): absolute paths under
+        // --cwd are accepted so agents may pass absolutized paths.
         let dir = TempDir::new().unwrap();
         let abs = dir.path().join("abs.txt");
         let args = CreateArgs {
             file: abs.to_string_lossy().into_owned(),
+            content: Some("ok\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::with_cwd(dir.path());
+        global.apply = true;
+        global.contain = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(fs::read_to_string(&abs).unwrap(), "ok\n");
+    }
+
+    #[test]
+    fn create_with_contain_rejects_absolute_path_outside_workspace() {
+        let dir = TempDir::new().unwrap();
+        let outside = dir.path().parent().unwrap().join(format!(
+            "patchloom-create-outside-{}.txt",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+        let args = CreateArgs {
+            file: outside.to_string_lossy().into_owned(),
             content: Some("nope\n".into()),
             stdin: false,
             force: false,
@@ -211,10 +237,14 @@ mod tests {
         let err = run(args, &global).unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("absolute") || msg.contains("rejected") || msg.contains("workspace guard"),
-            "expected absolute-path containment error, got: {msg}"
+            msg.contains("escapes")
+                || msg.contains("rejected")
+                || msg.contains("workspace guard")
+                || msg.contains("absolute"),
+            "expected outside-workspace containment error, got: {msg}"
         );
-        assert!(!abs.exists());
+        assert!(!outside.exists());
+        let _ = fs::remove_file(&outside);
     }
 
     #[test]
