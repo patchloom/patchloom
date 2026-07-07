@@ -204,6 +204,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              ```bash\n\
              patchloom tx plan.json --apply\n\
              ```\n\n\
+             Relative paths for batch ops files, `tx`/`explain` plan files, `patch` files, and \
+             `--files-from` lists resolve under `--cwd` (same base as operation targets). \
+             Absolute meta-input paths are unchanged.\n\n\
              In plan JSON, doc ops use the field name `selector` (not `key`). \
              `key` is accepted as an alias if a model emits it, but prefer `selector`.\n\n",
         );
@@ -473,6 +476,10 @@ mod tests {
         assert!(out.contains("## Exit codes"));
         assert!(out.contains("<<'EOF'"));
         assert!(out.contains("batch ops.txt"));
+        assert!(
+            out.contains("resolve under `--cwd`"),
+            "must document that batch/tx/explain/patch/--files-from meta paths honor --cwd"
+        );
     }
 
     #[test]
