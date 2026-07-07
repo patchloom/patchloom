@@ -438,6 +438,15 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
         )],
     },
     OpMeta {
+        name: "ast.rewrite_signature",
+        description: "Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Change parameters and return type",
+            r###"{"op":"ast.rewrite_signature","path":"src/lib.rs","old":"process","parameters":"(x: i32)","return_type":"-> String"}"###,
+        )],
+    },
+    OpMeta {
         name: "ast.insert",
         description: "Insert code at a structurally-aware position: inside a container, or after/before a named symbol.",
         tier: Tier::Medium,

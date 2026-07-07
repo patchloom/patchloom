@@ -88,7 +88,7 @@ the registry when that would lose multi-file, batch, or read UX.
 
 Custom tools are inventoried in `CUSTOM_MCP_TOOLS_CORE` (always registered)
 and `CUSTOM_MCP_TOOLS_AST` (only when the `ast` feature is enabled). Default
-builds expose **54** tools (registry + custom). Builds without `ast` omit the
+builds expose **55** tools (registry + custom). Builds without `ast` omit the
 AST tools so `list_tools` stays honest about what is callable.
 
 | Tool | Description |

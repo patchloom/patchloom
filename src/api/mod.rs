@@ -118,6 +118,14 @@ pub use self::read::*;
 mod plan;
 pub use self::plan::*;
 
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+mod ast_write;
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+pub use self::ast_write::*;
+
+mod content_edits;
+pub use self::content_edits::*;
+
 /// The result of an editing operation.
 #[derive(Debug, Clone)]
 pub struct EditResult {
@@ -144,6 +152,14 @@ pub struct EditResult {
     /// Only meaningful for replace operations; defaults to `0` for other
     /// operation types (doc, md, file, patch, tidy).
     pub match_count: usize,
+    /// Number of items removed by the operation (keys, array elements, etc.).
+    ///
+    /// Meaningful for `doc.delete` and `doc.delete_where` (including
+    /// idempotent no-ops where `removed == 0` and `changed == false`).
+    /// Defaults to `0` for other operation types. Mirrors MCP/tx JSON
+    /// mutation summaries so embedders can report delete outcomes without
+    /// re-reading the file or parsing diffs (#1459 / #1439).
+    pub removed: usize,
 }
 
 /// Result of an in-memory content edit (no file path, no applied flag).
@@ -411,6 +427,7 @@ fn build_edit_result(
         action,
         dest_path,
         match_count: 0,
+        removed: 0,
     }
 }
 
@@ -469,6 +486,19 @@ fn execution_result_to_edit_result(
     dest_path: Option<String>,
 ) -> anyhow::Result<EditResult> {
     let has_changes = result.has_changes;
+    let removed: usize = result
+        .exec_result
+        .tx_mutations
+        .iter()
+        .map(|m| m.removed)
+        .sum();
+    // Prefer mutation path when the engine recorded a doc delete/delete-where
+    // outcome (including idempotent no-ops with empty `changes`).
+    let mutation_path = result
+        .exec_result
+        .tx_mutations
+        .first()
+        .map(|m| m.path.clone());
 
     // Extract path + content from the engine result before potentially consuming it.
     let (path_str, original, new_content) =
@@ -485,10 +515,12 @@ fn execution_result_to_edit_result(
                 .map(|(orig, _)| orig.clone())
                 .unwrap_or_default();
             (rel.to_string_lossy().to_string(), original, String::new())
+        } else if let Some(p) = mutation_path {
+            // No file content change (e.g. idempotent doc.delete) but mutations
+            // still carry path + removed counts for embedders (#1459).
+            (p, String::new(), String::new())
         } else {
             // No changes at all (e.g., replace with no matches + if_exists).
-            // Return an unchanged result. We need the path from the operation,
-            // but we don't have it here. Use empty path as fallback.
             (String::new(), String::new(), String::new())
         };
 
@@ -500,14 +532,9 @@ fn execution_result_to_edit_result(
         false
     };
 
-    Ok(build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
-        action,
-        dest_path,
-    ))
+    let mut edit = build_edit_result(&path_str, original, new_content, applied, action, dest_path);
+    edit.removed = removed;
+    Ok(edit)
 }
 
 // ---------------------------------------------------------------------------

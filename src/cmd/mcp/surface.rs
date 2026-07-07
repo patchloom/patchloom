@@ -188,6 +188,11 @@ pub(super) const CUSTOM_MCP_TOOLS_AST: &[CustomMcpTool] = &[
         kind: CustomKind::Ast,
     },
     CustomMcpTool {
+        name: "ast_rewrite_signature",
+        why: "function signature rewrite (structured + full text)",
+        kind: CustomKind::Ast,
+    },
+    CustomMcpTool {
         name: "ast_insert",
         why: "AST insert with position/container resolve",
         kind: CustomKind::Ast,
@@ -279,7 +284,7 @@ mod tests {
         // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
         let custom_n = custom_mcp_tools().count();
-        let expected_total = if cfg!(feature = "ast") { 54 } else { 35 };
+        let expected_total = if cfg!(feature = "ast") { 55 } else { 35 };
         assert_eq!(
             registry_n + custom_n,
             expected_total,
@@ -287,7 +292,7 @@ mod tests {
         );
         assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 13, "core custom tool count");
         #[cfg(feature = "ast")]
-        assert_eq!(CUSTOM_MCP_TOOLS_AST.len(), 19, "ast custom tool count");
+        assert_eq!(CUSTOM_MCP_TOOLS_AST.len(), 20, "ast custom tool count");
         #[cfg(not(feature = "ast"))]
         assert!(CUSTOM_MCP_TOOLS_AST.is_empty());
     }

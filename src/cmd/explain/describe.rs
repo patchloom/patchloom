@@ -4,6 +4,8 @@
 //! ([`crate::schema::operation_description`]) supplies the stable op label
 //! (what agents see in `patchloom schema` / MCP tool prose) so explain and
 //! schema stay aligned on naming.
+//!
+//! size-waiver: single-domain Operation match arms for explain (one variant per plan op); co-located with catalog blurb alignment; do not split for LOC alone #1408.
 
 use crate::plan::Operation;
 use crate::schema;
@@ -254,6 +256,37 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             ..
         } => {
             format!("AST replace \"{old}\" with \"{new_text}\" in {symbol} in {path}")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstRewriteSignature {
+            path,
+            old,
+            new_signature,
+            visibility,
+            parameters,
+            return_type,
+            ..
+        } => {
+            if let Some(sig) = new_signature {
+                format!("AST rewrite signature of \"{old}\" to \"{sig}\" in {path}")
+            } else {
+                let mut parts = Vec::new();
+                if visibility.is_some() {
+                    parts.push("visibility");
+                }
+                if parameters.is_some() {
+                    parts.push("parameters");
+                }
+                if return_type.is_some() {
+                    parts.push("return type");
+                }
+                let what = if parts.is_empty() {
+                    "signature".to_string()
+                } else {
+                    parts.join("/")
+                };
+                format!("AST rewrite {what} of \"{old}\" in {path}")
+            }
         }
         #[cfg(feature = "ast")]
         Operation::AstInsert {

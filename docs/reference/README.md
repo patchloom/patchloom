@@ -1145,6 +1145,13 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** You need to change a value, string, or expression inside a specific function or struct without affecting identically-named text in other symbols.
 - **Related:** `replace` (file-level), `ast.rename` (identifier rename)
 
+<!-- ref:tx-op:ast.rewrite_signature -->
+### `ast.rewrite_signature`
+
+- **What it does:** Rewrites a function signature using tree-sitter. Structured fields `visibility`, `parameters`, and `return_type` map to [`FunctionSigEdit`](https://docs.rs/patchloom); optional `new_signature` replaces the whole signature span. Field `old` (alias `name`) is the function name. Library: `api::ast_rewrite_signature`. MCP: `ast_rewrite_signature`.
+- **Use when:** Changing parameter lists, visibility, or return types without a brittle line scan (agent hosts such as Bline).
+- **Related:** `ast.replace`, `ast.rename`
+
 <!-- ref:tx-op:ast.insert -->
 ### `ast.insert`
 

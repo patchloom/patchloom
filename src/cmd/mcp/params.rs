@@ -420,6 +420,32 @@ pub(crate) struct AstReplaceParams {
 #[cfg(feature = "ast")]
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct AstRewriteSignatureParams {
+    /// File containing the function (relative to working directory).
+    pub path: String,
+    /// Function name to rewrite. Alias `name` accepted for agents.
+    #[serde(alias = "name")]
+    pub old: String,
+    /// Full replacement signature text (optional).
+    #[serde(default)]
+    pub new_signature: Option<String>,
+    /// New visibility (e.g. "pub", "pub(crate)", or "").
+    #[serde(default)]
+    pub visibility: Option<String>,
+    /// New parameter list including parens.
+    #[serde(default)]
+    pub parameters: Option<String>,
+    /// New return type using language-native syntax.
+    #[serde(default)]
+    pub return_type: Option<String>,
+    /// Language hint.
+    #[serde(default)]
+    pub lang: Option<String>,
+}
+
+#[cfg(feature = "ast")]
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AstInsertParams {
     /// File to insert code into (relative to working directory).
     pub path: String,
