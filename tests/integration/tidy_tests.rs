@@ -559,7 +559,7 @@ fn test_tidy_fix_contain_rejects_parent_escape() {
             "--apply",
         ])
         .assert()
-        .failure()
+        .code(1)
         .stderr(
             predicate::str::contains("escapes")
                 .or(predicate::str::contains("rejected"))

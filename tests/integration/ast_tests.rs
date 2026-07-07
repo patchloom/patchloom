@@ -714,7 +714,7 @@ fn test_ast_list_contain_rejects_parent_escape() {
         .arg(dir.path())
         .args(["--contain", "ast", "list", &format!("../{escape_name}")])
         .assert()
-        .failure()
+        .code(1)
         .stderr(
             predicate::str::contains("escapes")
                 .or(predicate::str::contains("rejected"))
@@ -744,7 +744,7 @@ fn test_ast_deps_contain_rejects_parent_escape() {
         .arg(dir.path())
         .args(["--contain", "ast", "deps", &format!("../{escape_name}")])
         .assert()
-        .failure()
+        .code(1)
         .stderr(
             predicate::str::contains("escapes")
                 .or(predicate::str::contains("rejected"))
@@ -775,7 +775,7 @@ fn test_ast_map_contain_rejects_parent_escape() {
         .arg(dir.path())
         .args(["--contain", "ast", "map", &format!("../{escape_name}")])
         .assert()
-        .failure()
+        .code(1)
         .stderr(
             predicate::str::contains("escapes")
                 .or(predicate::str::contains("rejected"))
@@ -805,12 +805,40 @@ fn test_ast_list_contain_rejects_absolute_outside_workspace() {
         .args(["--contain", "ast", "list"])
         .arg(&outside)
         .assert()
-        .failure()
+        .code(1)
         .stderr(
             predicate::str::contains("escapes")
                 .or(predicate::str::contains("rejected"))
                 .or(predicate::str::contains("workspace guard")),
         );
+
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_list_without_contain_allows_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-ast-open-escape-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "fn open_secret() {}\n").unwrap();
+
+    // Default CLI is unrestricted: reading ../ is allowed without --contain
+    // (same trust model as create without --contain).
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["ast", "list", &format!("../{escape_name}")])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("open_secret"));
 
     let _ = fs::remove_file(&outside);
 }
