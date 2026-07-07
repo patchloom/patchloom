@@ -117,6 +117,8 @@ Plans are JSON objects with three lifecycle arrays:
 
 `patch.apply` operations accept `on_stale: "merge"` for three-way merge when the on-disk file diverged from the patch base, and `allow_conflicts: true` to write conflict markers instead of failing.
 
+With `--json` / `--jsonl`, plan results include file-level `changes` plus, for `doc.delete` / `doc.delete_where`, a `mutations` array and aggregate `changed` / `removed` counts (including `removed: 0` for idempotent no-ops). The same fields appear on MCP write tools and `execute_plan`.
+
 Strict mode defaults to on. Use `"strict": false` in the plan, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx --no-strict` to keep writes on disk when format/validate fails (exit 6). With strict mode, a format or validation failure reverts all writes (exit 7). If a write fails mid-commit, patchloom restores already-written files from the backup session (exit 7 `rollback`, or exit 1 `rollback_failed` if restore is incomplete).
 
 ## Exit codes
