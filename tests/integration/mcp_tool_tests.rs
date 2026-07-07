@@ -1262,9 +1262,11 @@ async fn test_mcp_tx_plan_doc_delete_mutations_summary() {
     assert_eq!(val["removed"], 2, "2 from a + 0 from b: {val}");
     let mutations = val["mutations"].as_array().expect("mutations array");
     assert_eq!(mutations.len(), 2, "payload: {val}");
+    assert_eq!(mutations[0]["path"], "a.json", "payload: {val}");
     assert_eq!(mutations[0]["op"], "doc.delete_where");
     assert_eq!(mutations[0]["removed"], 2);
     assert_eq!(mutations[0]["changed"], true);
+    assert_eq!(mutations[1]["path"], "b.json", "payload: {val}");
     assert_eq!(mutations[1]["op"], "doc.delete");
     assert_eq!(mutations[1]["removed"], 0);
     assert_eq!(mutations[1]["changed"], false);

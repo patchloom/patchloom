@@ -577,40 +577,6 @@ mod edge_cases {
         assert_eq!(code, exit::SUCCESS);
     }
 
-    #[test]
-    fn preview_removed_count_delete_where_zero() {
-        let dir = TempDir::new().unwrap();
-        let path = write_file(&dir, "test.json", r#"{"users": [{"name": "alice"}]}"#);
-        let op = Operation::DocDeleteWhere {
-            path: path.clone(),
-            selector: "users".into(),
-            predicate: "name=nobody".into(),
-        };
-        assert_eq!(
-            super::super::preview_removed_count(dir.path(), &op),
-            Some(0)
-        );
-    }
-
-    #[test]
-    fn preview_removed_count_delete_where_two() {
-        let dir = TempDir::new().unwrap();
-        let path = write_file(
-            &dir,
-            "test.json",
-            r#"{"users": [{"name": "a"}, {"name": "b"}, {"name": "a"}]}"#,
-        );
-        let op = Operation::DocDeleteWhere {
-            path,
-            selector: "users".into(),
-            predicate: "name=a".into(),
-        };
-        assert_eq!(
-            super::super::preview_removed_count(dir.path(), &op),
-            Some(2)
-        );
-    }
-
     // -- ensure -------------------------------------------------------------
 
     #[test]

@@ -3959,6 +3959,68 @@ fn test_tx_json_output_on_apply() {
     assert_eq!(json["changes"][0]["action"], "modified");
 }
 
+/// #1439: tx --json includes mutations for delete / delete-where (incl. no-ops).
+#[test]
+fn test_tx_json_doc_delete_mutations_summary() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("t.json"),
+        r#"{"items":[{"name":"a"},{"name":"b"},{"name":"a"}]}"#,
+    )
+    .unwrap();
+    fs::write(dir.path().join("u.json"), r#"{"x":1}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "doc.delete_where",
+                "path": "t.json",
+                "selector": "items",
+                "predicate": "name=a"
+            },
+            {
+                "op": "doc.delete",
+                "path": "u.json",
+                "selector": "missing"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "payload: {json}");
+    assert_eq!(json["files_changed"], 1, "payload: {json}");
+    assert_eq!(json["changed"], true, "payload: {json}");
+    assert_eq!(json["removed"], 2, "payload: {json}");
+    let mutations = json["mutations"].as_array().expect("mutations");
+    assert_eq!(mutations.len(), 2, "payload: {json}");
+    assert_eq!(mutations[0]["path"], "t.json");
+    assert_eq!(mutations[0]["op"], "doc.delete_where");
+    assert_eq!(mutations[0]["removed"], 2);
+    assert_eq!(mutations[0]["changed"], true);
+    assert_eq!(mutations[1]["path"], "u.json");
+    assert_eq!(mutations[1]["op"], "doc.delete");
+    assert_eq!(mutations[1]["removed"], 0);
+    assert_eq!(mutations[1]["changed"], false);
+}
+
 #[test]
 fn test_tx_json_output_on_modified_empty_file_reports_modified() {
     let dir = TempDir::new().unwrap();

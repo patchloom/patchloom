@@ -80,7 +80,9 @@
 //! plan op, and MCP exposure deferred unless demand arises. Tracked in #821.
 //!
 //! **Note on results**: Single-file ops return `EditResult` (with `action` and `dest_path` for cross-file).
-//! `execute_plan` (library) returns `PlanReport` (typed TxOutput) directly with `ok`, `changes`, `searches`, `reads`, `error` etc (#811).
+//! `execute_plan` (library) returns `PlanReport` (typed TxOutput) directly with `ok`, `changes`,
+//! `searches`, `reads`, `error`, plus `mutations` / aggregate `changed` / `removed` for
+//! `doc.delete` and `doc.delete_where` (including idempotent `removed: 0` no-ops) (#811, #1439).
 //! See `api::PlanReport`, `api::execute_plan`, and embedding docs. CLI/MCP retain (code, json) for compatibility.
 //!
 //! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
