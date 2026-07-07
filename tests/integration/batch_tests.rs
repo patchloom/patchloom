@@ -385,6 +385,31 @@ fn test_batch_contain_rejects_ops_file_parent_escape() {
     let _ = fs::remove_file(&outside);
 }
 
+/// Absolute batch ops path under --cwd is allowed with --contain (AllowIfContained).
+#[test]
+fn test_batch_contain_allows_absolute_ops_path_inside_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"key":"old"}"#).unwrap();
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set data.json key \"new\"\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["--contain", "batch"])
+        .arg(ops.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
+    assert!(
+        content.contains("new"),
+        "absolute ops path under --cwd must apply under --contain: {content}"
+    );
+}
+
 /// #1439: batch --json surfaces delete-where mutation summary (shared tx path).
 #[test]
 fn test_batch_json_delete_where_mutations() {

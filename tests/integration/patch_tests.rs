@@ -129,6 +129,34 @@ fn test_patch_contain_rejects_patch_file_parent_escape() {
     let _ = fs::remove_file(&outside);
 }
 
+/// Absolute patch file under --cwd is allowed with --contain (AllowIfContained).
+#[test]
+fn test_patch_contain_allows_absolute_patch_path_inside_workspace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "line1\nold line\nline3\n").unwrap();
+    let patch = dir.path().join("change.patch");
+    fs::write(
+        &patch,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["--contain", "patch", "apply"])
+        .arg(patch.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+        "line1\nnew line\nline3\n"
+    );
+}
+
 #[test]
 fn test_patch_apply_json_parse_error_returns_error_object() {
     let dir = TempDir::new().unwrap();
