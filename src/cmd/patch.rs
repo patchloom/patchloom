@@ -76,14 +76,28 @@ enum DiffReadError {
     StdinError(std::io::Error),
 }
 
-fn read_diff_input(file: &Option<String>, stdin_flag: bool) -> Result<String, DiffReadError> {
+fn read_diff_input(
+    file: &Option<String>,
+    stdin_flag: bool,
+    cwd: &std::path::Path,
+) -> Result<String, DiffReadError> {
     // A bare "-" path means stdin (common CLI convention); agents often pass
     // this instead of --stdin (fixrealloop).
     if let Some(path) = file {
         if path == "-" {
             std::io::read_to_string(std::io::stdin()).map_err(DiffReadError::StdinError)
         } else {
-            std::fs::read_to_string(path).map_err(|e| DiffReadError::IoError(path.clone(), e))
+            // Relative patch paths resolve under --cwd (parity with `tx` / `batch`).
+            let full = {
+                let p = std::path::Path::new(path);
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    cwd.join(p)
+                }
+            };
+            std::fs::read_to_string(&full)
+                .map_err(|e| DiffReadError::IoError(full.display().to_string(), e))
         }
     } else if stdin_flag {
         std::io::read_to_string(std::io::stdin()).map_err(DiffReadError::StdinError)
@@ -240,7 +254,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         ),
     };
 
-    let diff_text = match read_diff_input(&file, stdin_flag) {
+    let cwd = global.resolve_cwd()?;
+    let diff_text = match read_diff_input(&file, stdin_flag, &cwd) {
         Ok(text) => text,
         Err(DiffReadError::NoSource) => {
             emit_error(global, "patch: must specify --file <path> or --stdin")?;
@@ -270,7 +285,6 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         patch_files.len(),
         merge_mode
     );
-    let cwd = global.resolve_cwd()?;
 
     if matches!(args.action, PatchAction::Check { .. }) {
         let mut all_clean = true;

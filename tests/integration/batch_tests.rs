@@ -316,6 +316,34 @@ fn test_batch_json_output_on_apply() {
     assert_eq!(json["files_changed"], 1);
 }
 
+/// Relative batch input path is resolved under --cwd (parity with `tx` plan files).
+#[test]
+fn test_batch_relative_input_respects_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.json"), r#"{"key":"old"}"#).unwrap();
+    fs::write(
+        dir.path().join("ops.txt"),
+        "doc.set data.json key \"new\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("batch")
+        .arg("ops.txt")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
+    assert!(
+        content.contains("new"),
+        "batch input under --cwd must be found and applied: {content}"
+    );
+}
+
 /// #1439: batch --json surfaces delete-where mutation summary (shared tx path).
 #[test]
 fn test_batch_json_delete_where_mutations() {
