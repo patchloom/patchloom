@@ -996,6 +996,8 @@ async fn test_mcp_doc_delete_missing_key_reports_removed_zero() {
     assert_eq!(val["files_changed"], 0, "payload: {val}");
     assert_eq!(val["changed"], false, "payload: {val}");
     assert_eq!(val["removed"], 0, "payload: {val}");
+    assert_eq!(val["mutations"][0]["path"], "config.json", "payload: {val}");
+    assert_eq!(val["mutations"][0]["op"], "doc.delete", "payload: {val}");
     assert_eq!(val["mutations"][0]["changed"], false, "payload: {val}");
     assert_eq!(val["mutations"][0]["removed"], 0, "payload: {val}");
     client.cancel().await.unwrap();

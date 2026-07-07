@@ -4021,6 +4021,61 @@ fn test_tx_json_doc_delete_mutations_summary() {
     assert_eq!(mutations[1]["changed"], false);
 }
 
+/// #1439: for_each-expanded delete-where produces one mutation row per file.
+#[test]
+fn test_tx_json_for_each_delete_where_mutations() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("d");
+    fs::create_dir(&sub).unwrap();
+    fs::write(sub.join("a.json"), r#"{"items":[{"name":"x"}]}"#).unwrap();
+    fs::write(sub.join("b.json"), r#"{"items":[{"name":"x"}]}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "for_each": {"glob": "d/*.json", "path_var": "path"},
+        "operations": [{
+            "op": "doc.delete_where",
+            "path": "{path}",
+            "selector": "items",
+            "predicate": "name=x"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "payload: {json}");
+    assert_eq!(json["files_changed"], 2, "payload: {json}");
+    assert_eq!(json["removed"], 2, "payload: {json}");
+    let mutations = json["mutations"].as_array().expect("mutations");
+    assert_eq!(mutations.len(), 2, "payload: {json}");
+    let mut paths: Vec<&str> = mutations
+        .iter()
+        .map(|m| m["path"].as_str().unwrap())
+        .collect();
+    paths.sort();
+    assert_eq!(paths, vec!["d/a.json", "d/b.json"]);
+    for m in mutations {
+        assert_eq!(m["op"], "doc.delete_where");
+        assert_eq!(m["removed"], 1);
+        assert_eq!(m["changed"], true);
+    }
+}
+
 #[test]
 fn test_tx_json_output_on_modified_empty_file_reports_modified() {
     let dir = TempDir::new().unwrap();
