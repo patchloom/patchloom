@@ -628,7 +628,12 @@ fn test_search_before_context() {
 fn test_search_after_context() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
-    fs::write(&file, "aaa\nbbb\ntarget\nccc\nddd\neee\n").unwrap();
+    // Distinctive markers: short tokens like "bbb" can appear in tempfile paths.
+    fs::write(
+        &file,
+        "BEFORE_CTX_MARKER\nmid\ntarget\nAFTER1_MARKER\nAFTER2_MARKER\ntail\n",
+    )
+    .unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -640,17 +645,21 @@ fn test_search_after_context() {
         .assert()
         .success()
         .stdout(predicate::str::contains("target"))
-        .stdout(predicate::str::contains("ccc"))
-        .stdout(predicate::str::contains("ddd"))
+        .stdout(predicate::str::contains("AFTER1_MARKER"))
+        .stdout(predicate::str::contains("AFTER2_MARKER"))
         // no before-context lines
-        .stdout(predicate::str::contains("bbb").not());
+        .stdout(predicate::str::contains("BEFORE_CTX_MARKER").not());
 }
 
 #[test]
 fn test_search_asymmetric_context() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
-    fs::write(&file, "aaa\nbbb\nccc\ntarget\nddd\neee\nfff\n").unwrap();
+    fs::write(
+        &file,
+        "far_before\nBEFORE2_MARKER\nNEAR_BEFORE_MARKER\ntarget\nA1_MARKER\nA2_MARKER\nA3_MARKER\n",
+    )
+    .unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -663,13 +672,13 @@ fn test_search_asymmetric_context() {
         .arg(&file)
         .assert()
         .success()
-        .stdout(predicate::str::contains("ccc"))
+        .stdout(predicate::str::contains("NEAR_BEFORE_MARKER"))
         .stdout(predicate::str::contains("target"))
-        .stdout(predicate::str::contains("ddd"))
-        .stdout(predicate::str::contains("eee"))
-        .stdout(predicate::str::contains("fff"))
-        // bbb is 2 lines before, should not appear with -B 1
-        .stdout(predicate::str::contains("bbb").not());
+        .stdout(predicate::str::contains("A1_MARKER"))
+        .stdout(predicate::str::contains("A2_MARKER"))
+        .stdout(predicate::str::contains("A3_MARKER"))
+        // BEFORE2 is 2 lines before, should not appear with -B 1
+        .stdout(predicate::str::contains("BEFORE2_MARKER").not());
 }
 
 /// Adjacent matches with context should NOT have `--` separators (#1111).

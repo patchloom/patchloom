@@ -85,6 +85,50 @@ fn test_patch_relative_file_respects_cwd() {
     assert_eq!(content, "line1\nnew line\nline3\n");
 }
 
+/// Under --contain, the patch *file path* must stay in the workspace (meta-input).
+#[test]
+fn test_patch_contain_rejects_patch_file_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "line1\nold line\nline3\n").unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-patch-meta-{}.patch",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(
+        &outside,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "patch",
+            "apply",
+            &format!("../{}", outside.file_name().unwrap().to_string_lossy()),
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+        "line1\nold line\nline3\n"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
 #[test]
 fn test_patch_apply_json_parse_error_returns_error_object() {
     let dir = TempDir::new().unwrap();
