@@ -271,48 +271,6 @@ struct DocWriteOutput {
     applied: Option<bool>,
 }
 
-/// Count of items a delete / delete-where mutation would remove (file must still
-/// have original content). Returns `None` for non-delete write ops.
-fn preview_removed_count(cwd: &std::path::Path, op: &Operation) -> Option<usize> {
-    use crate::ops::doc::{
-        DocMutation, MutationResult, apply_doc_mutation, delete_where, detect_format, parse_doc,
-    };
-    use crate::plan::op_to_doc_mutation;
-
-    let (path, mutation) = op_to_doc_mutation(op)?;
-    // Only delete ops need a remove count; skip the disk read otherwise.
-    if !matches!(
-        mutation,
-        DocMutation::Delete { .. } | DocMutation::DeleteWhere { .. }
-    ) {
-        return None;
-    }
-
-    let full = cwd.join(path);
-    let content = std::fs::read_to_string(&full).ok()?;
-    let format = detect_format(path).ok()?;
-    let mut root = parse_doc(&content, &format).ok()?;
-
-    match mutation {
-        // Single parse: delete_where returns the exact remove count.
-        DocMutation::DeleteWhere {
-            selector,
-            predicate,
-        } => {
-            let sel = crate::selector::parse_anyhow(&selector).ok()?;
-            delete_where(&mut root, &sel, &predicate).ok()
-        }
-        DocMutation::Delete { .. } => match apply_doc_mutation(&mut root, mutation).ok()? {
-            MutationResult::Removed(n) => Some(n),
-            MutationResult::NoMatch => Some(0),
-            MutationResult::Applied
-            | MutationResult::AlreadyExists
-            | MutationResult::TypeError(_) => None,
-        },
-        _ => None,
-    }
-}
-
 /// Convert a write [`DocAction`] into the corresponding [`Operation`] variant.
 fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
     match action {
@@ -792,23 +750,24 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let apply_msg = format!("updated {display_path}");
 
         // Stage first so we can report `changed` / `removed` in JSON for
-        // idempotent delete no-ops (exit 0 with removed: 0). See #1434.
+        // idempotent delete no-ops (exit 0 with removed: 0). See #1434 / #1439.
+        // Remove counts come from the engine mutation summary (same source as MCP/tx).
         let path_clone = display_path;
         match (|| -> anyhow::Result<u8> {
-            let cwd = global.resolve_cwd()?;
-            let removed = preview_removed_count(&cwd, &op);
             let (cwd, result) = crate::cmd::output::stage_for_write(
                 crate::tx::engine::WriteSource::Operations(vec![op]),
                 global,
             )?;
             let changed = result.has_changes;
-            // For delete ops, always report removed (0 on idempotent no-match).
-            // Prefer pre-stage count; fall back to changed-as-0/1 if preview failed.
-            let removed = match (&args.action, removed) {
-                (DocAction::Delete { .. } | DocAction::DeleteWhere { .. }, Some(n)) => Some(n),
-                (DocAction::Delete { .. } | DocAction::DeleteWhere { .. }, None) => {
-                    Some(usize::from(changed))
-                }
+            let removed = match &args.action {
+                DocAction::Delete { .. } | DocAction::DeleteWhere { .. } => Some(
+                    result
+                        .exec_result
+                        .tx_mutations
+                        .iter()
+                        .map(|m| m.removed)
+                        .sum(),
+                ),
                 _ => None,
             };
             crate::cmd::write_mode::finalize_execution_result(

@@ -522,6 +522,55 @@ fn execute_plan_runs_operations() {
     assert!(on_disk.contains("+appended"));
 }
 
+/// #1439: library PlanReport exposes doc delete mutation summaries.
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn execute_plan_doc_delete_reports_mutations() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("cfg.json"),
+        r#"{"items":[{"name":"keep"},{"name":"drop"},{"name":"drop"}]}"#,
+    )
+    .unwrap();
+
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "operations": [
+                {
+                    "op": "doc.delete_where",
+                    "path": "cfg.json",
+                    "selector": "items",
+                    "predicate": "name=drop"
+                },
+                {
+                    "op": "doc.delete",
+                    "path": "cfg.json",
+                    "selector": "missing"
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    let report = execute_plan(plan, dir.path(), None).unwrap();
+    assert!(report.ok);
+    assert_eq!(report.changed, Some(true));
+    assert_eq!(report.removed, Some(2));
+    assert_eq!(report.mutations.len(), 2);
+    assert_eq!(report.mutations[0].op, "doc.delete_where");
+    assert_eq!(report.mutations[0].removed, 2);
+    assert!(report.mutations[0].changed);
+    assert_eq!(report.mutations[1].op, "doc.delete");
+    assert_eq!(report.mutations[1].removed, 0);
+    assert!(!report.mutations[1].changed);
+
+    let on_disk: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("cfg.json")).unwrap()).unwrap();
+    assert_eq!(on_disk["items"].as_array().unwrap().len(), 1);
+    assert_eq!(on_disk["items"][0]["name"], "keep");
+}
+
 #[test]
 #[cfg(any(feature = "cli", feature = "files"))]
 fn execute_plan_respects_relaxed_guard() {
