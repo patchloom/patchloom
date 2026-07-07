@@ -24,7 +24,7 @@
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
 | Apply a unified diff patch | `apply_patch` |
-| List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace` |
+| List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |
 | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
 | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |
 | Extract or split files by symbol | `ast_extract_to_file`, `ast_split` |
@@ -313,6 +313,7 @@ dependencies[name=react].version # predicate filter
 - `md.lint_agents`: Lint an AGENTS.md file for common issues.
 - `ast.rename`: AST-aware rename: rename identifiers skipping strings and comments.
 - `ast.replace`: Replace text within a specific symbol's body (AST-scoped).
+- `ast.rewrite_signature`: Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter.
 - `ast.insert`: Insert code at a structurally-aware position: inside a container, or after/before a named symbol.
 - `ast.wrap`: Wrap existing code in a structural block (module, impl, cfg, etc.).
 - `ast.imports`: Manage import/use statements: add (idempotent), remove, deduplicate.
