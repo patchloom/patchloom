@@ -389,14 +389,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let input = if args.input == "-" {
         std::io::read_to_string(std::io::stdin())?
     } else {
-        let input_path = {
-            let p = std::path::Path::new(&args.input);
-            if p.is_absolute() {
-                p.to_path_buf()
-            } else {
-                global.resolve_cwd()?.join(p)
-            }
-        };
+        let input_path = global.resolve_user_path(&args.input)?;
         std::fs::read_to_string(&input_path)
             .map_err(|e| anyhow::anyhow!("failed to read '{}': {e}", input_path.display()))?
     };
