@@ -784,3 +784,33 @@ fn test_ast_map_contain_rejects_parent_escape() {
 
     let _ = fs::remove_dir_all(&outside);
 }
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_list_contain_rejects_absolute_outside_workspace() {
+    let dir = TempDir::new().unwrap();
+    let outside = std::env::temp_dir().join(format!(
+        "patchloom-ast-abs-escape-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "fn secret() {}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "ast", "list"])
+        .arg(&outside)
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}
