@@ -842,3 +842,35 @@ fn test_ast_list_without_contain_allows_parent_escape() {
 
     let _ = fs::remove_file(&outside);
 }
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_list_empty_path_rejected() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn keep() {}\n").unwrap();
+
+    // Empty path previously joined to cwd and listed the entire workspace
+    // (agent footgun when a path argument is omitted or blank).
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["ast", "list", ""])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("path must not be empty"));
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_list_whitespace_only_path_rejected() {
+    let dir = TempDir::new().unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["ast", "list", "   "])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("path must not be empty"));
+}

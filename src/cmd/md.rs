@@ -135,6 +135,9 @@ fn execute_md_op(
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
+    let cwd = global.resolve_cwd()?;
+    // Shared empty-path + --contain gate (engine also checks under --contain).
+    global.check_paths_contained(&cwd, [file])?;
     let file_owned = file.to_string();
     match execute_via_engine(
         op,

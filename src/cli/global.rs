@@ -326,11 +326,13 @@ impl GlobalFlags {
         path: impl AsRef<std::path::Path>,
     ) -> anyhow::Result<std::path::PathBuf> {
         let path = path.as_ref();
-        let cwd = self.resolve_cwd()?;
-        if self.contain {
-            let path_str = path.to_string_lossy();
-            self.check_paths_contained(&cwd, std::iter::once(path_str.as_ref()))?;
+        let path_str = path.to_string_lossy();
+        if path_str.trim().is_empty() {
+            anyhow::bail!("path must not be empty");
         }
+        let cwd = self.resolve_cwd()?;
+        // Always run empty-path + optional --contain checks via the shared helper.
+        self.check_paths_contained(&cwd, std::iter::once(path_str.as_ref()))?;
         Ok(cwd.join(path))
     }
 
@@ -357,15 +359,26 @@ impl GlobalFlags {
         .map_err(|e| anyhow::anyhow!("failed to initialize --contain path guard: {e}"))
     }
 
-    /// When `--contain` is set, reject every path that escapes the workspace.
+    /// Validate user path args and, when `--contain` is set, reject escapes.
+    ///
+    /// Always rejects empty / whitespace-only path strings (agent footgun:
+    /// `ast list ''` and similar join to the workspace root and scan everything).
+    /// When containment is off, non-empty paths are not further checked.
     ///
     /// Used by read-side commands (`search`, `read`) and as an early gate on
-    /// write commands that scan before staging. No-op when containment is off.
+    /// write commands that scan before staging.
     pub fn check_paths_contained(
         &self,
         cwd: &std::path::Path,
         paths: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> anyhow::Result<()> {
+        let paths: Vec<_> = paths.into_iter().collect();
+        for p in &paths {
+            let p = p.as_ref();
+            if p.trim().is_empty() {
+                anyhow::bail!("path must not be empty");
+            }
+        }
         let Some(guard) = self.workspace_guard(cwd)? else {
             return Ok(());
         };
