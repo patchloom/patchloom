@@ -527,3 +527,49 @@ fn test_tidy_fix_dedent_dry_run_no_modify() {
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(content, original, "file should not be modified in dry-run");
 }
+
+// ---------------------------------------------------------------------------
+// --contain on tidy fix (MPI 2026-07-07 cycle 1 QA)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_tidy_fix_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-tidy-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    // Missing final newline so tidy fix would change the file if not blocked.
+    fs::write(&outside, "no final newline").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "--contain",
+            "tidy",
+            "fix",
+            &format!("../{escape_name}"),
+            "--ensure-final-newline",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "no final newline",
+        "escaped file must not be tidied under --contain"
+    );
+    let _ = fs::remove_file(&outside);
+}

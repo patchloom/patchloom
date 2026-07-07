@@ -161,6 +161,56 @@ fn symbols_module_does_not_reexport_rewrite_helpers() {
     );
 }
 
+/// Every `ast` query/mutate `run_*` entry must enforce `--contain` via
+/// `check_paths_contained` or a `setup_*` helper that calls it. Catches
+/// the class of bug fixed in #1456 (list/deps/map/diff joined paths
+/// without a guard).
+#[test]
+fn ast_run_entrypoints_enforce_path_containment() {
+    let files = [
+        repo_root().join("src/cmd/ast/query.rs"),
+        repo_root().join("src/cmd/ast/mutate.rs"),
+    ];
+    // Match `fn run_foo(` even when prefixed with `pub(super)`.
+    let fn_re =
+        regex::Regex::new(r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?fn[ \t]+(run_\w+)[ \t]*\(")
+            .unwrap();
+    let mut missing = Vec::new();
+    for path in files {
+        let text = fs::read_to_string(&path).unwrap();
+        let starts: Vec<(usize, String)> = fn_re
+            .captures_iter(&text)
+            .map(|c| {
+                let full = c.get(0).unwrap();
+                let name = c.get(1).unwrap().as_str().to_string();
+                (full.start(), name)
+            })
+            .collect();
+        for (idx, (start, name)) in starts.iter().enumerate() {
+            let end = starts.get(idx + 1).map(|(s, _)| *s).unwrap_or(text.len());
+            let body = &text[*start..end];
+            // Engine-backed writes (run_write_op / stage_for_write) enforce
+            // --contain in the shared write path; query helpers use setup_*.
+            let ok = body.contains("check_paths_contained")
+                || body.contains("setup_single_file")
+                || body.contains("setup_multi_file")
+                || body.contains("run_write_op")
+                || body.contains("stage_for_write");
+            if !ok {
+                missing.push(format!(
+                    "{}::{name} (no check_paths_contained / setup_* in body)",
+                    path.file_name().unwrap().to_string_lossy()
+                ));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "ast run_* entry points must call contain setup (regression lock for #1456):\n{}",
+        missing.join("\n")
+    );
+}
+
 fn walkdir_rs_files(root: &std::path::Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {

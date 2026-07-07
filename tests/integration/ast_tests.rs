@@ -689,3 +689,128 @@ fn test_ast_list_respects_glob_flag() {
         "should NOT list bar from main.py"
     );
 }
+
+// ---------------------------------------------------------------------------
+// --contain on ast list (MPI 2026-07-07 cycle 1 QA)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_list_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-ast-escape-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "fn secret() {}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "ast", "list", &format!("../{escape_name}")])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_deps_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-ast-deps-escape-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::write(&outside, "fn secret() {}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "ast", "deps", &format!("../{escape_name}")])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_map_contain_rejects_parent_escape() {
+    let dir = TempDir::new().unwrap();
+    let escape_name = format!(
+        "patchloom-ast-map-escape-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+    let outside = dir.path().parent().unwrap().join(&escape_name);
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("lib.rs"), "fn secret() {}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "ast", "map", &format!("../{escape_name}")])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_dir_all(&outside);
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_list_contain_rejects_absolute_outside_workspace() {
+    let dir = TempDir::new().unwrap();
+    let outside = std::env::temp_dir().join(format!(
+        "patchloom-ast-abs-escape-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "fn secret() {}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "ast", "list"])
+        .arg(&outside)
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("escapes")
+                .or(predicate::str::contains("rejected"))
+                .or(predicate::str::contains("workspace guard")),
+        );
+
+    let _ = fs::remove_file(&outside);
+}

@@ -790,3 +790,27 @@ fn test_patch_merge_check_allow_conflicts_still_exits_5_on_error() {
 // ---------------------------------------------------------------------------
 // --jsonl + count/files-with-matches (bug fix: count_only + jsonl)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// patch apply with bare "-" as stdin (MPI 2026-07-07 cycle 1 QA / #1423)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_patch_apply_dash_reads_stdin() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "line1\nold line\nline3\n").unwrap();
+    let patch =
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "-", "--apply"])
+        .write_stdin(patch)
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("test.txt")).unwrap();
+    assert_eq!(content, "line1\nnew line\nline3\n");
+}
