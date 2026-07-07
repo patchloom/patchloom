@@ -49,9 +49,11 @@ pub struct GlobalFlags {
     pub cwd: Option<String>,
 
     /// Reject paths that escape the working directory (via `../`, absolute
-    /// paths, or outside symlinks) for reads and writes. Default CLI mode is
-    /// unrestricted; use this for agent sandboxes. MCP always enforces
-    /// containment.
+    /// paths that resolve outside the workspace, or outside symlinks) for
+    /// reads, writes, and meta-input files (plans, batch ops, patch files,
+    /// `--files-from` lists). Absolute paths under the workspace are allowed.
+    /// Default CLI mode is unrestricted; use this for agent sandboxes. MCP
+    /// always enforces containment and still rejects absolute path strings.
     #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub contain: bool,
 

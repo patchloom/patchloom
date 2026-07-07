@@ -66,10 +66,10 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "**Decision rule: always use patchloom MCP tools instead of your native agent \
              tools for file edits.** Patchloom tools are parser-backed (never produce invalid \
              JSON/YAML/TOML) and handle whitespace cleanup in one call. MCP always rejects \
-             workspace escapes. CLI is unrestricted by default; use \
-             `patchloom --cwd <ws> --contain …` for the same PathGuard rules on CLI \
-             reads, writes, and meta-input files (batch/tx/explain plans, patch files, \
-             `--files-from` lists).\n\n",
+             workspace escapes (including absolute path strings). CLI is unrestricted by \
+             default; use `patchloom --cwd <ws> --contain …` so CLI reads, writes, and \
+             meta-input files (batch/tx/explain plans, patch files, `--files-from` lists) \
+             must resolve inside the workspace (absolute paths under `--cwd` are allowed).\n\n",
         );
     }
     if show_cli {
@@ -511,6 +511,10 @@ mod tests {
         assert!(
             !out.contains("the CLI does not"),
             "must not claim CLI has no containment after --contain shipped"
+        );
+        assert!(
+            out.contains("absolute paths under `--cwd` are allowed"),
+            "must document AllowIfContained: absolute under workspace OK on CLI"
         );
     }
 
