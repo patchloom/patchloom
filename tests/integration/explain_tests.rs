@@ -30,6 +30,28 @@ fn test_explain_prints_human_summary() {
         .stdout(predicates::str::contains("Validate: echo ok (required)"));
 }
 
+/// Relative explain plan path is resolved under --cwd (parity with `tx` / `batch` / `patch`).
+#[test]
+fn test_explain_relative_plan_respects_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("plan.json"),
+        r#"{"version": 1, "operations": [{"op": "file.create", "path": "test.txt", "content": "hi"}]}"#,
+    )
+    .unwrap();
+
+    // Process cwd is not dir; plan path is relative and must open under --cwd.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path().parent().unwrap())
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["explain", "plan.json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Create file test.txt"));
+}
+
 #[test]
 fn test_explain_json_output() {
     let dir = TempDir::new().unwrap();

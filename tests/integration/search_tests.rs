@@ -1042,10 +1042,9 @@ fn test_search_contain_rejects_files_from_parent_escape() {
     );
     let outside = dir.path().parent().unwrap().join(&escape_name);
     fs::write(&outside, "SECRET_VALUE=x\n").unwrap();
-    // --files-from opens the list file relative to the process cwd, so pass
-    // an absolute path to the list; entries inside are relative to --cwd.
-    let list = dir.path().join("list.txt");
-    fs::write(&list, format!("../{escape_name}\n")).unwrap();
+    // List path can be relative under --cwd; entries inside are also relative
+    // to --cwd. Use a relative list name so the test exercises resolve_user_path.
+    fs::write(dir.path().join("list.txt"), format!("../{escape_name}\n")).unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -1053,7 +1052,7 @@ fn test_search_contain_rejects_files_from_parent_escape() {
         .arg(dir.path())
         .arg("--contain")
         .arg("--files-from")
-        .arg(&list)
+        .arg("list.txt")
         .args(["search", "SECRET_VALUE"])
         .assert()
         .failure()

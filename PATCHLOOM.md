@@ -92,6 +92,8 @@ For complex plans needing format/validate lifecycle, regex replace, or `--nth`, 
 patchloom tx plan.json --apply
 ```
 
+Relative paths for batch ops files, `tx`/`explain` plan files, `patch` files, and `--files-from` lists resolve under `--cwd` (same base as operation targets). Absolute meta-input paths are unchanged.
+
 In plan JSON, doc ops use the field name `selector` (not `key`). `key` is accepted as an alias if a model emits it, but prefer `selector`.
 
 ## Structured edits
