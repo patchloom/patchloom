@@ -172,8 +172,9 @@ fn ast_run_entrypoints_enforce_path_containment() {
         repo_root().join("src/cmd/ast/mutate.rs"),
     ];
     // Match `fn run_foo(` even when prefixed with `pub(super)`.
-    let fn_re = regex::Regex::new(r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?fn[ \t]+(run_\w+)[ \t]*\(")
-        .unwrap();
+    let fn_re =
+        regex::Regex::new(r"(?m)^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?fn[ \t]+(run_\w+)[ \t]*\(")
+            .unwrap();
     let mut missing = Vec::new();
     for path in files {
         let text = fs::read_to_string(&path).unwrap();
@@ -186,10 +187,7 @@ fn ast_run_entrypoints_enforce_path_containment() {
             })
             .collect();
         for (idx, (start, name)) in starts.iter().enumerate() {
-            let end = starts
-                .get(idx + 1)
-                .map(|(s, _)| *s)
-                .unwrap_or(text.len());
+            let end = starts.get(idx + 1).map(|(s, _)| *s).unwrap_or(text.len());
             let body = &text[*start..end];
             // Engine-backed writes (run_write_op / stage_for_write) enforce
             // --contain in the shared write path; query helpers use setup_*.
