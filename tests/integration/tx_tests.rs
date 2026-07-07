@@ -7429,7 +7429,7 @@ fn test_tx_contain_allows_in_workspace_relative_path() {
     )
     .unwrap();
 
-    // Meta-input plan path must be relative under --contain (absolute paths are rejected).
+    // Relative plan under --contain.
     Command::cargo_bin("patchloom")
         .unwrap()
         .args(["--cwd"])
@@ -7441,5 +7441,36 @@ fn test_tx_contain_allows_in_workspace_relative_path() {
     assert_eq!(
         fs::read_to_string(dir.path().join("inside-tx.txt")).unwrap(),
         "ok\n"
+    );
+}
+
+/// #1451: absolute plan path under --cwd is allowed with --contain (AllowIfContained).
+#[test]
+fn test_tx_contain_allows_absolute_plan_path_inside_workspace() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "file.create",
+            "path": "abs-plan-created.txt",
+            "content": "from-abs\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("abs-plan-created.txt")).unwrap(),
+        "from-abs\n"
     );
 }

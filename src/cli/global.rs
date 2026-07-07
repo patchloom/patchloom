@@ -314,8 +314,11 @@ impl GlobalFlags {
     ///
     /// When [`Self::contain`] is set, the user-supplied path is also checked
     /// with the workspace [`crate::containment::PathGuard`] (same policy as
-    /// operation targets). This prevents reading plan/ops/list files from
-    /// outside the workspace under `--contain`.
+    /// operation targets). Absolute paths are allowed only when they resolve
+    /// inside the workspace (`AllowIfContained`); escapes and outside
+    /// absolutes are rejected. This prevents reading plan/ops/list files from
+    /// outside the workspace under `--contain` while still accepting agent
+    /// invocations that pass absolute paths under `--cwd`.
     pub fn resolve_user_path(
         &self,
         path: impl AsRef<std::path::Path>,
@@ -331,6 +334,11 @@ impl GlobalFlags {
 
     /// Build a workspace [`PathGuard`] when `--contain` is set.
     ///
+    /// Uses [`AbsolutePathPolicy::AllowIfContained`]: absolute paths are OK
+    /// only if they canonicalize under the workspace root (agent-friendly
+    /// sandbox). Relative `../` escapes and absolute paths outside the
+    /// workspace are still rejected. MCP keeps its own stricter policy.
+    ///
     /// Returns `Ok(None)` when containment is off (default CLI behavior).
     pub fn workspace_guard(
         &self,
@@ -341,7 +349,7 @@ impl GlobalFlags {
         }
         crate::containment::PathGuard::new(
             cwd.to_path_buf(),
-            crate::containment::AbsolutePathPolicy::Reject,
+            crate::containment::AbsolutePathPolicy::AllowIfContained,
         )
         .map(Some)
         .map_err(|e| anyhow::anyhow!("failed to initialize --contain path guard: {e}"))
@@ -429,22 +437,9 @@ impl GlobalFlags {
             None => return Ok(None),
         };
         let lines: Vec<String> = if source == "-" {
-            std::io::stdin()
-                .lock()
-                .lines()
-                .map_while(Result::ok)
-                .enumerate()
-                .map(|(i, l)| {
-                    let l = l.trim().to_string();
-                    // Strip UTF-8 BOM from the first line (if piped from a BOM file)
-                    if i == 0 {
-                        l.strip_prefix('\u{FEFF}').unwrap_or(&l).to_string()
-                    } else {
-                        l
-                    }
-                })
-                .filter(|l| !l.is_empty())
-                .collect()
+            // Propagate IO errors (#1449). Do not use map_while(Result::ok),
+            // which silently truncates the list on the first Err.
+            collect_files_from_line_results(std::io::stdin().lock().lines())?
         } else {
             let list_path = self.resolve_user_path(source)?;
             let content = std::fs::read_to_string(&list_path).map_err(|e| {
@@ -460,6 +455,31 @@ impl GlobalFlags {
         };
         Ok(Some(lines))
     }
+}
+
+/// Collect and normalize path lines from an iterator of line-read results.
+///
+/// Used by `--files-from -` (stdin). IO errors are returned as `Err` so a
+/// broken pipe or read failure cannot produce a partial list with success.
+fn collect_files_from_line_results(
+    lines: impl IntoIterator<Item = std::io::Result<String>>,
+) -> anyhow::Result<Vec<String>> {
+    let mut out = Vec::new();
+    for (i, line_res) in lines.into_iter().enumerate() {
+        let mut l =
+            line_res.map_err(|e| anyhow::anyhow!("failed to read --files-from from stdin: {e}"))?;
+        // BOM is not Unicode whitespace: strip it before trim on the first line.
+        if i == 0
+            && let Some(stripped) = l.strip_prefix('\u{FEFF}')
+        {
+            l = stripped.to_string();
+        }
+        let l = l.trim();
+        if !l.is_empty() {
+            out.push(l.to_string());
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -789,7 +809,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_user_path_contain_rejects_absolute_path() {
+    fn resolve_user_path_contain_rejects_absolute_path_outside_workspace() {
         let dir = tempfile::tempdir().unwrap();
         let abs = dir
             .path()
@@ -804,10 +824,27 @@ mod tests {
             ..GlobalFlags::default()
         };
         let err = g.resolve_user_path(&abs).unwrap_err().to_string();
+        // AllowIfContained: outside absolute fails as escape/reject, not blanket "no absolutes".
         assert!(
-            err.contains("absolute") || err.contains("rejected") || err.contains("workspace guard"),
+            err.contains("escapes")
+                || err.contains("rejected")
+                || err.contains("workspace guard")
+                || err.contains("absolute"),
             "unexpected: {err}"
         );
+    }
+
+    #[test]
+    fn resolve_user_path_contain_allows_absolute_path_inside_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let abs = dir.path().join("ops.txt");
+        let g = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            contain: true,
+            ..GlobalFlags::default()
+        };
+        let resolved = g.resolve_user_path(&abs).unwrap();
+        assert_eq!(resolved, abs);
     }
 
     #[test]
@@ -842,9 +879,40 @@ mod tests {
         let err = flags.read_files_from().unwrap_err().to_string();
         let _ = std::fs::remove_file(&outside);
         assert!(
-            err.contains("absolute") || err.contains("rejected") || err.contains("workspace guard"),
+            err.contains("escapes")
+                || err.contains("rejected")
+                || err.contains("workspace guard")
+                || err.contains("absolute"),
             "must not open outside list under --contain: {err}"
         );
+    }
+
+    #[test]
+    fn collect_files_from_line_results_propagates_io_error() {
+        let lines = vec![
+            Ok("a.txt".into()),
+            Err(std::io::Error::other("simulated stdin failure")),
+            Ok("b.txt".into()),
+        ];
+        let err = collect_files_from_line_results(lines)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("failed to read --files-from from stdin"),
+            "unexpected: {err}"
+        );
+        assert!(err.contains("simulated stdin failure"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn collect_files_from_line_results_trims_and_strips_bom() {
+        let lines = vec![
+            Ok("\u{FEFF}  a.txt  ".into()),
+            Ok(String::new()),
+            Ok("  b.txt\t".into()),
+        ];
+        let got = collect_files_from_line_results(lines).unwrap();
+        assert_eq!(got, vec!["a.txt", "b.txt"]);
     }
 
     #[test]
