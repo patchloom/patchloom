@@ -249,6 +249,21 @@ fn test_help_flag() {
         );
 }
 
+/// After #1451, --contain must not claim all absolute paths are rejected.
+#[test]
+fn test_contain_help_documents_allow_absolute_under_workspace() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--contain"))
+        .stdout(predicate::str::contains("outside the workspace"))
+        .stdout(predicate::str::contains(
+            "Absolute paths under the workspace are allowed",
+        ));
+}
+
 #[test]
 fn test_confirm_conflicts_with_apply() {
     Command::cargo_bin("patchloom")
