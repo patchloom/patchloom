@@ -370,6 +370,30 @@ async fn test_mcp_search_files_accepts_path_alias() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_mcp_search_files_rejects_empty_path_alias() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({"pattern": "TODO", "path": "   "}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "whitespace-only path alias must be rejected: {text}"
+    );
+    assert!(
+        text.contains("empty") || text.contains("whitespace") || text.contains("path"),
+        "error should mention empty path: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// Regression test for #939 / #1270: search_files with zero matches must
 /// return a descriptive "No matches found." message as a success (isError:
 /// false), not an error. Empty results are valid answers, not failures.
@@ -3352,6 +3376,41 @@ async fn test_mcp_execute_plan_rejects_absolute_cwd() {
     assert!(
         text.contains("relative") || text.contains("absolute") || text.contains("cwd"),
         "error should mention absolute/relative cwd policy: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_execute_plan_rejects_empty_cwd() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.json"), r#"{}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "execute_plan",
+        serde_json::json!({
+            "plan": {
+                "version": 1,
+                "cwd": "  ",
+                "operations": [{
+                    "op": "doc.set",
+                    "path": "ok.json",
+                    "selector": "x",
+                    "value": 1
+                }]
+            }
+        }),
+    )
+    .await;
+    assert!(is_error, "whitespace-only plan.cwd must be rejected: {val}");
+    let text = val.to_string();
+    assert!(
+        text.contains("empty") || text.contains("whitespace") || text.contains("cwd"),
+        "error should mention empty cwd: {text}"
     );
     client.cancel().await.unwrap();
 }
