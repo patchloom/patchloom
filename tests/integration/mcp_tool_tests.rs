@@ -2657,6 +2657,67 @@ async fn test_mcp_ast_rename_applies() {
 
 #[tokio::test]
 #[cfg(feature = "ast")]
+async fn test_mcp_ast_rewrite_signature_applies() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn process(x: i32) {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_rewrite_signature",
+        serde_json::json!({
+            "path": "lib.rs",
+            "old": "process",
+            "parameters": "(x: u64)",
+            "return_type": "-> u64"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_rewrite_signature should succeed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("u64"),
+        "signature should be rewritten: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_rewrite_signature_missing_reports_detail() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn keep() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_rewrite_signature",
+        serde_json::json!({
+            "path": "lib.rs",
+            "old": "missing_fn",
+            "parameters": "(x: i32)"
+        }),
+    )
+    .await;
+    // Write no-match is an agent-visible error (not empty-query success).
+    assert!(is_error, "missing function should be tool error: {val}");
+    let text = val.to_string();
+    assert!(
+        text.contains("missing_fn") || text.contains("not found") || text.contains("no_matches"),
+        "error should name the missing function or no_matches: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
 async fn test_mcp_ast_refs_finds_references() {
     if !has_mcp_support() {
         return;

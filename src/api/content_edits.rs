@@ -258,4 +258,34 @@ mod tests {
         assert_eq!(r.modified, "pre\nbody\n");
         assert_eq!(r.ops_applied, 1);
     }
+
+    #[test]
+    fn empty_anchor_is_rejected() {
+        let before = apply_content_edits(
+            "body\n",
+            &[ContentEdit::InsertBefore {
+                anchor: String::new(),
+                content: "x".into(),
+            }],
+        )
+        .unwrap_err();
+        let before_msg = format!("{before:#}");
+        assert!(
+            before_msg.contains("empty"),
+            "insert_before empty anchor: {before_msg}"
+        );
+        let after = apply_content_edits(
+            "body\n",
+            &[ContentEdit::InsertAfter {
+                anchor: String::new(),
+                content: "x".into(),
+            }],
+        )
+        .unwrap_err();
+        let after_msg = format!("{after:#}");
+        assert!(
+            after_msg.contains("empty"),
+            "insert_after empty anchor: {after_msg}"
+        );
+    }
 }
