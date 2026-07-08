@@ -64,11 +64,25 @@ mod basic {
         );
         #[cfg(feature = "ast")]
         {
-            let ast_rename_desc = descriptions.get("ast_rename").copied().unwrap_or("");
-            assert!(
-                ast_rename_desc.contains("execute_plan") && ast_rename_desc.contains("concurrent"),
-                "ast_rename must warn about concurrent writes / execute_plan (#1468): {ast_rename_desc}"
-            );
+            // All AST mutators must carry concurrent / execute_plan guidance.
+            for tool in [
+                "ast_rename",
+                "ast_replace",
+                "ast_rewrite_signature",
+                "ast_insert",
+                "ast_wrap",
+                "ast_reorder",
+                "ast_group",
+                "ast_move",
+                "ast_extract_to_file",
+                "ast_split",
+            ] {
+                let desc = descriptions.get(tool).copied().unwrap_or("");
+                assert!(
+                    desc.contains("execute_plan") && desc.contains("concurrent"),
+                    "{tool} must warn about concurrent writes / execute_plan (#1468): {desc}"
+                );
+            }
         }
         // Registry write tools (and multi-file custom writers) must carry concurrent guidance.
         for tool in [
@@ -77,6 +91,9 @@ mod basic {
             "create_file",
             "batch_tidy",
             "apply_patch",
+            "replace_text",
+            "batch_replace",
+            "md_move_section",
         ] {
             let desc = descriptions.get(tool).copied().unwrap_or("");
             assert!(
