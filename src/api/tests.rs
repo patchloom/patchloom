@@ -2606,6 +2606,33 @@ fn text_diff_with_custom_path() {
 }
 
 #[test]
+fn text_diff_absolute_path_no_double_slash_headers() {
+    // #1480: embedders pass absolute paths after canonicalize (macOS /private/tmp).
+    let result = text_diff("old\n", "new\n", Some("/tmp/demo/lib.rs"));
+    assert!(
+        !result.contains("--- a//") && !result.contains("+++ b//"),
+        "absolute path must not produce double-slash headers: {result}"
+    );
+    assert!(result.contains("--- a/tmp/demo/lib.rs"));
+    assert!(result.contains("+++ b/tmp/demo/lib.rs"));
+}
+
+#[test]
+fn text_diff_absolute_path_placeholder_and_relative_unchanged() {
+    let abs = text_diff("a\n", "b\n", Some("/private/tmp/x.rs"));
+    assert!(!abs.contains("//"));
+    assert!(abs.contains("--- a/private/tmp/x.rs"));
+
+    let rel = text_diff("a\n", "b\n", Some("src/main.rs"));
+    assert!(rel.contains("--- a/src/main.rs"));
+    assert!(rel.contains("+++ b/src/main.rs"));
+
+    let none = text_diff("a\n", "b\n", None);
+    assert!(none.contains("--- a/<content>"));
+    assert!(none.contains("+++ b/<content>"));
+}
+
+#[test]
 fn text_diff_empty_original() {
     let result = text_diff("", "new content\n", Some("file.txt"));
     assert!(!result.is_empty());

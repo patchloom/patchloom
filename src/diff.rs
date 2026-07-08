@@ -2,6 +2,19 @@
 
 use similar::TextDiff;
 
+/// Normalize a path for unified-diff headers after the fixed `a/` / `b/` prefix.
+///
+/// Absolute Unix paths start with `/`. Naively formatting `--- a/{path}` then
+/// yields `--- a//tmp/file` (double slash). Strip one leading `/` so headers
+/// stay readable. Relative paths and placeholders (e.g. `<content>`) are
+/// unchanged. Windows drive paths (`C:\...`) have no leading `/` and are
+/// unchanged.
+///
+/// Used only for header display; [`FileDiff::path`] keeps the original string.
+pub(crate) fn path_for_diff_header(path: &str) -> &str {
+    path.strip_prefix('/').unwrap_or(path)
+}
+
 /// Represents the diff for a single file.
 #[derive(Debug, Clone)]
 pub struct FileDiff {
@@ -72,10 +85,10 @@ fn format_diff_result_opt(result: &DiffResult, color: bool) -> String {
     let mut output = String::new();
     for diff in &result.diffs {
         if diff.has_changes {
+            let header_path = path_for_diff_header(&diff.path);
             let _ = write!(
                 output,
-                "{hdr}--- a/{}{reset}\n{hdr}+++ b/{}{reset}\n",
-                diff.path, diff.path
+                "{hdr}--- a/{header_path}{reset}\n{hdr}+++ b/{header_path}{reset}\n",
             );
             if color {
                 for line in diff.hunks.lines() {
@@ -126,6 +139,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn path_for_diff_header_strips_leading_slash() {
+        assert_eq!(path_for_diff_header("/tmp/demo/lib.rs"), "tmp/demo/lib.rs");
+        assert_eq!(
+            path_for_diff_header("/private/tmp/demo/src/a.rs"),
+            "private/tmp/demo/src/a.rs"
+        );
+        assert_eq!(path_for_diff_header("src/main.rs"), "src/main.rs");
+        assert_eq!(path_for_diff_header("<content>"), "<content>");
+        assert_eq!(
+            path_for_diff_header("C:\\Users\\x\\f.rs"),
+            "C:\\Users\\x\\f.rs"
+        );
+        // Only one leading slash (absolute Unix form); remaining path intact.
+        assert_eq!(path_for_diff_header("//unc/share"), "/unc/share");
+    }
+
+    #[test]
     fn single_line_change_has_correct_header() {
         let result = unified_diff("test.txt", "hello\n", "world\n");
         assert!(result.has_changes);
@@ -138,6 +168,47 @@ mod tests {
         let output = format_diff_result(&diff_result);
         assert!(output.contains("--- a/test.txt"));
         assert!(output.contains("+++ b/test.txt"));
+    }
+
+    #[test]
+    fn absolute_unix_path_header_has_no_double_slash() {
+        let result = unified_diff("/tmp/demo/lib.rs", "old\n", "new\n");
+        // Stored path stays absolute for callers.
+        assert_eq!(result.path, "/tmp/demo/lib.rs");
+        let output = format_diff_result(&DiffResult {
+            diffs: vec![result],
+        });
+        assert!(
+            !output.contains("--- a//") && !output.contains("+++ b//"),
+            "headers must not double-slash absolute paths: {output}"
+        );
+        assert!(output.contains("--- a/tmp/demo/lib.rs"));
+        assert!(output.contains("+++ b/tmp/demo/lib.rs"));
+    }
+
+    #[test]
+    fn absolute_macos_private_tmp_header_normalized() {
+        let path = "/private/tmp/demo/src/a.rs";
+        let result = unified_diff(path, "old\n", "new\n");
+        let output = format_diff_result(&DiffResult {
+            diffs: vec![result],
+        });
+        assert!(!output.contains("a//"));
+        assert!(!output.contains("b//"));
+        assert!(output.contains("--- a/private/tmp/demo/src/a.rs"));
+        assert!(output.contains("+++ b/private/tmp/demo/src/a.rs"));
+    }
+
+    #[test]
+    fn multi_file_format_normalizes_each_absolute_path() {
+        let d1 = unified_diff("/abs/one.txt", "a\n", "b\n");
+        let d2 = unified_diff("rel/two.txt", "c\n", "d\n");
+        let output = format_diff_result(&DiffResult {
+            diffs: vec![d1, d2],
+        });
+        assert!(!output.contains("a//") && !output.contains("b//"));
+        assert!(output.contains("--- a/abs/one.txt"));
+        assert!(output.contains("--- a/rel/two.txt"));
     }
 
     #[test]
