@@ -47,6 +47,7 @@ Use patchloom when:
 - Use `batch_replace` or `batch_tidy` only when applying the *exact same* operation to multiple files.
 - Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.
 - Nested trees: set a **relative** `cwd` under the server workspace and keep op paths short. Do not use absolute `cwd` on MCP. Do not combine `cwd` with `for_each`.
+- `search_files`: canonical multi-root field is `paths` (array). Singular `path` is accepted as an alias for one root.
 
 Example (edit under a fixture without prefixing every path):
 
