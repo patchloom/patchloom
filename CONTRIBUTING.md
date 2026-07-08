@@ -17,6 +17,22 @@ make check
 
 `make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast), integration tests, PTY tests, release notes verification, test hygiene audit, and generated-doc freshness checks (`check-patchloom-md`, `check-readme`). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme` so a drifted README test badge fails before CI).
 
+## Issues and triage
+
+New issues from outside maintainers are labeled `needs-triage` automatically.
+They stay in that inbox until a maintainer accepts them by adding `ready` and
+removing `needs-triage`. Issues opened by repository owners, org members, or
+collaborators skip the inbox and receive `ready` immediately.
+
+| Label | Meaning |
+|-------|---------|
+| `needs-triage` | New external report; not yet accepted for implementation |
+| `ready` | Accepted; automation and contributors may pick it up |
+| `needs-info` | Waiting on the reporter for more detail |
+
+Please include reproduction steps (or a clear feature request), expected vs
+actual behavior, and your patchloom version when filing bugs.
+
 ## Development workflow
 
 1. Create a branch from `main`.
