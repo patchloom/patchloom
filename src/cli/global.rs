@@ -1,3 +1,9 @@
+//! Global CLI flags, path resolution, and `--files-from` list loading.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). One module owns
+//! GlobalFlags/WriteFlags, cwd/contain path helpers, and files-from IO;
+//! co-located unit tests push the file over 1000 lines. Do not split for LOC alone.
+
 #[cfg(feature = "cli")]
 use clap::Args;
 use std::io::BufRead;
