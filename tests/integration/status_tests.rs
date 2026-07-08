@@ -243,6 +243,67 @@ fn test_status_quiet_suppresses_output() {
     );
 }
 
+#[test]
+fn test_status_excludes_patchloom_backup_dir_after_apply() {
+    // After --apply, git sees untracked .patchloom/backups/*; status must not
+    // list those as project "created" files (fixrealloop 2026-07-08).
+    let dir = TempDir::new().unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("replace")
+        .arg("hello")
+        .arg("--new")
+        .arg("world")
+        .arg("a.txt")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert!(
+        dir.path().join(".patchloom/backups").is_dir(),
+        "apply should create backup sessions"
+    );
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("status")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let all: Vec<&str> = ["modified", "created", "deleted"]
+        .iter()
+        .flat_map(|k| {
+            json[k]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str())
+        })
+        .collect();
+    assert!(
+        all.iter()
+            .any(|p| *p == "a.txt" || p.ends_with("/a.txt") || p.ends_with("a.txt")),
+        "modified a.txt should appear: {json}"
+    );
+    assert!(
+        !all.iter().any(|p| p.contains(".patchloom")),
+        "status must omit .patchloom backups, got: {all:?}"
+    );
+    assert_eq!(
+        json["total_changes"].as_u64(),
+        Some(1),
+        "only a.txt should count: {json}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // completions: PowerShell produces output
 // ---------------------------------------------------------------------------

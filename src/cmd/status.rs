@@ -31,6 +31,12 @@ enum FileCategory {
     Modified,
 }
 
+/// Paths under `.patchloom/` (backup sessions) should not appear in status.
+fn is_patchloom_internal_path(path: &str) -> bool {
+    let p = path.trim_start_matches("./");
+    p == ".patchloom" || p.starts_with(".patchloom/")
+}
+
 /// Parse one NUL-delimited `git status --porcelain=v1 -z` record.
 fn parse_porcelain_record(record: &[u8]) -> Option<(FileCategory, String)> {
     if record.len() < 4 {
@@ -92,6 +98,12 @@ pub(crate) fn collect_status(
             Some(v) => v,
             None => continue,
         };
+
+        // Internal backup store is not a user-facing repo change (#1349 for
+        // tidy; same noise on `status` after any --apply).
+        if is_patchloom_internal_path(&file) {
+            continue;
+        }
 
         let file_path = cwd.join(&file);
         if let Some(ref matcher) = glob_matcher
@@ -155,6 +167,17 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn patchloom_internal_paths_are_filtered() {
+        assert!(is_patchloom_internal_path(".patchloom"));
+        assert!(is_patchloom_internal_path(
+            ".patchloom/backups/1/manifest.json"
+        ));
+        assert!(is_patchloom_internal_path("./.patchloom/backups/x"));
+        assert!(!is_patchloom_internal_path("src/main.rs"));
+        assert!(!is_patchloom_internal_path("patchloom.toml"));
+    }
 
     #[test]
     fn parse_untracked_file() {
