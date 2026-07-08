@@ -398,7 +398,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Move a markdown heading section to a new position (same file reorder or cross-file). Exactly one of before or after is required. Omit to for same-file reorder. Example: {\"path\": \"spec.md\", \"heading\": \"## Appendix\", \"to\": \"notes.md\", \"before\": \"## References\"}"
+        description = "Move a markdown heading section to a new position (same file reorder or cross-file). Exactly one of before or after is required. Omit to for same-file reorder. IMPORTANT: do NOT issue concurrent writes against the same file(s); use execute_plan for multi-op atomicity. Example: {\"path\": \"spec.md\", \"heading\": \"## Appendix\", \"to\": \"notes.md\", \"before\": \"## References\"}"
     )]
     async fn md_move_section(
         &self,
@@ -456,7 +456,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs. Use on_stale=merge for three-way merge on stale context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
+        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs. Use on_stale=merge for three-way merge on stale context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
     )]
     async fn apply_patch(
         &self,
@@ -531,7 +531,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
+        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
     )]
     async fn batch_tidy(
         &self,
@@ -831,7 +831,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter. Example: {\"path\": \"src/lib.rs\", \"old\": \"process\", \"parameters\": \"(x: i32)\", \"return_type\": \"-> String\"}"
+        description = "Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"old\": \"process\", \"parameters\": \"(x: i32)\", \"return_type\": \"-> String\"}"
     )]
     async fn ast_rewrite_signature(
         &self,
@@ -842,7 +842,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
+        description = "Insert code at a structurally-aware position: inside a module/impl/struct (at start or end), or after/before a named symbol. Indentation is auto-detected. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"content\": \"fn new_fn() {}\", \"after\": \"existing_fn\"}"
     )]
     async fn ast_insert(
         &self,
@@ -853,7 +853,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Wrap existing code in a structural block (module, impl, cfg, etc.). Specify symbols by name or a line range. Example: {\"path\": \"src/lib.rs\", \"symbols\": [\"helper_fn\", \"HelperStruct\"], \"wrapper\": \"mod helpers\"}"
+        description = "Wrap existing code in a structural block (module, impl, cfg, etc.). Specify symbols by name or a line range. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"symbols\": [\"helper_fn\", \"HelperStruct\"], \"wrapper\": \"mod helpers\"}"
     )]
     async fn ast_wrap(
         &self,
@@ -864,7 +864,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Manage import/use statements: add (idempotent), remove, deduplicate. With no mutation args, lists existing imports. Example: {\"path\": \"src/main.rs\", \"add\": [\"use std::collections::HashMap;\"]}"
+        description = "Manage import/use statements: add (idempotent), remove, deduplicate. With no mutation args, lists existing imports. IMPORTANT: when mutating, do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/main.rs\", \"add\": [\"use std::collections::HashMap;\"]}"
     )]
     async fn ast_imports(
         &self,
@@ -875,7 +875,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Reorder symbols within a file or scope by name, kind, or custom order. Example: {\"path\": \"src/lib.rs\", \"order\": \"alphabetical\"} or {\"path\": \"src/lib.rs\", \"order\": [\"Struct\", \"impl Struct\", \"helper\"], \"inside\": \"mod tests\"}"
+        description = "Reorder symbols within a file or scope by name, kind, or custom order. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"order\": \"alphabetical\"} or {\"path\": \"src/lib.rs\", \"order\": [\"Struct\", \"impl Struct\", \"helper\"], \"inside\": \"mod tests\"}"
     )]
     async fn ast_reorder(
         &self,
@@ -886,7 +886,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Group symbols into a named module within a file. Creates the module if it doesn't exist, or appends to it. Example: {\"path\": \"src/tests.rs\", \"module\": \"line_endings\", \"symbols\": [\"test_crlf\", \"test_lf\"], \"preamble\": \"use super::*;\"}"
+        description = "Group symbols into a named module within a file. Creates the module if it doesn't exist, or appends to it. IMPORTANT: do NOT issue concurrent writes against the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/tests.rs\", \"module\": \"line_endings\", \"symbols\": [\"test_crlf\", \"test_lf\"], \"preamble\": \"use super::*;\"}"
     )]
     async fn ast_group(
         &self,

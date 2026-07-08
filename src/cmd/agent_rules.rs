@@ -137,7 +137,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - Use `batch_replace` or `batch_tidy` only when applying the *exact same* operation to multiple files.\n\
              - Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.\n\
              - Nested trees: set a **relative** `cwd` under the server workspace and keep op paths short. \
-               Do not use absolute `cwd` on MCP. Do not combine `cwd` with `for_each`.\n\n\
+               Do not use absolute `cwd` on MCP. Do not combine `cwd` with `for_each`.\n\
+             - `search_files`: canonical multi-root field is `paths` (array). Singular `path` is accepted as an alias for one root.\n\n\
              Example (edit under a fixture without prefixing every path):\n\n\
              ```json\n\
              {\n\
@@ -533,6 +534,10 @@ mod tests {
         assert!(
             out.contains("relative") && out.contains("cwd"),
             "MCP rules must say cwd is relative under workspace"
+        );
+        assert!(
+            out.contains("search_files") && out.contains("paths") && out.contains("path"),
+            "MCP rules must document search_files path alias for paths"
         );
     }
 
