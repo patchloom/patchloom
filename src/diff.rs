@@ -4,15 +4,20 @@ use similar::TextDiff;
 
 /// Normalize a path for unified-diff headers after the fixed `a/` / `b/` prefix.
 ///
-/// Absolute Unix paths start with `/`. Naively formatting `--- a/{path}` then
-/// yields `--- a//tmp/file` (double slash). Strip one leading `/` so headers
-/// stay readable. Relative paths and placeholders (e.g. `<content>`) are
-/// unchanged. Windows drive paths (`C:\...`) have no leading `/` and are
-/// unchanged.
+/// Absolute Unix paths start with `/` (sometimes more than one after sloppy
+/// joins). Naively formatting `--- a/{path}` yields `--- a//tmp/file`.
+/// Strip all leading `/` so headers never contain `a//` or `b//`.
+/// Relative paths and placeholders (e.g. `<content>`) are unchanged.
+/// Windows drive paths (`C:\...`) have no leading `/` and are unchanged.
+/// A path that is only slashes (e.g. `/`) becomes `.`.
 ///
 /// Used only for header display; [`FileDiff::path`] keeps the original string.
 pub(crate) fn path_for_diff_header(path: &str) -> &str {
-    path.strip_prefix('/').unwrap_or(path)
+    match path.trim_start_matches('/') {
+        "" if path.is_empty() => "",
+        "" => ".", // was one or more `/` only
+        other => other,
+    }
 }
 
 /// Represents the diff for a single file.
@@ -139,7 +144,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn path_for_diff_header_strips_leading_slash() {
+    fn path_for_diff_header_strips_leading_slashes() {
         assert_eq!(path_for_diff_header("/tmp/demo/lib.rs"), "tmp/demo/lib.rs");
         assert_eq!(
             path_for_diff_header("/private/tmp/demo/src/a.rs"),
@@ -151,8 +156,11 @@ mod tests {
             path_for_diff_header("C:\\Users\\x\\f.rs"),
             "C:\\Users\\x\\f.rs"
         );
-        // Only one leading slash (absolute Unix form); remaining path intact.
-        assert_eq!(path_for_diff_header("//unc/share"), "/unc/share");
+        // Multiple leading slashes must not leave a leading / (would re-create a//).
+        assert_eq!(path_for_diff_header("//unc/share"), "unc/share");
+        assert_eq!(path_for_diff_header("///a"), "a");
+        assert_eq!(path_for_diff_header("/"), ".");
+        assert_eq!(path_for_diff_header(""), "");
     }
 
     #[test]

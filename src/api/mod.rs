@@ -288,8 +288,9 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
 /// pass `None` to use a generic `<content>` placeholder.
 ///
 /// Absolute Unix paths (e.g. after `canonicalize()`) are normalized so headers
-/// do not contain a double slash (`--- a//tmp/...`). Relative paths are
-/// unchanged (`--- a/src/main.rs`).
+/// do not contain a double slash (`--- a//tmp/...`): leading `/` characters are
+/// stripped for the header only. Relative paths are unchanged
+/// (`--- a/src/main.rs`).
 ///
 /// This is the same diff engine used internally by [`replace_in_content`],
 /// [`replace_text`], and other editing operations, exposed as a standalone
