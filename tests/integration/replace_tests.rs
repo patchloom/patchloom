@@ -452,6 +452,64 @@ fn test_replace_no_match_quiet_suppresses_stderr() {
 }
 
 #[test]
+fn test_replace_no_match_files_from_mentions_files_from_not_dot() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("list.txt"), "missing.txt\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("list.txt")
+        .arg("replace")
+        .arg("hello")
+        .arg("--new")
+        .arg("bye")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no matches") && stderr.contains("--files-from"),
+        "stderr should mention --files-from: {stderr}"
+    );
+    assert!(
+        !stderr.contains("in ."),
+        "must not claim workspace root when using --files-from: {stderr}"
+    );
+}
+
+#[test]
+fn test_replace_empty_files_from_does_not_mutate_workspace() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "unique_replace_token\n").unwrap();
+    fs::write(dir.path().join("empty.txt"), "").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("empty.txt")
+        .arg("replace")
+        .arg("unique_replace_token")
+        .arg("--new")
+        .arg("CHANGED")
+        .arg("--apply")
+        .assert()
+        .code(3);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "unique_replace_token\n",
+        "empty files-from must not fall back to walking workspace"
+    );
+}
+
+#[test]
 fn test_replace_ambiguous_match_text_mode_emits_stderr() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
