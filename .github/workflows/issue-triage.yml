@@ -1,0 +1,104 @@
+# Issue triage inbox: external reports get needs-triage; org/maintainers skip inbox.
+# Accept path: remove needs-triage, add ready (MPI/automation only implement ready).
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to re-label (optional backfill)"
+        required: true
+        type: string
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  label:
+    name: Label issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Apply triage labels
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          DISPATCH_ISSUE: ${{ github.event.inputs.issue_number }}
+        with:
+          script: |
+            const TRUSTED = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            async function ensureLabels(issueNumber, association, existingNames) {
+              const trusted = TRUSTED.has(association);
+              const names = new Set(existingNames);
+
+              if (trusted) {
+                // Maintainer/org-authored issues skip the inbox entirely.
+                if (!names.has("ready")) {
+                  await github.rest.issues.addLabels({
+                    owner, repo, issue_number: issueNumber, labels: ["ready"],
+                  });
+                }
+                if (names.has("needs-triage")) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner, repo, issue_number: issueNumber, name: "needs-triage",
+                    });
+                  } catch (e) {
+                    if (e.status !== 404) throw e;
+                  }
+                }
+                core.info(
+                  `Issue #${issueNumber}: association=${association} -> ready (skip triage)`,
+                );
+                return;
+              }
+
+              // External authors land in the inbox until a maintainer accepts.
+              if (!names.has("needs-triage")) {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number: issueNumber, labels: ["needs-triage"],
+                });
+              }
+              core.info(
+                `Issue #${issueNumber}: association=${association} -> needs-triage`,
+              );
+            }
+
+            if (context.eventName === "workflow_dispatch") {
+              const n = parseInt(process.env.DISPATCH_ISSUE || "", 10);
+              if (!n) {
+                core.setFailed("workflow_dispatch requires issue_number");
+                return;
+              }
+              const { data: issue } = await github.rest.issues.get({
+                owner, repo, issue_number: n,
+              });
+              await ensureLabels(
+                n,
+                issue.author_association,
+                (issue.labels || []).map((l) => (typeof l === "string" ? l : l.name)),
+              );
+              return;
+            }
+
+            const issue = context.payload.issue;
+            await ensureLabels(
+              issue.number,
+              issue.author_association,
+              (issue.labels || []).map((l) => (typeof l === "string" ? l : l.name)),
+            );
