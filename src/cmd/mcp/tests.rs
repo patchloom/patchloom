@@ -223,6 +223,21 @@ mod basic {
         );
     }
 
+    #[test]
+    fn batch_replace_params_file_alias() {
+        let p: BatchReplaceParams =
+            serde_json::from_str(r#"{"file": "a.txt", "old": "x", "new": "y"}"#)
+                .expect("file alias should deserialize");
+        assert_eq!(p.effective_files(), vec!["a.txt".to_string()]);
+    }
+
+    #[test]
+    fn batch_tidy_params_file_alias() {
+        let p: BatchTidyParams =
+            serde_json::from_str(r#"{"file": "a.txt"}"#).expect("file alias should deserialize");
+        assert_eq!(p.effective_files(), vec!["a.txt".to_string()]);
+    }
+
     #[tokio::test]
     async fn mcp_server_info_has_correct_name() {
         let dir = tempfile::TempDir::new().unwrap();

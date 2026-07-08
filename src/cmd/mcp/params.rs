@@ -212,7 +212,13 @@ pub(crate) struct DocDiffParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct BatchReplaceParams {
     /// File paths to apply the replacement to (relative to working directory).
+    /// Canonical multi-file form.
+    #[serde(default)]
     pub files: Vec<String>,
+    /// Single file (LLM prior). Equivalent to `files: [file]` when `files` is empty.
+    /// If both are set, `files` wins.
+    #[serde(default)]
+    pub file: Option<String>,
     /// Text to find in each file.
     /// Alias `from` accepted because agents often emit that name (LLM prior).
     #[serde(alias = "from")]
@@ -247,10 +253,39 @@ pub(crate) struct BatchReplaceParams {
 #[serde(deny_unknown_fields)]
 pub(crate) struct BatchTidyParams {
     /// File paths to normalize (relative to working directory).
+    /// Canonical multi-file form.
+    #[serde(default)]
     pub files: Vec<String>,
+    /// Single file (LLM prior). Equivalent to `files: [file]` when `files` is empty.
+    /// If both are set, `files` wins.
+    #[serde(default)]
+    pub file: Option<String>,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
+}
+
+/// Resolve multi-file list: non-empty `files` wins; else single `file`; else empty.
+fn effective_file_list(files: &[String], file: &Option<String>) -> Vec<String> {
+    if !files.is_empty() {
+        files.to_vec()
+    } else if let Some(f) = file {
+        vec![f.clone()]
+    } else {
+        Vec::new()
+    }
+}
+
+impl BatchReplaceParams {
+    pub(crate) fn effective_files(&self) -> Vec<String> {
+        effective_file_list(&self.files, &self.file)
+    }
+}
+
+impl BatchTidyParams {
+    pub(crate) fn effective_files(&self) -> Vec<String> {
+        effective_file_list(&self.files, &self.file)
+    }
 }
 
 // ---------------------------------------------------------------------------
