@@ -378,6 +378,16 @@ pub(crate) fn run_parsed_plan(
         Ok(r) => r,
         Err(e) => {
             let msg = e.to_string();
+            // AST/md no-match must surface as no_matches (exit 3), not
+            // operation_failed (exit 9), with the concrete detail message.
+            if exit::is_no_match(&e) {
+                if structured {
+                    emit_error_json("no_matches", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::NO_MATCHES);
+            }
             if structured {
                 emit_error_json("operation_failed", &msg, None, compact);
             } else {

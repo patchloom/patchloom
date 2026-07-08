@@ -39,6 +39,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// tidy.fix <path>
 /// ast.rename <path> <old> <new>
 /// ast.replace <path> <symbol> <old> <new>
+/// ast.rewrite_signature <path> <old> <parameters> [return_type]
 /// ```
 ///
 /// Lines starting with `#` are comments. Empty lines are ignored.
@@ -50,7 +51,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   file.delete, file.rename, file.append, file.prepend, md.upsert_bullet,
   md.table_append, md.replace_section, md.insert_after_heading,
   md.insert_before_heading, md.move_section, md.dedupe_headings,
-  md.lint_agents, tidy.fix, ast.rename, ast.replace
+  md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature
 
 EXAMPLES:
   printf 'doc.set config.json version "2.0"\nreplace README.md v1 v2\n' | patchloom batch
@@ -294,6 +295,26 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 old: args[2].clone(),
                 new_text: args[3].clone(),
                 regex: false,
+                lang: None
+            })
+        }
+        #[cfg(feature = "ast")]
+        "ast.rewrite_signature" => {
+            // path old parameters [return_type]
+            if args.len() < 3 || args.len() > 4 {
+                anyhow::bail!(
+                    "line {line_num}: 'ast.rewrite_signature' requires 3 or 4 arguments \
+                     (path old parameters [return_type]), got {}",
+                    args.len()
+                );
+            }
+            op!(AstRewriteSignature {
+                path: args[0].clone(),
+                old: args[1].clone(),
+                new_signature: None,
+                visibility: None,
+                parameters: Some(args[2].clone()),
+                return_type: args.get(3).cloned(),
                 lang: None
             })
         }

@@ -302,7 +302,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 26 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 27 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
@@ -988,6 +988,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Updates all matching structured nodes inside a transaction. Matching is via the `selector` field (wildcards and selector predicates), not a separate predicate field.
 - **Use when:** A broad structured rewrite should be coupled to other edits and validations.
+- **Failure behavior:** When the selector matches nothing, the plan exits 3 (`no_matches`); unlike idempotent `doc.delete`, a miss is an error.
 - **Related:** top level `doc update`
 
 <!-- ref:tx-op:doc.move -->
@@ -1016,6 +1017,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Replaces a markdown section inside a transaction.
 - **Use when:** Docs regeneration should be part of a larger all or nothing repo change.
+- **Failure behavior:** Missing heading exits 3 (`no_matches`) with the heading name in the error.
 - **Related:** top level `md replace-section`
 
 <!-- ref:tx-op:md.insert_after_heading -->
@@ -1136,6 +1138,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Renames all occurrences of an identifier within a file using tree-sitter AST awareness, skipping strings, comments, and documentation. References inside the renamed symbol and callers are updated atomically. Fields are `path`, `old`, and `new` (same names as `replace` / `ast.replace`). CLI: `ast rename <path> --old <OLD> --new <NEW>`.
 - **Use when:** You need a precise identifier rename that respects language semantics (e.g., renaming `old_fn` to `new_fn` without touching the string `"old_fn"` in a log message).
+- **Failure behavior:** Missing identifier exits 3 (`no_matches`) with the old name in the error (plan and CLI).
 - **Related:** `replace` (text-level), `ast replace`
 
 <!-- ref:tx-op:ast.replace -->
@@ -1150,6 +1153,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Rewrites a function signature using tree-sitter. Structured fields `visibility`, `parameters`, and `return_type` map to [`FunctionSigEdit`](https://docs.rs/patchloom); optional `new_signature` replaces the whole signature span. Field `old` (alias `name`) is the function name. Library: `api::ast_rewrite_signature`. MCP: `ast_rewrite_signature`.
 - **Use when:** Changing parameter lists, visibility, or return types without a brittle line scan (agent hosts such as Bline).
+- **Failure behavior:** Missing function name exits 3 (`no_matches`) with the function name in the error; JSON plans report `error_kind: "no_matches"`.
 - **Related:** `ast.replace`, `ast.rename`
 
 <!-- ref:tx-op:ast.insert -->

@@ -272,7 +272,7 @@ dependencies[name=react].version # predicate filter
 | 0 | Success (operation completed, or no changes needed) |
 | 1 | Failure (error during execution), or tx `rollback_failed` when mid-commit rollback could not fully restore files |
 | 2 | Changes detected (`--check` mode found pending changes) |
-| 3 | No matches (search/replace found nothing matching the pattern) |
+| 3 | No matches (search/replace pattern miss, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |
 | 4 | Parse error (malformed input file or plan) |
 | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |
 | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |

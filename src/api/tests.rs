@@ -3580,6 +3580,40 @@ fn ast_rewrite_signature_plan_execute() {
     );
 }
 
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_plan_missing_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("m.rs"), "fn keep() {}\n").unwrap();
+
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "operations": [
+                {
+                    "op": "ast.rewrite_signature",
+                    "path": "m.rs",
+                    "old": "missing_fn",
+                    "parameters": "(x: i32)"
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    let report = execute_plan(plan, dir.path(), None).unwrap();
+    assert!(!report.ok, "missing function must fail the plan");
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("no_matches"),
+        "library execute_plan must use no_matches not operation_failed: {report:?}"
+    );
+    let err = report.error.as_deref().unwrap_or("");
+    assert!(
+        err.contains("missing_fn") || err.contains("not found"),
+        "error should name the function: {err}"
+    );
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn apply_content_edits_to_file_writes_once() {

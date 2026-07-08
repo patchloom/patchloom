@@ -107,7 +107,7 @@ Machine-readable modes (`--json`, `--jsonl`, `--quiet`) never produce color.
 
 ## Transaction plans
 
-The `tx` command runs multiple operations atomically. If any operation fails during staging, no files are written (exit 9, `operation_failed`). If a write fails mid-commit, patchloom restores already-written files from the backup session (exit 7, `rollback`).
+The `tx` command runs multiple operations atomically. If staging fails because a target was not found (missing symbol, heading, or replace pattern), no files are written and the plan exits 3 (`no_matches`) with the concrete detail in the error message. Other staging failures exit 9 (`operation_failed`). If a write fails mid-commit, patchloom restores already-written files from the backup session (exit 7, `rollback`).
 
 Plans are JSON objects with three lifecycle arrays:
 
