@@ -3280,6 +3280,82 @@ async fn test_mcp_execute_plan_rejects_cwd_escape() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_mcp_execute_plan_rejects_absolute_cwd() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.json"), r#"{}"#).unwrap();
+    let abs = dir.path().to_string_lossy().to_string();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "execute_plan",
+        serde_json::json!({
+            "plan": {
+                "version": 1,
+                "cwd": abs,
+                "operations": [{
+                    "op": "doc.set",
+                    "path": "ok.json",
+                    "selector": "x",
+                    "value": 1
+                }]
+            }
+        }),
+    )
+    .await;
+    assert!(is_error, "absolute plan.cwd must be rejected on MCP: {val}");
+    let text = val.to_string();
+    assert!(
+        text.contains("relative") || text.contains("absolute") || text.contains("cwd"),
+        "error should mention absolute/relative cwd policy: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_execute_plan_rejects_cwd_with_for_each() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("a.txt"), "old\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "execute_plan",
+        serde_json::json!({
+            "plan": {
+                "version": 1,
+                "cwd": "nested",
+                "for_each": {"glob": "*.txt"},
+                "operations": [{
+                    "op": "replace",
+                    "path": "{path}",
+                    "old": "old",
+                    "new": "new"
+                }]
+            }
+        }),
+    )
+    .await;
+    assert!(is_error, "cwd + for_each must be rejected: {val}");
+    let text = val.to_string();
+    assert!(
+        text.contains("for_each") && text.contains("cwd"),
+        "error should name both for_each and cwd: {text}"
+    );
+    // File must be unchanged (plan rejected before apply).
+    assert_eq!(fs::read_to_string(nested.join("a.txt")).unwrap(), "old\n");
+    client.cancel().await.unwrap();
+}
+
 // ── MCP execute_plan with for_each ─────────────────────────────
 
 #[tokio::test]

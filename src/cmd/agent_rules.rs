@@ -135,7 +135,22 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - For any multi-op or multi-file change, **use `execute_plan`** with an inline plan (or plan_path). \
                It provides atomic execution + rollback, exactly like the CLI `tx` command.\n\
              - Use `batch_replace` or `batch_tidy` only when applying the *exact same* operation to multiple files.\n\
-             - Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.\n\n",
+             - Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.\n\
+             - Nested trees: set a **relative** `cwd` under the server workspace and keep op paths short. \
+               Do not use absolute `cwd` on MCP. Do not combine `cwd` with `for_each`.\n\n\
+             Example (edit under a fixture without prefixing every path):\n\n\
+             ```json\n\
+             {\n\
+               \"plan\": {\n\
+                 \"version\": 1,\n\
+                 \"cwd\": \"fixtures/svc\",\n\
+                 \"operations\": [\n\
+                   {\"op\": \"doc.set\", \"path\": \"configs/app.yaml\", \"selector\": \"name\", \"value\": \"updated\"}\n\
+                 ]\n\
+               }\n\
+             }\n\
+             ```\n\n\
+             That re-roots to `fixtures/svc/configs/app.yaml` (not a same-named file at the workspace root).\n\n",
         );
     }
 
@@ -501,6 +516,24 @@ mod tests {
         assert!(out.contains("## Structured edits"));
         // CLI-only mode keeps the "native tools are faster" note
         assert!(out.contains("native agent tools are faster"));
+    }
+
+    #[test]
+    fn mcp_mode_documents_plan_cwd_nested_re_root() {
+        let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
+        assert!(
+            out.contains("\"cwd\": \"fixtures/svc\""),
+            "MCP rules must show nested plan.cwd example: {out}"
+        );
+        assert!(
+            out.contains("Do not combine `cwd` with `for_each`")
+                || out.contains("Do not combine cwd with for_each"),
+            "MCP rules must forbid cwd+for_each: {out}"
+        );
+        assert!(
+            out.contains("relative") && out.contains("cwd"),
+            "MCP rules must say cwd is relative under workspace"
+        );
     }
 
     #[test]

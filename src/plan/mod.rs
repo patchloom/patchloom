@@ -34,6 +34,18 @@ pub struct Plan {
     /// Schema version. Defaults to 1 when omitted.
     #[serde(default = "default_version")]
     pub version: u32,
+    /// Optional re-root for relative operation paths and lifecycle steps.
+    ///
+    /// Relative values resolve from the invocation / MCP server workspace root
+    /// (not from the plan file location). Example: `"fixtures/complex"` with
+    /// op path `"config.json"` targets `fixtures/complex/config.json`.
+    ///
+    /// On MCP, use a **relative** path that stays inside the server workspace;
+    /// absolute path strings and `../` escapes are rejected. Do not combine
+    /// with `for_each` (glob expansion is relative to the server root; use
+    /// workspace-relative `{path}` templates without `cwd` instead).
+    /// CLI and library callers may use absolute paths when PathGuard policy
+    /// allows them.
     pub cwd: Option<String>,
     pub write_policy: Option<crate::write::WritePolicyOverride>,
     /// When omitted from the plan, defaults to strict mode at execution time.

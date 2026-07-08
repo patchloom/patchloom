@@ -571,7 +571,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Optional plan.cwd re-roots relative op paths under the server workspace (must stay inside the PathGuard root; escapes are rejected). plan.format/validate lifecycle shell steps are ignored on MCP (use project config). Strongly recommended for multi-file or multi-op work. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples."
+        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Optional plan.cwd (relative path under the server workspace) re-roots relative op paths; absolute paths and ../ escapes are rejected. Do not set both plan.cwd and for_each. plan.format/validate lifecycle shell steps are ignored on MCP (use project config). Strongly recommended for multi-file or multi-op work. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples. Nested example: {\"plan\": {\"version\": 1, \"cwd\": \"fixtures/svc\", \"operations\": [{\"op\": \"doc.set\", \"path\": \"configs/app.yaml\", \"selector\": \"name\", \"value\": \"x\"}]}}"
     )]
     async fn execute_plan(
         &self,
@@ -596,12 +596,32 @@ impl PatchloomService {
                 ));
             };
 
-            // Honor plan.cwd when it stays inside the MCP workspace (relative or
-            // absolute under the server root). Reject escapes with a hard error
-            // rather than silently stripping cwd (#1465). Lifecycle shell steps
-            // remain stripped (format/validate); see #1142.
+            // Honor relative plan.cwd inside the MCP workspace. Reject escapes
+            // and absolute path strings (MCP AbsolutePathPolicy::Reject) with a
+            // hard error rather than silently stripping cwd (#1465). Lifecycle
+            // shell steps remain stripped (format/validate); see #1142.
+            // for_each expands globs against the server root; combining it with
+            // plan.cwd would double-prefix paths, so reject the combination.
+            if plan.cwd.is_some() && plan.for_each.is_some() {
+                return Err(McpError::invalid_params(
+                    "plan.cwd cannot be combined with for_each on MCP; \
+                     omit cwd and use workspace-relative paths in for_each templates \
+                     (e.g. path \"{path}\"), or omit for_each and set cwd for a nested re-root",
+                    None,
+                ));
+            }
+
             let op_path_prefix = plan.cwd.clone();
             if let Some(ref plan_cwd) = op_path_prefix {
+                if std::path::Path::new(plan_cwd).is_absolute() {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "plan.cwd '{plan_cwd}' must be a relative path under the MCP workspace \
+                             (absolute path strings are rejected on MCP)"
+                        ),
+                        None,
+                    ));
+                }
                 svc.check_path(plan_cwd).map_err(|e| {
                     McpError::invalid_params(
                         format!(
@@ -613,7 +633,7 @@ impl PatchloomService {
             }
 
             // Expand for_each (glob-driven batch) before path validation.
-            // Globs resolve from the server root; plan.cwd then re-roots ops.
+            // Globs resolve from the server root (cwd is mutually exclusive above).
             if plan.for_each.is_some() {
                 crate::plan::expand_for_each(&mut plan, svc.cwd()).map_err(|e| {
                     McpError::invalid_params(format!("for_each expansion failed: {e}"), None)
