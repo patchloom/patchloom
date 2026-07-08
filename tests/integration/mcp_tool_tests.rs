@@ -1822,6 +1822,34 @@ async fn test_mcp_batch_replace_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_batch_replace_accepts_file_alias() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("solo.txt"), "version = 1.0.0\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "batch_replace",
+        serde_json::json!({
+            "file": "solo.txt",
+            "old": "1.0.0",
+            "new": "3.0.0"
+        }),
+    )
+    .await;
+    assert!(!is_error, "singular file alias should work: {val}");
+    let content = fs::read_to_string(dir.path().join("solo.txt")).unwrap();
+    assert!(
+        content.contains("3.0.0"),
+        "file alias replace should apply: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_batch_replace_regex_round_trip() {
     if !has_mcp_support() {
         return;
