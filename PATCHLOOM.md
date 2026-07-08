@@ -238,12 +238,14 @@ patchloom ast list src/lib.rs
 patchloom ast refs src/ --name my_function
 ```
 
-AST rename and replace can also be used in batch and tx plans:
+AST rename, replace, and rewrite_signature can also be used in batch and tx plans:
 
 ```bash
 # In a batch file (path, then old, then new — same names as CLI flags):
 ast.rename src/lib.rs OldStruct NewStruct
 ast.replace src/config.rs default_timeout "30" "60"
+# path old parameters [return_type]:
+ast.rewrite_signature src/lib.rs process "(x: u64)" "-> u64"
 ```
 
 ## Selector path syntax

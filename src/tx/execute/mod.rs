@@ -577,8 +577,12 @@ pub(crate) fn execute_and_collect(
                 // Preserve NoMatchError type (exit 3) and include the detail in
                 // the message so agents see "function X not found", not just
                 // "operation N failed" (#1459 rewrite_signature + all AST ops).
-                if e.downcast_ref::<crate::exit::NoMatchError>().is_some() {
-                    let detail = e.to_string();
+                // Walk the full chain: intermediate .context() must not drop
+                // the NoMatch classification.
+                if let Some(detail) = e.chain().find_map(|c| {
+                    c.downcast_ref::<crate::exit::NoMatchError>()
+                        .map(|n| n.msg.clone())
+                }) {
                     return Err(crate::exit::NoMatchError {
                         msg: format!("operation {} ({}) failed: {detail}", i + 1, op_label(op)),
                     }

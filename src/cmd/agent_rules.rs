@@ -377,11 +377,13 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              # Find all references to a symbol\n\
              patchloom ast refs src/ --name my_function\n\
              ```\n\n\
-             AST rename and replace can also be used in batch and tx plans:\n\n\
+             AST rename, replace, and rewrite_signature can also be used in batch and tx plans:\n\n\
              ```bash\n\
              # In a batch file (path, then old, then new — same names as CLI flags):\n\
              ast.rename src/lib.rs OldStruct NewStruct\n\
              ast.replace src/config.rs default_timeout \"30\" \"60\"\n\
+             # path old parameters [return_type]:\n\
+             ast.rewrite_signature src/lib.rs process \"(x: u64)\" \"-> u64\"\n\
              ```\n\n",
         );
     }
