@@ -369,12 +369,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         };
         global.emit_json(&payload)?;
         if !global.quiet && !global.json && !global.jsonl {
-            let paths: Vec<&str> = args.paths.iter().map(|s| s.as_str()).collect();
-            let path_desc = if paths.is_empty() {
-                ".".to_string()
-            } else {
-                paths.join(", ")
-            };
+            let path_desc = global.path_scope_description(&args.paths);
             eprintln!("no matches for '{}' in {path_desc}", args.pattern);
             if args.literal && crate::files::has_regex_metacharacters(&args.pattern) {
                 eprintln!(

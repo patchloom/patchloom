@@ -1,3 +1,9 @@
+//! Global CLI flags, path resolution, and `--files-from` list loading.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). One module owns
+//! GlobalFlags/WriteFlags, cwd/contain path helpers, and files-from IO;
+//! co-located unit tests push the file over 1000 lines. Do not split for LOC alone.
+
 #[cfg(feature = "cli")]
 use clap::Args;
 use std::io::BufRead;
@@ -304,6 +310,25 @@ impl GlobalFlags {
             Ok(path)
         } else {
             std::env::current_dir().map_err(Into::into)
+        }
+    }
+
+    /// Human-readable scope for "no matches" messages: `--files-from` when set,
+    /// otherwise the positional path list (or `.` when empty).
+    ///
+    /// Without this, `--files-from` runs report "no matches … in ." which is
+    /// misleading when the walk never used the workspace root.
+    pub fn path_scope_description(&self, paths: &[String]) -> String {
+        if let Some(src) = self.files_from.as_deref() {
+            if src == "-" {
+                return "--files-from -".to_string();
+            }
+            return format!("--files-from {src}");
+        }
+        if paths.is_empty() {
+            ".".to_string()
+        } else {
+            paths.join(", ")
         }
     }
 
@@ -982,5 +1007,31 @@ mod tests {
         };
         let result = flags.read_files_from().unwrap().unwrap();
         assert_eq!(result, vec!["a.rs", "b.rs"]);
+    }
+
+    #[test]
+    fn path_scope_description_prefers_files_from_over_empty_paths() {
+        let stdin = GlobalFlags {
+            files_from: Some("-".into()),
+            ..GlobalFlags::test_default()
+        };
+        assert_eq!(stdin.path_scope_description(&[]), "--files-from -");
+        assert_eq!(
+            stdin.path_scope_description(&["src/".into()]),
+            "--files-from -"
+        );
+
+        let list = GlobalFlags {
+            files_from: Some("paths.txt".into()),
+            ..GlobalFlags::test_default()
+        };
+        assert_eq!(list.path_scope_description(&[]), "--files-from paths.txt");
+
+        let walk = GlobalFlags::test_default();
+        assert_eq!(walk.path_scope_description(&[]), ".");
+        assert_eq!(
+            walk.path_scope_description(&["a".into(), "b".into()]),
+            "a, b"
+        );
     }
 }

@@ -84,11 +84,29 @@ mod basic {
                 );
             }
         }
-        // Registry write tools (and multi-file custom writers) must carry concurrent guidance.
+        // All registry write tools (and multi-file custom writers) must carry concurrent guidance.
         for tool in [
             "doc_set",
+            "doc_delete",
             "doc_merge",
+            "doc_append",
+            "doc_prepend",
+            "doc_ensure",
+            "doc_delete_where",
+            "doc_update",
+            "doc_move",
+            "md_upsert_bullet",
+            "md_table_append",
+            "md_replace_section",
+            "md_insert_after_heading",
+            "md_insert_before_heading",
+            "md_dedupe_headings",
+            "move_file",
+            "append_file",
+            "prepend_file",
             "create_file",
+            "delete_file",
+            "fix_whitespace",
             "batch_tidy",
             "apply_patch",
             "replace_text",
