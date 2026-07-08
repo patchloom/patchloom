@@ -99,6 +99,16 @@ jobs:
                 return;
               }
 
+              // Maintainer already accepted (ready present). Do not re-inbox on
+              // reopen or re-dispatch for external authors; dual labels confuse
+              // automation that keys off needs-triage.
+              if (names.has("ready")) {
+                core.info(
+                  `Issue #${issueNumber} (@${login}): ${reason} -> keep ready (already accepted)`,
+                );
+                return;
+              }
+
               if (!names.has("needs-triage")) {
                 await github.rest.issues.addLabels({
                   owner, repo, issue_number: issueNumber, labels: ["needs-triage"],

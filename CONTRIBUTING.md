@@ -30,6 +30,10 @@ collaborators skip the inbox and receive `ready` immediately.
 | `ready` | Accepted; automation and contributors may pick it up |
 | `needs-info` | Waiting on the reporter for more detail |
 
+Once an issue is accepted (`ready`), reopening it does not put it back in
+`needs-triage` automatically. Remove `ready` (or add `needs-info`) if work
+should pause.
+
 Please include reproduction steps (or a clear feature request), expected vs
 actual behavior, and your patchloom version when filing bugs.
 
