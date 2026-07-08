@@ -242,6 +242,14 @@ mod tests {
     }
 
     #[test]
+    fn empty_edits_is_noop() {
+        let r = apply_content_edits("same\n", &[]).unwrap();
+        assert!(!r.changed);
+        assert_eq!(r.ops_applied, 0);
+        assert_eq!(r.modified, "same\n");
+    }
+
+    #[test]
     fn multi_op_prepend() {
         let edits = [ContentEdit::Prepend {
             content: "pre\n".into(),

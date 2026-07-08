@@ -2473,7 +2473,7 @@ fn test_tx_md_replace_section_missing_heading_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(3); // NO_MATCHES (heading not found)
 
     // Original content must be preserved.
     assert_eq!(
@@ -5348,7 +5348,7 @@ fn test_tx_doc_update_no_match_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(3); // NO_MATCHES (selector matched nothing)
 }
 
 #[test]
@@ -7326,7 +7326,7 @@ fn test_tx_ast_rename_directory_no_matches_fails() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(3); // NO_MATCHES (symbol not found)
 
     // File must be unchanged.
     assert_eq!(
@@ -7472,5 +7472,113 @@ fn test_tx_contain_allows_absolute_plan_path_inside_workspace() {
     assert_eq!(
         fs::read_to_string(dir.path().join("abs-plan-created.txt")).unwrap(),
         "from-abs\n"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ast.rewrite_signature (#1459) + NoMatch exit-code parity (MPI 2026-07-08)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_tx_ast_rewrite_signature_apply() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn process(x: i32) {}\n").unwrap();
+    let plan = r#"{
+        "version": 1,
+        "operations": [{
+            "op": "ast.rewrite_signature",
+            "path": "lib.rs",
+            "old": "process",
+            "parameters": "(x: u64)",
+            "return_type": "-> u64"
+        }]
+    }"#;
+    fs::write(dir.path().join("plan.json"), plan).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json", "--apply"])
+        .assert()
+        .code(0);
+
+    let on_disk = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        on_disk.contains("u64"),
+        "signature should be rewritten: {on_disk}"
+    );
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_tx_ast_rewrite_signature_missing_function_exits_3() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn process() {}\n").unwrap();
+    let plan = r#"{
+        "version": 1,
+        "operations": [{
+            "op": "ast.rewrite_signature",
+            "path": "lib.rs",
+            "old": "missing_fn",
+            "parameters": "(x: i32)"
+        }]
+    }"#;
+    fs::write(dir.path().join("plan.json"), plan).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("missing_fn") || err.contains("not found"),
+        "error should name the missing function, got: {err}"
+    );
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_tx_ast_rename_missing_exits_3_with_detail() {
+    // Regression: AST NoMatch used to become operation_failed (exit 9) with
+    // a stripped "operation N failed" message and no symbol name.
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn keep() {}\n").unwrap();
+    let plan = r#"{
+        "version": 1,
+        "operations": [{
+            "op": "ast.rename",
+            "path": "lib.rs",
+            "old": "gone",
+            "new": "here"
+        }]
+    }"#;
+    fs::write(dir.path().join("plan.json"), plan).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("gone") || err.contains("no matches") || err.contains("not found"),
+        "error should identify the missing symbol, got: {err}"
     );
 }

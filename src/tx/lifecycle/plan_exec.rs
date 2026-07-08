@@ -140,6 +140,11 @@ pub fn execute_plan_direct(
     let mut result = match execute_and_collect(&plan, &engine_ctx, true, true, guard) {
         Ok(r) => r,
         Err(e) => {
+            // AST/md no-match must surface as no_matches (exit 3), not
+            // operation_failed (exit 9), with the concrete detail message.
+            if crate::exit::is_no_match(&e) {
+                return Ok(build_error_output("no_matches", &e.to_string(), None));
+            }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
     };

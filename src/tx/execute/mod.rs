@@ -574,12 +574,15 @@ pub(crate) fn execute_and_collect(
             }
             Err(e) => {
                 crate::verbose!("tx: operation {} failed: {e}", i + 1);
+                // Preserve NoMatchError type (exit 3) and include the detail in
+                // the message so agents see "function X not found", not just
+                // "operation N failed" (#1459 rewrite_signature + all AST ops).
                 if e.downcast_ref::<crate::exit::NoMatchError>().is_some() {
-                    return Err(e.context(format!(
-                        "operation {} ({}) failed",
-                        i + 1,
-                        op_label(op)
-                    )));
+                    let detail = e.to_string();
+                    return Err(crate::exit::NoMatchError {
+                        msg: format!("operation {} ({}) failed: {detail}", i + 1, op_label(op)),
+                    }
+                    .into());
                 }
                 anyhow::bail!("operation {} ({}) failed: {e}", i + 1, op_label(op));
             }
