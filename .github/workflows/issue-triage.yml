@@ -1,5 +1,8 @@
-# Issue triage inbox: external reports get needs-triage; org/maintainers skip inbox.
+# Issue triage inbox: external reports get needs-triage; maintainers skip inbox.
 # Accept path: remove needs-triage, add ready (MPI/automation only implement ready).
+#
+# Note: private org members often appear as CONTRIBUTOR (not MEMBER) to
+# GITHUB_TOKEN. Trust write+ collaborator permission as well as association.
 name: Issue Triage
 
 on:
@@ -26,6 +29,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       issues: write
+      # Required for repos.getCollaboratorPermissionLevel under GITHUB_TOKEN.
+      contents: read
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -38,16 +43,44 @@ jobs:
           DISPATCH_ISSUE: ${{ github.event.inputs.issue_number }}
         with:
           script: |
-            const TRUSTED = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+            const TRUSTED_ASSOC = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+            const TRUSTED_PERM = new Set(["admin", "maintain", "write"]);
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            async function ensureLabels(issueNumber, association, existingNames) {
-              const trusted = TRUSTED.has(association);
+            async function isTrusted(login, association) {
+              if (TRUSTED_ASSOC.has(association)) {
+                return { trusted: true, reason: `association=${association}` };
+              }
+              // Private org members often show as CONTRIBUTOR to GITHUB_TOKEN.
+              // Permission level is the reliable signal for maintainers.
+              try {
+                const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner, repo, username: login,
+                });
+                if (TRUSTED_PERM.has(perm.permission)) {
+                  return {
+                    trusted: true,
+                    reason: `permission=${perm.permission} (assoc=${association})`,
+                  };
+                }
+                return {
+                  trusted: false,
+                  reason: `permission=${perm.permission} assoc=${association}`,
+                };
+              } catch (e) {
+                if (e.status === 404) {
+                  return { trusted: false, reason: `not collaborator assoc=${association}` };
+                }
+                throw e;
+              }
+            }
+
+            async function ensureLabels(issueNumber, login, association, existingNames) {
+              const { trusted, reason } = await isTrusted(login, association);
               const names = new Set(existingNames);
 
               if (trusted) {
-                // Maintainer/org-authored issues skip the inbox entirely.
                 if (!names.has("ready")) {
                   await github.rest.issues.addLabels({
                     owner, repo, issue_number: issueNumber, labels: ["ready"],
@@ -62,21 +95,16 @@ jobs:
                     if (e.status !== 404) throw e;
                   }
                 }
-                core.info(
-                  `Issue #${issueNumber}: association=${association} -> ready (skip triage)`,
-                );
+                core.info(`Issue #${issueNumber} (@${login}): ${reason} -> ready (skip triage)`);
                 return;
               }
 
-              // External authors land in the inbox until a maintainer accepts.
               if (!names.has("needs-triage")) {
                 await github.rest.issues.addLabels({
                   owner, repo, issue_number: issueNumber, labels: ["needs-triage"],
                 });
               }
-              core.info(
-                `Issue #${issueNumber}: association=${association} -> needs-triage`,
-              );
+              core.info(`Issue #${issueNumber} (@${login}): ${reason} -> needs-triage`);
             }
 
             if (context.eventName === "workflow_dispatch") {
@@ -90,6 +118,7 @@ jobs:
               });
               await ensureLabels(
                 n,
+                issue.user.login,
                 issue.author_association,
                 (issue.labels || []).map((l) => (typeof l === "string" ? l : l.name)),
               );
@@ -99,6 +128,7 @@ jobs:
             const issue = context.payload.issue;
             await ensureLabels(
               issue.number,
+              issue.user.login,
               issue.author_association,
               (issue.labels || []).map((l) => (typeof l === "string" ? l : l.name)),
             );
