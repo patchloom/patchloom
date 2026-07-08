@@ -102,6 +102,40 @@ fn test_search_no_match_files_from_mentions_files_from_not_dot() {
 }
 
 #[test]
+fn test_search_empty_files_from_does_not_walk_workspace() {
+    // Empty --files-from must not fall back to walking `.` (would match a.txt).
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "unique_token_xyz\n").unwrap();
+    fs::write(dir.path().join("empty.txt"), "").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("empty.txt")
+        .arg("search")
+        .arg("unique_token_xyz")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "empty files-from must yield no matches, not walk workspace"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("unique_token_xyz"),
+        "must not search workspace files when list is empty: {stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--files-from"),
+        "no-match message should mention --files-from: {stderr}"
+    );
+}
+
+#[test]
 fn test_search_jsonl_output_has_path_field() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
