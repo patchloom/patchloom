@@ -530,6 +530,39 @@ mod doc_completeness {
 
         let result = parse_line(r#"ast.replace test.rs my_fn "old" "new""#, 1);
         result.expect("ast.replace should be a valid operation");
+
+        let result = parse_line(
+            r#"ast.rewrite_signature test.rs process "(x: u64)" "-> u64""#,
+            1,
+        );
+        result.expect("ast.rewrite_signature should be a valid operation");
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn parse_line_ast_rewrite_signature() {
+        let op = parse_line(
+            r#"ast.rewrite_signature lib.rs process "(x: u64)" "-> u64""#,
+            1,
+        )
+        .unwrap();
+        match op {
+            crate::plan::Operation::AstRewriteSignature {
+                path,
+                old,
+                parameters,
+                return_type,
+                new_signature,
+                ..
+            } => {
+                assert_eq!(path, "lib.rs");
+                assert_eq!(old, "process");
+                assert_eq!(parameters.as_deref(), Some("(x: u64)"));
+                assert_eq!(return_type.as_deref(), Some("-> u64"));
+                assert!(new_signature.is_none());
+            }
+            other => panic!("expected AstRewriteSignature, got {other:?}"),
+        }
     }
 }
 
