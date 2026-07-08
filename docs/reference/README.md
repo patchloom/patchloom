@@ -306,7 +306,8 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
 - **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 27 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
-- **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
+- **Quoting:** Double-quoted tokens allow only `\"` and `\\`. Sequences like `\n` are **literal** (not newlines). Prefer `tx` / MCP JSON for multi-line content, or put real newlines outside one-line quoted strings.
+- **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, multi-line content, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 
 <!-- ref:command:read -->
@@ -326,9 +327,10 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 ## `status`
 
 - **What it does:** Shows which files have uncommitted changes compared to git HEAD. This command is git-backed, so it must run inside a git repository.
+- **Internal paths:** Entries under `.patchloom/` (backup sessions from `--apply`) are omitted so status reflects user project files, not Patchloom's undo store.
 - **Use when:** An agent needs a quick summary of the working tree before committing, staging, or choosing which files to process. For AI agents, native git status or terminal commands are typically equivalent.
-- **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details.
-- **Related:** `search`, `read`
+- **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details (including untracked `.patchloom/` if you care about it).
+- **Related:** `search`, `read`, `undo`
 
 <!-- ref:command:undo -->
 ## `undo`
