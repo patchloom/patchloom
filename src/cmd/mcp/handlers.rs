@@ -216,6 +216,12 @@ impl PatchloomService {
             if p.pattern.is_empty() {
                 return Err(McpError::invalid_params("pattern must not be empty", None));
             }
+            if p.path.as_ref().is_some_and(|s| s.trim().is_empty()) {
+                return Err(McpError::invalid_params(
+                    "path must not be empty or whitespace-only (use paths for multi-root, or omit for workspace root)",
+                    None,
+                ));
+            }
             validate_param_size("pattern", &p.pattern)?;
             let paths = p.effective_paths();
             for path in &paths {
@@ -610,6 +616,12 @@ impl PatchloomService {
 
             let op_path_prefix = plan.cwd.clone();
             if let Some(ref plan_cwd) = op_path_prefix {
+                if plan_cwd.trim().is_empty() {
+                    return Err(McpError::invalid_params(
+                        "plan.cwd must not be empty or whitespace-only",
+                        None,
+                    ));
+                }
                 if std::path::Path::new(plan_cwd).is_absolute() {
                     return Err(McpError::invalid_params(
                         format!(
