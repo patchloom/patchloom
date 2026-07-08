@@ -870,7 +870,7 @@ Use these when newline and whitespace correctness is the main concern.
 
 - **What it does:** Sets the base directory used to resolve relative paths inside the plan.
 - **Use when:** You need plan operations and lifecycle steps to run from a specific subdirectory under the invocation root.
-- **Important:** Relative values resolve from the invocation working directory (`--cwd` or the process cwd), not from the plan file's directory. In MCP mode, the resolved directory must stay inside the server root. If the resolved path does not exist or is not a directory, the plan is rejected with PARSE_ERROR (exit 4).
+- **Important:** Relative values resolve from the invocation working directory (`--cwd` or the process cwd), not from the plan file's directory. In MCP mode, `plan.cwd` must be a **relative** path under the server workspace root; it is honored for op path re-rooting. Absolute path strings, `../` escapes, and combining `cwd` with `for_each` are rejected as invalid params (not silently stripped). If the resolved path does not exist or is not a directory, the plan is rejected with PARSE_ERROR (exit 4).
 - **Prefer instead:** Use the CLI `--cwd` flag when the directory choice is a caller concern rather than part of the plan itself.
 
 <!-- ref:tx-field:write_policy -->
@@ -931,6 +931,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **Escape mechanism:** Double the braces to produce a literal brace in the output. `{{path}}` becomes `{path}` (not substituted), `{{stem}}` becomes `{stem}`, etc. Use this when operation values must contain literal brace-wrapped text that should not be treated as template variables.
 - **Use when:** The same structural transform (extract tests, add headers, reorder symbols) must be applied to many files matching a glob pattern.
 - **Field value:** Object with `glob` (required), `exclude` (optional array of glob patterns), and `filter` (optional, e.g. `has_symbol(tests)`).
+- **MCP:** Do not set `for_each` together with `plan.cwd` (rejected). Use workspace-relative `{path}` templates without `cwd`.
 - **Failure behavior:** If the glob matches zero files, the plan produces zero operations (success with no changes). If any expanded operation fails, the entire batch rolls back atomically.
 
 ### Transaction operations

@@ -46,6 +46,23 @@ Use patchloom when:
 - For any multi-op or multi-file change, **use `execute_plan`** with an inline plan (or plan_path). It provides atomic execution + rollback, exactly like the CLI `tx` command.
 - Use `batch_replace` or `batch_tidy` only when applying the *exact same* operation to multiple files.
 - Do **not** issue parallel write calls against the same path(s) — per-call success does not guarantee a coherent combined result.
+- Nested trees: set a **relative** `cwd` under the server workspace and keep op paths short. Do not use absolute `cwd` on MCP. Do not combine `cwd` with `for_each`.
+
+Example (edit under a fixture without prefixing every path):
+
+```json
+{
+"plan": {
+"version": 1,
+"cwd": "fixtures/svc",
+"operations": [
+{"op": "doc.set", "path": "configs/app.yaml", "selector": "name", "value": "updated"}
+]
+}
+}
+```
+
+That re-roots to `fixtures/svc/configs/app.yaml` (not a same-named file at the workspace root).
 
 ## Canonical parameter names
 
