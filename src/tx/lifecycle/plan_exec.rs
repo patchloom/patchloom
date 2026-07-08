@@ -92,8 +92,8 @@ pub fn execute_plan_direct(
     // PathGuard enforcement for library callers of execute_plan (addresses #755).
     if let Some(g) = guard {
         // Defense-in-depth: reject plans whose cwd would escape the guard's
-        // workspace root. The MCP handler strips plan.cwd, but library
-        // callers might not.
+        // workspace root (MCP and library callers both honor plan.cwd when
+        // contained; escapes must fail closed).
         if plan.cwd.is_some() {
             let canon_cwd = effective_cwd
                 .canonicalize()

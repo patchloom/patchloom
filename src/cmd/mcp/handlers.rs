@@ -25,6 +25,48 @@ use super::{
     validate_batch_size, validate_content_size, validate_param_size,
 };
 
+/// Validate operation paths when an optional `plan.cwd` re-root is active.
+///
+/// Relative declared paths are checked as `plan_cwd/path` so containment
+/// matches how `execute_plan_direct` will resolve them. Absolute paths are
+/// checked as-is (PathGuard still enforces the workspace root).
+fn validate_op_paths_under_plan_cwd(
+    svc: &PatchloomService,
+    op: &Operation,
+    plan_cwd: Option<&str>,
+) -> Result<(), McpError> {
+    let Some(prefix) = plan_cwd else {
+        return svc.validate_op_paths(op);
+    };
+    let check = |path: &str| -> Result<(), McpError> {
+        let candidate = if std::path::Path::new(path).is_absolute() {
+            path.to_string()
+        } else {
+            format!(
+                "{}/{}",
+                prefix.trim_end_matches('/'),
+                path.trim_start_matches('/')
+            )
+        };
+        svc.check_path(&candidate)
+    };
+    for declared in op.declared_paths() {
+        check(&declared)?;
+    }
+    if let Operation::PatchApply { diff, .. } = op {
+        let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
+            McpError::invalid_params(
+                format!("failed to parse diff for path validation: {e}"),
+                None,
+            )
+        })?;
+        for pf in &patch_files {
+            check(&pf.path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Create a new tool router with all hand-written `#[tool]` handlers registered.
 ///
 /// This wraps the `#[tool_router]`-generated private `tool_router()` method
@@ -529,7 +571,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Strongly recommended for any multi-file or multi-op work to prevent races and ensure atomicity/rollback. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples."
+        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Optional plan.cwd re-roots relative op paths under the server workspace (must stay inside the PathGuard root; escapes are rejected). plan.format/validate lifecycle shell steps are ignored on MCP (use project config). Strongly recommended for multi-file or multi-op work. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples."
     )]
     async fn execute_plan(
         &self,
@@ -554,27 +596,40 @@ impl PatchloomService {
                 ));
             };
 
+            // Honor plan.cwd when it stays inside the MCP workspace (relative or
+            // absolute under the server root). Reject escapes with a hard error
+            // rather than silently stripping cwd (#1465). Lifecycle shell steps
+            // remain stripped (format/validate); see #1142.
+            let op_path_prefix = plan.cwd.clone();
+            if let Some(ref plan_cwd) = op_path_prefix {
+                svc.check_path(plan_cwd).map_err(|e| {
+                    McpError::invalid_params(
+                        format!(
+                            "plan.cwd '{plan_cwd}' rejected (must resolve inside the MCP workspace): {e}"
+                        ),
+                        None,
+                    )
+                })?;
+            }
+
             // Expand for_each (glob-driven batch) before path validation.
+            // Globs resolve from the server root; plan.cwd then re-roots ops.
             if plan.for_each.is_some() {
                 crate::plan::expand_for_each(&mut plan, svc.cwd()).map_err(|e| {
                     McpError::invalid_params(format!("for_each expansion failed: {e}"), None)
                 })?;
             }
 
-            // Validate every path declared by operations against the PathGuard
-            // (including special handling for paths embedded in PatchApply diffs).
+            // Validate every path declared by operations against the PathGuard.
+            // When plan.cwd is set, short op paths are relative to that re-root,
+            // so check join(plan.cwd, path) (still under the workspace).
             for op in &plan.operations {
-                svc.validate_op_paths(op)?;
+                validate_op_paths_under_plan_cwd(svc, op, op_path_prefix.as_deref())?;
             }
 
             // The `strict` parameter from the MCP invocation always controls the execution
             // (it defaults to true). This provides a simple, predictable experience for agents.
             plan.strict = Some(p.strict);
-
-            // Strip plan.cwd to prevent containment bypass: a plan with
-            // cwd="/etc" would resolve relative paths against /etc instead
-            // of the workspace, escaping the PathGuard.
-            plan.cwd = None;
 
             // Strip lifecycle steps to prevent arbitrary command execution.
             // Format/validate commands run unrestricted shell processes,
