@@ -489,27 +489,27 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
+        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
     )]
     async fn batch_replace(
         &self,
         Parameters(p): Parameters<BatchReplaceParams>,
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
-            if p.files.is_empty() {
+            let files = p.effective_files();
+            if files.is_empty() {
                 return Err(McpError::invalid_params(
-                    "files array must not be empty",
+                    "files array must not be empty (or pass singular file)",
                     None,
                 ));
             }
-            validate_batch_size("files", p.files.len())?;
+            validate_batch_size("files", files.len())?;
             validate_param_size("old", &p.old)?;
             validate_content_size("new", &p.new_text)?;
-            for f in &p.files {
+            for f in &files {
                 svc.check_path(f)?;
             }
-            let ops: Vec<Operation> = p
-                .files
+            let ops: Vec<Operation> = files
                 .into_iter()
                 .map(|file| Operation::Replace {
                     glob: None,
@@ -537,25 +537,25 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
+        description = "Fix whitespace in multiple files in one call: trims trailing spaces and ensures final newline. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"src/main.rs\", \"src/lib.rs\"]}"
     )]
     async fn batch_tidy(
         &self,
         Parameters(p): Parameters<BatchTidyParams>,
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
-            if p.files.is_empty() {
+            let files = p.effective_files();
+            if files.is_empty() {
                 return Err(McpError::invalid_params(
-                    "files array must not be empty",
+                    "files array must not be empty (or pass singular file)",
                     None,
                 ));
             }
-            validate_batch_size("files", p.files.len())?;
-            for f in &p.files {
+            validate_batch_size("files", files.len())?;
+            for f in &files {
                 svc.check_path(f)?;
             }
-            let ops: Vec<Operation> = p
-                .files
+            let ops: Vec<Operation> = files
                 .into_iter()
                 .map(|file| Operation::TidyFix {
                     path: file,
