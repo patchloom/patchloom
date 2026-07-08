@@ -378,12 +378,12 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 <!-- ref:command:init -->
 ## `init`
 
-- **What it does:** Sets up patchloom in the current project: creates `AGENTS.md` if needed, otherwise appends the rules to an existing agent instructions file, prints shell completion instructions, and detects MCP configuration opportunities. When `.vscode/` or `.cursor/` already exists, it prints ready-to-copy `.vscode/mcp.json` or `.cursor/mcp.json` snippets.
+- **What it does:** Sets up patchloom in the current project: creates `AGENTS.md` if needed, otherwise appends the rules to an existing agent instructions file, prints shell completion instructions, detects MCP configuration opportunities, and ensures `.gitignore` ignores `.patchloom/` (undo backups). When `.vscode/` or `.cursor/` already exists, it prints ready-to-copy `.vscode/mcp.json` or `.cursor/mcp.json` snippets.
 - **Use when:** You just installed patchloom and want a single command to configure a project instead of running `agent-rules`, `completions`, and MCP setup separately.
 - **Notable flags:**
   - `-y, --yes`: Skip confirmation prompts and auto-accept all actions.
 - **Prefer instead:** `agent-rules` if you only need the rules text, or `completions` if you only need shell completions.
-- **Related:** `agent-rules`, `completions`, `mcp-server`
+- **Related:** `agent-rules`, `completions`, `mcp-server`, `status`, `undo`
 
 <!-- ref:command:mcp-server -->
 ## `mcp-server`

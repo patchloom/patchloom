@@ -88,7 +88,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Task pattern | Tool to use |\n\
              |---|---|\n\
              | Read file contents (with optional line range) | `read_file` |\n\
-             | See uncommitted changes vs git HEAD | `git_status` |\n\
+             | See uncommitted changes vs git HEAD (omits `.patchloom/` backups) | `git_status` |\n\
              | Set/get a value in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |\n\
              | Delete, merge, or ensure a value exists | `doc_delete`, `doc_merge`, `doc_ensure` |\n\
              | Compare two structured files | `doc_diff` |\n\
@@ -187,7 +187,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  md.upsert_bullet CHANGELOG.md \"## Changes\" \"- Bumped to 2.0.0\"\n\
                  EOF\n\
                  ```\n\n\
-                 One line per operation. Double-quote values with spaces.\n\n",
+                 One line per operation. Double-quote values with spaces. Escapes in quotes: only `\\\"` and `\\\\` \
+                 (literal `\\n` is not a newline; use `tx`/MCP JSON for multi-line content).\n\n",
             );
         }
 
@@ -204,7 +205,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             );
             if !show_linux {
                 out.push_str(
-                    "One line per operation in the file. Double-quote values with spaces.\n\n",
+                    "One line per operation in the file. Double-quote values with spaces. Escapes: only `\\\"` and `\\\\` \
+                     (use `tx`/MCP for multi-line content).\n\n",
                 );
             }
         }
@@ -505,6 +507,14 @@ mod tests {
         assert!(
             out.contains("meta-input") || out.contains("meta-input files"),
             "must document that --contain applies to meta-input files"
+        );
+        assert!(
+            out.contains("omits `.patchloom/` backups") || out.contains("omits `.patchloom/"),
+            "git_status tool guide must note backup omission: {out}"
+        );
+        assert!(
+            out.contains("multi-line content") || out.contains(r#"\\\""#),
+            "batch section must document quote escapes / multi-line guidance"
         );
     }
 

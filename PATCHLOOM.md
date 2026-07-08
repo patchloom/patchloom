@@ -10,7 +10,7 @@
 | Task pattern | Tool to use |
 |---|---|
 | Read file contents (with optional line range) | `read_file` |
-| See uncommitted changes vs git HEAD | `git_status` |
+| See uncommitted changes vs git HEAD (omits `.patchloom/` backups) | `git_status` |
 | Set/get a value in JSON, YAML, or TOML | `doc_set`, `doc_get`, `doc_query` |
 | Delete, merge, or ensure a value exists | `doc_delete`, `doc_merge`, `doc_ensure` |
 | Compare two structured files | `doc_diff` |
@@ -94,7 +94,7 @@ md.upsert_bullet CHANGELOG.md "## Changes" "- Bumped to 2.0.0"
 EOF
 ```
 
-One line per operation. Double-quote values with spaces.
+One line per operation. Double-quote values with spaces. Escapes in quotes: only `\"` and `\\` (literal `\n` is not a newline; use `tx`/MCP JSON for multi-line content).
 
 On Windows (where heredocs are not available), write operations to a file and pass it:
 
