@@ -676,7 +676,7 @@ impl PatchloomService {
     // are auto-generated from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
     #[tool(
-        description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. No parameters required."
+        description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. Omits .patchloom/ backup paths from --apply undo sessions. No parameters required."
     )]
     async fn git_status(
         &self,

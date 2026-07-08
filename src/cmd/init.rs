@@ -126,8 +126,18 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         eprintln!("  patchloom completions <bash|zsh|fish|elvish>");
     }
 
+    // 3. Keep undo backups out of git noise (pairs with `status` filtering).
+    match ensure_gitignore_patchloom(&cwd) {
+        Ok(GitignorePatchloom::Created) => status!("created .gitignore with .patchloom/"),
+        Ok(GitignorePatchloom::Appended) => status!("appended .patchloom/ to .gitignore"),
+        Ok(GitignorePatchloom::AlreadyPresent) => {
+            status!(".gitignore already ignores .patchloom/");
+        }
+        Err(e) => status!("could not update .gitignore: {e}"),
+    }
+
     if !quiet {
-        // 3. MCP setup hint.
+        // 4. MCP setup hint.
         eprintln!();
         if cfg!(feature = "mcp") {
             let mcp_json_hint = r#"    { "servers": { "patchloom": { "command": "patchloom", "args": ["mcp-server"] } } }"#;
@@ -156,6 +166,51 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         eprintln!("setup complete.");
     }
     Ok(exit::SUCCESS)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum GitignorePatchloom {
+    Created,
+    Appended,
+    AlreadyPresent,
+}
+
+const GITIGNORE_PATCHLOOM_LINE: &str = ".patchloom/";
+
+/// Ensure `.gitignore` ignores Patchloom backup sessions so `git status`
+/// stays clean after `--apply` (CLI `status` already filters these paths).
+fn ensure_gitignore_patchloom(cwd: &Path) -> anyhow::Result<GitignorePatchloom> {
+    let path = cwd.join(".gitignore");
+    if path.exists() {
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        if gitignore_already_covers_patchloom(&content) {
+            return Ok(GitignorePatchloom::AlreadyPresent);
+        }
+        let mut next = content;
+        if !next.ends_with('\n') && !next.is_empty() {
+            next.push('\n');
+        }
+        next.push_str(GITIGNORE_PATCHLOOM_LINE);
+        next.push('\n');
+        std::fs::write(&path, next).with_context(|| format!("writing {}", path.display()))?;
+        return Ok(GitignorePatchloom::Appended);
+    }
+    let body =
+        format!("# Patchloom undo sessions (created by --apply)\n{GITIGNORE_PATCHLOOM_LINE}\n");
+    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+    Ok(GitignorePatchloom::Created)
+}
+
+fn gitignore_already_covers_patchloom(content: &str) -> bool {
+    content.lines().any(|line| {
+        let t = line.trim();
+        t == ".patchloom/"
+            || t == ".patchloom"
+            || t == "**/.patchloom/"
+            || t == "**/.patchloom"
+            || t.starts_with(".patchloom/")
+    })
 }
 
 fn find_agent_file(cwd: &Path) -> Option<std::path::PathBuf> {
@@ -280,6 +335,34 @@ mod tests {
     fn find_agent_file_none_in_empty_dir() {
         let dir = tempfile::TempDir::new().unwrap();
         assert!(find_agent_file(dir.path()).is_none());
+    }
+
+    #[test]
+    fn ensure_gitignore_creates_when_missing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert_eq!(
+            ensure_gitignore_patchloom(dir.path()).unwrap(),
+            GitignorePatchloom::Created
+        );
+        let content = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(content.contains(GITIGNORE_PATCHLOOM_LINE));
+        assert_eq!(
+            ensure_gitignore_patchloom(dir.path()).unwrap(),
+            GitignorePatchloom::AlreadyPresent
+        );
+    }
+
+    #[test]
+    fn ensure_gitignore_appends_when_present_without_entry() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "target/\n").unwrap();
+        assert_eq!(
+            ensure_gitignore_patchloom(dir.path()).unwrap(),
+            GitignorePatchloom::Appended
+        );
+        let content = std::fs::read_to_string(dir.path().join(".gitignore")).unwrap();
+        assert!(content.contains("target/"));
+        assert!(content.contains(GITIGNORE_PATCHLOOM_LINE));
     }
 
     #[test]

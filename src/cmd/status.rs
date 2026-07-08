@@ -9,7 +9,11 @@ use std::process;
 #[command(after_help = "\
 EXAMPLES:
   patchloom status
-  patchloom status --json")]
+  patchloom status --json
+
+NOTE:
+  Paths under .patchloom/ (undo backups from --apply) are omitted so status
+  reflects project files only. Use git status if you need untracked backups.")]
 pub struct StatusArgs {
     /// Paths to check (defaults to current directory).
     pub paths: Vec<String>,
