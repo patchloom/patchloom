@@ -70,6 +70,20 @@ mod basic {
                 "ast_rename must warn about concurrent writes / execute_plan (#1468): {ast_rename_desc}"
             );
         }
+        // Registry write tools (and multi-file custom writers) must carry concurrent guidance.
+        for tool in [
+            "doc_set",
+            "doc_merge",
+            "create_file",
+            "batch_tidy",
+            "apply_patch",
+        ] {
+            let desc = descriptions.get(tool).copied().unwrap_or("");
+            assert!(
+                desc.contains("concurrent") && desc.contains("execute_plan"),
+                "{tool} must warn about concurrent writes / execute_plan: {desc}"
+            );
+        }
         assert!(names.contains(&"git_status"), "missing git_status tool");
         assert!(names.contains(&"replace_text"), "missing replace_text tool");
         assert_eq!(
@@ -83,12 +97,11 @@ mod basic {
             names.contains(&"fix_whitespace"),
             "missing fix_whitespace tool"
         );
-        let expected_fix_ws = crate::schema::mcp_tool_description(
-            "tidy.fix",
-            Some(
-                "Defaults: trim trailing whitespace and ensure final newline when those fields are omitted.",
-            ),
-        );
+        let fix_ws_extra = crate::cmd::mcp::registry::MCP_TOOL_REGISTRY
+            .iter()
+            .find(|t| t.tool_name == "fix_whitespace")
+            .and_then(|t| t.extra);
+        let expected_fix_ws = crate::schema::mcp_tool_description("tidy.fix", fix_ws_extra);
         assert_eq!(
             descriptions.get("fix_whitespace").map(|s| s.to_string()),
             Some(expected_fix_ws),

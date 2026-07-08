@@ -72,7 +72,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_delete",
         op_name: "doc.delete",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -82,7 +84,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_merge",
         op_name: "doc.merge",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -92,7 +96,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_append",
         op_name: "doc.append",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -103,7 +109,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_prepend",
         op_name: "doc.prepend",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -114,7 +122,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_ensure",
         op_name: "doc.ensure",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -126,7 +136,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "doc_delete_where",
         op_name: "doc.delete_where",
         extra: Some(
-            "For object arrays: predicate='role=admin'. For simple arrays: predicate='_=value'. Nested paths: predicate='settings.theme=dark'.",
+            "For object arrays: predicate='role=admin'. For simple arrays: predicate='_=value'. Nested paths: predicate='settings.theme=dark'. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
         validations: &[
@@ -138,7 +148,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_update",
         op_name: "doc.update",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -149,7 +161,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "doc_move",
         op_name: "doc.move",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -167,7 +181,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_upsert_bullet",
         op_name: "md.upsert_bullet",
-        extra: Some("Idempotent: skipped if the bullet is already present."),
+        extra: Some(
+            "Idempotent: skipped if the bullet is already present. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -177,7 +193,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_table_append",
         op_name: "md.table_append",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -187,7 +205,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_replace_section",
         op_name: "md.replace_section",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -197,7 +217,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_insert_after_heading",
         op_name: "md.insert_after_heading",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -207,7 +229,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_insert_before_heading",
         op_name: "md.insert_before_heading",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -217,21 +241,27 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "md_dedupe_headings",
         op_name: "md.dedupe_headings",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },
     McpToolMeta {
         tool_name: "move_file",
         op_name: "file.rename",
-        extra: Some("Use force=true to overwrite an existing destination."),
+        extra: Some(
+            "Use force=true to overwrite an existing destination. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[FieldValidation::Path("from"), FieldValidation::Path("to")],
     },
     McpToolMeta {
         tool_name: "append_file",
         op_name: "file.append",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -241,7 +271,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "prepend_file",
         op_name: "file.prepend",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -251,7 +283,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "create_file",
         op_name: "file.create",
-        extra: Some("Fails if the file exists unless force=true."),
+        extra: Some(
+            "Fails if the file exists unless force=true. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[
             FieldValidation::Path("path"),
@@ -261,7 +295,9 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
     McpToolMeta {
         tool_name: "delete_file",
         op_name: "file.delete",
-        extra: None,
+        extra: Some(
+            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },
@@ -271,7 +307,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "fix_whitespace",
         op_name: "tidy.fix",
         extra: Some(
-            "Defaults: trim trailing whitespace and ensure final newline when those fields are omitted.",
+            "Defaults: trim trailing whitespace and ensure final newline when those fields are omitted. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
