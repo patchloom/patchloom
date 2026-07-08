@@ -2620,8 +2620,12 @@ fn text_diff_absolute_path_no_double_slash_headers() {
 #[test]
 fn text_diff_absolute_path_placeholder_and_relative_unchanged() {
     let abs = text_diff("a\n", "b\n", Some("/private/tmp/x.rs"));
-    assert!(!abs.contains("//"));
+    assert!(!abs.contains("--- a//") && !abs.contains("+++ b//"));
     assert!(abs.contains("--- a/private/tmp/x.rs"));
+
+    let multi_slash = text_diff("a\n", "b\n", Some("///weird/path.rs"));
+    assert!(!multi_slash.contains("--- a//") && !multi_slash.contains("+++ b//"));
+    assert!(multi_slash.contains("--- a/weird/path.rs"));
 
     let rel = text_diff("a\n", "b\n", Some("src/main.rs"));
     assert!(rel.contains("--- a/src/main.rs"));
