@@ -71,6 +71,37 @@ fn test_search_no_match_quiet_suppresses_stderr() {
 }
 
 #[test]
+fn test_search_no_match_files_from_mentions_files_from_not_dot() {
+    // When the file list is --files-from, "no matches in ." is wrong: search never
+    // walked the workspace root. Scope description must name --files-from.
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    let list = dir.path().join("list.txt");
+    fs::write(&list, "missing.txt\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("list.txt")
+        .arg("search")
+        .arg("hello")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no matches") && stderr.contains("--files-from"),
+        "stderr should mention --files-from, not bare '.', got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("in ."),
+        "must not claim workspace root walk when using --files-from: {stderr}"
+    );
+}
+
+#[test]
 fn test_search_jsonl_output_has_path_field() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("hello.txt"), "hello world\n").unwrap();
