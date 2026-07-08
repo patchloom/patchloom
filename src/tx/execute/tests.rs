@@ -399,3 +399,48 @@ fn read_only_files_skip_write_policy() {
         "file on disk should be unchanged"
     );
 }
+
+#[test]
+fn execute_and_collect_preserves_no_match_error_kind() {
+    // Missing doc.update target must remain NoMatchError (exit 3 path), not
+    // a plain anyhow operation_failed, even after op-label wrapping.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    std::fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    let plan = Plan {
+        version: crate::plan::SCHEMA_VERSION,
+        operations: vec![Operation::DocUpdate {
+            path: "data.json".into(),
+            selector: "missing.key".into(),
+            value: serde_json::json!(2),
+        }],
+        write_policy: None,
+        strict: None,
+        format: None,
+        validate: None,
+        verify: None,
+        cwd: None,
+        for_each: None,
+    };
+    let ctx = crate::tx::context::EngineContext::from_global(
+        &GlobalFlags::default(),
+        dir.path().to_path_buf(),
+    );
+    match execute_and_collect(&plan, &ctx, true, false, None) {
+        Ok(_) => panic!("expected NoMatch for missing selector"),
+        Err(err) => {
+            assert!(
+                crate::exit::is_no_match(&err),
+                "NoMatch must survive execute wrap: {err:#}"
+            );
+            let msg = err.to_string();
+            assert!(
+                msg.contains("doc.update")
+                    || msg.contains("matched nothing")
+                    || msg.contains("missing"),
+                "detail should remain: {msg}"
+            );
+        }
+    }
+}
