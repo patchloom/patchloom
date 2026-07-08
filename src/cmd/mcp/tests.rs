@@ -58,10 +58,18 @@ mod basic {
         assert_eq!(
             descriptions.get("search_files"),
             Some(
-                &"Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for Bline parity: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".blineignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
+                &"Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for Bline parity: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".blineignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
             ),
             "search_files description drifted"
         );
+        #[cfg(feature = "ast")]
+        {
+            let ast_rename_desc = descriptions.get("ast_rename").copied().unwrap_or("");
+            assert!(
+                ast_rename_desc.contains("execute_plan") && ast_rename_desc.contains("concurrent"),
+                "ast_rename must warn about concurrent writes / execute_plan (#1468): {ast_rename_desc}"
+            );
+        }
         assert!(names.contains(&"git_status"), "missing git_status tool");
         assert!(names.contains(&"replace_text"), "missing replace_text tool");
         assert_eq!(
@@ -181,6 +189,38 @@ mod basic {
             serde_json::from_str(json).expect("SearchParams deserial with new ignore/max fields");
         assert_eq!(p.globs.len(), 1);
         assert_eq!(p.max_results, 10);
+    }
+
+    #[test]
+    fn search_params_path_alias_maps_to_paths() {
+        // #1467: singular path is LLM prior (matches other tools).
+        let p: SearchParams = serde_json::from_str(r#"{"pattern": "TODO", "path": "src/lib.rs"}"#)
+            .expect("path alias should deserialize");
+        assert_eq!(p.effective_paths(), vec!["src/lib.rs".to_string()]);
+        assert!(p.paths.is_empty());
+        assert_eq!(p.path.as_deref(), Some("src/lib.rs"));
+    }
+
+    #[test]
+    fn search_params_paths_wins_over_path() {
+        let p: SearchParams = serde_json::from_str(
+            r#"{"pattern": "TODO", "paths": ["a/", "b/"], "path": "ignored/"}"#,
+        )
+        .expect("both path and paths should deserialize");
+        assert_eq!(
+            p.effective_paths(),
+            vec!["a/".to_string(), "b/".to_string()]
+        );
+    }
+
+    #[test]
+    fn search_params_unknown_field_still_rejected() {
+        let err = serde_json::from_str::<SearchParams>(r#"{"pattern": "TODO", "root": "src/"}"#)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("unknown field") || err.to_string().contains("root"),
+            "deny_unknown_fields must still reject unrelated keys: {err}"
+        );
     }
 
     #[tokio::test]
@@ -382,8 +422,9 @@ mod basic {
             Check {
                 op_name: "search",
                 mcp_keys: schema_keys_for::<SearchParams>(),
+                // path is shared with Operation; paths/files_with_matches/count/literal are MCP-shaped
                 mcp_only_allowed: &["paths", "files_with_matches", "count", "literal"],
-                op_only_allowed: &["path", "regex"],
+                op_only_allowed: &["regex"],
             },
         ];
 

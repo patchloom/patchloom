@@ -194,7 +194,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for Bline parity: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".blineignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
+        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for Bline parity: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".blineignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
     )]
     async fn search_files(
         &self,
@@ -217,7 +217,8 @@ impl PatchloomService {
                 return Err(McpError::invalid_params("pattern must not be empty", None));
             }
             validate_param_size("pattern", &p.pattern)?;
-            for path in &p.paths {
+            let paths = p.effective_paths();
+            for path in &paths {
                 svc.check_path(path)?;
             }
             // Validate custom ignore filenames too (new in #821 for layered ignores).
@@ -227,11 +228,7 @@ impl PatchloomService {
             }
             let search_args = crate::cmd::search::SearchArgs {
                 pattern: p.pattern,
-                paths: if p.paths.is_empty() {
-                    vec![".".into()]
-                } else {
-                    p.paths
-                },
+                paths,
                 literal: p.literal,
                 regex: !p.literal,
                 context: p.context,
@@ -486,7 +483,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
+        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
     )]
     async fn batch_replace(
         &self,
@@ -735,7 +732,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). Example: {\"path\": \"src/\", \"old\": \"process_data\", \"new\": \"transform_data\"}"
+        description = "Rename identifiers across files using AST-aware renaming (skips strings and comments). IMPORTANT: do NOT issue concurrent renames (or other writes) against the same file or directory tree; use execute_plan for multi-op atomicity (e.g. multiple renames). Example: {\"path\": \"src/\", \"old\": \"process_data\", \"new\": \"transform_data\"}"
     )]
     async fn ast_rename(
         &self,
@@ -823,7 +820,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
+        description = "Replace text only within a specific symbol's body using AST scoping. Precise: only changes code inside the named symbol, leaving everything else untouched. IMPORTANT: do NOT issue concurrent writes against the same file or directory tree; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/lib.rs\", \"symbol\": \"parse_config\", \"old\": \"unwrap()\", \"new\": \"expect(\\\"parse failed\\\")\"}"
     )]
     async fn ast_replace(
         &self,
@@ -900,7 +897,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Move symbols between files. Removes from source, inserts into target (creating it if needed). Example: {\"path\": \"src/big.rs\", \"target\": \"src/helpers.rs\", \"symbols\": [\"helper_fn\"], \"target_prepend\": \"use super::*;\"}"
+        description = "Move symbols between files. Removes from source, inserts into target (creating it if needed). IMPORTANT: do NOT issue concurrent moves/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"path\": \"src/big.rs\", \"target\": \"src/helpers.rs\", \"symbols\": [\"helper_fn\"], \"target_prepend\": \"use super::*;\"}"
     )]
     async fn ast_move(
         &self,
@@ -911,7 +908,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Extract a symbol (module, function, struct) to a separate file. For modules with unwrap=true, content is un-indented. Example: {\"source\": \"src/lib.rs\", \"symbol\": \"tests\", \"target\": \"src/lib_tests.rs\", \"replacement\": \"mod tests;\", \"prepend\": \"use super::*;\"}"
+        description = "Extract a symbol (module, function, struct) to a separate file. For modules with unwrap=true, content is un-indented. IMPORTANT: do NOT issue concurrent extracts/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"source\": \"src/lib.rs\", \"symbol\": \"tests\", \"target\": \"src/lib_tests.rs\", \"replacement\": \"mod tests;\", \"prepend\": \"use super::*;\"}"
     )]
     async fn ast_extract_to_file(
         &self,
@@ -922,7 +919,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Split a file into multiple target files by distributing symbols. Atomic: all targets succeed or all roll back. Example: {\"source\": \"src/big.rs\", \"targets\": [{\"path\": \"src/types.rs\", \"symbols\": [\"Config\", \"Mode\"], \"prepend\": \"use super::*;\"}], \"keep_in_source\": [\"main\"], \"source_suffix\": \"mod types;\"}"
+        description = "Split a file into multiple target files by distributing symbols. Atomic: all targets succeed or all roll back. IMPORTANT: do NOT issue concurrent splits/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"source\": \"src/big.rs\", \"targets\": [{\"path\": \"src/types.rs\", \"symbols\": [\"Config\", \"Mode\"], \"prepend\": \"use super::*;\"}], \"keep_in_source\": [\"main\"], \"source_suffix\": \"mod types;\"}"
     )]
     async fn ast_split(
         &self,

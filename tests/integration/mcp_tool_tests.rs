@@ -330,6 +330,46 @@ async fn test_mcp_doc_get_reads_value() {
     client.cancel().await.unwrap();
 }
 
+/// #1467: singular `path` is accepted as an alias for `paths: [path]`.
+#[tokio::test]
+async fn test_mcp_search_files_accepts_path_alias() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("fixtures").join("ast-rename");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("svc.py"), "class OrderService:\n    pass\n").unwrap();
+    fs::write(
+        dir.path().join("root.py"),
+        "class OrderService:\n    pass\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, text) = call_tool_text(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "OrderService",
+            "path": "fixtures/ast-rename",
+            "literal": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "path alias must deserialize and run: {text}");
+    assert!(
+        text.contains("OrderService") || text.contains("svc.py"),
+        "should find match under path alias root: {text}"
+    );
+    // Should not search workspace root when path is nested.
+    assert!(
+        !text.contains("root.py"),
+        "search should be scoped to path alias root, not workspace root: {text}"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// Regression test for #939 / #1270: search_files with zero matches must
 /// return a descriptive "No matches found." message as a success (isError:
 /// false), not an error. Empty results are valid answers, not failures.

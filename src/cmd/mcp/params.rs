@@ -120,8 +120,14 @@ pub(crate) struct SearchParams {
     /// Pattern to search for.
     pub pattern: String,
     /// Paths to search in, relative to working directory (defaults to working directory root).
+    /// Canonical multi-root form. Prefer this when searching multiple roots.
     #[serde(default)]
     pub paths: Vec<String>,
+    /// Single search root (LLM prior: most MCP tools use singular `path`).
+    /// Equivalent to `paths: [path]` when `paths` is empty. If both are set,
+    /// `paths` wins.
+    #[serde(default)]
+    pub path: Option<String>,
     /// Treat pattern as a literal string instead of regex.
     #[serde(default)]
     pub literal: bool,
@@ -160,6 +166,19 @@ pub(crate) struct SearchParams {
     /// Max detailed results (0 = unlimited).
     #[serde(default)]
     pub max_results: usize,
+}
+
+impl SearchParams {
+    /// Resolve search roots: non-empty `paths` wins; else single `path`; else cwd root.
+    pub(crate) fn effective_paths(&self) -> Vec<String> {
+        if !self.paths.is_empty() {
+            self.paths.clone()
+        } else if let Some(ref path) = self.path {
+            vec![path.clone()]
+        } else {
+            vec![".".into()]
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
