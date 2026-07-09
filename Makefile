@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -142,6 +142,9 @@ bench-agent-report: ## Generate comparison report from saved agent benchmark res
 
 audit: ## Run cargo audit for known vulnerabilities (requires cargo-audit)
 	cargo audit
+
+deny: ## Run cargo deny check (licenses/bans/sources; requires cargo-deny)
+	cargo deny check
 
 FUZZ_TIME ?= 60
 

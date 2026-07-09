@@ -37,6 +37,7 @@ jobs:
             code:
               - 'src/**'
               - 'Cargo.*'
+              - 'deny.toml'
               - 'tests/**'
               - 'Makefile'
               - 'fuzz/**'
@@ -528,17 +529,43 @@ jobs:
       - name: Run audit
         run: cargo audit
 
+  # Enforce deny.toml (licenses/bans/sources) so the allowlist cannot rot silently.
+  # FOSSA remains the license compliance product; cargo-audit remains the advisory scanner.
+  # cargo-deny here locks policy in-repo (addresses #1485).
+  deny:
+    needs: [changes]
+    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2
+        with:
+          tool: cargo-deny
+
+      - name: Run cargo deny
+        run: cargo deny check
+
   ci:
     # Lightweight gate that satisfies the "ci" required status check.
     # Reports success when build-and-test passes OR was skipped (docs-only PR).
-    needs: [build-and-test, ci-windows, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit]
+    needs: [build-and-test, ci-windows, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
       - name: Gate
         run: |
-          results=("$BUILD" "$WINDOWS" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT")
+          results=("$BUILD" "$WINDOWS" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY")
           for r in "${results[@]}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "Upstream job failed or was cancelled: $r"
@@ -556,3 +583,4 @@ jobs:
           FUZZ: ${{ needs.fuzz.result }}
           AGENT: ${{ needs.agent-dry-run.result }}
           AUDIT: ${{ needs.audit.result }}
+          DENY: ${{ needs.deny.result }}
