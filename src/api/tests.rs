@@ -4086,8 +4086,16 @@ fn ast_rename_batch_two_files_success() {
     };
     let results = ast_rename_batch(&[&a, &b], "foo", "bar", &opts, None).unwrap();
     assert_eq!(results.len(), 2);
-    assert!(results[0].result.as_ref().unwrap().changed);
-    assert!(results[1].result.as_ref().unwrap().changed);
+    let r0 = results[0]
+        .result
+        .as_ref()
+        .expect("first file should rename");
+    let r1 = results[1]
+        .result
+        .as_ref()
+        .expect("second file should rename");
+    assert!(r0.changed);
+    assert!(r1.changed);
     assert!(fs::read_to_string(&a).unwrap().contains("bar"));
     assert!(fs::read_to_string(&b).unwrap().contains("bar"));
 }
@@ -4108,8 +4116,11 @@ fn ast_rename_batch_continue_on_no_match() {
     };
     let results = ast_rename_batch(&[&a, &b], "foo", "bar", &opts, None).unwrap();
     assert_eq!(results.len(), 2);
-    assert!(results[0].result.is_ok());
-    let err = results[1].result.as_ref().unwrap_err();
+    results[0]
+        .result
+        .as_ref()
+        .expect("matching file should rename");
+    let err = results[1].result.as_ref().expect_err("no-match file");
     assert_eq!(err.kind, EditErrorKind::NoMatch);
     assert!(fs::read_to_string(&a).unwrap().contains("bar"));
     assert!(fs::read_to_string(&b).unwrap().contains("other"));
@@ -4127,7 +4138,13 @@ fn ast_rename_batch_dedupes_paths() {
     };
     let results = ast_rename_batch(&[&a, &a, &a], "foo", "bar", &opts, None).unwrap();
     assert_eq!(results.len(), 1, "duplicate paths processed once");
-    assert!(results[0].result.as_ref().unwrap().changed);
+    assert!(
+        results[0]
+            .result
+            .as_ref()
+            .expect("deduped path should rename")
+            .changed
+    );
     // Preview: disk unchanged
     assert_eq!(fs::read_to_string(&a).unwrap(), "fn foo() {}\n");
 }
@@ -4168,9 +4185,16 @@ fn ast_rename_batch_fail_fast_stops_after_hard_error() {
     )
     .unwrap();
     assert_eq!(results.len(), 2, "fail_fast should stop before third path");
-    assert!(results[0].result.is_ok());
+    results[0]
+        .result
+        .as_ref()
+        .expect("in-workspace file should rename");
     assert_eq!(
-        results[1].result.as_ref().unwrap_err().kind,
+        results[1]
+            .result
+            .as_ref()
+            .expect_err("outside path should be guard rejected")
+            .kind,
         EditErrorKind::GuardRejected
     );
     assert!(
