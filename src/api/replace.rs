@@ -370,7 +370,7 @@ pub fn replace_in_content(
         let ctx_content = format!(
             "{}{}{}",
             &content[..target_offset],
-            &replacement,
+            replacement,
             &content[target_offset + from.len()..],
         );
         let diff = super::make_diff("<content>", content, &ctx_content);

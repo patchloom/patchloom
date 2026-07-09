@@ -122,7 +122,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 let new_content = format!(
                     "{}{}{}",
                     &content[..target_offset],
-                    &replacement,
+                    replacement,
                     &content[target_offset + old.len()..],
                 );
                 update_file_content(
