@@ -319,8 +319,91 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
 
-        _ => anyhow::bail!("line {line_num}: unknown operation '{op}'"),
+        _ => anyhow::bail!("{}", unknown_batch_op_msg(line_num, op)),
     }
+}
+
+/// Batch op names accepted by [`parse_line`] (for "did you mean?" suggestions).
+const KNOWN_BATCH_OPS: &[&str] = &[
+    "doc.set",
+    "doc.delete",
+    "doc.merge",
+    "doc.ensure",
+    "doc.append",
+    "doc.prepend",
+    "doc.update",
+    "doc.move",
+    "doc.delete_where",
+    "replace",
+    "file.create",
+    "file.delete",
+    "file.rename",
+    "file.append",
+    "file.prepend",
+    "md.upsert_bullet",
+    "md.table_append",
+    "md.replace_section",
+    "md.insert_after_heading",
+    "md.insert_before_heading",
+    "md.move_section",
+    "md.dedupe_headings",
+    "md.lint_agents",
+    "tidy.fix",
+    "ast.rename",
+    "ast.replace",
+    "ast.rewrite_signature",
+];
+
+/// Ops that exist as standalone CLI / tx but not in batch line format.
+fn batch_unsupported_hint(op: &str) -> Option<&'static str> {
+    match op {
+        "read" => Some("not supported in batch; use `patchloom read` or a tx plan"),
+        "search" => Some("not supported in batch; use `patchloom search` or a tx plan"),
+        "patch" | "patch.apply" => {
+            Some("not supported in batch; use `patchloom patch` or a tx plan")
+        }
+        "status" | "git_status" => Some("not supported in batch; use `patchloom status`"),
+        "undo" => Some("not supported in batch; use `patchloom undo`"),
+        "explain" => Some("not supported in batch; use `patchloom explain`"),
+        _ => None,
+    }
+}
+
+/// Suggest close batch op names for typos and bare names (`create` → `file.create`).
+fn suggest_batch_op(op: &str) -> Option<String> {
+    // Bare leaf name: `create` matches `file.create`, `append` matches both file/doc.
+    let mut suffix: Vec<&str> = KNOWN_BATCH_OPS
+        .iter()
+        .copied()
+        .filter(|k| k.rsplit_once('.').is_some_and(|(_, leaf)| leaf == op))
+        .collect();
+    if !suffix.is_empty() {
+        suffix.sort_unstable();
+        return Some(suffix.join(", "));
+    }
+
+    let mut scored: Vec<(&str, f64)> = KNOWN_BATCH_OPS
+        .iter()
+        .copied()
+        .map(|k| (k, strsim::jaro_winkler(op, k)))
+        .filter(|(_, score)| *score >= 0.86)
+        .collect();
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    if scored.is_empty() {
+        return None;
+    }
+    let top: Vec<&str> = scored.into_iter().take(3).map(|(k, _)| k).collect();
+    Some(top.join(", "))
+}
+
+fn unknown_batch_op_msg(line_num: usize, op: &str) -> String {
+    if let Some(hint) = batch_unsupported_hint(op) {
+        return format!("line {line_num}: unknown operation '{op}' ({hint})");
+    }
+    if let Some(suggestion) = suggest_batch_op(op) {
+        return format!("line {line_num}: unknown operation '{op}' (did you mean: {suggestion}?)");
+    }
+    format!("line {line_num}: unknown operation '{op}'")
 }
 
 /// Check that the exact number of arguments were provided.

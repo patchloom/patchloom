@@ -1,3 +1,5 @@
+# Local / optional cargo-deny config (FOSSA is the CI license gate).
+# Run: cargo deny check
 [graph]
 all-features = true
 
@@ -10,6 +12,9 @@ allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSL-1.0",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
     "Unicode-3.0",
     "Unlicense",
 ]
