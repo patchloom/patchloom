@@ -85,7 +85,9 @@ pub fn replace_text(
         unique: opts.unique,
     };
     let result = replace_write(op, path, mode, guard, opts.fuzzy)?;
-    if opts.require_change && !result.changed && result.match_count == 0 {
+    // if_exists intentionally softens zero-match (Ok unchanged). require_change
+    // must not override that: both true means if_exists wins (#1492 docs).
+    if opts.require_change && !opts.if_exists && !result.changed && result.match_count == 0 {
         let similar = crate::fallback::find_similar_targets(&result.original_content, from, 3);
         let mut msg = format!("no matches for {:?}", from);
         if !similar.is_empty() {
