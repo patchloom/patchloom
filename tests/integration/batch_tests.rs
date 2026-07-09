@@ -192,6 +192,50 @@ fn test_batch_malformed_line_fails() {
         .stderr(predicates::str::contains("unknown operation"));
 }
 
+/// CLI path for agent-facing batch parse hints (#1483): bare leaf → namespaced op.
+#[test]
+fn test_batch_bare_create_suggests_file_create() {
+    let dir = TempDir::new().unwrap();
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin("create new.txt \"hi\"\n")
+        .assert()
+        .code(1)
+        .stderr(predicates::str::contains("did you mean: file.create?"));
+}
+
+/// Typo of a known op should offer fuzzy neighbors.
+#[test]
+fn test_batch_typo_file_create_suggests_neighbors() {
+    let dir = TempDir::new().unwrap();
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin("file.creat new.txt \"hi\"\n")
+        .assert()
+        .code(1)
+        .stderr(
+            predicates::str::contains("did you mean").and(predicates::str::contains("file.create")),
+        );
+}
+
+/// CLI-only ops are not batch ops; redirect to standalone commands.
+#[test]
+fn test_batch_cli_only_read_redirects_to_standalone() {
+    let dir = TempDir::new().unwrap();
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin("read file.txt\n")
+        .assert()
+        .code(1)
+        .stderr(
+            predicates::str::contains("not supported in batch")
+                .and(predicates::str::contains("patchloom read")),
+        );
+}
+
 #[test]
 fn test_batch_extra_args_fail() {
     let dir = TempDir::new().unwrap();
