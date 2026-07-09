@@ -30,4 +30,6 @@ exclude = [
   "patchloom\\.github\\.io",
 ]
 
-accept = [200, 429]
+# 502/503/504: GitHub (and occasional other hosts) return gateway errors under
+# load; max_retries alone still flakes post-merge Links on main (2026-07-09).
+accept = [200, 429, 502, 503, 504]
