@@ -272,18 +272,25 @@ patchloom = { default-features = false }
 ```
 
 ```rust
-use patchloom::api::{self, ApplyMode};
+use patchloom::api::{self, ApplyMode, ReplaceOptions, edit_error_kind, EditErrorKind};
 use std::path::Path;
 
 // Replace text (preview only, no disk write)
 let result = api::replace_text(
     Path::new("src/config.rs"),
     "old_value", "new_value",
-    &api::ReplaceOptions::default(),
+    &ReplaceOptions::default(),
     ApplyMode::Preview,
     None,
 )?;
 println!("{}", result.diff);
+
+// Fail closed: zero matches become EditErrorKind::NoMatch (agent hosts)
+let opts = ReplaceOptions { require_change: true, ..Default::default() };
+match api::replace_in_content("body", "missing", "x", &opts) {
+    Ok(r) => println!("changed={}", r.changed),
+    Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::NoMatch)),
+}
 
 // Set a value in a JSON file
 api::doc_set(
@@ -295,7 +302,9 @@ api::doc_set(
 )?;
 ```
 
-All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS per #781); see the `containment` and `api` module rustdocs. See the `patchloom::api` module docs for the full surface (includes `search_directory` with context/globs/max_results for content search, added in recent library expansions). Recent work: #785 merged (assertion hygiene); gate addressed #779 (full context+multi for search_directory) and #784 (test auditor).
+All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs.
+
+Notable library options (not CLI flags): `ReplaceOptions.require_change`, `ReplaceOptions.command_position` (shell invocable tokens only), AST mutators `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
 
 ## Getting started
 

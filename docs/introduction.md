@@ -65,8 +65,14 @@ Patchloom is also a Rust library. Add it as a dependency to embed structured fil
 patchloom = { default-features = false }
 ```
 
-The `api` module exposes doc, replace, markdown, file, and patch operations. All API types are `Send + Sync`. Disabling default features omits the MCP server and its async dependencies.
+The `api` module exposes doc, replace, markdown, file, patch, multi-op content
+edits, and (with `ast` + `files`) AST rename / signature rewrite helpers. All
+API types are `Send + Sync`. Disabling default features omits the MCP server and
+its async dependencies.
 
+Agent hosts often set `ReplaceOptions.require_change = true` so missing targets
+are structured errors (`EditErrorKind::NoMatch`) instead of soft no-ops. Opt-in
+`command_position` rewrites shell command tokens without touching arguments.
 See the [crate documentation](https://docs.rs/patchloom) for the full API surface.
 
 ## Get started
