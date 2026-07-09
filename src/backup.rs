@@ -290,19 +290,18 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
 /// session had the path.
 pub fn restore_path_from_latest_backup(project_root: &Path, path: &Path) -> anyhow::Result<bool> {
     let sessions = list_sessions(project_root)?;
-    // Match the same relative form used when writing the manifest.
+    // Match the same relative form used when writing the manifest. Exact
+    // match only: bare file-name matching would restore the wrong session
+    // when two paths share a basename under the same project root.
     let rel = sanitize_rel_path(path, project_root);
     let rel_str = rel.to_string_lossy();
     let abs_str = path.to_string_lossy();
-    let file_name = path.file_name();
 
     for manifest in &sessions {
-        let hit = manifest.entries.iter().any(|e| {
-            e.path == rel_str
-                || e.path == abs_str
-                || e.path.ends_with(rel_str.as_ref())
-                || (file_name.is_some() && Path::new(&e.path).file_name() == file_name)
-        });
+        let hit = manifest
+            .entries
+            .iter()
+            .any(|e| e.path == rel_str || e.path == abs_str);
         if hit {
             // Restore the whole session (entries are per-session atomic unit).
             // Hosts that need single-file-only restore can filter; sessions from
@@ -976,5 +975,30 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         let ok = restore_path_from_latest_backup(dir.path(), &file).unwrap();
         assert!(!ok);
+    }
+
+    #[test]
+    fn restore_path_does_not_match_on_basename_alone() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let a = dir.path().join("a");
+        let b = dir.path().join("b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let file_a = a.join("same.txt");
+        let file_b = b.join("same.txt");
+        std::fs::write(&file_a, "A").unwrap();
+        std::fs::write(&file_b, "B").unwrap();
+
+        // Backup only a/same.txt under project root.
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file_a).unwrap();
+        session.finalize().unwrap();
+        std::fs::write(&file_a, "A2").unwrap();
+
+        // Requesting b/same.txt must not restore a's session by basename.
+        let ok = restore_path_from_latest_backup(dir.path(), &file_b).unwrap();
+        assert!(!ok, "basename-only match would restore the wrong path");
+        assert_eq!(std::fs::read_to_string(&file_a).unwrap(), "A2");
+        assert_eq!(std::fs::read_to_string(&file_b).unwrap(), "B");
     }
 }

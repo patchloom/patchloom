@@ -254,7 +254,8 @@ pub struct ReplaceOptions {
     /// When true, zero matches is an error ([`EditErrorKind::NoMatch`]) instead
     /// of `Ok(changed=false)`. Agent hosts that fail closed should set this.
     /// Default `false` preserves historical library/CLI soft no-match behavior.
-    /// `if_exists` still wins for zero matches (returns Ok unchanged).
+    /// When both this and [`Self::if_exists`] are true, `if_exists` wins
+    /// (returns Ok unchanged for zero matches).
     /// See #1492.
     pub require_change: bool,
     /// When true, only replace tokens in **shell command position** (start of
