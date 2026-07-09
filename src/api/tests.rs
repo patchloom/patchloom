@@ -3668,6 +3668,65 @@ fn apply_content_edits_to_file_writes_once() {
     assert_eq!(result.action, "content.edits");
     let on_disk = fs::read_to_string(&file).unwrap();
     assert_eq!(on_disk, "hi world\ndone\n");
+    // #1500: file helper must name the real path, not the buffer placeholder.
+    assert!(
+        result.diff.contains("notes.txt"),
+        "diff headers should include target path, got:\n{}",
+        result.diff
+    );
+    assert!(
+        !result.diff.contains("<buffer>"),
+        "file helper must not keep <buffer> label:\n{}",
+        result.diff
+    );
+    assert!(
+        !result.diff.contains("--- a//") && !result.diff.contains("+++ b//"),
+        "absolute path headers must not double-slash:\n{}",
+        result.diff
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_content_edits_to_file_diff_path_vs_buffer() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cfg.toml");
+    fs::write(&file, "name = old\n").unwrap();
+    let edits = [ContentEdit::Replace {
+        old: "old".into(),
+        new: "new".into(),
+        options: ReplaceOptions::default(),
+    }];
+
+    let file_result =
+        apply_content_edits_to_file(&file, &edits, ApplyMode::Preview, None).expect("file preview");
+    let buffer_result = apply_content_edits("name = old\n", &edits).expect("buffer");
+
+    assert!(file_result.changed && buffer_result.changed);
+    assert!(
+        file_result.diff.contains("cfg.toml")
+            && file_result.diff.contains("--- a/")
+            && file_result.diff.contains("+++ b/"),
+        "file EditResult.diff should header the real path:\n{}",
+        file_result.diff
+    );
+    assert!(
+        !file_result.diff.contains("<buffer>"),
+        "file path headers must not use <buffer>:\n{}",
+        file_result.diff
+    );
+    assert!(
+        buffer_result.diff.contains("--- a/<buffer>")
+            && buffer_result.diff.contains("+++ b/<buffer>"),
+        "pure buffer helper keeps <buffer>:\n{}",
+        buffer_result.diff
+    );
+    // Absolute path (TempDir) must not produce a// after path_for_diff_header.
+    assert!(
+        !file_result.diff.contains("a//") && !file_result.diff.contains("b//"),
+        "no double-slash headers:\n{}",
+        file_result.diff
+    );
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
