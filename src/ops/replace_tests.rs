@@ -710,7 +710,7 @@ mod replace_tests {
         #[test]
         fn compile_invalid_regex_returns_error() {
             let result = compile_replace_regex("(unclosed", true, false, false, false);
-            assert!(result.is_err());
+            result.expect_err("expected error");
         }
 
         // Regression: --whole-line + --insert-before/after silently drops

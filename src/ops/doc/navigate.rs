@@ -535,7 +535,7 @@ mod tests {
     fn navigate_mut_missing_key_errors() {
         let mut root = json!({"a": 1});
         let result = navigate_mut(&mut root, &segs("b"), false);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("key not found"));
     }
 
@@ -557,7 +557,7 @@ mod tests {
     fn set_at_path_empty_selector_errors() {
         let mut root = json!({});
         let result = set_at_path(&mut root, &[], json!(1));
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]
@@ -601,7 +601,7 @@ mod tests {
     fn delete_where_invalid_predicate() {
         let mut root = json!({"items": []});
         let result = delete_where(&mut root, &segs("items"), "noequalssign");
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]
@@ -649,7 +649,7 @@ mod tests {
     fn delete_where_empty_key_errors() {
         let mut root = json!({"items": []});
         let result = delete_where(&mut root, &segs("items"), "=val");
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("key is empty"));
     }
 
@@ -657,7 +657,7 @@ mod tests {
     fn delete_where_double_equals_errors() {
         let mut root = json!({"items": []});
         let result = delete_where(&mut root, &segs("items"), "k==v");
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("predicate uses '=='"),
@@ -696,7 +696,7 @@ mod tests {
     fn move_at_path_empty_to_selector_fails() {
         let mut root = json!({"src": 42});
         let result = move_at_path(&mut root, &segs("src"), &[]);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(
             result
                 .unwrap_err()
@@ -800,7 +800,7 @@ mod tests {
     fn set_at_path_numeric_dot_notation_out_of_bounds() {
         let mut root = json!({"items": [10, 20]});
         let result = set_at_path(&mut root, &segs("items.99"), json!(0));
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(
             result.unwrap_err().to_string().contains("out of bounds"),
             "should report out of bounds"
@@ -856,7 +856,7 @@ mod tests {
         let to = segs("blocker.nested");
         // Destination parent "blocker" is a string, not an object.
         let result = move_at_path(&mut root, &from, &to);
-        assert!(result.is_err());
+        result.expect_err("expected error");
         // Source must still be present after the failed move.
         assert_eq!(
             root.get("src"),

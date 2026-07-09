@@ -595,7 +595,7 @@ mod tests {
     #[test]
     #[cfg(feature = "cli")]
     fn parse_verify_unknown_key_errors() {
-        assert!(VerifyCheck::parse("foo=bar").is_err());
+        VerifyCheck::parse("foo=bar").expect_err("expected error");
     }
 
     #[test]

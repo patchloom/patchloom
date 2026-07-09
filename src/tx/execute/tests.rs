@@ -48,7 +48,7 @@ fn read_file_content_missing_file_errors() {
     let path = PathBuf::from("/nonexistent/file.txt");
 
     let result = read_file_content(&mut pending, &mut existed, &path);
-    assert!(result.is_err());
+    result.expect_err("expected error");
 }
 
 // ---- read_and_probe ----

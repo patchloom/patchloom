@@ -288,7 +288,9 @@ mod tests {
 
     #[test]
     fn bounded_regex_builder_rejects_invalid_pattern() {
-        assert!(bounded_regex_builder(r"(unclosed").build().is_err());
+        bounded_regex_builder(r"(unclosed")
+            .build()
+            .expect_err("expected error");
     }
 
     #[test]

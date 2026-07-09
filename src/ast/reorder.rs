@@ -386,7 +386,7 @@ mod tests {
             &ReorderStrategy::Alphabetical,
             Language::Rust,
         );
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]
@@ -429,19 +429,19 @@ mod tests {
     #[test]
     fn parse_strategy_unknown_string() {
         let v = serde_json::json!("bogus");
-        assert!(parse_strategy(&v).is_err());
+        parse_strategy(&v).expect_err("expected error");
     }
 
     #[test]
     fn parse_strategy_array_non_string_item() {
         let v = serde_json::json!(["a", 42, "c"]);
-        assert!(parse_strategy(&v).is_err());
+        parse_strategy(&v).expect_err("expected error");
     }
 
     #[test]
     fn parse_strategy_invalid() {
         let v = serde_json::json!(42);
-        assert!(parse_strategy(&v).is_err());
+        parse_strategy(&v).expect_err("expected error");
     }
 
     // Regression: reorder must preserve non-symbol content (use statements,

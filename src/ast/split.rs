@@ -213,7 +213,7 @@ mod tests {
             prepend: None,
         }];
         let result = split_file(source, &targets, &[], None, None, true, Language::Rust);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("beta"));
     }
 
@@ -407,7 +407,7 @@ mod tests {
             },
         ];
         let result = split_file(source, &targets, &[], None, None, false, Language::Rust);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         let err = result.unwrap_err().to_string();
         assert!(err.contains("alpha"));
         assert!(err.contains("a.rs"));

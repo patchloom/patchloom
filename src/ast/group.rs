@@ -346,7 +346,7 @@ mod tests {
             position: GroupPosition::FirstSymbol,
         };
         let result = group_symbols(source, &spec, Language::Rust);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
 

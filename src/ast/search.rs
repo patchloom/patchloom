@@ -255,7 +255,7 @@ fn main() {
     #[test]
     fn search_query_invalid_query_returns_error() {
         let result = search_query("fn main() {}", "(invalid query !!!", Language::Rust, None);
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]
@@ -278,7 +278,7 @@ fn main() {
     #[test]
     fn unknown_language_returns_error() {
         let result = search_query("anything", "(identifier)", Language::Unknown, None);
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]
