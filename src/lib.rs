@@ -71,13 +71,34 @@
 //! # Ok::<(), anyhow::Error>(())
 //! ```
 //!
-//! For AST signature edits (bline #1459 / #821 follow-through):
+//! For AST signature edits (bline #1459 / #821 follow-through, #1493):
 //!
-//! - In-memory: `ast::rewrite::rewrite_function_signature` with `FunctionSigEdit`
-//! - On disk: `api::ast_rewrite_signature(path, name, &edit, new_signature, mode, guard?)`
+//! - In-memory: `api::ast_rewrite_signature_in_content` or
+//!   `ast::rewrite::rewrite_function_signature` with `FunctionSigEdit`
+//! - Parse Rust fragments: `FunctionSigEdit::parse_rust("pub fn f(x: i32) -> T")`
+//! - On disk: `api::ast_rewrite_signature`, `api::ast_rename`, `api::ast_replace_in_symbol`
+//! - Multi-file rename: `api::ast_rename_batch` (same-file serialization, per-file results; #1495)
 //! - Plans / MCP: op `ast.rewrite_signature` / tool `ast_rewrite_signature`
 //!
 //! CLI `ast rewrite-signature` is still optional; library + plan + MCP cover embedders.
+//!
+//! Fail-closed text edits for agent hosts (#1492): set `ReplaceOptions.require_change = true`
+//! so zero matches become `EditErrorKind::NoMatch` (not `Ok(changed=false)`). Match kinds via
+//! `api::edit_error_kind(&err)` without scraping English. Example:
+//!
+//! ```rust,no_run
+//! use patchloom::api::{self, ReplaceOptions, edit_error_kind, EditErrorKind};
+//! let opts = ReplaceOptions { require_change: true, ..Default::default() };
+//! match api::replace_in_content("a b", "missing", "x", &opts) {
+//!     Ok(r) => assert!(r.changed),
+//!     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::NoMatch)),
+//! }
+//! ```
+//!
+//! Shell command-position matching (#1494): opt-in `ReplaceOptions.command_position`
+//! rewrites invocable tokens (`pip install`) without touching arguments (`uv pip`) or
+//! longer words (`pipenv`). Not the same as `word_boundary`. Post-Apply validate/revert:
+//! host runs a validator, then `backup::restore_path_from_latest_backup(project_root, path)`.
 //!
 //! For several ordered text edits on **one buffer** then a single write (agent intent engines):
 //! use `api::apply_content_edits` / `api::apply_content_edits_to_file` with
@@ -182,9 +203,10 @@ pub mod write;
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::search_one_file;
 pub use api::{
-    ApplyMode, ContentEditResult, EditResult, Hunk, PatchFile, PatchLine, ReplaceOptions,
-    SearchOptions, SearchResult, WritePolicyOptions, build_context_lines, format_search_results,
-    parse_unified_diff, search_file, text_diff,
+    ApplyMode, ContentEditResult, EditError, EditErrorKind, EditResult, Hunk, PatchFile, PatchLine,
+    ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, build_context_lines,
+    edit_error_kind, edit_error_ref, format_search_results, parse_unified_diff, search_file,
+    text_diff,
 };
 pub use plan::Plan;
 

@@ -7,7 +7,7 @@
 //! # Quick start
 //!
 //! ```rust,no_run
-//! use patchloom::api::{self, ApplyMode, EditResult};
+//! use patchloom::api::{self, ApplyMode, EditResult, ReplaceOptions};
 //! use std::path::{Path, PathBuf};
 //!
 //! // Replace text in a file (preview only)
@@ -15,11 +15,15 @@
 //!     Path::new("src/config.rs"),
 //!     "old_value",
 //!     "new_value",
-//!     &api::ReplaceOptions::default(),
+//!     &ReplaceOptions::default(),
 //!     ApplyMode::Preview,
 //!     None,
 //! ).unwrap();
 //! println!("diff:\n{}", result.diff);
+//!
+//! // Fail closed when the pattern is missing (agent hosts; #1492)
+//! let opts = ReplaceOptions { require_change: true, ..Default::default() };
+//! let _ = api::replace_in_content("src", "old_value", "new_value", &opts);
 //! ```
 //!
 //! # Apply modes
@@ -247,7 +251,24 @@ pub struct ReplaceOptions {
     /// When the pattern matches multiple times, the match nearest to this
     /// anchor text is selected.
     pub after_context: Option<String>,
+    /// When true, zero matches is an error ([`EditErrorKind::NoMatch`]) instead
+    /// of `Ok(changed=false)`. Agent hosts that fail closed should set this.
+    /// Default `false` preserves historical library/CLI soft no-match behavior.
+    /// `if_exists` still wins for zero matches (returns Ok unchanged).
+    /// See #1492.
+    pub require_change: bool,
+    /// When true, only replace tokens in **shell command position** (start of
+    /// line / after `&&` `|` `;`, after transparent prefixes like `sudo` /
+    /// `env KEY=val`). Does not match inside longer tokens (`pip` vs `pipenv`)
+    /// or as arguments (`uv pip`). Opt-in; not the same as `word_boundary`.
+    /// See #1494.
+    pub command_position: bool,
 }
+
+// Re-export structured edit errors for embedders (#1492).
+pub use crate::fallback::{
+    EditError, EditErrorKind, edit_error_kind, edit_error_ref, find_similar_targets,
+};
 
 /// Write policy options for controlling file write transformations.
 #[derive(Debug, Clone, Default)]
@@ -404,15 +425,19 @@ fn write_if_apply(
 /// Private helper to centralize the guard check and eliminate duplicated
 /// inline `if let Some(g) = guard { g.check_path... }` blocks in every
 /// write path.
-fn ensure_contained(guard: Option<&PathGuard>, path: &Path) -> anyhow::Result<()> {
+pub(crate) fn ensure_contained(guard: Option<&PathGuard>, path: &Path) -> anyhow::Result<()> {
     if let Some(g) = guard {
-        g.check_path(&path.to_string_lossy())
-            .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {}", e))?;
+        g.check_path(&path.to_string_lossy()).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::GuardRejected,
+                format!("path rejected by workspace guard: {e}"),
+            )
+        })?;
     }
     Ok(())
 }
 
-fn build_edit_result(
+pub(crate) fn build_edit_result(
     path_str: &str,
     original: String,
     new_content: String,

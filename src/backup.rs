@@ -280,6 +280,40 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
     Ok(sessions)
 }
 
+/// Restore a single path from the most recent backup session that contains it.
+///
+/// Used by agent hosts for post-Apply validate/revert recipes (#1494): Apply an
+/// edit, run a host validator, and on failure call this helper to put the file
+/// back without re-implementing backup layout.
+///
+/// Returns `true` if a backup entry was found and restored, `false` if no
+/// session had the path.
+pub fn restore_path_from_latest_backup(project_root: &Path, path: &Path) -> anyhow::Result<bool> {
+    let sessions = list_sessions(project_root)?;
+    // Match the same relative form used when writing the manifest.
+    let rel = sanitize_rel_path(path, project_root);
+    let rel_str = rel.to_string_lossy();
+    let abs_str = path.to_string_lossy();
+    let file_name = path.file_name();
+
+    for manifest in &sessions {
+        let hit = manifest.entries.iter().any(|e| {
+            e.path == rel_str
+                || e.path == abs_str
+                || e.path.ends_with(rel_str.as_ref())
+                || (file_name.is_some() && Path::new(&e.path).file_name() == file_name)
+        });
+        if hit {
+            // Restore the whole session (entries are per-session atomic unit).
+            // Hosts that need single-file-only restore can filter; sessions from
+            // single-file API Apply typically contain one entry.
+            restore_session(project_root, &manifest.timestamp)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Restore a specific backup session, returning the number of files restored.
 pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<usize> {
     let session_dir = project_root.join(BACKUP_DIR).join(timestamp);
@@ -915,5 +949,32 @@ mod tests {
             "v1",
             "sequential undo should reach the original content"
         );
+    }
+
+    #[test]
+    fn restore_path_from_latest_backup_restores_bytes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("data.txt");
+        std::fs::write(&file, "before").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap();
+
+        std::fs::write(&file, "after").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "after");
+
+        let ok = restore_path_from_latest_backup(dir.path(), &file).unwrap();
+        assert!(ok);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "before");
+    }
+
+    #[test]
+    fn restore_path_from_latest_backup_missing_returns_false() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("never_backed_up.txt");
+        std::fs::write(&file, "x").unwrap();
+        let ok = restore_path_from_latest_backup(dir.path(), &file).unwrap();
+        assert!(!ok);
     }
 }

@@ -5,3 +5,4 @@ pub mod patch;
 pub mod read;
 pub mod replace;
 pub mod search;
+pub mod shell_token;
