@@ -213,10 +213,13 @@ pub fn ast_replace_in_symbol(
 #[derive(Debug, Clone)]
 pub struct AstRenameBatchOptions {
     pub mode: ApplyMode,
-    /// Skip files with zero matches instead of recording them as errors.
-    /// Default true (agent-friendly best-effort).
+    /// When true (default), a per-file `NoMatch` is recorded and remaining
+    /// paths still run (agent-friendly best-effort). When false, the batch
+    /// stops after the first `NoMatch` (that error is still in the results).
     pub continue_on_no_match: bool,
     /// Stop after the first hard error (IO, parse, guard). Default false.
+    /// Independent of [`Self::continue_on_no_match`] (which only covers
+    /// `NoMatch`).
     pub fail_fast: bool,
 }
 
@@ -282,24 +285,18 @@ pub fn ast_rename_batch(
                     EditError::new(EditErrorKind::OperationFailed, e.to_string())
                 });
                 let is_no_match = edit_err.kind == EditErrorKind::NoMatch;
-                if is_no_match && opts.continue_on_no_match {
-                    out.push(AstRenameFileResult {
-                        path: path.to_path_buf(),
-                        result: Err(edit_err),
-                    });
-                    continue;
-                }
-                if opts.fail_fast && !is_no_match {
-                    out.push(AstRenameFileResult {
-                        path: path.to_path_buf(),
-                        result: Err(edit_err),
-                    });
-                    break;
-                }
                 out.push(AstRenameFileResult {
                     path: path.to_path_buf(),
                     result: Err(edit_err),
                 });
+                // NoMatch: stop when continue_on_no_match is false.
+                if is_no_match && !opts.continue_on_no_match {
+                    break;
+                }
+                // Hard errors: stop when fail_fast is true.
+                if !is_no_match && opts.fail_fast {
+                    break;
+                }
             }
         }
     }

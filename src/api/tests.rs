@@ -4123,23 +4123,30 @@ fn ast_rename_batch_fail_fast_stops_after_hard_error() {
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
 #[test]
-fn ast_rename_batch_continue_on_no_match_false_records_error() {
+fn ast_rename_batch_continue_on_no_match_false_stops() {
     let dir = TempDir::new().unwrap();
-    let a = dir.path().join("a.rs");
-    let b = dir.path().join("b.rs");
-    fs::write(&a, "fn foo() {}\n").unwrap();
-    fs::write(&b, "fn other() {}\n").unwrap();
+    let miss = dir.path().join("miss.rs");
+    let after = dir.path().join("after.rs");
+    fs::write(&miss, "fn other() {}\n").unwrap();
+    fs::write(&after, "fn foo() {}\n").unwrap();
     let opts = AstRenameBatchOptions {
-        mode: ApplyMode::Preview,
+        mode: ApplyMode::Apply,
         continue_on_no_match: false,
         fail_fast: false,
     };
-    let results = ast_rename_batch(&[&a, &b], "foo", "bar", &opts, None).unwrap();
-    assert_eq!(results.len(), 2);
-    assert!(results[0].result.is_ok());
+    let results = ast_rename_batch(&[&miss, &after], "foo", "bar", &opts, None).unwrap();
     assert_eq!(
-        results[1].result.as_ref().unwrap_err().kind,
+        results.len(),
+        1,
+        "continue_on_no_match=false must stop after first NoMatch"
+    );
+    assert_eq!(
+        results[0].result.as_ref().unwrap_err().kind,
         EditErrorKind::NoMatch
+    );
+    assert!(
+        fs::read_to_string(&after).unwrap().contains("foo"),
+        "later paths must not run after NoMatch stop"
     );
 }
 
