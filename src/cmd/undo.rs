@@ -284,7 +284,7 @@ mod tests {
             apply: false,
         };
         let result = run(args, &global);
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]

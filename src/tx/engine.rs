@@ -517,7 +517,7 @@ mod tests {
         };
 
         let result = execute_single(op, test_options(dir.path(), &global));
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected containment rejection");
     }
 
     #[test]

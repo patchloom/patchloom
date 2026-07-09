@@ -168,13 +168,13 @@ fn parse_plan_with_all_fields() {
 #[test]
 fn parse_plan_unknown_op_fails() {
     let json = r#"{"version": 1, "operations": [{"op": "unknown", "x": 1}]}"#;
-    assert!(parse_plan(json).is_err());
+    parse_plan(json).expect_err("expected error");
 }
 
 #[test]
 fn parse_plan_missing_operations_fails() {
     let json = r#"{"version": 1, "cwd": "/tmp"}"#;
-    assert!(parse_plan(json).is_err());
+    parse_plan(json).expect_err("expected error");
 }
 
 #[test]

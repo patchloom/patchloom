@@ -296,7 +296,7 @@ mod tests {
             None,
             Language::Rust,
         );
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
@@ -305,7 +305,7 @@ mod tests {
         let source = "fn foo() {}\n";
         // None specified
         let result = wrap_code(source, None, None, "mod x", None, Language::Rust);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
 
         // Both specified
         let result = wrap_code(
@@ -316,7 +316,7 @@ mod tests {
             None,
             Language::Rust,
         );
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
     }
 
     #[test]

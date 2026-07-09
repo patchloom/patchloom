@@ -2533,7 +2533,7 @@ fn replace_in_content_case_insensitive() {
 #[test]
 fn replace_in_content_empty_pattern_errors() {
     let result = replace::replace_in_content("content", "", "x", &ReplaceOptions::default());
-    assert!(result.is_err());
+    assert!(result.is_err(), "expected error, got Ok: {result:?}");
 }
 
 #[test]
@@ -2554,7 +2554,7 @@ fn replace_in_content_range_requires_whole_line() {
         ..Default::default()
     };
     let result = replace::replace_in_content("aaa\nbbb\n", "aaa", "xxx", &opts);
-    assert!(result.is_err());
+    assert!(result.is_err(), "expected error, got Ok: {result:?}");
     assert!(
         result
             .unwrap_err()
@@ -2571,7 +2571,7 @@ fn replace_in_content_whole_line_multiline_conflict() {
         ..Default::default()
     };
     let result = replace::replace_in_content("aaa\nbbb\n", "aaa", "xxx", &opts);
-    assert!(result.is_err());
+    assert!(result.is_err(), "expected error, got Ok: {result:?}");
     assert!(
         result
             .unwrap_err()

@@ -131,18 +131,25 @@ mod tests {
 
     #[test]
     fn parse_zero_start_errors() {
-        assert!(parse_line_range("0").is_err());
-        assert!(parse_line_range("0:5").is_err());
+        let err = parse_line_range("0").unwrap_err().to_string();
+        assert!(err.contains("1-based"), "got: {err}");
+        let err = parse_line_range("0:5").unwrap_err().to_string();
+        assert!(err.contains("1-based"), "got: {err}");
     }
 
     #[test]
     fn parse_end_before_start_errors() {
-        assert!(parse_line_range("10:5").is_err());
+        let err = parse_line_range("10:5").unwrap_err().to_string();
+        assert!(
+            err.contains("end line 5 is before start line 10"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn parse_missing_start_errors() {
-        assert!(parse_line_range(":5").is_err());
+        let err = parse_line_range(":5").unwrap_err().to_string();
+        assert!(err.contains("missing start line"), "got: {err}");
     }
 
     #[test]
@@ -153,13 +160,16 @@ mod tests {
 
     #[test]
     fn parse_open_ended_zero_start_errors() {
-        assert!(parse_line_range("0:").is_err());
+        let err = parse_line_range("0:").unwrap_err().to_string();
+        assert!(err.contains("1-based"), "got: {err}");
     }
 
     #[test]
     fn parse_non_numeric_errors() {
-        assert!(parse_line_range("abc").is_err());
-        assert!(parse_line_range("1:abc").is_err());
+        let err = parse_line_range("abc").unwrap_err().to_string();
+        assert!(err.contains("invalid line number"), "got: {err}");
+        let err = parse_line_range("1:abc").unwrap_err().to_string();
+        assert!(err.contains("invalid end line"), "got: {err}");
     }
 
     #[test]
@@ -170,8 +180,8 @@ mod tests {
             err.to_string().contains("1-based"),
             "expected 1-based error, got: {err}"
         );
-        // Also check "5:0"
-        assert!(parse_line_range("5:0").is_err());
+        let err = parse_line_range("5:0").unwrap_err().to_string();
+        assert!(err.contains("1-based"), "got: {err}");
     }
 
     #[test]
@@ -182,7 +192,8 @@ mod tests {
     #[test]
     fn parse_negative_dash_is_not_range() {
         // A leading dash is not a separator, so "-5" should fail as invalid number.
-        assert!(parse_line_range("-5").is_err());
+        let err = parse_line_range("-5").unwrap_err().to_string();
+        assert!(err.contains("invalid line number"), "got: {err}");
     }
 
     // ---- select_lines ----

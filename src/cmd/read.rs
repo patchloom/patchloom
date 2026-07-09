@@ -167,12 +167,12 @@ mod tests {
 
     #[test]
     fn parse_range_zero_fails() {
-        assert!(parse_line_range("0:5").is_err());
+        parse_line_range("0:5").expect_err("expected error");
     }
 
     #[test]
     fn parse_range_end_before_start_fails() {
-        assert!(parse_line_range("10:5").is_err());
+        parse_line_range("10:5").expect_err("expected error");
     }
 
     #[test]
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn read_one_file_nonexistent_returns_error() {
         let result = read_one_file("/tmp/does-not-exist-patchloom-test.txt", None);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
     }
 
     #[test]
