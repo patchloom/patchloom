@@ -584,14 +584,16 @@ mod tests {
     fn single_parent_rejected() {
         let dir = tempfile::TempDir::new().unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
-        assert!(guard.check_path("..").is_err());
+        guard.check_path("..").expect_err("expected error");
     }
 
     #[test]
     fn deep_traversal_rejected() {
         let dir = tempfile::TempDir::new().unwrap();
         let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
-        assert!(guard.check_path("a/b/../../../escape").is_err());
+        guard
+            .check_path("a/b/../../../escape")
+            .expect_err("expected error");
     }
 
     #[test]

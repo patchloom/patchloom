@@ -696,7 +696,7 @@ mod error_handling {
 
     #[test]
     fn tier_parse_invalid() {
-        assert!("unknown".parse::<Tier>().is_err());
+        "unknown".parse::<Tier>().expect_err("expected error");
     }
 }
 

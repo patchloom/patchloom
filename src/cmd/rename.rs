@@ -713,7 +713,7 @@ mod tests {
         };
         // Should propagate the I/O error, not misclassify as binary
         let result = run(args, &global);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         let err_msg = result.unwrap_err().to_string();
         assert!(
             !err_msg.contains("binary"),

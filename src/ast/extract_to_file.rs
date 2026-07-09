@@ -249,7 +249,7 @@ mod tests {
     fn extract_symbol_not_found() {
         let source = "fn foo() {}\n";
         let result = extract_to_file(source, "nonexistent", None, false, None, Language::Rust);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
     }
 
     #[test]

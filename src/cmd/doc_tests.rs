@@ -861,7 +861,7 @@ mod security {
             selector: "a".into(),
         };
         let result = execute_with_mode(&action, OutputMode::Text);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(
             result
                 .unwrap_err()

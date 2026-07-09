@@ -291,7 +291,7 @@ mod tests {
             MovePosition::End,
             Language::Rust,
         );
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
     }
 
     #[test]

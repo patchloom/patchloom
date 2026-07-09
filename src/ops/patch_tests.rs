@@ -676,7 +676,7 @@ mod edge_cases {
                 PatchLine::Add("TARGET".into()),
             ],
         }];
-        assert!(apply_hunks(original, &hunks).is_err());
+        apply_hunks(original, &hunks).expect_err("expected error");
     }
 
     #[test]
@@ -750,13 +750,13 @@ mod error_handling {
     #[test]
     fn parse_patch_no_files() {
         let diff = "just some text\n";
-        assert!(parse_patch(diff).is_err());
+        parse_patch(diff).expect_err("expected error");
     }
 
     #[test]
     fn parse_patch_no_hunks() {
         let diff = "--- a/f.txt\n+++ b/f.txt\n";
-        assert!(parse_patch(diff).is_err());
+        parse_patch(diff).expect_err("expected error");
     }
 
     #[test]
@@ -772,7 +772,7 @@ mod error_handling {
                 PatchLine::Add("x".into()),
             ],
         }];
-        assert!(apply_hunks(original, &hunks).is_err());
+        apply_hunks(original, &hunks).expect_err("expected error");
     }
 
     #[test]
@@ -785,7 +785,7 @@ mod error_handling {
             allow_conflicts: false,
         };
         let result = apply_hunks_with_options(ours, &hunks, opts);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().contains("conflict"));
     }
 
@@ -799,7 +799,7 @@ mod error_handling {
             allow_conflicts: false,
         };
         let result = apply_hunks_with_options(ours, &hunks, opts);
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 }
 
@@ -880,7 +880,7 @@ mod regression {
             lines: vec![PatchLine::Context("x".into())],
         }];
         // Must return Err, never panic.
-        assert!(apply_hunks("x\n", &hunks).is_err());
+        apply_hunks("x\n", &hunks).expect_err("expected error");
     }
 
     /// Regression: merge_hunks must produce correct ConflictRange line

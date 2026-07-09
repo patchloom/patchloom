@@ -418,7 +418,7 @@ mod tests {
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
         let result = execute_search_op(&op, &mut tx);
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("assert_count"));
     }
 
@@ -448,7 +448,7 @@ mod tests {
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
         let result = execute_search_op(&op, &mut tx);
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]

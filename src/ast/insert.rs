@@ -497,7 +497,7 @@ mod tests {
             InsertPosition::End,
             Language::Rust,
         );
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
@@ -514,7 +514,7 @@ mod tests {
             InsertPosition::End,
             Language::Rust,
         );
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
 
         // Two specified
         let result = insert_code(
@@ -526,7 +526,7 @@ mod tests {
             InsertPosition::End,
             Language::Rust,
         );
-        assert!(result.is_err());
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
     }
 
     #[test]

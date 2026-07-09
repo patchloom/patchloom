@@ -687,40 +687,40 @@ mod error_handling {
 
     #[test]
     fn detect_format_unsupported() {
-        assert!(detect_format("readme.txt").is_err());
+        detect_format("readme.txt").expect_err("expected error");
     }
 
     #[test]
     fn detect_format_no_extension() {
-        assert!(detect_format("Makefile").is_err());
+        detect_format("Makefile").expect_err("expected error");
     }
 
     #[test]
     fn navigate_mut_missing_key_no_create() {
         let mut val = json!({"a": 1});
         let seg = crate::selector::parse("b").unwrap();
-        assert!(navigate_mut(&mut val, &seg, false).is_err());
+        navigate_mut(&mut val, &seg, false).expect_err("expected error");
     }
 
     #[test]
     fn navigate_mut_index_out_of_bounds() {
         let mut val = json!({"items": [10]});
         let seg = crate::selector::parse("items[5]").unwrap();
-        assert!(navigate_mut(&mut val, &seg, false).is_err());
+        navigate_mut(&mut val, &seg, false).expect_err("expected error");
     }
 
     #[test]
     fn set_at_path_out_of_bounds_index_fails() {
         let mut root = json!({"items": [1]});
         let sel = crate::selector::parse("items[5]").unwrap();
-        assert!(set_at_path(&mut root, &sel, json!(99)).is_err());
+        set_at_path(&mut root, &sel, json!(99)).expect_err("expected error");
     }
 
     #[test]
     fn delete_where_non_array_fails() {
         let mut root = json!({"items": "not-an-array"});
         let sel = crate::selector::parse("items").unwrap();
-        assert!(delete_where(&mut root, &sel, "k=v").is_err());
+        delete_where(&mut root, &sel, "k=v").expect_err("expected error");
     }
 
     #[test]
@@ -753,7 +753,7 @@ mod error_handling {
         let mut root = json!({"a": 1});
         let from = crate::selector::parse("nonexistent").unwrap();
         let to = crate::selector::parse("b").unwrap();
-        assert!(move_at_path(&mut root, &from, &to).is_err());
+        move_at_path(&mut root, &from, &to).expect_err("expected error");
     }
 
     #[test]
@@ -761,7 +761,7 @@ mod error_handling {
         let mut root = json!({"a": 1});
         let from: Vec<crate::selector::Segment> = vec![];
         let to = crate::selector::parse("b").unwrap();
-        assert!(move_at_path(&mut root, &from, &to).is_err());
+        move_at_path(&mut root, &from, &to).expect_err("expected error");
     }
 
     #[test]

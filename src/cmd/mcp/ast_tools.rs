@@ -859,7 +859,7 @@ impl Point {
         };
 
         let result = handle_ast_list(&svc, params);
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]
@@ -895,7 +895,7 @@ impl Point {
         };
 
         let result = handle_ast_read(&svc, params);
-        assert!(result.is_err());
+        result.expect_err("expected error");
     }
 
     #[test]
