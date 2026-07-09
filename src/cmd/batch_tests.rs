@@ -387,25 +387,80 @@ mod error_handling {
         assert!(err.to_string().contains("unknown operation"));
     }
 
+    #[test]
+    fn known_batch_ops_inventory_stable() {
+        // docs/reference and clap after_help list 27 batch ops; keep the
+        // suggestion table in lockstep so bare-name hints stay accurate.
+        assert_eq!(KNOWN_BATCH_OPS.len(), 27);
+        let mut sorted = KNOWN_BATCH_OPS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), KNOWN_BATCH_OPS.len(), "duplicate op names");
+    }
+
+    #[test]
+    fn parse_line_suggests_file_create_for_bare_create() {
+        // Agents often type CLI-style `create` instead of batch `file.create`.
+        let err = parse_line(r#"create path.txt "hi""#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown operation") && msg.contains("file.create"),
+            "expected did-you-mean for file.create, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_line_suggests_file_and_doc_append() {
+        let err = parse_line(r#"append path.txt "x""#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("file.append") && msg.contains("doc.append"),
+            "expected both append targets, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_line_suggests_typo_file_create() {
+        let err = parse_line(r#"file.creat path.txt "hi""#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("did you mean") && msg.contains("file.create"),
+            "expected fuzzy suggestion, got: {msg}"
+        );
+    }
+
     // Batch intentionally does not support read, search, and patch.apply.
-    // These are tx-only operations. The tests below document this as deliberate.
+    // These are tx-only operations. The tests below document this as deliberate
+    // and lock the redirect hint in the error message.
 
     #[test]
     fn parse_line_rejects_read() {
         let err = parse_line("read path.txt", 1).unwrap_err();
-        assert!(err.to_string().contains("unknown operation"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown operation") && msg.contains("patchloom read"),
+            "expected standalone redirect, got: {msg}"
+        );
     }
 
     #[test]
     fn parse_line_rejects_search() {
         let err = parse_line("search path.txt hello", 1).unwrap_err();
-        assert!(err.to_string().contains("unknown operation"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown operation") && msg.contains("patchloom search"),
+            "expected standalone redirect, got: {msg}"
+        );
     }
 
     #[test]
     fn parse_line_rejects_patch_apply() {
         let err = parse_line("patch.apply diff-text", 1).unwrap_err();
-        assert!(err.to_string().contains("unknown operation"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown operation") && msg.contains("patchloom patch"),
+            "expected standalone redirect, got: {msg}"
+        );
     }
 
     #[test]
