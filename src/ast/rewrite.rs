@@ -19,9 +19,13 @@ pub struct FunctionSpan {
     /// Full byte range of the function node (including body).
     pub full_range: std::ops::Range<usize>,
     /// Byte range of just the signature (up to but not including the body).
-    /// May include trailing whitespace; see `signature_text` for the trimmed version.
+    ///
+    /// May include trailing whitespace before the body brace (or colon).
+    /// Prefer [`splice_function_signature`] (or high-level rewrite helpers)
+    /// over a naive splice so the body gap is preserved. See #1503.
+    /// [`signature_text`](Self::signature_text) is the trimmed form.
     pub signature_range: std::ops::Range<usize>,
-    /// The signature text.
+    /// The signature text (trailing whitespace stripped).
     pub signature_text: String,
     /// Function name.
     pub name: String,
@@ -31,22 +35,92 @@ pub struct FunctionSpan {
     pub signature_end_line: usize,
 }
 
+/// Splice a logical signature string into source at `sig_range`.
+///
+/// High-level rewrite APIs must use this (not a raw `before + new + after`
+/// on the full [`FunctionSpan::signature_range`]). The raw range ends at the
+/// body start and **includes** trailing whitespace (e.g. the space in
+/// `-> i32 `). Callers and LLMs pass signatures **without** that trailing
+/// space; a naive splice produces `-> i32{`.
+///
+/// Behavior (#1503):
+///
+/// 1. Replace only the **trimmed** portion of the old signature so the
+///    original gap before the body (space or newline) is kept.
+/// 2. If there is no gap and the remainder starts with `{`, insert a
+///    conventional space (does **not** insert before `;`).
+/// 3. Trailing whitespace on `new_sig` is stripped.
+///
+/// ```rust
+/// use patchloom::ast::rewrite::{find_function_span, splice_function_signature};
+/// use patchloom::ast::Language;
+///
+/// let source = "fn add(a: i32) -> i32 {\n    a\n}\n";
+/// let span = find_function_span(source, "add", Language::Rust).unwrap();
+/// let out = splice_function_signature(
+///     source,
+///     span.signature_range,
+///     "fn add(a: i32, b: i32) -> i32", // no trailing space
+/// );
+/// assert!(out.contains("-> i32 {"), "got: {out}");
+/// assert!(!out.contains("i32{"), "got: {out}");
+/// ```
+pub fn splice_function_signature(
+    source: &str,
+    sig_range: std::ops::Range<usize>,
+    new_sig: &str,
+) -> String {
+    let new_sig = new_sig.trim_end();
+    let start = sig_range.start.min(source.len());
+    let end = sig_range.end.min(source.len()).max(start);
+    let old_sig = &source[start..end];
+    let trimmed = old_sig.trim_end();
+    // Byte end of the logical signature (exclude trailing whitespace in range).
+    let logical_end = end - (old_sig.len() - trimmed.len());
+    let before = &source[..start];
+    let after = &source[logical_end..];
+
+    // Glued body brace with no preserved gap: add a conventional space.
+    // Do not add space before `;` (trait/extern decls) or other tails.
+    if after.starts_with('{')
+        && !new_sig.is_empty()
+        && !new_sig
+            .chars()
+            .last()
+            .map(|c| c.is_whitespace())
+            .unwrap_or(false)
+    {
+        format!("{before}{new_sig} {after}")
+    } else {
+        format!("{before}{new_sig}{after}")
+    }
+}
+
 /// Find a function by name and return its signature span.
 ///
 /// Works for any language with a tree-sitter grammar. Returns `None` if
 /// the language has no grammar support, the function is not found, or
 /// parsing fails.
 ///
-/// The caller can use `signature_range` to splice in a replacement:
+/// Prefer high-level helpers ([`replace_function_signature`],
+/// [`rewrite_function_signature`], `api::ast_rewrite_signature`) which
+/// preserve the body gap. For a custom splice, use
+/// [`splice_function_signature`]:
 ///
-/// ```rust,ignore
+/// ```rust
+/// use patchloom::ast::rewrite::{find_function_span, splice_function_signature};
+/// use patchloom::ast::Language;
+///
+/// let source = "fn old_name(x: i32) -> bool {\n    true\n}\n";
 /// let span = find_function_span(source, "old_name", Language::Rust).unwrap();
-/// let result = format!(
-///     "{}{}{}",
-///     &source[..span.signature_range.start],
-///     new_signature,
-///     &source[span.signature_range.end..],
+/// let result = splice_function_signature(
+///     source,
+///     span.signature_range,
+///     "fn new_name(x: i32, y: bool) -> bool",
 /// );
+/// assert!(result.contains("fn new_name"));
+/// assert!(result.contains("true"));
+/// assert!(result.contains("-> bool {"));
 /// ```
 pub fn find_function_span(
     source: &str,
@@ -237,13 +311,12 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
 
     let fn_node = find_fn(root, source, old_name)?;
 
-    // Signature is from start of node to start of body (or end if no body, e.g. decl)
+    // Signature is from start of node to start of body (or end if no body, e.g. decl).
+    // Use splice_function_signature so logical new_sig without trailing space
+    // does not glue the type to `{` (#1503).
     let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
-
     let start = fn_node.start_byte();
-    let before = &source[..start];
-    let after = &source[sig_end..];
-    Some(format!("{}{}{}", before, new_sig, after))
+    Some(splice_function_signature(source, start..sig_end, new_sig))
 }
 
 /// Structured edits for parts of a function signature.
@@ -472,11 +545,10 @@ fn rewrite_rust_sig(source: &str, old_name: &str, edit: &FunctionSigEdit) -> Opt
         vis_part, qual_part, old_name, params, ret_part
     );
 
+    // Preserve body gap via shared splice (#1503).
     let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
     let start = fn_node.start_byte();
-    let before = &source[..start];
-    let after = &source[sig_end..];
-    Some(format!("{}{}{}", before, new_sig, after))
+    Some(splice_function_signature(source, start..sig_end, &new_sig))
 }
 
 /// Node kinds that represent function parameters across languages.
@@ -1206,13 +1278,91 @@ mod tests {
     fn find_function_span_can_splice_replacement() {
         let source = "fn old_name(x: i32) -> bool {\n    true\n}\n";
         let span = find_function_span(source, "old_name", Language::Rust).unwrap();
-        let new_sig = "fn new_name(x: i32, y: bool) -> bool ";
-        let mut result = String::new();
-        result.push_str(&source[..span.signature_range.start]);
-        result.push_str(new_sig);
-        result.push_str(&source[span.signature_range.end..]);
-        assert!(result.contains("fn new_name(x: i32, y: bool) -> bool"));
+        // Logical signature without trailing space (#1503).
+        let result = splice_function_signature(
+            source,
+            span.signature_range,
+            "fn new_name(x: i32, y: bool) -> bool",
+        );
+        assert!(result.contains("fn new_name(x: i32, y: bool) -> bool {"));
+        assert!(!result.contains("bool{"));
         assert!(result.contains("true")); // body preserved
+    }
+
+    // ── #1503 body-gap preservation ───────────────────────────────────
+
+    #[test]
+    fn replace_function_signature_preserves_space_before_brace() {
+        let source = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n";
+        // Agent-style logical signature: no trailing space.
+        let out =
+            replace_function_signature(source, "add", "pub fn add(a: i32, b: i32, c: i32) -> i32")
+                .expect("replace");
+        assert!(
+            out.contains("-> i32 {"),
+            "must keep space before body brace, got: {out}"
+        );
+        assert!(
+            !out.contains("i32{"),
+            "must not glue return type to brace, got: {out}"
+        );
+        assert!(out.contains("a + b"), "body preserved: {out}");
+    }
+
+    #[test]
+    fn replace_function_signature_preserves_newline_before_brace() {
+        let source = "fn wrapped(x: i32) -> i32\n{\n    x\n}\n";
+        let out =
+            replace_function_signature(source, "wrapped", "fn wrapped(x: i32, y: i32) -> i32")
+                .expect("replace");
+        // Original used )\n{ style — keep the newline gap.
+        assert!(
+            out.contains("-> i32\n{") || out.contains("-> i32 \n{"),
+            "must preserve newline before brace, got: {out}"
+        );
+        assert!(!out.contains("i32{"), "got: {out}");
+    }
+
+    #[test]
+    fn replace_function_signature_inserts_space_when_already_glued() {
+        // Malformed original already missing the space.
+        let source = "fn glued(x: i32) -> i32{\n    x\n}\n";
+        let out = replace_function_signature(source, "glued", "fn glued(x: i32) -> u64")
+            .expect("replace");
+        assert!(
+            out.contains("-> u64 {"),
+            "must insert conventional space when gap missing, got: {out}"
+        );
+        assert!(!out.contains("u64{"), "got: {out}");
+    }
+
+    #[test]
+    fn rewrite_function_signature_structured_keeps_space_before_brace() {
+        let src = "pub fn process(x: i32) -> i32 {\n    x\n}\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("(x: i32, y: i32)".into()),
+            return_type: Some("-> i64".into()),
+            ..Default::default()
+        };
+        let out = rewrite_function_signature(src, "process", &edit, Language::Rust)
+            .expect("structured rewrite");
+        assert!(
+            out.contains("-> i64 {"),
+            "structured path must keep space before brace, got: {out}"
+        );
+        assert!(!out.contains("i64{"), "got: {out}");
+    }
+
+    #[test]
+    fn splice_function_signature_no_spurious_space_before_semicolon() {
+        // Range ends before `;` so after is `;` — must not insert space.
+        let source = "fn foo();";
+        let out = splice_function_signature(source, 0..source.len() - 1, "fn foo(x: i32)");
+        assert_eq!(
+            out, "fn foo(x: i32);",
+            "must not insert space before semicolon"
+        );
+        assert!(!out.contains(") ;"));
     }
 
     #[test]
