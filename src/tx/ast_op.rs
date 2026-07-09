@@ -179,11 +179,11 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     .ok_or_else(|| crate::exit::NoMatchError {
                         msg: format!("function '{}' not found in {}", old, path),
                     })?;
-                format!(
-                    "{}{}{}",
-                    &content[..span.signature_range.start],
+                // Preserve original gap before `{` (or insert space if glued). #1503
+                crate::ast::rewrite::splice_function_signature(
+                    content,
+                    span.signature_range,
                     new_sig,
-                    &content[span.signature_range.end..]
                 )
             } else {
                 let edit = crate::ast::rewrite::FunctionSigEdit {
