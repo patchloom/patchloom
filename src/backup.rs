@@ -1,5 +1,9 @@
 //! Backup session management for undo safety net.
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). Session create,
+//! path sanitization, list/restore/prune, and host restore helper are one
+//! unit; tests co-located. Do not split for LOC alone (#1494 restore API).
+//!
 //! Before any `--apply` write, commands save the original content of each
 //! affected file to `.patchloom/backups/<timestamp>/`. The `patchloom undo`
 //! command restores the most recent (or a chosen) backup.
