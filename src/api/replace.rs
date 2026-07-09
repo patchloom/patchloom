@@ -39,6 +39,32 @@ pub fn replace_text(
             format!("{start}:")
         }
     });
+    // Shell command-position is content-path only for now; for files, read +
+    // replace_in_content so require_change / command_position stay consistent.
+    if opts.command_position {
+        let original = std::fs::read_to_string(path).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to read {}: {e}", path.display()),
+            )
+        })?;
+        let content_result = replace_in_content(&original, from, to, opts)?;
+        let policy = crate::write::WritePolicy::default();
+        let applied =
+            super::write_if_apply(path, &content_result.new_content, mode, &policy, guard)?;
+        let path_str = path.to_string_lossy();
+        let mut result = super::build_edit_result(
+            &path_str,
+            content_result.original,
+            content_result.new_content,
+            applied,
+            "replace",
+            None,
+        );
+        result.match_count = content_result.match_count;
+        return Ok(result);
+    }
+
     let op = Operation::Replace {
         glob: None,
         path: Some(path.to_string_lossy().into()),
@@ -58,7 +84,20 @@ pub fn replace_text(
         after_context: opts.after_context.clone(),
         unique: opts.unique,
     };
-    replace_write(op, path, mode, guard, opts.fuzzy)
+    let result = replace_write(op, path, mode, guard, opts.fuzzy)?;
+    if opts.require_change && !result.changed && result.match_count == 0 {
+        let similar = crate::fallback::find_similar_targets(&result.original_content, from, 3);
+        let mut msg = format!("no matches for {:?}", from);
+        if !similar.is_empty() {
+            msg.push_str(&format!(" (did you mean: {}?)", similar.join(", ")));
+        }
+        return Err(
+            crate::fallback::EditError::new(crate::fallback::EditErrorKind::NoMatch, msg)
+                .with_similar(similar)
+                .into(),
+        );
+    }
+    Ok(result)
 }
 
 /// Unified write path for replace operations.
@@ -315,6 +354,27 @@ pub fn replace_in_content(
         bail!("whole_line and multiline cannot be combined");
     }
 
+    // Shell command-position path (#1494): only rewrite invocable command tokens.
+    if opts.command_position {
+        if is_regex || opts.whole_line || opts.multiline || opts.nth.is_some() {
+            return Err(crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::InvalidInput,
+                "command_position cannot be combined with regex, whole_line, multiline, or nth",
+            )
+            .into());
+        }
+        if opts.insert_before.is_some() || opts.insert_after.is_some() {
+            return Err(crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::InvalidInput,
+                "command_position cannot be combined with insert_before/insert_after",
+            )
+            .into());
+        }
+        let (new_content, count) =
+            crate::ops::shell_token::replace_command_position(content, from, to);
+        return finalize_content_replace(content, from, new_content, count, opts);
+    }
+
     let compiled_re = ops::replace::compile_replace_regex(
         from,
         is_regex,
@@ -386,11 +446,14 @@ pub fn replace_in_content(
     let new_content = new_content.into_owned();
 
     if opts.unique && count > 1 {
-        anyhow::bail!(
-            "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
-            from,
-            count
-        );
+        return Err(crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::AmbiguousTarget,
+            format!(
+                "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
+                from, count
+            ),
+        )
+        .into());
     }
 
     // Fuzzy/context fallback (#1286, #1315): when exact match fails and fuzzy
@@ -448,9 +511,37 @@ pub fn replace_in_content(
                 if !similar.is_empty() {
                     msg.push_str(&format!(" (did you mean: {}?)", similar.join(", ")));
                 }
-                bail!("{msg}");
+                let mut err =
+                    crate::fallback::EditError::new(crate::fallback::EditErrorKind::NoMatch, msg)
+                        .with_similar(similar);
+                if let Some(s) = edit_error.suggestion.clone() {
+                    err = err.with_suggestion(s);
+                }
+                return Err(err.into());
             }
         }
+    }
+
+    finalize_content_replace(content, from, new_content, count, opts)
+}
+
+/// Shared zero-match / success finalization for content replace paths (#1492).
+fn finalize_content_replace(
+    content: &str,
+    from: &str,
+    new_content: String,
+    count: usize,
+    opts: &ReplaceOptions,
+) -> anyhow::Result<ContentEditResult> {
+    if opts.unique && count > 1 {
+        return Err(crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::AmbiguousTarget,
+            format!(
+                "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
+                from, count
+            ),
+        )
+        .into());
     }
 
     if count == 0 && opts.if_exists {
@@ -461,6 +552,19 @@ pub fn replace_in_content(
             changed: false,
             match_count: 0,
         });
+    }
+
+    if count == 0 && opts.require_change {
+        let similar = crate::fallback::find_similar_targets(content, from, 3);
+        let mut msg = format!("no matches for {:?}", from);
+        if !similar.is_empty() {
+            msg.push_str(&format!(" (did you mean: {}?)", similar.join(", ")));
+        }
+        return Err(
+            crate::fallback::EditError::new(crate::fallback::EditErrorKind::NoMatch, msg)
+                .with_similar(similar)
+                .into(),
+        );
     }
 
     let changed = content != new_content;

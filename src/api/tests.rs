@@ -3696,6 +3696,326 @@ fn apply_content_edits_to_file_respects_guard() {
         err.to_string().contains("guard") || err.to_string().contains("escapes"),
         "got: {err}"
     );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected)
+    );
     assert_eq!(fs::read_to_string(&outside).unwrap(), "secret\n");
     let _ = fs::remove_file(&outside);
+}
+
+// ── #1492 require_change + structured EditError ───────────────────────────
+
+#[test]
+fn replace_in_content_require_change_true_no_match() {
+    let err = replace_in_content(
+        "hello world",
+        "missing",
+        "x",
+        &ReplaceOptions {
+            require_change: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+    let e = crate::fallback::edit_error_ref(&err).expect("EditError in chain");
+    assert!(e.similar_targets.is_empty() || !e.message.is_empty());
+}
+
+#[test]
+fn replace_in_content_require_change_false_no_match_ok() {
+    let r = replace_in_content("hello world", "missing", "x", &ReplaceOptions::default()).unwrap();
+    assert!(!r.changed);
+    assert_eq!(r.match_count, 0);
+    assert_eq!(r.new_content, "hello world");
+}
+
+#[test]
+fn replace_in_content_unique_multi_is_ambiguous() {
+    let err = replace_in_content(
+        "a a a",
+        "a",
+        "b",
+        &ReplaceOptions {
+            unique: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::AmbiguousTarget)
+    );
+}
+
+#[test]
+fn replace_in_content_command_position_pip() {
+    let r = replace_in_content(
+        "pip install x\nuv pip install\npipenv install\n",
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            require_change: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(r.changed);
+    assert_eq!(r.match_count, 1);
+    assert_eq!(
+        r.new_content,
+        "uv install x\nuv pip install\npipenv install\n"
+    );
+}
+
+#[test]
+fn replace_in_content_command_position_no_match_with_require_change() {
+    let err = replace_in_content(
+        "uv pip install\n",
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            require_change: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+}
+
+// ── #1493 AST file mutators + in-content signature ────────────────────────
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_api_apply_and_preview() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn foo() { let x = 1; foo(); }\n").unwrap();
+
+    let preview = ast_rename(&file, "foo", "bar", ApplyMode::Preview, None).unwrap();
+    assert!(preview.changed);
+    assert!(!preview.applied);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn foo() { let x = 1; foo(); }\n"
+    );
+
+    let applied = ast_rename(&file, "foo", "bar", ApplyMode::Apply, None).unwrap();
+    assert!(applied.applied);
+    assert!(applied.match_count >= 1);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("fn bar"), "got: {on_disk}");
+    assert!(!on_disk.contains("fn foo"));
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_no_match_is_structured() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn keep() {}\n").unwrap();
+    let err = ast_rename(&file, "missing", "x", ApplyMode::Preview, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_replace_in_symbol_api() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(
+        &file,
+        "fn outer() {\n    let target = 1;\n}\nfn other() {\n    let target = 2;\n}\n",
+    )
+    .unwrap();
+    let result =
+        ast_replace_in_symbol(&file, "outer", "target", "value", ApplyMode::Apply, None).unwrap();
+    assert!(result.changed);
+    assert!(result.applied);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("let value = 1"), "got: {on_disk}");
+    assert!(
+        on_disk.contains("let target = 2"),
+        "other symbol untouched: {on_disk}"
+    );
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn ast_rewrite_signature_in_content_structured() {
+    use crate::ast::Language;
+    use crate::ast::rewrite::FunctionSigEdit;
+
+    let src = "fn process(x: i32) {}\n";
+    let edit = FunctionSigEdit {
+        parameters: Some("(x: u64)".into()),
+        return_type: Some("-> u64".into()),
+        ..Default::default()
+    };
+    // In-content API is on ast_write module (files/cli feature).
+    #[cfg(any(feature = "cli", feature = "files"))]
+    {
+        let r =
+            ast_rewrite_signature_in_content(src, "process", &edit, None, Language::Rust).unwrap();
+        assert!(r.changed);
+        assert!(r.new_content.contains("u64"), "got: {}", r.new_content);
+    }
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_in_content_no_match() {
+    use crate::ast::Language;
+    use crate::ast::rewrite::FunctionSigEdit;
+
+    let err = ast_rewrite_signature_in_content(
+        "fn keep() {}\n",
+        "missing",
+        &FunctionSigEdit {
+            parameters: Some("(x: i32)".into()),
+            ..Default::default()
+        },
+        None,
+        Language::Rust,
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+}
+
+// ── #1495 batch AST rename ────────────────────────────────────────────────
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_two_files_success() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.rs");
+    let b = dir.path().join("b.rs");
+    fs::write(&a, "fn foo() {}\n").unwrap();
+    fs::write(&b, "fn foo() { foo(); }\n").unwrap();
+
+    let opts = AstRenameBatchOptions {
+        mode: ApplyMode::Apply,
+        continue_on_no_match: true,
+        fail_fast: false,
+    };
+    let results = ast_rename_batch(&[&a, &b], "foo", "bar", &opts, None).unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results[0].result.as_ref().unwrap().changed);
+    assert!(results[1].result.as_ref().unwrap().changed);
+    assert!(fs::read_to_string(&a).unwrap().contains("bar"));
+    assert!(fs::read_to_string(&b).unwrap().contains("bar"));
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_continue_on_no_match() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.rs");
+    let b = dir.path().join("b.rs");
+    fs::write(&a, "fn foo() {}\n").unwrap();
+    fs::write(&b, "fn other() {}\n").unwrap();
+
+    let opts = AstRenameBatchOptions {
+        mode: ApplyMode::Apply,
+        continue_on_no_match: true,
+        ..Default::default()
+    };
+    let results = ast_rename_batch(&[&a, &b], "foo", "bar", &opts, None).unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results[0].result.is_ok());
+    let err = results[1].result.as_ref().unwrap_err();
+    assert_eq!(err.kind, EditErrorKind::NoMatch);
+    assert!(fs::read_to_string(&a).unwrap().contains("bar"));
+    assert!(fs::read_to_string(&b).unwrap().contains("other"));
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_dedupes_paths() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.rs");
+    fs::write(&a, "fn foo() {}\n").unwrap();
+    let opts = AstRenameBatchOptions {
+        mode: ApplyMode::Preview,
+        ..Default::default()
+    };
+    let results = ast_rename_batch(&[&a, &a, &a], "foo", "bar", &opts, None).unwrap();
+    assert_eq!(results.len(), 1, "duplicate paths processed once");
+    assert!(results[0].result.as_ref().unwrap().changed);
+    // Preview: disk unchanged
+    assert_eq!(fs::read_to_string(&a).unwrap(), "fn foo() {}\n");
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_guard_rejects_outside() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-batch-escape-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "fn foo() {}\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let opts = AstRenameBatchOptions {
+        mode: ApplyMode::Apply,
+        continue_on_no_match: false,
+        fail_fast: false,
+    };
+    let results = ast_rename_batch(&[&outside], "foo", "bar", &opts, Some(&guard)).unwrap();
+    assert_eq!(results.len(), 1);
+    let err = results[0].result.as_ref().unwrap_err();
+    assert_eq!(err.kind, EditErrorKind::GuardRejected);
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "fn foo() {}\n");
+    let _ = fs::remove_file(&outside);
+}
+
+// ── #1494 restore from latest backup ──────────────────────────────────────
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn restore_path_from_latest_backup_after_apply() {
+    use crate::backup::restore_path_from_latest_backup;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("notes.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let result = replace_text(
+        &file,
+        "original",
+        "modified",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(result.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "modified\n");
+
+    // Library apply uses file parent as backup project root.
+    let restored = restore_path_from_latest_backup(dir.path(), &file).unwrap();
+    assert!(restored, "should find backup session for path");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }

@@ -257,6 +257,149 @@ pub struct FunctionSigEdit {
     pub return_type: Option<String>,
 }
 
+/// Error from [`FunctionSigEdit::parse_rust`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseSigError {
+    pub message: String,
+}
+
+impl std::fmt::Display for ParseSigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for ParseSigError {}
+
+impl FunctionSigEdit {
+    /// Parse a Rust-like signature fragment or full line into structured fields.
+    ///
+    /// Accepts forms such as:
+    /// - `pub fn foo(x: i32) -> T`
+    /// - `pub(crate) async fn bar(...)`
+    /// - `(x: i32) -> bool` (params-only)
+    /// - `fn name(a: Fn(i32) -> bool, b: Vec<(u8, u8)>) -> R`
+    ///
+    /// Nested parens inside params are handled. When only a full free-form
+    /// string is reliable, callers should prefer `new_signature` on
+    /// `ast_rewrite_signature` instead. See #1493.
+    pub fn parse_rust(sig: &str) -> Result<Self, ParseSigError> {
+        let s = sig.trim();
+        if s.is_empty() {
+            return Err(ParseSigError {
+                message: "empty signature".into(),
+            });
+        }
+
+        // Params-only form: starts with `(`
+        if s.starts_with('(') {
+            return parse_params_and_return(s);
+        }
+
+        let mut rest = s;
+        let mut visibility = None;
+
+        // Visibility
+        if rest.starts_with("pub(") {
+            if let Some(end) = rest.find(')') {
+                visibility = Some(rest[..=end].to_string());
+                rest = rest[end + 1..].trim_start();
+            }
+        } else if rest.starts_with("pub")
+            && rest
+                .chars()
+                .nth(3)
+                .map(|c| c.is_whitespace())
+                .unwrap_or(false)
+        {
+            visibility = Some("pub".into());
+            rest = rest[3..].trim_start();
+        }
+
+        // Skip common qualifiers
+        for q in ["async ", "const ", "unsafe ", "extern "] {
+            if rest.starts_with(q) {
+                rest = rest[q.len()..].trim_start();
+                // extern "C" form
+                if q.starts_with("extern")
+                    && rest.starts_with('"')
+                    && let Some(end) = rest[1..].find('"')
+                {
+                    rest = rest[end + 2..].trim_start();
+                }
+            }
+        }
+
+        // Optional `fn name`
+        if rest.starts_with("fn ") {
+            rest = rest[3..].trim_start();
+            // skip name until `(`
+            if let Some(paren) = rest.find('(') {
+                rest = &rest[paren..];
+            } else {
+                return Err(ParseSigError {
+                    message: format!("expected parameters after function name in `{sig}`"),
+                });
+            }
+        } else if rest.starts_with("fn(") {
+            rest = &rest[2..]; // keep `(`
+        }
+
+        if !rest.starts_with('(') {
+            return Err(ParseSigError {
+                message: format!("could not find parameter list in `{sig}`"),
+            });
+        }
+
+        let mut parsed = parse_params_and_return(rest)?;
+        if visibility.is_some() {
+            parsed.visibility = visibility;
+        }
+        Ok(parsed)
+    }
+}
+
+fn parse_params_and_return(s: &str) -> Result<FunctionSigEdit, ParseSigError> {
+    let mut depth = 0i32;
+    let mut params_end = None;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    params_end = Some(i + 1);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let end = params_end.ok_or_else(|| ParseSigError {
+        message: format!("unbalanced parentheses in `{s}`"),
+    })?;
+    let parameters = Some(s[..end].to_string());
+    let after = s[end..].trim_start();
+    let return_type = if after.starts_with("->") {
+        Some(after.to_string())
+    } else if after.is_empty() {
+        None
+    } else {
+        // Tolerate trailing `{` body start
+        let cleaned = after.trim_end_matches('{').trim();
+        if cleaned.starts_with("->") {
+            Some(cleaned.to_string())
+        } else {
+            None
+        }
+    };
+    Ok(FunctionSigEdit {
+        visibility: None,
+        parameters,
+        return_type,
+    })
+}
+
 /// Rewrite function signature with structured changes for visibility, parameters, return type.
 /// Preserves function name, body, and other source exactly. Uses tree-sitter for location.
 ///
@@ -932,6 +1075,49 @@ mod tests {
             ..Default::default()
         };
         assert!(rewrite_function_signature(src, "nonexistent", &edit, Language::Python).is_none());
+    }
+
+    // ── FunctionSigEdit::parse_rust (#1493) ───────────────────────────
+
+    #[test]
+    fn parse_rust_pub_fn_with_return() {
+        let e = FunctionSigEdit::parse_rust("pub fn foo(x: i32) -> String").unwrap();
+        assert_eq!(e.visibility.as_deref(), Some("pub"));
+        assert_eq!(e.parameters.as_deref(), Some("(x: i32)"));
+        assert_eq!(e.return_type.as_deref(), Some("-> String"));
+    }
+
+    #[test]
+    fn parse_rust_pub_crate() {
+        let e = FunctionSigEdit::parse_rust("pub(crate) fn bar(a: u8)").unwrap();
+        assert_eq!(e.visibility.as_deref(), Some("pub(crate)"));
+        assert_eq!(e.parameters.as_deref(), Some("(a: u8)"));
+        assert!(e.return_type.is_none());
+    }
+
+    #[test]
+    fn parse_rust_params_only() {
+        let e = FunctionSigEdit::parse_rust("(x: i32) -> bool").unwrap();
+        assert!(e.visibility.is_none());
+        assert_eq!(e.parameters.as_deref(), Some("(x: i32)"));
+        assert_eq!(e.return_type.as_deref(), Some("-> bool"));
+    }
+
+    #[test]
+    fn parse_rust_nested_parens_in_params() {
+        let e = FunctionSigEdit::parse_rust("fn name(a: Fn(i32) -> bool, b: Vec<(u8, u8)>) -> R")
+            .unwrap();
+        assert_eq!(
+            e.parameters.as_deref(),
+            Some("(a: Fn(i32) -> bool, b: Vec<(u8, u8)>)")
+        );
+        assert_eq!(e.return_type.as_deref(), Some("-> R"));
+    }
+
+    #[test]
+    fn parse_rust_empty_is_err() {
+        assert!(FunctionSigEdit::parse_rust("").is_err());
+        assert!(FunctionSigEdit::parse_rust("   ").is_err());
     }
 
     // ── find_function_span tests ──────────────────────────────────

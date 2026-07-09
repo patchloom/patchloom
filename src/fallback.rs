@@ -103,6 +103,12 @@ pub enum EditErrorKind {
     ConflictingEdit,
     /// The file could not be parsed.
     ParseError,
+    /// Path rejected by workspace PathGuard (#1492).
+    GuardRejected,
+    /// Invalid arguments or options for the edit.
+    InvalidInput,
+    /// I/O or other operational failure.
+    OperationFailed,
 }
 
 impl std::fmt::Display for EditErrorKind {
@@ -113,8 +119,55 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::SyntaxInvalid => write!(f, "syntax_invalid"),
             EditErrorKind::ConflictingEdit => write!(f, "conflicting_edit"),
             EditErrorKind::ParseError => write!(f, "parse_error"),
+            EditErrorKind::GuardRejected => write!(f, "guard_rejected"),
+            EditErrorKind::InvalidInput => write!(f, "invalid_input"),
+            EditErrorKind::OperationFailed => write!(f, "operation_failed"),
         }
     }
+}
+
+impl EditError {
+    /// Build a structured edit error.
+    pub fn new(kind: EditErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+            suggestion: None,
+            similar_targets: Vec::new(),
+        }
+    }
+
+    /// Attach similar-target suggestions (did-you-mean).
+    pub fn with_similar(mut self, similar: Vec<String>) -> Self {
+        self.similar_targets = similar;
+        self
+    }
+
+    /// Attach a single suggestion string.
+    pub fn with_suggestion(mut self, suggestion: impl Into<String>) -> Self {
+        self.suggestion = Some(suggestion.into());
+        self
+    }
+}
+
+/// Downcast an `anyhow` error chain to [`EditErrorKind`] when present.
+pub fn edit_error_kind(err: &anyhow::Error) -> Option<EditErrorKind> {
+    for cause in err.chain() {
+        if let Some(e) = cause.downcast_ref::<EditError>() {
+            return Some(e.kind);
+        }
+    }
+    None
+}
+
+/// Downcast an `anyhow` error chain to [`EditError`] when present.
+pub fn edit_error_ref(err: &anyhow::Error) -> Option<&EditError> {
+    for cause in err.chain() {
+        if let Some(e) = cause.downcast_ref::<EditError>() {
+            return Some(e);
+        }
+    }
+    None
 }
 
 /// Result of `validate_edit()`: whether the edit would produce valid output.

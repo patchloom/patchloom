@@ -3,17 +3,23 @@
 //! Compose sequential text operations on one buffer with all-or-nothing
 //! semantics, then optionally write once via [`apply_content_edits_to_file`].
 
-use std::path::Path;
-
 use anyhow::Context;
 
-use crate::containment::PathGuard;
 use crate::ops::file::{append_content, prepend_content};
 
-use super::{
-    ApplyMode, ContentEditResult, EditResult, ReplaceOptions, make_diff, replace_in_content,
-    write_if_apply,
-};
+use super::{ContentEditResult, ReplaceOptions, make_diff, replace_in_content};
+use crate::fallback::{EditError, EditErrorKind};
+
+#[cfg(any(feature = "cli", feature = "files"))]
+use std::path::Path;
+
+#[cfg(any(feature = "cli", feature = "files"))]
+use crate::containment::PathGuard;
+
+#[cfg(any(feature = "cli", feature = "files"))]
+use super::{ApplyMode, EditResult, write_if_apply};
+
+#[cfg(any(feature = "cli", feature = "files"))]
 use crate::write::WritePolicy;
 
 /// A single ordered edit on an in-memory buffer.
@@ -94,8 +100,12 @@ pub fn apply_content_edits_to_file(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     if let Some(g) = guard {
-        g.check_path(&path.to_string_lossy())
-            .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
+        g.check_path(&path.to_string_lossy()).map_err(|e| {
+            EditError::new(
+                EditErrorKind::GuardRejected,
+                format!("path rejected by workspace guard: {e}"),
+            )
+        })?;
     }
     let path_str = path.to_string_lossy().into_owned();
     let original =
@@ -138,7 +148,11 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<String> {
                     out.push_str(&content[idx..]);
                     Ok(out)
                 }
-                None => anyhow::bail!("insert_before anchor not found: {anchor:?}"),
+                None => Err(EditError::new(
+                    EditErrorKind::NoMatch,
+                    format!("insert_before anchor not found: {anchor:?}"),
+                )
+                .into()),
             }
         }
         ContentEdit::InsertAfter {
@@ -157,7 +171,11 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<String> {
                     out.push_str(&content[end..]);
                     Ok(out)
                 }
-                None => anyhow::bail!("insert_after anchor not found: {anchor:?}"),
+                None => Err(EditError::new(
+                    EditErrorKind::NoMatch,
+                    format!("insert_after anchor not found: {anchor:?}"),
+                )
+                .into()),
             }
         }
         ContentEdit::Append { content: inject } => Ok(append_content(content, inject)),
@@ -286,6 +304,82 @@ mod tests {
         assert!(
             after_msg.contains("empty"),
             "insert_after empty anchor: {after_msg}"
+        );
+    }
+
+    #[test]
+    fn require_change_true_missing_is_no_match() {
+        let edits = [ContentEdit::Replace {
+            old: "missing".into(),
+            new: "x".into(),
+            options: ReplaceOptions {
+                require_change: true,
+                ..Default::default()
+            },
+        }];
+        let err = apply_content_edits("hello\n", &edits).unwrap_err();
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::NoMatch)
+        );
+    }
+
+    #[test]
+    fn require_change_false_missing_is_ok_unchanged() {
+        let edits = [ContentEdit::Replace {
+            old: "missing".into(),
+            new: "x".into(),
+            options: ReplaceOptions::default(),
+        }];
+        let r = apply_content_edits("hello\n", &edits).unwrap();
+        assert!(!r.changed);
+        assert_eq!(r.modified, "hello\n");
+    }
+
+    #[test]
+    fn require_change_unique_multi_is_ambiguous() {
+        let edits = [ContentEdit::Replace {
+            old: "x".into(),
+            new: "y".into(),
+            options: ReplaceOptions {
+                unique: true,
+                require_change: true,
+                ..Default::default()
+            },
+        }];
+        let err = apply_content_edits("x x\n", &edits).unwrap_err();
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::AmbiguousTarget)
+        );
+    }
+
+    #[test]
+    fn require_change_batch_fails_whole_batch() {
+        let edits = [
+            ContentEdit::Replace {
+                old: "a".into(),
+                new: "A".into(),
+                options: ReplaceOptions {
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+            ContentEdit::Replace {
+                old: "missing".into(),
+                new: "z".into(),
+                options: ReplaceOptions {
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+        ];
+        let err = apply_content_edits("a b\n", &edits).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("content edit 2"), "got: {msg}");
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::NoMatch)
         );
     }
 }
