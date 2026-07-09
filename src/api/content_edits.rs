@@ -111,13 +111,16 @@ pub fn apply_content_edits_to_file(
     let original =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
     let batch = apply_content_edits(&original, edits)?;
+    // Rebuild the unified diff with the real path so EditResult.diff matches
+    // replace_text / other writers (not the in-memory `<buffer>` label). #1500
+    let diff = make_diff(&path_str, &batch.original, &batch.modified);
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &batch.modified, mode, &policy, guard)?;
     Ok(EditResult {
         path: path_str,
         original_content: batch.original,
         new_content: batch.modified,
-        diff: batch.diff,
+        diff,
         applied,
         changed: batch.changed,
         action: "content.edits",
@@ -203,6 +206,17 @@ mod tests {
         assert!(r.changed);
         assert_eq!(r.ops_applied, 2);
         assert_eq!(r.modified, "hi\n\nworld");
+        // Pure buffer helper keeps the `<buffer>` path label (#1500).
+        assert!(
+            r.diff.contains("--- a/<buffer>") && r.diff.contains("+++ b/<buffer>"),
+            "buffer helper must label headers as <buffer>, got:\n{}",
+            r.diff
+        );
+        assert!(
+            !r.diff.contains("a//") && !r.diff.contains("b//"),
+            "buffer headers must not double-slash: {}",
+            r.diff
+        );
     }
 
     #[test]
