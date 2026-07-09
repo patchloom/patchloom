@@ -29,6 +29,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
   - Cross-referenced in project docs.
 
+## [0.11.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.10.0...patchloom-v0.11.0) (2026-07-09)
+
+
+### Features
+
+* library embedder gaps for bline ([#1459](https://github.com/patchloom/patchloom/issues/1459)) ([#1461](https://github.com/patchloom/patchloom/issues/1461)) ([37d4573](https://github.com/patchloom/patchloom/commit/37d457373af009d293653a7440c23c860d923e7a))
+
+
+### Bug Fixes
+
+* accept singular file alias on batch_replace and batch_tidy ([#1471](https://github.com/patchloom/patchloom/issues/1471)) ([15ace34](https://github.com/patchloom/patchloom/commit/15ace34ebe97bfcf21345f807d3f6ab2f43a8b61))
+* batch unknown-op suggestions and deny.toml licenses ([#1483](https://github.com/patchloom/patchloom/issues/1483)) ([b61dde5](https://github.com/patchloom/patchloom/commit/b61dde51d653385006d0c174906ac76db499b2d7))
+* enforce --contain on ast list/deps/map/diff ([#1456](https://github.com/patchloom/patchloom/issues/1456)) ([feeace7](https://github.com/patchloom/patchloom/commit/feeace75e41c259ccb259fdb3dcfde3e971f73e0))
+* files-from no-match scope + concurrent inventory ([#1476](https://github.com/patchloom/patchloom/issues/1476)) ([3160c62](https://github.com/patchloom/patchloom/commit/3160c622e8a9f92313327ee361833d01efab3565))
+* honor contained plan.cwd in MCP execute_plan ([#1466](https://github.com/patchloom/patchloom/issues/1466)) ([7d4691f](https://github.com/patchloom/patchloom/commit/7d4691fe87cfb080c2cd9f5353a810440e6bb98f))
+* map AST/md/doc no-match in tx to exit 3 with detail ([#1462](https://github.com/patchloom/patchloom/issues/1462)) ([db9ddb7](https://github.com/patchloom/patchloom/commit/db9ddb77c91884dab1311a2b7da05ed7b7fccb84))
+* MPI cycle improve (regex, lychee 5xx, yaml escape) ([#1487](https://github.com/patchloom/patchloom/issues/1487)) ([8a48e06](https://github.com/patchloom/patchloom/commit/8a48e063e188cf32de1af9e6f28b00bbdec2a1b3))
+* normalize absolute paths in unified-diff headers ([#1481](https://github.com/patchloom/patchloom/issues/1481)) ([44cb0e6](https://github.com/patchloom/patchloom/commit/44cb0e6943a3ac112abbdb3b9d89a30fd9f4fe51))
+* omit .patchloom backups from status output ([#1478](https://github.com/patchloom/patchloom/issues/1478)) ([bd71231](https://github.com/patchloom/patchloom/commit/bd712316bb21e847ae9bac6599e8a500c2a6016e))
+* preserve NoMatchError through error chain wrapping ([#1464](https://github.com/patchloom/patchloom/issues/1464)) ([9b6b519](https://github.com/patchloom/patchloom/commit/9b6b5196a9a92b256c62c1e43508435416e5c30f))
+* reject empty and whitespace-only path arguments ([#1460](https://github.com/patchloom/patchloom/issues/1460)) ([cee8c66](https://github.com/patchloom/patchloom/commit/cee8c66ae305250a200a4e85a799ec67e503b866))
+* reject empty/whitespace path alias and plan.cwd on MCP ([#1472](https://github.com/patchloom/patchloom/issues/1472)) ([b3aac77](https://github.com/patchloom/patchloom/commit/b3aac771f7f8596ec6fc6f5f9a0cd1354da1eb2c))
+* search_files path alias and AST concurrent-write guidance ([#1469](https://github.com/patchloom/patchloom/issues/1469)) ([d6f8510](https://github.com/patchloom/patchloom/commit/d6f8510413e5a560784c29e6a261020a3c7eb224))
+* strip all leading slashes in diff header paths ([#1482](https://github.com/patchloom/patchloom/issues/1482)) ([6bb64d6](https://github.com/patchloom/patchloom/commit/6bb64d6ada9f0af9488608102ae2c5fa7c6a93a5)), closes [#1480](https://github.com/patchloom/patchloom/issues/1480)
+
 ## [0.10.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.9.0...patchloom-v0.10.0) (2026-07-07)
 
 
