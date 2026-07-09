@@ -3792,6 +3792,118 @@ fn replace_in_content_command_position_no_match_with_require_change() {
     );
 }
 
+#[test]
+fn replace_in_content_if_exists_wins_over_require_change() {
+    let r = replace_in_content(
+        "hello",
+        "missing",
+        "x",
+        &ReplaceOptions {
+            require_change: true,
+            if_exists: true,
+            ..Default::default()
+        },
+    )
+    .expect("if_exists must soften require_change");
+    assert!(!r.changed);
+    assert_eq!(r.match_count, 0);
+}
+
+#[test]
+fn replace_in_content_command_position_rejects_regex() {
+    let err = replace_in_content(
+        "pip install\n",
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            regex: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_require_change_file_no_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "hello\n").unwrap();
+    let err = replace_text(
+        &file,
+        "missing",
+        "x",
+        &ReplaceOptions {
+            require_change: true,
+            ..Default::default()
+        },
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_if_exists_wins_over_require_change() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "hello\n").unwrap();
+    let r = replace_text(
+        &file,
+        "missing",
+        "x",
+        &ReplaceOptions {
+            require_change: true,
+            if_exists: true,
+            ..Default::default()
+        },
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("if_exists must win on file path too");
+    assert!(!r.changed);
+    assert!(!r.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_command_position_on_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "pip install x\nuv pip install\n").unwrap();
+    let r = replace_text(
+        &file,
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            require_change: true,
+            ..Default::default()
+        },
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(r.applied);
+    assert_eq!(r.match_count, 1);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "uv install x\nuv pip install\n"
+    );
+}
+
 // ── #1493 AST file mutators + in-content signature ────────────────────────
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
@@ -3959,6 +4071,113 @@ fn ast_rename_batch_dedupes_paths() {
     assert!(results[0].result.as_ref().unwrap().changed);
     // Preview: disk unchanged
     assert_eq!(fs::read_to_string(&a).unwrap(), "fn foo() {}\n");
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_fail_fast_stops_after_hard_error() {
+    let dir = TempDir::new().unwrap();
+    let good = dir.path().join("good.rs");
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-fail-fast-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    let after = dir.path().join("after.rs");
+    fs::write(&good, "fn foo() {}\n").unwrap();
+    fs::write(&outside, "fn foo() {}\n").unwrap();
+    fs::write(&after, "fn foo() {}\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let opts = AstRenameBatchOptions {
+        mode: ApplyMode::Apply,
+        continue_on_no_match: true,
+        fail_fast: true,
+    };
+    // Process good first (ok), then outside (guard), then after must not run.
+    let results = ast_rename_batch(
+        &[&good, &outside, &after],
+        "foo",
+        "bar",
+        &opts,
+        Some(&guard),
+    )
+    .unwrap();
+    assert_eq!(results.len(), 2, "fail_fast should stop before third path");
+    assert!(results[0].result.is_ok());
+    assert_eq!(
+        results[1].result.as_ref().unwrap_err().kind,
+        EditErrorKind::GuardRejected
+    );
+    assert!(
+        fs::read_to_string(&after).unwrap().contains("foo"),
+        "third file must not be rewritten under fail_fast"
+    );
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_continue_on_no_match_false_stops() {
+    let dir = TempDir::new().unwrap();
+    let miss = dir.path().join("miss.rs");
+    let after = dir.path().join("after.rs");
+    fs::write(&miss, "fn other() {}\n").unwrap();
+    fs::write(&after, "fn foo() {}\n").unwrap();
+    let opts = AstRenameBatchOptions {
+        mode: ApplyMode::Apply,
+        continue_on_no_match: false,
+        fail_fast: false,
+    };
+    let results = ast_rename_batch(&[&miss, &after], "foo", "bar", &opts, None).unwrap();
+    assert_eq!(
+        results.len(),
+        1,
+        "continue_on_no_match=false must stop after first NoMatch"
+    );
+    assert_eq!(
+        results[0].result.as_ref().unwrap_err().kind,
+        EditErrorKind::NoMatch
+    );
+    assert!(
+        fs::read_to_string(&after).unwrap().contains("foo"),
+        "later paths must not run after NoMatch stop"
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_empty_names_are_invalid_input() {
+    let err = ast_rename_batch(&[], "", "x", &AstRenameBatchOptions::default(), None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_empty_paths_is_ok_empty() {
+    let results = ast_rename_batch(&[], "foo", "bar", &AstRenameBatchOptions::default(), None)
+        .expect("empty path list is valid");
+    assert!(results.is_empty());
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_check_mode_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn foo() {}\n").unwrap();
+    let r = ast_rename(&file, "foo", "bar", ApplyMode::Check, None).unwrap();
+    assert!(r.changed);
+    assert!(!r.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "fn foo() {}\n");
 }
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]

@@ -71,15 +71,17 @@ Rust tools. Disable default features to omit CLI (clap), MCP server, and AST:
 patchloom = { default-features = false }
 ```
 
-To add AST support without CLI/MCP:
+To add AST support without CLI/MCP (embedders such as Bline typically use
+`ast` + `files` for plan execution and AST file mutators):
 
 ```toml
-patchloom = { default-features = false, features = ["ast"] }
+patchloom = { default-features = false, features = ["ast", "files"] }
 ```
 
 See the [crate documentation](https://docs.rs/patchloom) for the full API
-surface and the [introduction](../introduction.md#as-a-rust-library) for
-a quick overview.
+surface (`require_change`, `command_position`, `ast_rename_batch`, backup
+restore helper) and the [introduction](../introduction.md#as-a-rust-library)
+for a quick overview.
 
 ## Shell completions
 

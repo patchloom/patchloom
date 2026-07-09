@@ -85,7 +85,9 @@ pub fn replace_text(
         unique: opts.unique,
     };
     let result = replace_write(op, path, mode, guard, opts.fuzzy)?;
-    if opts.require_change && !result.changed && result.match_count == 0 {
+    // if_exists intentionally softens zero-match (Ok unchanged). require_change
+    // must not override that: both true means if_exists wins (#1492 docs).
+    if opts.require_change && !opts.if_exists && !result.changed && result.match_count == 0 {
         let similar = crate::fallback::find_similar_targets(&result.original_content, from, 3);
         let mut msg = format!("no matches for {:?}", from);
         if !similar.is_empty() {
@@ -445,20 +447,11 @@ pub fn replace_in_content(
 
     let new_content = new_content.into_owned();
 
-    if opts.unique && count > 1 {
-        return Err(crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::AmbiguousTarget,
-            format!(
-                "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
-                from, count
-            ),
-        )
-        .into());
-    }
-
     // Fuzzy/context fallback (#1286, #1315): when exact match fails and fuzzy
     // or context is enabled, try resolve_with_fallback for anchor/similarity
     // matching (matches replace_write and tx engine behavior).
+    // Ambiguous (unique + count>1) is finalized below so command_position and
+    // the normal path share one check in finalize_content_replace.
     if count == 0
         && !is_regex
         && (opts.fuzzy || opts.before_context.is_some() || opts.after_context.is_some())
