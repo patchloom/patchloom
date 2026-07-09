@@ -26,6 +26,8 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
 | `make check-patchloom-md` | Verify PATCHLOOM.md matches `patchloom agent-rules` output (part of `check`) |
 | `make audit-test-hygiene` | Audit test names and weak assertions for staleness after refactors (run after MPI or breaking changes) |
+| `make audit` | Run `cargo audit` for known vulnerabilities (optional locally; also in CI) |
+| `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; required in CI) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
 | `make fuzz` | Run fuzz tests (11 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |

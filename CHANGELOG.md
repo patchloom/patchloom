@@ -554,12 +554,6 @@ The goal of this work was to make more of the crate independently usable and red
 * use thread-local FORCE_RESTORE_FAIL for parallel tests ([#594](https://github.com/patchloom/patchloom/issues/594)) ([57b6f9b](https://github.com/patchloom/patchloom/commit/57b6f9bd00f123b8308ba2f81c90ee2a8ec33930))
 * warn on invalid config values and clarify batch quoting ([#585](https://github.com/patchloom/patchloom/issues/585)) ([7803291](https://github.com/patchloom/patchloom/commit/7803291f7523c2d1dc684b73cd4148a3d6c74286))
 
-## [Unreleased]
-
-### Changed
-
-- **tx** - **Breaking:** `strict` now defaults to `true` in plans, MCP write tools, and `batch`. Use `"strict": false`, `[tx] strict = false` in `.patchloom.toml`, or `patchloom tx --no-strict` to opt out. Operation staging failures now exit 4 with `error_kind: operation_failed` (was exit 7). Mid-commit write failures roll back via the backup session (exit 7 `rollback`, or exit 1 `rollback_failed` if rollback is incomplete).
-
 ## [0.1.7](https://github.com/patchloom/patchloom/compare/patchloom-v0.1.6...patchloom-v0.1.7) (2026-06-16)
 
 
@@ -760,8 +754,6 @@ The goal of this work was to make more of the crate independently usable and red
 * reduce allocations across replace, search, doc ops, diff, and selector ([5543443](https://github.com/patchloom/patchloom/commit/5543443a25147a9df4d37c8715eb0639648045d3))
 * trim agent_rules.md from 102 to 40 lines (71% smaller) ([cecbc18](https://github.com/patchloom/patchloom/commit/cecbc18d08373b8169d1e9be1a76a28e716b215e))
 * use parallel file walking for directory traversal ([4a68a85](https://github.com/patchloom/patchloom/commit/4a68a85347151d5961078cc2548a1782f291ebe6)), closes [#249](https://github.com/patchloom/patchloom/issues/249)
-
-## [Unreleased]
 
 ## [0.1.0] - 2026-06-04
 

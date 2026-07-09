@@ -76,6 +76,9 @@ See the "Adding a new MCP tool" section in [AGENTS.md](./AGENTS.md).
 - `cargo clippy --all-targets --all-features -- -D warnings` must produce zero warnings.
 - Never use `unwrap()` or `expect()` in non-test code; use `?` with `anyhow::Context` or `.ok_or_else(|| anyhow!("msg"))?`. Exception: `expect()` is acceptable on infallible internal invariants (e.g. `Mutex::lock`).
 - `unsafe_code = "deny"` is enforced in `Cargo.toml`.
+- Dependency policy: CI runs `cargo audit` (advisories), `cargo deny check`
+  (`deny.toml` licenses/bans/sources), and FOSSA (license compliance product).
+  Locally: `make audit` and `make deny` (requires `cargo-audit` / `cargo-deny`).
 - All commits require a `Signed-off-by` line ([DCO](https://developercertificate.org/)). Use `git commit -s`.
 
 ## Troubleshooting `make check` failures

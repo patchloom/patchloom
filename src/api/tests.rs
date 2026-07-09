@@ -551,7 +551,6 @@ fn execute_plan_runs_operations() {
     // execute_plan now returns typed PlanReport directly for library users (#811).
     assert!(report.ok);
     assert_eq!(report.status, "success");
-    assert!(report.ok);
     assert!(!report.changes.is_empty()); // net file changes from the plan ops
     assert!(
         report

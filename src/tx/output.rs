@@ -302,17 +302,33 @@ mod tests {
 
     // ---- describe_exit_status ----
 
+    /// Spawn a process that exits with the given code on both Unix and Windows.
+    fn command_for_exit_code(code: i32) -> std::process::Command {
+        #[cfg(windows)]
+        {
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.args(["/C", &format!("exit {code}")]);
+            cmd
+        }
+        #[cfg(not(windows))]
+        {
+            if code == 0 {
+                std::process::Command::new("true")
+            } else {
+                std::process::Command::new("false")
+            }
+        }
+    }
+
     #[test]
     fn describe_exit_status_code_zero() {
-        use std::process::Command;
-        let status = Command::new("true").status().unwrap();
+        let status = command_for_exit_code(0).status().unwrap();
         assert_eq!(describe_exit_status(status), "exit code 0");
     }
 
     #[test]
     fn describe_exit_status_code_nonzero() {
-        use std::process::Command;
-        let status = Command::new("false").status().unwrap();
+        let status = command_for_exit_code(1).status().unwrap();
         assert_eq!(describe_exit_status(status), "exit code 1");
     }
 

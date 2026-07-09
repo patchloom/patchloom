@@ -238,13 +238,21 @@ fn test_smoke_example_07_yaml_plan() {
         .assert()
         .code(2);
 
-    // --apply: skip format/validate (prettier/yamllint may not exist).
-    // Instead verify the plan parses and operations apply.
-    let _ = patchloom_in(dir.path())
+    // --apply: plan sets strict: false so ops land even if format/validate tools
+    // (prettier/yamllint) are missing. Exit 0 when tools exist; exit 6
+    // (VALIDATION_FAILED) when they do not. Never discard the exit code.
+    let apply = patchloom_in(dir.path())
         .arg("tx")
         .arg(example_plan_path("07-yaml-plan.yaml"))
         .arg("--apply")
-        .assert();
+        .output()
+        .expect("tx --apply should run");
+    let code = apply.status.code().unwrap_or(1);
+    assert!(
+        code == 0 || code == 6,
+        "expected exit 0 (format tools present) or 6 (missing prettier/yamllint), got {code}: {}",
+        String::from_utf8_lossy(&apply.stderr)
+    );
 
     let config = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
     assert!(

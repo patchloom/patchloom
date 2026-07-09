@@ -1,5 +1,6 @@
-# Local / optional cargo-deny config (FOSSA is the CI license gate).
-# Run: cargo deny check
+# cargo-deny policy enforced in CI (job "deny" in .github/workflows/ci.yml).
+# FOSSA remains the license compliance product; cargo-audit covers advisories.
+# Local: `make deny` or `cargo deny check`
 [graph]
 all-features = true
 
