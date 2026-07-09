@@ -4162,6 +4162,26 @@ fn ast_rename_batch_empty_names_are_invalid_input() {
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
 #[test]
+fn ast_rename_batch_empty_paths_is_ok_empty() {
+    let results = ast_rename_batch(&[], "foo", "bar", &AstRenameBatchOptions::default(), None)
+        .expect("empty path list is valid");
+    assert!(results.is_empty());
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_check_mode_does_not_write() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn foo() {}\n").unwrap();
+    let r = ast_rename(&file, "foo", "bar", ApplyMode::Check, None).unwrap();
+    assert!(r.changed);
+    assert!(!r.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "fn foo() {}\n");
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
 fn ast_rename_batch_guard_rejects_outside() {
     let dir = TempDir::new().unwrap();
     let outside = dir.path().parent().unwrap().join(format!(

@@ -200,4 +200,26 @@ mod tests {
         assert_eq!(n, 1);
         assert_eq!(out, "other run\n");
     }
+
+    #[test]
+    fn empty_token_is_noop() {
+        let (out, n) = replace_command_position("pip install\n", "", "x");
+        assert_eq!(n, 0);
+        assert_eq!(out, "pip install\n");
+    }
+
+    #[test]
+    fn multiple_command_positions_on_line() {
+        // Second command after semicolon is rewritten; first too.
+        let (out, n) = replace_command_position("pip install; pip list\n", "pip", "uv");
+        assert_eq!(n, 2);
+        assert_eq!(out, "uv install; uv list\n");
+    }
+
+    #[test]
+    fn quoted_path_not_command_when_after_word() {
+        // `echo pip` should not rewrite pip as command.
+        let (_, n) = replace_command_position("echo pip\n", "pip", "uv");
+        assert_eq!(n, 0);
+    }
 }
