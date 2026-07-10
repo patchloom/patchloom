@@ -60,6 +60,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Tx create/rename conflicts `already_exists`.** Plan `file.create` without force and rename into an existing dest set `error_kind: "already_exists"` (exit 1), matching standalone CLI file ops.
 - **Tx missing-file `not_found`.** Plan/tx engine IO `NotFound` (e.g. `md.replace_section` on a missing path) sets `error_kind: "not_found"` and exit **1** instead of generic `operation_failed` (9).
 - **Engine IO not_found chain.** Tx/CLI engine read failures preserve `std::io::ErrorKind::NotFound` through context wrappers so global `--json` maps them to `error_kind: "not_found"` (e.g. `md replace-section` on a missing file).
+- **Tx non-file targets `invalid_input`.** Plan file ops against directories set `error_kind: "invalid_input"` (exit 1). Engine `path_err` keeps IO NotFound through path prefixing so missing docs stay `not_found`.
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.
