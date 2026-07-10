@@ -82,7 +82,7 @@ Use these names in plans, MCP args, and CLI flags (do not invent alternates):
 | AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |
 | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |
 
-Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector) so older agent prompts keep working, but examples and new plans must use the canonical names above.
+Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector, `ops` for the plan `operations` array) so older agent prompts keep working, but examples and new plans must use the canonical names above.
 
 ## Batching (the main speed win)
 

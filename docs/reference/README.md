@@ -923,6 +923,7 @@ Use these when newline and whitespace correctness is the main concern.
 ### `operations`
 
 - **What it does:** Lists the ordered mutations that make up the transaction.
+- **Alias:** `ops` is accepted on deserialize (common agent shorthand). Serialized plans still emit `operations`.
 - **Use when:** One logical change spans several steps or several mutation types.
 - **Prefer instead:** Use a standalone command when one direct operation is enough.
 

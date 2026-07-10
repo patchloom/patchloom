@@ -171,8 +171,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
          | Doc path into a document | `selector` | CLI positional. Plans/MCP: `\"selector\"`. |\n\
          | AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |\n\
          | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |\n\n\
-         Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector) \
-         so older agent prompts keep working, but examples and new plans must use the canonical names above.\n\n",
+         Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector, \
+         `ops` for the plan `operations` array) so older agent prompts keep working, but examples and new plans \
+         must use the canonical names above.\n\n",
     );
 
     // Batching section

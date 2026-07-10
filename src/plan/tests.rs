@@ -178,6 +178,15 @@ fn parse_plan_missing_operations_fails() {
 }
 
 #[test]
+fn parse_plan_ops_alias_accepted() {
+    // Agents often emit "ops" instead of "operations".
+    let json =
+        r#"{"version": 1, "ops": [{"op": "replace", "path": "f.txt", "old": "a", "new": "b"}]}"#;
+    let plan = parse_plan(json).expect("ops alias should parse");
+    assert_eq!(plan.operations.len(), 1);
+}
+
+#[test]
 #[cfg(feature = "ast")]
 fn parse_all_operation_variants() {
     let json = r#"{"version": 1, "operations": [
