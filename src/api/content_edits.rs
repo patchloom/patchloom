@@ -17,7 +17,7 @@ use std::path::Path;
 use crate::containment::PathGuard;
 
 #[cfg(any(feature = "cli", feature = "files"))]
-use super::{ApplyMode, EditResult, write_if_apply};
+use super::{ApplyMode, EditResult, build_edit_result, write_if_apply};
 
 #[cfg(any(feature = "cli", feature = "files"))]
 use crate::write::WritePolicy;
@@ -54,6 +54,9 @@ pub struct ContentEditsResult {
     pub changed: bool,
     /// Number of ops that successfully applied (equals `edits.len()` on success).
     pub ops_applied: usize,
+    /// Sum of replace match counts across all [`ContentEdit::Replace`] ops.
+    /// Insert/append/prepend contribute 0. Useful for agent ambiguity policies.
+    pub match_count: usize,
 }
 
 /// Apply ordered edits to an in-memory buffer.
@@ -71,10 +74,13 @@ pub fn apply_content_edits(
     let original = content.to_string();
     let mut current = content.to_string();
     let mut ops_applied = 0usize;
+    let mut match_count = 0usize;
 
     for (i, edit) in edits.iter().enumerate() {
-        current = apply_one(&current, edit)
+        let (next, n) = apply_one(&current, edit)
             .with_context(|| format!("content edit {} of {} failed", i + 1, edits.len()))?;
+        current = next;
+        match_count = match_count.saturating_add(n);
         ops_applied += 1;
     }
 
@@ -86,6 +92,7 @@ pub fn apply_content_edits(
         diff,
         changed,
         ops_applied,
+        match_count,
     })
 }
 
@@ -111,30 +118,27 @@ pub fn apply_content_edits_to_file(
     let original =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
     let batch = apply_content_edits(&original, edits)?;
-    // Rebuild the unified diff with the real path so EditResult.diff matches
-    // replace_text / other writers (not the in-memory `<buffer>` label). #1500
-    let diff = make_diff(&path_str, &batch.original, &batch.modified);
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &batch.modified, mode, &policy, guard)?;
-    Ok(EditResult {
-        path: path_str,
-        original_content: batch.original,
-        new_content: batch.modified,
-        diff,
+    // build_edit_result uses path for headers (#1500) and stays field-complete.
+    let mut result = build_edit_result(
+        &path_str,
+        batch.original,
+        batch.modified,
         applied,
-        changed: batch.changed,
-        action: "content.edits",
-        dest_path: None,
-        match_count: 0,
-        removed: 0,
-    })
+        "content.edits",
+        None,
+    );
+    result.match_count = batch.match_count;
+    Ok(result)
 }
 
-fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<String> {
+/// Returns (new content, replace match_count for this op).
+fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize)> {
     match edit {
         ContentEdit::Replace { old, new, options } => {
             let result: ContentEditResult = replace_in_content(content, old, new, options)?;
-            Ok(result.new_content)
+            Ok((result.new_content, result.match_count))
         }
         ContentEdit::InsertBefore {
             anchor,
@@ -149,7 +153,7 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<String> {
                     out.push_str(&content[..idx]);
                     out.push_str(insert);
                     out.push_str(&content[idx..]);
-                    Ok(out)
+                    Ok((out, 0))
                 }
                 None => Err(EditError::new(
                     EditErrorKind::NoMatch,
@@ -172,7 +176,7 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<String> {
                     out.push_str(&content[..end]);
                     out.push_str(insert);
                     out.push_str(&content[end..]);
-                    Ok(out)
+                    Ok((out, 0))
                 }
                 None => Err(EditError::new(
                     EditErrorKind::NoMatch,
@@ -181,8 +185,8 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<String> {
                 .into()),
             }
         }
-        ContentEdit::Append { content: inject } => Ok(append_content(content, inject)),
-        ContentEdit::Prepend { content: inject } => Ok(prepend_content(content, inject)),
+        ContentEdit::Append { content: inject } => Ok((append_content(content, inject), 0)),
+        ContentEdit::Prepend { content: inject } => Ok((prepend_content(content, inject), 0)),
     }
 }
 
@@ -205,6 +209,7 @@ mod tests {
         let r = apply_content_edits("hello\n", &edits).unwrap();
         assert!(r.changed);
         assert_eq!(r.ops_applied, 2);
+        assert_eq!(r.match_count, 1, "replace match_count should roll up");
         assert_eq!(r.modified, "hi\n\nworld");
         // Pure buffer helper keeps the `<buffer>` path label (#1500).
         assert!(

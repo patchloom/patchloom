@@ -3706,6 +3706,10 @@ fn apply_content_edits_to_file_writes_once() {
     assert!(result.changed);
     assert!(result.applied);
     assert_eq!(result.action, "content.edits");
+    assert_eq!(
+        result.match_count, 1,
+        "file helper should surface rolled-up replace match_count"
+    );
     let on_disk = fs::read_to_string(&file).unwrap();
     assert_eq!(on_disk, "hi world\ndone\n");
     // #1500: file helper must name the real path, not the buffer placeholder.
