@@ -24,6 +24,9 @@ permissions:
 # Draft PRs must not burn Actions minutes. Job-level guards are required:
 # converting to draft does NOT cancel or skip workflows by itself. Keep one
 # non-draft PR active when serializing a merge queue.
+#
+# release-please PRs re-sync on every main merge (Cargo.toml + CHANGELOG only).
+# Skip multi-OS/fuzz/coverage matrices there; keep build-and-test + semver-checks.
 
 jobs:
   changes:
@@ -84,7 +87,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: windows-latest
     timeout-minutes: 20
@@ -121,7 +127,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: macos-latest
     timeout-minutes: 20
@@ -147,7 +156,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -176,7 +188,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: macos-latest
     timeout-minutes: 10
@@ -205,7 +220,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -351,7 +369,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -442,7 +463,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -495,7 +519,10 @@ jobs:
     needs: [changes]
     if: >
       always()
-      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -599,7 +626,8 @@ jobs:
 
   ci:
     # Lightweight gate that satisfies the "ci" required status check.
-    # Reports success when build-and-test passes OR was skipped (docs-only PR).
+    # Reports success when build-and-test passes OR was skipped (docs-only,
+    # draft, or release-please light path). Skipped expensive jobs count as OK.
     needs: [build-and-test, ci-windows, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny]
     if: always()
     runs-on: ubuntu-latest
