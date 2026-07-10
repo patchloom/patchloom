@@ -856,7 +856,7 @@ mod error_handling {
         global.apply = true;
 
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::OPERATION_FAILED);
+        assert_eq!(code, exit::FAILURE); // already_exists
 
         // Verify the original file was NOT modified.
         assert_eq!(fs::read_to_string(&existing).unwrap(), "original content\n");
@@ -1141,7 +1141,7 @@ mod integrity {
         global.apply = true;
 
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::OPERATION_FAILED);
+        assert_eq!(code, exit::FAILURE); // already_exists
         // Both files unchanged.
         assert_eq!(fs::read_to_string(&src).unwrap(), "source\n");
         assert_eq!(fs::read_to_string(&dst).unwrap(), "dest\n");

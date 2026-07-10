@@ -83,7 +83,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 let exists_in_tx =
                     tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
                 if exists_in_tx || (!tx.deletions.contains(&file_path) && file_path.exists()) {
-                    anyhow::bail!("file already exists: {path}");
+                    return Err(crate::exit::AlreadyExistsError {
+                        msg: format!("file already exists: {path}"),
+                    }
+                    .into());
                 }
                 update_file_content(
                     tx.pending,
@@ -183,7 +186,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     && !tx.deletions.contains(&dst_path))
                     || (!tx.deletions.contains(&dst_path) && dst_path.exists());
                 if dst_exists {
-                    anyhow::bail!("destination already exists: {to}");
+                    return Err(crate::exit::AlreadyExistsError {
+                        msg: format!("destination already exists: {to}"),
+                    }
+                    .into());
                 }
             }
 

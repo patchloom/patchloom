@@ -95,6 +95,27 @@ pub fn is_io_not_found(err: &anyhow::Error) -> bool {
     })
 }
 
+/// Typed error for create/rename conflicts that map to exit [`FAILURE`] (1)
+/// with JSON `error_kind: "already_exists"`.
+#[derive(Debug)]
+pub struct AlreadyExistsError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for AlreadyExistsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for AlreadyExistsError {}
+
+/// Check whether an `anyhow::Error` chain contains an [`AlreadyExistsError`].
+pub fn is_already_exists(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<AlreadyExistsError>().is_some())
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.

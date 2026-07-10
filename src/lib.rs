@@ -401,6 +401,8 @@ fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
         (Some("invalid_input"), exit::FAILURE)
     } else if exit::is_io_not_found(err) {
         (Some("not_found"), exit::FAILURE)
+    } else if exit::is_already_exists(err) {
+        (Some("already_exists"), exit::FAILURE)
     } else {
         (None, exit::FAILURE)
     };

@@ -1235,8 +1235,8 @@ fn test_tx_file_rename_fails_if_dst_exists() {
         .output()
         .unwrap();
 
-    // Operation fails before commit (exit 9 = OPERATION_FAILED).
-    assert_eq!(output.status.code(), Some(9));
+    // Operation fails before commit (exit 1 = already_exists).
+    assert_eq!(output.status.code(), Some(1));
     // Both files should be untouched.
     assert_eq!(
         fs::read_to_string(dir.path().join("old.txt")).unwrap(),
@@ -1938,7 +1938,7 @@ fn test_tx_file_create_without_force_fails_on_existing() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(1); // already_exists
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }
@@ -4492,10 +4492,10 @@ fn test_tx_json_output_on_operation_failure() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(9)); // OPERATION_FAILED
+    assert_eq!(output.status.code(), Some(1)); // already_exists
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["error_kind"], "operation_failed");
+    assert_eq!(json["error_kind"], "already_exists");
     assert!(
         json["error"]
             .as_str()
