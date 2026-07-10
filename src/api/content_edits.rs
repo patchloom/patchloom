@@ -149,6 +149,9 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize
             if anchor.is_empty() {
                 anyhow::bail!("insert_before anchor must not be empty");
             }
+            // First-match only (same as String::find). Callers that need
+            // unique anchors should use Replace with unique:true or a longer
+            // anchor span.
             match content.find(anchor.as_str()) {
                 Some(idx) => {
                     let mut out = String::with_capacity(content.len() + insert.len());
@@ -171,6 +174,7 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize
             if anchor.is_empty() {
                 anyhow::bail!("insert_after anchor must not be empty");
             }
+            // First-match only (see InsertBefore).
             match content.find(anchor.as_str()) {
                 Some(idx) => {
                     let end = idx + anchor.len();
@@ -437,5 +441,15 @@ mod tests {
         let r = apply_content_edits("timeout 5 pip install\nuv pip install\n", &edits).unwrap();
         assert_eq!(r.match_count, 1);
         assert_eq!(r.modified, "timeout 5 uv install\nuv pip install\n");
+    }
+
+    #[test]
+    fn insert_before_uses_first_anchor_only() {
+        let edits = [ContentEdit::InsertBefore {
+            anchor: "x".into(),
+            content: "IN:".into(),
+        }];
+        let r = apply_content_edits("a x b x c\n", &edits).unwrap();
+        assert_eq!(r.modified, "a IN:x b x c\n");
     }
 }
