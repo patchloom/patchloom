@@ -1598,6 +1598,56 @@ fn test_replace_cli_identity_json_sets_identity_flag() {
         v["identity"], true,
         "JSON should flag identity-only matches: {v}"
     );
+    assert!(
+        v.get("error_kind").is_none() || v["error_kind"].is_null(),
+        "success identity JSON must omit error_kind: {v}"
+    );
+}
+
+#[test]
+fn test_replace_cli_json_error_kind_no_matches() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "missing", "--new", "x", "a.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error_kind"], "no_matches",
+        "CLI replace no-match JSON should set error_kind: {v}"
+    );
+}
+
+#[test]
+fn test_replace_cli_json_error_kind_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "pip\npip\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "pip", "--new", "uv", "--unique", "a.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error_kind"], "ambiguous",
+        "CLI replace unique multi-match JSON should set error_kind: {v}"
+    );
 }
 
 #[test]
