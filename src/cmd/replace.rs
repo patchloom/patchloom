@@ -268,10 +268,11 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             },
         )
     {
-        anyhow::bail!("{msg}");
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(exit::FAILURE);
     }
     use crate::ops::replace::{ReplaceValidationParams, validate_replace_args};
-    validate_replace_args(&ReplaceValidationParams {
+    if let Err(e) = validate_replace_args(&ReplaceValidationParams {
         pattern: &args.old,
         has_to: args.new.is_some(),
         has_insert_before: args.insert_before.is_some(),
@@ -280,8 +281,10 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         whole_line: args.whole_line,
         multiline: args.multiline,
         has_range: args.range.is_some(),
-    })
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    }) {
+        global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+        return Ok(exit::FAILURE);
+    }
 
     let cwd = global.resolve_cwd()?;
     // Fail closed before the parallel scan so --contain does not read
@@ -513,7 +516,9 @@ fn run_context_replace(
 
     // Context-based replace requires explicit file paths (not directory scan).
     if args.paths.is_empty() {
-        anyhow::bail!("--before-context/--after-context requires explicit file paths");
+        let msg = "--before-context/--after-context requires explicit file paths";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(exit::FAILURE);
     }
 
     let ops: Vec<Operation> = args

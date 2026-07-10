@@ -841,8 +841,8 @@ mod error_handling {
             command_position: false,
             write: Default::default(),
         };
-        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
-        assert!(err.to_string().contains("1-based"), "{err}");
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -873,11 +873,8 @@ mod error_handling {
             command_position: false,
             write: Default::default(),
         };
-        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
-        assert!(
-            err.to_string().contains("range requires whole_line"),
-            "{err}"
-        );
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -908,12 +905,8 @@ mod error_handling {
             command_position: false,
             write: Default::default(),
         };
-        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("whole_line and multiline cannot be combined"),
-            "{err}"
-        );
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
