@@ -452,6 +452,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
              | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\
              | 9 | Tx operation staging failure (`operation_failed`) |\n\n\
+             **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set \
+             `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source), \
+             `invalid_input` (bad flags or non-file target). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type).\n\n\
              **Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, \
              doc delete success includes `changed` (bool) and `removed` (usize). Multi-op \
              plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with \
@@ -703,6 +706,12 @@ mod tests {
             "agents need changed/removed guidance for idempotent doc delete"
         );
         assert!(out.contains("removed: 0"));
+        assert!(
+            out.contains("already_exists")
+                && out.contains("not_found")
+                && out.contains("type_error"),
+            "exit 1 error_kind catalogue must document file-op and doc kinds"
+        );
     }
 
     #[test]
