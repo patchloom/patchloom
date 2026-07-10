@@ -91,8 +91,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::default()).unwrap_err();
-        assert!(err.to_string().contains("file does not exist"));
+        let code = run(args, &GlobalFlags::default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -108,8 +108,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::default()).unwrap_err();
-        assert!(err.to_string().contains("--content and --stdin"));
+        let code = run(args, &GlobalFlags::default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -125,7 +125,7 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::default()).unwrap_err();
-        assert!(err.to_string().contains("target is not a file"));
+        let code = run(args, &GlobalFlags::default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 }

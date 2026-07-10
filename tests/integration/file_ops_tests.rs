@@ -481,3 +481,28 @@ fn test_prepend_contain_rejects_parent_escape() {
     assert_eq!(fs::read_to_string(&outside).unwrap(), "base\n");
     let _ = fs::remove_file(&outside);
 }
+
+#[test]
+fn test_append_json_not_found_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "append",
+            "missing.txt",
+            "--content",
+            "x\n",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "not_found",
+        "append --json missing file should set error_kind: {parsed}"
+    );
+}

@@ -685,3 +685,26 @@ fn test_create_contain_allows_in_workspace() {
         "ok\n"
     );
 }
+
+#[test]
+fn test_create_json_already_exists_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("exists.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "create"])
+        .arg(&file)
+        .args(["--content", "new\n", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "already_exists",
+        "create --json existing file should set error_kind: {parsed}"
+    );
+}

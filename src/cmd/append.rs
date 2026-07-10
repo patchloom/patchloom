@@ -2,7 +2,6 @@ use crate::cli::global::GlobalFlags;
 use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
 use crate::plan::Operation;
-use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
 
@@ -67,7 +66,9 @@ pub(crate) fn run_content_inject(
 
     crate::verbose!("{verb}: file={file}");
     if content.is_some() && stdin {
-        bail!("--content and --stdin cannot be combined");
+        let msg = "--content and --stdin cannot be combined";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     let inject_content = if let Some(c) = content {
@@ -75,7 +76,9 @@ pub(crate) fn run_content_inject(
     } else if stdin {
         std::io::read_to_string(std::io::stdin())?
     } else {
-        bail!("either --content or --stdin must be provided");
+        let msg = "either --content or --stdin must be provided";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(crate::exit::FAILURE);
     };
 
     let cwd = global.resolve_cwd()?;
@@ -84,10 +87,14 @@ pub(crate) fn run_content_inject(
     global.check_paths_contained(&cwd, [file])?;
     let path = cwd.join(file);
     if !path.exists() {
-        bail!("file does not exist: {file}");
+        let msg = format!("file does not exist: {file}");
+        global.emit_error_json_kind(Some("not_found"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
     if !path.is_file() {
-        bail!("target is not a file: {file}");
+        let msg = format!("target is not a file: {file}");
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     let op = match position {
@@ -183,8 +190,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::default()).unwrap_err();
-        assert!(err.to_string().contains("file does not exist"));
+        let code = run(args, &GlobalFlags::default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -222,8 +229,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::default()).unwrap_err();
-        assert!(err.to_string().contains("--content and --stdin"));
+        let code = run(args, &GlobalFlags::default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -239,12 +246,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::default()).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("either --content or --stdin must be provided"),
-            "unexpected error: {err}"
-        );
+        let code = run(args, &GlobalFlags::default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -260,7 +263,7 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::default()).unwrap_err();
-        assert!(err.to_string().contains("target is not a file"));
+        let code = run(args, &GlobalFlags::default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 }

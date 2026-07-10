@@ -862,3 +862,23 @@ fn test_rename_empty_path_rejected() {
         .code(1)
         .stderr(predicate::str::contains("path must not be empty"));
 }
+
+#[test]
+fn test_rename_json_already_exists_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "a\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "b\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "rename", "a.txt", "b.txt", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "already_exists",
+        "rename --json existing dest should set error_kind: {parsed}"
+    );
+}

@@ -2,7 +2,6 @@ use crate::cli::global::GlobalFlags;
 use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
 use crate::plan::Operation;
-use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
 
@@ -42,7 +41,9 @@ struct CreateOutput {
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("create: file={}, force={}", args.file, args.force);
     if args.content.is_some() && args.stdin {
-        bail!("--content and --stdin cannot be combined");
+        let msg = "--content and --stdin cannot be combined";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     let content = if let Some(ref c) = args.content {
@@ -50,17 +51,25 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     } else if args.stdin {
         std::io::read_to_string(std::io::stdin())?
     } else {
-        bail!("either --content or --stdin must be provided");
+        let msg = "either --content or --stdin must be provided";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(crate::exit::FAILURE);
     };
 
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [&args.file])?;
     let path = cwd.join(&args.file);
     if path.exists() && !path.is_file() {
-        bail!("target is not a file: {}", args.file);
+        let msg = format!("target is not a file: {}", args.file);
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
-    if !global.apply && !global.confirm && !args.force && path.exists() {
-        bail!("file already exists: {}", args.file);
+    // Catch exists before the engine so --json gets error_kind (apply and
+    // preview). --force continues into FileCreate overwrite.
+    if !args.force && path.exists() {
+        let msg = format!("file already exists: {}", args.file);
+        global.emit_error_json_kind(Some("already_exists"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     let op = Operation::FileCreate {
@@ -263,8 +272,8 @@ mod tests {
         let mut global = GlobalFlags::test_default();
         global.apply = true;
 
-        let err = run(args, &global).unwrap_err();
-        assert!(err.to_string().contains("file already exists:"));
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
 
         // Original content should be unchanged.
         let content = fs::read_to_string(&file).unwrap();
@@ -308,8 +317,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
-        assert!(err.to_string().contains("target is not a file"));
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -370,8 +379,8 @@ mod tests {
         };
         let global = GlobalFlags::test_default();
 
-        let err = run(args, &global).unwrap_err();
-        assert!(err.to_string().contains("--content or --stdin"));
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -449,10 +458,7 @@ mod tests {
         };
         let global = GlobalFlags::test_default();
 
-        let err = run(args, &global).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("--content and --stdin cannot be combined")
-        );
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 }

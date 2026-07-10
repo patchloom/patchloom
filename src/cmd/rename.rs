@@ -56,13 +56,19 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Pre-validation for CLI-specific checks.
     if !src.exists() {
-        anyhow::bail!("source file not found: {}", args.from);
+        let msg = format!("source file not found: {}", args.from);
+        global.emit_error_json_kind(Some("not_found"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
     if !src.is_file() {
-        anyhow::bail!("source is not a file: {}", args.from);
+        let msg = format!("source is not a file: {}", args.from);
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
     if dst.exists() && !dst.is_file() {
-        anyhow::bail!("destination is not a file: {}", args.to);
+        let msg = format!("destination is not a file: {}", args.to);
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     // Same-file no-op check. On case-insensitive filesystems (macOS APFS),
@@ -94,7 +100,9 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if !args.force && !is_case_only_change && dst.exists() {
-        anyhow::bail!("destination already exists: {}", args.to);
+        let msg = format!("destination already exists: {}", args.to);
+        global.emit_error_json_kind(Some("already_exists"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     // Binary files can't go through the tx engine (it reads as UTF-8 text).
@@ -293,8 +301,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &global).unwrap_err();
-        assert!(err.to_string().contains("already exists"));
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -312,8 +320,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::test_with_cwd(dir.path())).unwrap_err();
-        assert!(err.to_string().contains("destination is not a file"));
+        let code = run(args, &GlobalFlags::test_with_cwd(dir.path())).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -383,8 +391,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &global).unwrap_err();
-        assert!(err.to_string().contains("not found"));
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -639,8 +647,8 @@ mod tests {
             write: Default::default(),
         };
 
-        let err = run(args, &GlobalFlags::test_with_cwd(dir.path())).unwrap_err();
-        assert!(err.to_string().contains("source is not a file"));
+        let code = run(args, &GlobalFlags::test_with_cwd(dir.path())).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
