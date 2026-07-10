@@ -82,17 +82,28 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
         }
         // Duration / niceness after wrappers only: `timeout 30 pip`, or value after
         // an arg-taking / option flag (`nice -n 10`). Bare `5 pip` stays non-command.
+        // Also peel stacked durations: `timeout --kill-after 5 30 pip` (kill-after
+        // value then command duration).
         if is_duration_or_number(token) {
-            let left = rest[..prefix_start].trim_end();
-            if let Some((_, prev)) = last_shell_token(left)
-                && (TRANSPARENT_PREFIXES.contains(&prev)
+            let mut left = rest[..prefix_start].trim_end();
+            loop {
+                let Some((prev_start, prev)) = last_shell_token(left) else {
+                    return false;
+                };
+                if is_duration_or_number(prev) {
+                    left = left[..prev_start].trim_end();
+                    continue;
+                }
+                if TRANSPARENT_PREFIXES.contains(&prev)
                     || is_option_flag(prev)
-                    || is_arg_taking_flag(prev))
-            {
-                rest = &rest[..prefix_start];
-                continue;
+                    || is_arg_taking_flag(prev)
+                {
+                    rest = &rest[..prefix_start];
+                    break;
+                }
+                return false;
             }
-            return false;
+            continue;
         }
         // Option flags after sudo/time/env (`sudo -E pip`, `time -p pip`).
         // Known false positive: `command -v pip` treats `pip` as command position.
@@ -581,6 +592,23 @@ mod tests {
         // Argument form stays non-command.
         assert_eq!(
             replace_command_position("echo flock /tmp/l pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn timeout_kill_after_stacked_duration() {
+        assert_eq!(
+            replace_command_position("timeout --kill-after 5 30 pip install\n", "pip", "uv").0,
+            "timeout --kill-after 5 30 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("timeout --kill-after=5 30 pip install\n", "pip", "uv").0,
+            "timeout --kill-after=5 30 uv install\n"
+        );
+        // Bare stacked numbers without a wrapper stay non-command.
+        assert_eq!(
+            replace_command_position("5 30 pip install\n", "pip", "uv").1,
             0
         );
     }
