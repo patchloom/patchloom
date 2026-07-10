@@ -122,6 +122,10 @@ struct ReplaceOutput {
     /// Set when the pattern matched but every replacement was identical (no writes).
     #[serde(skip_serializing_if = "Option::is_none")]
     identity: Option<bool>,
+    /// Machine-readable failure kind for agents (`no_matches`, `ambiguous`),
+    /// aligned with tx JSON `error_kind`. Omitted on success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
 }
 
 /// Result of processing a single file.
@@ -310,6 +314,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     }],
                     diff: None,
                     identity: None,
+                    error_kind: Some("ambiguous"),
                 };
                 global.emit_json(&output)?;
                 if !global.quiet {
@@ -341,6 +346,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files: vec![],
                 diff: None,
                 identity: Some(true),
+                error_kind: None,
             };
             global.emit_json(&output)?;
             if !global.quiet && !global.json && !global.jsonl {
@@ -359,6 +365,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files: vec![],
                 diff: None,
                 identity: None,
+                error_kind: None,
             };
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
@@ -370,6 +377,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             files: vec![],
             diff: None,
             identity: None,
+            error_kind: Some("no_matches"),
         };
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
@@ -431,6 +439,7 @@ fn replace_output(
         files: files.to_vec(),
         diff,
         identity: None,
+        error_kind: None,
     };
 
     finalize_report(
@@ -543,6 +552,11 @@ fn run_context_replace(
             files: vec![],
             diff: None,
             identity: None,
+            error_kind: if args.if_exists {
+                None
+            } else {
+                Some("no_matches")
+            },
         };
         global.emit_json(&empty)?;
         if args.if_exists {
