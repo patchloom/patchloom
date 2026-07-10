@@ -223,13 +223,14 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
     if let Some(expected) = assert_count
         && total_match_count != *expected
     {
-        anyhow::bail!(
-            "search assert_count: expected {} matches for '{}' in {}, found {}",
-            expected,
-            pattern,
-            path,
-            total_match_count
-        );
+        // CLI search --assert-count mismatch is CHANGES_DETECTED (2), not a
+        // hard operation_failed. Keep the same exit for plan/tx.
+        return Err(crate::exit::ChangesDetectedError {
+            msg: format!(
+                "search assert_count: expected {expected} matches for '{pattern}' in {path}, found {total_match_count}"
+            ),
+        }
+        .into());
     }
 
     // Cap after assertion check. Append order matches walk order.

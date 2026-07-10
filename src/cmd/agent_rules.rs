@@ -445,7 +445,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              |------|---------|\n\
              | 0 | Success (operation completed, or no changes needed) |\n\
              | 1 | Failure (error during execution, CLI usage/invalid args/unknown flags/subcommands), or tx `rollback_failed` when mid-commit rollback could not fully restore files |\n\
-             | 2 | Changes detected (`--check` mode found pending changes; not used for CLI usage errors) |\n\
+             | 2 | Changes detected (`--check` / write preview, or plan/tx `search` `assert_count` mismatch; `error_kind: changes_detected` for assert_count) |\n\
              | 3 | No matches (search/replace pattern miss, undo with no sessions, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |\n\
              | 4 | Parse error (malformed input file or plan) |\n\
              | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |\n\
@@ -462,8 +462,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              md.move_section before/after, search invert_match+multiline). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type). \
              Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.\n\n\
-             **JSON `error_kind` (exit 4):** Batch line parse failures and `explain` plan parse failures set \
-             `parse_error` so agents can distinguish syntax mistakes from runtime failures.\n\n\
+             **JSON `error_kind` (exit 4):** Batch line parse failures, `explain` plan parse failures, and \
+             malformed JSON/YAML/TOML document content set `parse_error` so agents can distinguish syntax \
+             mistakes from runtime failures.\n\n\
              **Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, \
              doc delete success includes `changed` (bool) and `removed` (usize). Multi-op \
              plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with \

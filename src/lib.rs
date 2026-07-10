@@ -409,6 +409,8 @@ fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
         (Some("conflicts"), exit::CONFLICTS)
     } else if exit::is_parse_error(err) {
         (Some("parse_error"), exit::PARSE_ERROR)
+    } else if exit::is_changes_detected(err) {
+        (Some("changes_detected"), exit::CHANGES_DETECTED)
     } else {
         (None, exit::FAILURE)
     };

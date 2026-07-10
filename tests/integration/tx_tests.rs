@@ -3931,11 +3931,18 @@ fn test_tx_search_assert_count_fail() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "assert_count=5 should fail when there are only 2 matches"
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "assert_count mismatch should be CHANGES_DETECTED (CLI parity): {}",
+        String::from_utf8_lossy(&output.stdout)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "changes_detected",
+        "assert_count mismatch kind: {stdout}"
+    );
     assert!(
         stdout.contains("assert_count") || stdout.contains("expected 5"),
         "error should mention assert_count: {stdout}"

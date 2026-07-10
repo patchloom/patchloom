@@ -444,6 +444,14 @@ pub(crate) fn run_parsed_plan(
                 }
                 return Ok(exit::PARSE_ERROR);
             }
+            if exit::is_changes_detected(&e) {
+                if structured {
+                    emit_error_json("changes_detected", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::CHANGES_DETECTED);
+            }
             if structured {
                 emit_error_json("operation_failed", &msg, None, compact);
             } else {

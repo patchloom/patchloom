@@ -175,6 +175,9 @@ pub fn execute_plan_direct(
             if crate::exit::is_parse_error(&e) {
                 return Ok(build_error_output("parse_error", &e.to_string(), None));
             }
+            if crate::exit::is_changes_detected(&e) {
+                return Ok(build_error_output("changes_detected", &e.to_string(), None));
+            }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
     };

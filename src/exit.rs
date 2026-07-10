@@ -179,6 +179,28 @@ pub fn is_parse_error(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<ParseErrorError>().is_some())
 }
 
+/// Typed error for assert-count / soft mismatch that map to exit
+/// [`CHANGES_DETECTED`] (2) with JSON `error_kind: "changes_detected"`.
+/// Matches CLI `search --assert-count` when the actual count differs.
+#[derive(Debug)]
+pub struct ChangesDetectedError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for ChangesDetectedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for ChangesDetectedError {}
+
+/// Check whether an `anyhow::Error` chain contains a [`ChangesDetectedError`].
+pub fn is_changes_detected(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<ChangesDetectedError>().is_some())
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.
