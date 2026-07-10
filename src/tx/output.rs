@@ -292,6 +292,7 @@ pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
             }
             Some("operation_failed") => exit::OPERATION_FAILED,
             Some("conflicts") => exit::CONFLICTS,
+            // parse_error already handled above; keep exhaustive for clarity
             _ => exit::FAILURE,
         }
     }

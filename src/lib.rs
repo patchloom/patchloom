@@ -389,8 +389,8 @@ fn clap_usage_error_message(err: &clap::Error) -> String {
 }
 
 /// Build the JSON error envelope and exit code for a dispatch `Err` under
-/// `--json` / `--jsonl`. Typed [`exit::NoMatchError`] / [`exit::AmbiguousError`]
-/// / [`exit::InvalidInputError`] chains get `error_kind` and their exit codes.
+/// `--json` / `--jsonl`. Typed exit kinds (`NoMatchError`, `AmbiguousError`,
+/// `InvalidInputError`, `ParseErrorError`, …) get `error_kind` and exit codes.
 #[cfg(feature = "cli")]
 fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
     let (kind, code) = if exit::is_no_match(err) {
@@ -407,6 +407,8 @@ fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
         (Some("type_error"), exit::FAILURE)
     } else if exit::is_conflicts(err) {
         (Some("conflicts"), exit::CONFLICTS)
+    } else if exit::is_parse_error(err) {
+        (Some("parse_error"), exit::PARSE_ERROR)
     } else {
         (None, exit::FAILURE)
     };

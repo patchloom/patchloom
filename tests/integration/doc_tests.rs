@@ -1874,6 +1874,31 @@ fn test_doc_set_unsupported_extension_json_invalid_input() {
 }
 
 #[test]
+fn test_doc_get_malformed_json_parse_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bad.json");
+    fs::write(&file, "{bad").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get", &file.to_string_lossy(), "key"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "malformed JSON should be parse_error exit 4: {}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "parse_error",
+        "malformed document must set parse_error: {json}"
+    );
+}
+
+#[test]
 fn test_doc_select_no_matches_exits_3() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");

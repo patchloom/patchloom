@@ -822,6 +822,10 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // Unsupported extension / flag mistakes are invalid_input; value
                 // shape mismatches are type_error. Do not default everything to
                 // type_error (that hid .txt extension failures as type_error).
+                if exit::is_parse_error(&e) {
+                    global.emit_error_json_kind(Some("parse_error"), &e.to_string())?;
+                    return Ok(exit::PARSE_ERROR);
+                }
                 let kind = if exit::is_type_error(&e) {
                     "type_error"
                 } else if exit::is_invalid_input(&e) {

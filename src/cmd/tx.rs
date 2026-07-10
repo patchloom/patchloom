@@ -436,6 +436,14 @@ pub(crate) fn run_parsed_plan(
                 }
                 return Ok(exit::CONFLICTS);
             }
+            if exit::is_parse_error(&e) {
+                if structured {
+                    emit_error_json("parse_error", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::PARSE_ERROR);
+            }
             if structured {
                 emit_error_json("operation_failed", &msg, None, compact);
             } else {
