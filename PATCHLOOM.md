@@ -33,6 +33,11 @@
 | Apply same operation to many files | `execute_plan` with `for_each` glob |
 | Get server version and working directory | `server_info` |
 
+**`replace_text` / plan replace flags (default false):**
+- `require_change`: error when the pattern matches zero times (fail closed).
+- `command_position`: rewrite only shell invocable tokens (`sudo pip` yes; `uv pip` no).
+Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
+
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)
 - Editing markdown sections, bullets, or tables by heading

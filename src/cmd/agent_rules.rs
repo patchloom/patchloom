@@ -109,7 +109,12 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |\n\
              | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |\n\
              | Apply same operation to many files | `execute_plan` with `for_each` glob |\n\
-             | Get server version and working directory | `server_info` |\n\n",
+             | Get server version and working directory | `server_info` |\n\n\
+             **`replace_text` / plan replace flags (default false):**\n\
+             - `require_change`: error when the pattern matches zero times (fail closed).\n\
+             - `command_position`: rewrite only shell invocable tokens (`sudo pip` yes; `uv pip` no).\n\
+             Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
+             \"command_position\":true,\"require_change\":true}`\n\n",
         );
     }
     if show_cli {
@@ -662,6 +667,11 @@ mod tests {
         assert!(
             out.contains("require_change") && out.contains("command_position"),
             "plan replace library flags must be documented for agents"
+        );
+        let mcp = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
+        assert!(
+            mcp.contains("require_change") && mcp.contains("command_position"),
+            "MCP-only agent-rules must document replace_text flags"
         );
     }
 
