@@ -576,15 +576,27 @@ fn test_search_files_with_matches_no_match_exits_3() {
 }
 
 #[test]
-fn test_search_nonexistent_path_warns_on_stderr() {
+fn test_search_nonexistent_path_is_not_found() {
+    // Explicit missing roots are not soft pattern misses (exit 3); agents need
+    // not_found (exit 1) so path typos are not retried as different patterns.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("search")
         .arg("hello")
         .arg("totally_nonexistent_dir/")
         .assert()
-        .code(3)
+        .code(1)
         .stderr(predicate::str::contains("totally_nonexistent_dir"));
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "hello", "totally_nonexistent_dir/"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error_kind"], "not_found");
 }
 
 #[test]

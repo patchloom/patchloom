@@ -457,7 +457,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source, \
              or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, \
              `status` outside a git repo, AST map non-dir, doc merge flag conflicts, CLI usage errors under `--json`/`--jsonl`, \
-             `--contain` path rejections / empty paths). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type). \
+             `--contain` path rejections / empty paths, all-explicit-paths-missing for search/replace/tidy). Doc type mismatches set \
+             `type_error` (`doc keys`/`len` on wrong type). \
              Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.\n\n\
              **JSON `error_kind` (exit 4):** Batch line parse failures and `explain` plan parse failures set \
              `parse_error` so agents can distinguish syntax mistakes from runtime failures.\n\n\

@@ -1738,3 +1738,19 @@ fn test_replace_json_range_without_whole_line_sets_error_kind() {
         "replace range without whole_line: {parsed}"
     );
 }
+
+#[test]
+fn test_replace_missing_path_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nope.txt");
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "replace", "foo", "--new", "bar"])
+        .arg(&missing)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error_kind"], "not_found");
+}

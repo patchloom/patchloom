@@ -231,6 +231,14 @@ pub(super) fn run_fix(
 
     crate::verbose!("tidy: {} file(s) need fixing", dirty_rel_paths.len());
     if dirty_rel_paths.is_empty() {
+        if crate::files::all_explicit_paths_missing(&paths, Some(&cwd)) {
+            let msg = format!(
+                "no such file or directory: {}",
+                global.path_scope_description(&paths)
+            );
+            global.emit_error_json_kind(Some("not_found"), &msg)?;
+            return Ok(exit::FAILURE);
+        }
         emit_tidy_fix_output(global, &[], None)?;
         return Ok(exit::SUCCESS);
     }
