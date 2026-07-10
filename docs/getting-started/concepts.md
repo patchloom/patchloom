@@ -142,6 +142,8 @@ These codes let CI pipelines and agent frameworks branch on outcomes without par
 
 When `--json` or `--jsonl` is set, CLI usage failures (invalid flags, enum values, missing required args, unknown subcommands) emit a JSON envelope on stdout with `error_kind: "invalid_input"` and exit 1. Without those flags, clap prints human usage text on stderr. Path rejections under `--contain` (and empty path arguments) also set `error_kind: "invalid_input"` on the structured error path.
 
+When every explicit path root for `search`, `replace`, or `tidy` is missing (including a non-stdin `--files-from` list), exit 1 with `error_kind: "not_found"`. Pattern misses on existing files still use exit 3 (`no_matches`). Empty existing directories remain clean success for tidy.
+
 ## Glob filtering
 
 Most commands accept `--glob <pattern>` (repeatable) to restrict which files are processed:
