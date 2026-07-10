@@ -2615,7 +2615,7 @@ fn test_tx_md_replace_section_nonexistent_file_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(1); // not_found (missing path), was OPERATION_FAILED (9)
 }
 
 #[test]
@@ -7757,5 +7757,38 @@ fn test_tx_ast_rename_missing_exits_3_with_detail() {
     assert!(
         err.contains("gone") || err.contains("no matches") || err.contains("not found"),
         "error should identify the missing symbol, got: {err}"
+    );
+}
+
+#[test]
+fn test_tx_md_missing_file_json_not_found() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "md.replace_section",
+            "path": "missing.md",
+            "heading": "## H",
+            "content": "body"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--cwd")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "not_found",
+        "tx missing file should be not_found not operation_failed: {json}"
     );
 }
