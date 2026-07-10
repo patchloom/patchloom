@@ -508,6 +508,22 @@ fn test_tidy_fix_dedent_and_indent_rejects() {
         .current_dir(dir.path())
         .assert()
         .code(1);
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json", "tidy", "fix", ".", "--dedent", "auto", "--indent", "4", "--apply",
+        ])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "tidy dual flags should set error_kind: {parsed}"
+    );
 }
 
 #[test]
