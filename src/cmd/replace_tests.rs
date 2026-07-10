@@ -21,6 +21,8 @@ fn make_args(old: &str, new: &str, paths: Vec<String>) -> ReplaceArgs {
         before_context: None,
         after_context: None,
         unique: false,
+        require_change: false,
+        command_position: false,
         write: Default::default(),
     }
 }
@@ -70,6 +72,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -103,6 +107,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -206,6 +212,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -264,6 +272,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -323,6 +333,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -363,6 +375,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -396,6 +410,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -428,6 +444,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -462,6 +480,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -500,6 +520,8 @@ mod basic {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -541,6 +563,8 @@ mod edge_cases {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -573,6 +597,8 @@ mod edge_cases {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let global = GlobalFlags {
@@ -630,6 +656,8 @@ mod edge_cases {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -705,6 +733,8 @@ mod edge_cases {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -747,6 +777,8 @@ mod edge_cases {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -803,6 +835,8 @@ mod error_handling {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
@@ -833,6 +867,8 @@ mod error_handling {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
@@ -866,6 +902,8 @@ mod error_handling {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let err = run(args, &GlobalFlags::test_default()).unwrap_err();
@@ -900,6 +938,8 @@ mod error_handling {
             before_context: None,
             after_context: None,
             unique: true,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -938,6 +978,8 @@ mod error_handling {
             before_context: None,
             after_context: None,
             unique: true,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -980,6 +1022,8 @@ mod error_handling {
             before_context: None,
             after_context: None,
             unique: true,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -1023,6 +1067,8 @@ mod context_replace {
             before_context: None,
             after_context: Some("port = 5432".to_string()),
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1072,6 +1118,8 @@ mod context_replace {
             before_context: Some("[database]".to_string()),
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1115,6 +1163,8 @@ mod context_replace {
             before_context: Some("nonexistent".to_string()),
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
 
@@ -1146,6 +1196,8 @@ mod context_replace {
             before_context: Some("nonexistent".to_string()),
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
 
@@ -1181,6 +1233,8 @@ mod context_replace {
             before_context: Some("[database]".to_string()),
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1221,6 +1275,8 @@ mod context_replace {
             before_context: Some("aaa".to_string()),
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1262,6 +1318,8 @@ mod context_replace {
             before_context: Some("hello".to_string()),
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1269,5 +1327,24 @@ mod context_replace {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
+    }
+    #[test]
+    fn command_position_cli_rewrites_sudo_pip() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("install.sh");
+        std::fs::write(&file, "sudo pip install x\nuv pip install\n").unwrap();
+        let mut args = make_args("pip", "uv", vec![file.to_string_lossy().into()]);
+        args.command_position = true;
+        let global = crate::cli::global::GlobalFlags {
+            apply: true,
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, 0);
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "sudo uv install x\nuv pip install\n"
+        );
     }
 }

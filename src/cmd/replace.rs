@@ -88,6 +88,19 @@ pub struct ReplaceArgs {
     /// when multiple matches exist.
     #[arg(long, short = 'u')]
     pub unique: bool,
+    // ref:replace-mode:require-change
+    /// Fail when the pattern matches zero times (same as default CLI no-match
+    /// exit, but explicit for plan/MCP parity and agents). Softened by
+    /// `--if-exists`.
+    #[arg(long)]
+    pub require_change: bool,
+    // ref:replace-mode:command-position
+    /// Only replace tokens in shell command position (invocable names after
+    /// `sudo`/`timeout`/etc.; not arguments like `uv pip` or longer words
+    /// like `pipenv`). Literal only; cannot combine with regex/word-boundary/
+    /// multiline/nth/insert/context.
+    #[arg(long)]
+    pub command_position: bool,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -164,13 +177,19 @@ fn collect_replacements(
     let from = &args.old;
     let nth = args.nth;
     let whole_line = args.whole_line;
+    let command_position = args.command_position;
+    let to = args.new.as_deref().unwrap_or("");
     let range = parse_range_arg(args.range.as_deref())?;
 
     let cwd_ref = &cwd;
     let mut replacements: Vec<FileReplacement> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let content = crate::files::read_text_file_logged(path, "replace", quiet)?;
-            let (replaced, count) = if whole_line {
+            let (replaced, count) = if command_position {
+                let (out, n) =
+                    crate::ops::shell_token::replace_command_position(&content, from, to);
+                (std::borrow::Cow::Owned(out), n)
+            } else if whole_line {
                 replace_whole_lines(
                     &content,
                     from,
@@ -225,6 +244,23 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.regex,
         args.paths
     );
+    if args.command_position
+        && (args.regex
+            || args.case_insensitive
+            || args.word_boundary
+            || args.whole_line
+            || args.multiline
+            || args.nth.is_some()
+            || args.insert_before.is_some()
+            || args.insert_after.is_some()
+            || args.before_context.is_some()
+            || args.after_context.is_some())
+    {
+        anyhow::bail!(
+            "command_position cannot be combined with regex, whole_line, multiline, nth, \
+             case_insensitive, word_boundary, insert_before/after, or context anchors"
+        );
+    }
     use crate::ops::replace::{ReplaceValidationParams, validate_replace_args};
     validate_replace_args(&ReplaceValidationParams {
         pattern: &args.old,
@@ -456,8 +492,8 @@ fn run_context_replace(
             before_context: args.before_context.clone(),
             after_context: args.after_context.clone(),
             unique: args.unique,
-            require_change: false,
-            command_position: false,
+            require_change: args.require_change,
+            command_position: args.command_position,
         })
         .collect();
 

@@ -567,18 +567,18 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Prefer instead:** Use `--before-context` when the preceding lines are more distinctive.
 
 <!-- ref:replace-mode:require-change -->
-### Library `ReplaceOptions.require_change`
+### `replace --require-change` / library `ReplaceOptions.require_change`
 
-- **What it does:** Zero matches become structured `EditErrorKind::NoMatch` instead of soft `Ok(changed=false)`. Embedders can match on kind without scraping English error text (`edit_error_kind`).
-- **Use when:** Agent hosts that treat a missed target as a tool error (fail closed). Default remains soft no-match for CLI and historical library callers.
-- **Prefer instead:** Leave the default when soft no-match is intentional. When both `require_change` and `if_exists` are set, `if_exists` wins (returns Ok unchanged).
+- **What it does:** Zero matches become an error (CLI exit 3 / structured `EditErrorKind::NoMatch`) instead of soft success. Softened by `--if-exists` / `if_exists`.
+- **Use when:** Agent hosts that treat a missed target as a tool error (fail closed). CLI already fails on no-match by default; the flag is explicit for plan/MCP/library parity.
+- **Prefer instead:** Leave the default when soft no-match is intentional. When both `require_change` and `if_exists` are set, `if_exists` wins.
 
 <!-- ref:replace-mode:command-position -->
-### Library `ReplaceOptions.command_position`
+### `replace --command-position` / library `ReplaceOptions.command_position`
 
-- **What it does:** Replaces only tokens in shell **command position** (start of line, after `&&` `|` `;` / newlines, after wrappers like `sudo`, `timeout 30`, `nice -n 10`, `xargs`, `eval`, `source`, `env KEY=val`). Does not rewrite arguments (`uv pip`) or longer words (`pipenv`). Literal only.
+- **What it does:** Replaces only tokens in shell **command position** (start of line, after `&&` `|` `;` / newlines, after wrappers like `sudo`, `timeout 30`, `nice -n 10`, `xargs`, `eval`, `source`, `env KEY=val`). Does not rewrite arguments (`uv pip`) or longer words (`pipenv`). Literal only. Also available on plan/MCP replace and `batch_replace`.
 - **Use when:** Migrating install tooling in shell scripts or agent-generated commands without breaking package names that embed the same substring.
-- **Prefer instead:** Ordinary replace or `word_boundary` for identifiers. Cannot combine with `regex`, `case_insensitive`, `word_boundary`, `fuzzy`, `nth`, multiline/whole-line, context anchors, or insert-before/after (`InvalidInput`).
+- **Prefer instead:** Ordinary replace or `word_boundary` for identifiers. Cannot combine with `regex`, `case_insensitive`, `word_boundary`, `fuzzy`, `nth`, multiline/whole-line, context anchors, or insert-before/after.
 
 <!-- ref:create-mode:stdin -->
 ### `create --stdin`
