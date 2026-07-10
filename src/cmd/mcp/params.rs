@@ -64,6 +64,7 @@ pub(crate) struct ReplaceParams {
     #[serde(default)]
     pub require_change: bool,
     /// Only rewrite shell command-position tokens (not arguments / longer words).
+    /// Peels wrappers like sudo, timeout, busybox, flock, runuser, setsid.
     #[serde(default)]
     pub command_position: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
@@ -254,6 +255,7 @@ pub(crate) struct BatchReplaceParams {
     #[serde(default)]
     pub require_change: bool,
     /// Only rewrite shell command-position tokens (not arguments / longer words).
+    /// Peels wrappers like sudo, timeout, busybox, flock, runuser, setsid.
     #[serde(default)]
     pub command_position: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.

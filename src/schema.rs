@@ -183,7 +183,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     // --- Weak tier ---
     OpMeta {
         name: "replace",
-        description: "Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only).",
+        description: "Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser wrappers, not uv pip).",
         tier: Tier::Weak,
         examples: &[
             (
