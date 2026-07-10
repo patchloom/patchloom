@@ -463,6 +463,10 @@ mod tests {
             replace_command_position("ionice -c 3 pip install\n", "pip", "uv").0,
             "ionice -c 3 uv install\n"
         );
+        assert_eq!(
+            replace_command_position("ionice -c3 pip install\n", "pip", "uv").0,
+            "ionice -c3 uv install\n"
+        );
         // Non-wrapper still does not rewrite argument-position tokens after numbers.
         assert_eq!(
             replace_command_position("echo 30 pip\n", "pip", "uv").1,
