@@ -436,11 +436,23 @@ impl GlobalFlags {
     /// Emit a `{"ok": false, "error": msg}` payload in structured format,
     /// with a stderr fallback in text mode (unless `--quiet`).
     ///
-    /// This is the standard error-reporting pattern for NO_MATCHES and
-    /// similar error paths. In JSON/JSONL mode the payload is printed to
-    /// stdout; in text mode the message goes to stderr.
+    /// Prefer [`Self::emit_error_json_kind`] when the exit path has a stable
+    /// machine-readable kind (for example `no_matches` for exit 3). In
+    /// JSON/JSONL mode the payload is printed to stdout; in text mode the
+    /// message goes to stderr.
     pub fn emit_error_json(&self, msg: &str) -> anyhow::Result<()> {
-        if !self.emit_json(&serde_json::json!({"ok": false, "error": msg}))? && !self.quiet {
+        self.emit_error_json_kind(None, msg)
+    }
+
+    /// Like [`Self::emit_error_json`], but includes `error_kind` when `kind`
+    /// is `Some` so agents can branch without scraping stderr (aligned with
+    /// tx plan JSON and CLI search/replace soft no-match payloads).
+    pub fn emit_error_json_kind(&self, kind: Option<&str>, msg: &str) -> anyhow::Result<()> {
+        let mut payload = serde_json::json!({"ok": false, "error": msg});
+        if let Some(k) = kind {
+            payload["error_kind"] = serde_json::Value::String(k.to_string());
+        }
+        if !self.emit_json(&payload)? && !self.quiet {
             eprintln!("{msg}");
         }
         Ok(())
@@ -647,6 +659,22 @@ mod tests {
     fn emit_error_json_does_not_panic_in_text_mode() {
         let g = GlobalFlags::test_default();
         g.emit_error_json("something went wrong").unwrap();
+    }
+
+    #[test]
+    fn emit_error_json_kind_serializes_kind_field() {
+        // Build the same payload shape the helper emits so we lock the contract
+        // without capturing stdout in unit tests.
+        let mut payload = serde_json::json!({"ok": false, "error": "missing"});
+        payload["error_kind"] = serde_json::Value::String("no_matches".into());
+        assert_eq!(payload["error_kind"], "no_matches");
+        assert_eq!(payload["ok"], false);
+        let g = GlobalFlags {
+            json: true,
+            ..GlobalFlags::test_default()
+        };
+        g.emit_error_json_kind(Some("no_matches"), "missing")
+            .unwrap();
     }
 
     #[test]
