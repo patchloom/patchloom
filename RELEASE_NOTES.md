@@ -27,6 +27,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **CLI identity replace honesty.** When the pattern matches but `new` equals `old`, `replace` no longer reports "no matches" / exit 3. It reports success with the raw match count and an "identical (no file changes)" note so `require_change` stays satisfied. JSON includes `identity: true`.
 - **CLI patch JSON `error_kind`.** Stale apply/check failures set `error_kind: "ambiguous"` (exit 5), merge conflicts set `"conflicts"` (exit 8), and parse/input failures set `"parse_error"` (exit 4).
 - **CLI search JSON `error_kind`.** Soft no-match (`--json` exit 3) sets `error_kind: "no_matches"`, matching replace/tx agents that branch on kind without scraping stderr.
+- **CLI replace JSON `error_kind`.** `--json` failures set `error_kind: "no_matches"` (exit 3) or `error_kind: "ambiguous"` (exit 5 / `--unique`), matching tx plan JSON so agents can branch without scraping stderr.
 - **GNU long options with `=`.** `command_position` peels `--name=value` flags (`nice --adjustment=10`, `sudo --user=root`, `timeout --signal=TERM 30`).
 - **`env --unset VAR`.** Peels `--unset` as an arg-taking flag (alongside `env -u VAR`) so the following invocable command rewrites.
 - **`env --chdir DIR`.** Peels `--chdir` the same way as `-C` so the following invocable command rewrites.
