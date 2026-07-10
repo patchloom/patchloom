@@ -205,6 +205,8 @@ pub mod write;
 
 // Re-exports for library ergonomics (no need to dig into api/plan when using ["ast","files"]).
 #[cfg(any(feature = "cli", feature = "files"))]
+pub use api::apply_content_edits_to_file;
+#[cfg(any(feature = "cli", feature = "files"))]
 pub use api::search_one_file;
 pub use api::{
     ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult, EditError, EditErrorKind,
