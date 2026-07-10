@@ -32,10 +32,13 @@ pub fn navigate_mut<'a>(
                             )
                         })?
                     } else {
-                        anyhow::bail!(
-                            "expected object at key '{k}', found {}",
-                            value_type_name(current)
-                        );
+                        return Err(crate::exit::TypeErrorError {
+                            msg: format!(
+                                "expected object at key '{k}', found {}",
+                                value_type_name(current)
+                            ),
+                        }
+                        .into());
                     }
                 } else {
                     if create {
@@ -75,7 +78,12 @@ pub fn navigate_mut<'a>(
             selector::Segment::Index(i) => current
                 .get_mut(*i)
                 .ok_or_else(|| anyhow::anyhow!("index out of bounds: {i}"))?,
-            _ => anyhow::bail!("wildcard/predicate not supported in write navigation"),
+            _ => {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "wildcard/predicate not supported in write navigation".into(),
+                }
+                .into());
+            }
         };
     }
     Ok(current)
@@ -96,7 +104,10 @@ pub fn set_at_path(
     value: serde_json::Value,
 ) -> anyhow::Result<()> {
     if segments.is_empty() {
-        anyhow::bail!("empty selector");
+        return Err(crate::exit::InvalidInputError {
+            msg: "empty selector".into(),
+        }
+        .into());
     }
     let (parent_path, last) = split_last(segments);
     let parent = navigate_mut(root, parent_path, true)?;
@@ -117,12 +128,15 @@ pub fn set_at_path(
                 if idx < arr.len() {
                     arr[idx] = value;
                 } else {
-                    anyhow::bail!(
-                        "array index {} out of bounds (length {}) at '{}'",
-                        idx,
-                        arr.len(),
-                        k
-                    );
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!(
+                            "array index {} out of bounds (length {}) at '{}'",
+                            idx,
+                            arr.len(),
+                            k
+                        ),
+                    }
+                    .into());
                 }
                 return Ok(());
             }
@@ -144,10 +158,18 @@ pub fn set_at_path(
             if *i < arr.len() {
                 arr[*i] = value;
             } else {
-                anyhow::bail!("index {} out of bounds (len {})", i, arr.len());
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("index {} out of bounds (len {})", i, arr.len()),
+                }
+                .into());
             }
         }
-        _ => anyhow::bail!("cannot set at wildcard/predicate"),
+        _ => {
+            return Err(crate::exit::InvalidInputError {
+                msg: "cannot set at wildcard/predicate".into(),
+            }
+            .into());
+        }
     }
     Ok(())
 }
@@ -198,7 +220,10 @@ pub fn delete_at_selector(
                 Ok(false)
             }
         }
-        _ => anyhow::bail!("cannot delete at wildcard/predicate"),
+        _ => Err(crate::exit::InvalidInputError {
+            msg: "cannot delete at wildcard/predicate".into(),
+        }
+        .into()),
     }
 }
 
@@ -220,11 +245,17 @@ pub fn delete_where(
         .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
     let pred_key = predicate[..eq_pos].trim();
     if pred_key.is_empty() {
-        anyhow::bail!("predicate key is empty; expected key=value format");
+        return Err(crate::exit::InvalidInputError {
+            msg: "predicate key is empty; expected key=value format".into(),
+        }
+        .into());
     }
     let raw_val = &predicate[eq_pos + 1..];
     if raw_val.starts_with('=') {
-        anyhow::bail!("predicate uses '==' but only '=' is supported; use key=value format");
+        return Err(crate::exit::InvalidInputError {
+            msg: "predicate uses '==' but only '=' is supported; use key=value format".into(),
+        }
+        .into());
     }
     let pred_val = raw_val.trim();
 
@@ -269,10 +300,16 @@ pub fn move_at_path(
     to_segments: &[selector::Segment],
 ) -> anyhow::Result<()> {
     if from_segments.is_empty() {
-        anyhow::bail!("empty from selector");
+        return Err(crate::exit::InvalidInputError {
+            msg: "empty from selector".into(),
+        }
+        .into());
     }
     if to_segments.is_empty() {
-        anyhow::bail!("empty to selector");
+        return Err(crate::exit::InvalidInputError {
+            msg: "empty to selector".into(),
+        }
+        .into());
     }
 
     // Same path: no-op.
@@ -282,7 +319,10 @@ pub fn move_at_path(
 
     // Reject moving a path into its own descendant (would silently destroy data).
     if to_segments.len() > from_segments.len() && to_segments.starts_with(from_segments) {
-        anyhow::bail!("cannot move a path into its own descendant: destination is under source");
+        return Err(crate::exit::InvalidInputError {
+            msg: "cannot move a path into its own descendant: destination is under source".into(),
+        }
+        .into());
     }
 
     let (from_parent, from_last) = split_last(from_segments);
@@ -300,10 +340,16 @@ pub fn move_at_path(
             })
         })?;
         if *fi >= arr.len() {
-            anyhow::bail!("source index {fi} out of bounds");
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("source index {fi} out of bounds"),
+            }
+            .into());
         }
         if *ti >= arr.len() {
-            anyhow::bail!("target index {ti} out of bounds");
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("target index {ti} out of bounds"),
+            }
+            .into());
         }
         let val = arr.remove(*fi);
         let insert_at = (*ti).min(arr.len());
@@ -328,10 +374,16 @@ pub fn move_at_path(
                         if idx < arr.len() {
                             arr[idx].clone()
                         } else {
-                            anyhow::bail!("source index {idx} out of bounds");
+                            return Err(crate::exit::InvalidInputError {
+                                msg: format!("source index {idx} out of bounds"),
+                            }
+                            .into());
                         }
                     } else {
-                        anyhow::bail!("source key '{k}' not found (parent is array)");
+                        return Err(crate::exit::InvalidInputError {
+                            msg: format!("source key '{k}' not found (parent is array)"),
+                        }
+                        .into());
                     }
                 } else {
                     parent
@@ -350,10 +402,18 @@ pub fn move_at_path(
                 if *i < arr.len() {
                     arr[*i].clone()
                 } else {
-                    anyhow::bail!("source index {i} out of bounds");
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("source index {i} out of bounds"),
+                    }
+                    .into());
                 }
             }
-            _ => anyhow::bail!("cannot move from wildcard/predicate"),
+            _ => {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "cannot move from wildcard/predicate".into(),
+                }
+                .into());
+            }
         }
     };
 
@@ -371,10 +431,16 @@ pub fn move_at_path(
                         if idx <= arr.len() {
                             arr.insert(idx, cloned);
                         } else {
-                            anyhow::bail!("target index {idx} out of bounds");
+                            return Err(crate::exit::InvalidInputError {
+                                msg: format!("target index {idx} out of bounds"),
+                            }
+                            .into());
                         }
                     } else {
-                        anyhow::bail!("target key '{k}' not valid (parent is array)");
+                        return Err(crate::exit::InvalidInputError {
+                            msg: format!("target key '{k}' not valid (parent is array)"),
+                        }
+                        .into());
                     }
                 } else {
                     parent
@@ -390,10 +456,18 @@ pub fn move_at_path(
                 if *i <= arr.len() {
                     arr.insert(*i, cloned);
                 } else {
-                    anyhow::bail!("target index {i} out of bounds");
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("target index {i} out of bounds"),
+                    }
+                    .into());
                 }
             }
-            _ => anyhow::bail!("cannot move to wildcard/predicate"),
+            _ => {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "cannot move to wildcard/predicate".into(),
+                }
+                .into());
+            }
         }
     }
 
@@ -424,7 +498,12 @@ pub fn move_at_path(
                 })?;
                 arr.remove(*i);
             }
-            _ => anyhow::bail!("cannot remove from wildcard/predicate selector"),
+            _ => {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "cannot remove from wildcard/predicate selector".into(),
+                }
+                .into());
+            }
         }
     }
 
@@ -576,8 +655,11 @@ mod tests {
     #[test]
     fn set_at_path_empty_selector_errors() {
         let mut root = json!({});
-        let result = set_at_path(&mut root, &[], json!(1));
-        result.expect_err("expected error");
+        let err = set_at_path(&mut root, &[], json!(1)).expect_err("expected error");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty selector should be invalid_input: {err}"
+        );
     }
 
     #[test]
