@@ -3,6 +3,9 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    # ready_for_review re-runs CI when a draft is marked ready (drafts skip
+    # expensive jobs below; synchronize alone does not re-fire undraft).
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   merge_group: {}
@@ -18,13 +21,19 @@ permissions:
   contents: read
   actions: read
 
+# Draft PRs must not burn Actions minutes. Job-level guards are required:
+# converting to draft does NOT cancel or skip workflows by itself. Keep one
+# non-draft PR active when serializing a merge queue.
+
 jobs:
   changes:
     # Detect whether source code changed. On non-PR events (push, schedule,
     # merge_group) this job is skipped, which causes all downstream jobs to
     # run unconditionally via the `needs.changes.result == 'skipped'` guard.
+    # Draft PRs skip this job too; expensive jobs also require not-draft so
+    # they do not treat "changes skipped" as "run everything".
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     permissions:
       pull-requests: read
     outputs:
@@ -47,7 +56,10 @@ jobs:
 
   build-and-test:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -70,7 +82,10 @@ jobs:
 
   ci-windows:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -104,7 +119,10 @@ jobs:
 
   ci-macos:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
@@ -127,7 +145,10 @@ jobs:
 
   msrv:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -153,7 +174,10 @@ jobs:
 
   msrv-macos:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -179,7 +203,10 @@ jobs:
 
   coverage:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -322,7 +349,10 @@ jobs:
 
   bench:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -410,7 +440,10 @@ jobs:
 
   fuzz:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     strategy:
@@ -460,7 +493,10 @@ jobs:
 
   agent-dry-run:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -508,7 +544,10 @@ jobs:
 
   audit:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -534,7 +573,10 @@ jobs:
   # cargo-deny here locks policy in-repo (addresses #1485).
   deny:
     needs: [changes]
-    if: always() && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
