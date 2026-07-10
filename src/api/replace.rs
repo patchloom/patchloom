@@ -246,7 +246,7 @@ fn replace_write(
         // context-resolved results are unambiguous by definition.
         if unique && count > 1 {
             bail!(
-                "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
+                "ambiguous match: pattern {:?} matches {} times; use --nth or add context to disambiguate",
                 old,
                 count
             );
@@ -540,7 +540,7 @@ fn finalize_content_replace(
         return Err(crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::AmbiguousTarget,
             format!(
-                "ambiguous match: pattern {:?} matches {} times; provide more context to disambiguate",
+                "ambiguous match: pattern {:?} matches {} times; use --nth or add context to disambiguate",
                 from, count
             ),
         )
