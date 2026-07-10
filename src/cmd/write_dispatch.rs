@@ -154,7 +154,9 @@ mod tests {
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.confirm = true;
         global.json = true;
-        // confirm + json in non-TTY -> should_apply() returns false
+        // Force decline: Docker/eval harnesses often allocate a pseudo-TTY,
+        // which would otherwise prompt and default to yes on empty input.
+        let _decline = crate::cli::global::ConfirmAnswerGuard::force(false);
 
         let mut applied = false;
         let code = execute_write(

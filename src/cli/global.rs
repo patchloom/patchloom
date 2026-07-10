@@ -176,7 +176,53 @@ pub struct WriteFlags {
     pub no_format: bool,
 }
 
+// Test-only override for confirm_prompt. Docker and many evaluation harnesses
+// allocate a pseudo-TTY on stdin, so unit tests that need a deterministic
+// decline must not read the real terminal.
+#[cfg(test)]
+thread_local! {
+    static CONFIRM_ANSWER_OVERRIDE: std::cell::Cell<Option<bool>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// RAII guard that forces a fixed confirm answer on the current thread.
+///
+/// Restores the previous override when dropped. Production code never sets
+/// the override; only tests use this. Needed because Docker/eval harnesses
+/// often allocate a pseudo-TTY, which would prompt and default to yes.
+#[cfg(test)]
+#[doc(hidden)]
+pub struct ConfirmAnswerGuard {
+    prev: Option<bool>,
+}
+
+#[cfg(test)]
+impl ConfirmAnswerGuard {
+    /// Force `confirm_prompt` / `should_apply` to return this answer.
+    pub fn force(answer: bool) -> Self {
+        let prev = CONFIRM_ANSWER_OVERRIDE.with(|cell| {
+            let previous = cell.get();
+            cell.set(Some(answer));
+            previous
+        });
+        Self { prev }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ConfirmAnswerGuard {
+    fn drop(&mut self) {
+        CONFIRM_ANSWER_OVERRIDE.with(|cell| cell.set(self.prev));
+    }
+}
+
 pub(crate) fn confirm_prompt(prompt: &str) -> bool {
+    #[cfg(test)]
+    {
+        if let Some(answer) = CONFIRM_ANSWER_OVERRIDE.with(|cell| cell.get()) {
+            return answer;
+        }
+    }
     // Flush stdout before the prompt writes to stderr, otherwise the diff
     // output may remain buffered and invisible in a PTY.
     use std::io::Write;
@@ -747,10 +793,34 @@ mod tests {
     }
 
     #[test]
+    fn confirm_answer_guard_forces_decline_even_with_tty_stdin() {
+        // Simulates Docker/eval harnesses that allocate a pseudo-TTY: without
+        // the guard, should_apply() would prompt and default to yes on empty.
+        let _guard = ConfirmAnswerGuard::force(false);
+        let g = GlobalFlags {
+            confirm: true,
+            ..GlobalFlags::default()
+        };
+        assert!(!g.should_apply());
+        assert!(!confirm_prompt("Apply?"));
+    }
+
+    #[test]
+    fn confirm_answer_guard_forces_accept() {
+        let _guard = ConfirmAnswerGuard::force(true);
+        let g = GlobalFlags {
+            confirm: true,
+            ..GlobalFlags::default()
+        };
+        assert!(g.should_apply());
+    }
+
+    #[test]
     fn should_apply_confirm_non_tty_returns_false() {
         if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
             // Docker and devcontainers often allocate a pseudo-TTY on stdin.
-            // Non-TTY behavior is covered by confirm_prompt_non_tty_returns_false.
+            // Non-TTY behavior is covered by confirm_prompt_non_tty_returns_false
+            // and ConfirmAnswerGuard unit tests above.
             return;
         }
         let g = GlobalFlags {
