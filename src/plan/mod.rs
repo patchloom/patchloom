@@ -51,6 +51,8 @@ pub struct Plan {
     /// When omitted from the plan, defaults to strict mode at execution time.
     #[serde(default)]
     pub strict: Option<bool>,
+    /// Operations to run. Accepts alias `ops` (common agent shorthand).
+    #[serde(alias = "ops")]
     pub operations: Vec<Operation>,
     pub format: Option<Vec<FormatStep>>,
     pub validate: Option<Vec<ValidationStep>>,

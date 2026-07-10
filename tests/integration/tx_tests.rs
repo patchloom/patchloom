@@ -30,6 +30,37 @@ fn test_tx_replace_empty_from_rejected() {
 }
 
 #[test]
+fn test_tx_ops_alias_accepted() {
+    // Agents often emit "ops" instead of the canonical "operations" field.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "cwd": dir.path().to_str().unwrap(),
+        "ops": [{
+            "op": "replace",
+            "path": "test.txt",
+            "old": "hello",
+            "new": "hi"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hi world\n");
+}
+
+#[test]
 fn test_tx_replace_whole_line_in_plan() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.txt");
