@@ -283,6 +283,7 @@ fn is_arg_taking_flag(token: &str) -> bool {
             | "-p"
             | "--prompt"
             | "--unset" // env --unset VAR
+            | "--chdir" // env --chdir DIR (env -C already listed above as -C)
             // nice / ionice niceness
             | "-n"
             | "--adjustment"
@@ -581,6 +582,18 @@ mod tests {
         assert_eq!(
             replace_command_position("echo flock /tmp/l pip\n", "pip", "uv").1,
             0
+        );
+    }
+
+    #[test]
+    fn env_chdir_space_form_allows_command() {
+        assert_eq!(
+            replace_command_position("env --chdir /tmp pip install\n", "pip", "uv").0,
+            "env --chdir /tmp uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("env --chdir=/var/tmp pip install\n", "pip", "uv").0,
+            "env --chdir=/var/tmp uv install\n"
         );
     }
 
