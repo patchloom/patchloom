@@ -72,6 +72,10 @@ struct SearchOutput {
     files: Vec<SearchFileEntry>,
     match_count: usize,
     file_count: usize,
+    /// Machine-readable failure kind for agents (`no_matches`), aligned with
+    /// CLI replace / tx JSON. Omitted on success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -181,6 +185,7 @@ pub(crate) fn format_results(
             file_count: results.file_match_counts.len(),
             matches: results.matches,
             files,
+            error_kind: None,
         };
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
@@ -366,6 +371,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             file_count: 0,
             matches: vec![],
             files: vec![],
+            error_kind: Some("no_matches"),
         };
         global.emit_json(&payload)?;
         if !global.quiet && !global.json && !global.jsonl {
