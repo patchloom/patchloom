@@ -274,7 +274,7 @@ fn is_option_flag(token: &str) -> bool {
 fn is_arg_taking_flag(token: &str) -> bool {
     matches!(
         token,
-        // sudo / doas / env
+        // sudo / doas / env (`-u` covers both sudo -u USER and env -u VAR)
         "-u" | "--user"
             | "-g"
             | "--group"
@@ -282,6 +282,7 @@ fn is_arg_taking_flag(token: &str) -> bool {
             | "--close-from"
             | "-p"
             | "--prompt"
+            | "--unset" // env --unset VAR
             // nice / ionice niceness
             | "-n"
             | "--adjustment"
@@ -580,6 +581,18 @@ mod tests {
         assert_eq!(
             replace_command_position("echo flock /tmp/l pip\n", "pip", "uv").1,
             0
+        );
+    }
+
+    #[test]
+    fn env_unset_space_form_allows_command() {
+        assert_eq!(
+            replace_command_position("env --unset PATH pip install\n", "pip", "uv").0,
+            "env --unset PATH uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("env -u PATH pip install\n", "pip", "uv").0,
+            "env -u PATH uv install\n"
         );
     }
 

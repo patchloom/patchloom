@@ -571,7 +571,7 @@ These are meaningful command-specific modes that change how a top-level command 
 
 - **What it does:** Zero matches become an error (CLI exit 3 / structured `EditErrorKind::NoMatch`) instead of soft success. Softened by `--if-exists` / `if_exists`.
 - **Use when:** Agent hosts that treat a missed target as a tool error (fail closed). CLI already fails on no-match by default; the flag is explicit for plan/MCP/library parity.
-- **Identity:** When the pattern matches but `new` equals `old`, the match counts and `require_change` is satisfied (CLI exit 0 with an "identical (no file changes)" note). That is not a zero-match failure.
+- **Identity:** When the pattern matches but `new` equals `old`, the match counts and `require_change` is satisfied (CLI exit 0 with an "identical (no file changes)" note). That is not a zero-match failure. With `--json`, the response includes `"identity": true`.
 - **Prefer instead:** Leave the default when soft no-match is intentional. When both `require_change` and `if_exists` are set, `if_exists` wins.
 
 <!-- ref:replace-mode:command-position -->
