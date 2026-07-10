@@ -1,5 +1,9 @@
 //! Shell command-position token matching for agent hosts (#1494).
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). One module owns
+//! transparent wrapper peeling, duration/flag grammar, and co-located unit
+//! coverage for agent install-script rewrites; do not split for LOC alone.
+//!
 //! A token is in **command position** when it is the invocable command of a
 //! simple shell fragment: start of line (after whitespace), after `&&` `|` `;`,
 //! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`, `setsid`,
