@@ -507,7 +507,13 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        operations.push(parse_line(trimmed, i + 1)?);
+        match parse_line(trimmed, i + 1) {
+            Ok(op) => operations.push(op),
+            Err(e) => {
+                global.emit_error_json_kind(Some("parse_error"), &e.to_string())?;
+                return Ok(exit::PARSE_ERROR);
+            }
+        }
     }
 
     crate::verbose!("batch: parsed {} operations from input", operations.len());
@@ -527,10 +533,12 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if operations.len() > MAX_BATCH_OPERATIONS {
-        anyhow::bail!(
+        let msg = format!(
             "batch: too many operations ({}, max {MAX_BATCH_OPERATIONS})",
             operations.len()
         );
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(exit::FAILURE);
     }
 
     // Build a plan and run the shared tx engine in-process (no temp plan file).

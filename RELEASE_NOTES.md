@@ -42,6 +42,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **CLI file ops JSON error_kind.** `create`/`rename` conflicts set `already_exists`; missing targets for `delete`/`append`/`prepend`/`rename` set `not_found`; invalid flag combinations and non-file targets set `invalid_input` (all exit 1).
 - **CLI tidy JSON `invalid_input`.** `tidy fix --dedent … --indent …` together exits 1 with `error_kind: "invalid_input"` under `--json`.
 - **CLI md JSON `invalid_input`.** `md move-section` without `--before`/`--after`, and missing `--stdin`/`--content` on insert/replace paths, set `error_kind: "invalid_input"` (exit 1).
+- **CLI batch JSON `parse_error`.** Line parse failures (unknown op, bad arity, bad quotes) exit **4** with `error_kind: "parse_error"` (was unstructured exit 1). Too-many-ops limit stays exit 1 with `invalid_input`.
 - **CLI read/status/ast/doc JSON kinds.** Invalid `--lines` sets `invalid_input`; all-paths-missing read sets `not_found`; status outside a git repo sets `invalid_input`; AST missing path / non-dir map target set `not_found` / `invalid_input`; doc merge flag conflicts set `invalid_input`.
 - **CLI replace JSON `invalid_input`.** Validation failures (bad `--nth`, `--range` without `--whole-line`, incompatible flag combos, context without paths) set `error_kind: "invalid_input"` (exit 1).
 - **CLI search JSON `invalid_input`.** Empty pattern and `--invert-match` + `--multiline` together exit 1 with `error_kind: "invalid_input"` under `--json`.

@@ -453,8 +453,12 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\
              | 9 | Tx operation staging failure (`operation_failed`) |\n\n\
              **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set \
-             `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source), \
-             `invalid_input` (bad flags or non-file target). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type).\n\n\
+             `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source, \
+             or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, \
+             `status` outside a git repo, AST map non-dir, doc merge flag conflicts). Doc type mismatches set \
+             `type_error` (`doc keys`/`len` on wrong type).\n\n\
+             **JSON `error_kind` (exit 4):** Batch line parse failures set `parse_error` (unknown op, bad arity, \
+             bad quotes) so agents can distinguish syntax mistakes from runtime failures.\n\n\
              **Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, \
              doc delete success includes `changed` (bool) and `removed` (usize). Multi-op \
              plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with \
@@ -709,8 +713,9 @@ mod tests {
         assert!(
             out.contains("already_exists")
                 && out.contains("not_found")
-                && out.contains("type_error"),
-            "exit 1 error_kind catalogue must document file-op and doc kinds"
+                && out.contains("type_error")
+                && out.contains("parse_error"),
+            "error_kind catalogue must document file-op, doc, and batch kinds"
         );
     }
 
