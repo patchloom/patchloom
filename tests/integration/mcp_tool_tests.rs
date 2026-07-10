@@ -1851,7 +1851,10 @@ async fn test_mcp_batch_replace_command_position() {
         }),
     )
     .await;
-    assert!(!is_error, "batch_replace command_position should succeed: {val}");
+    assert!(
+        !is_error,
+        "batch_replace command_position should succeed: {val}"
+    );
     assert_eq!(val["ok"], true, "batch_replace command_position ok: {val}");
 
     assert_eq!(

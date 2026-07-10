@@ -126,7 +126,9 @@ fn test_tx_replace_command_position_rejects_regex() {
         .arg("--apply")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("command_position cannot be combined"));
+        .stderr(predicate::str::contains(
+            "command_position cannot be combined",
+        ));
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
