@@ -157,6 +157,9 @@ pub fn execute_plan_direct(
             if crate::exit::is_invalid_input(&e) {
                 return Ok(build_error_output("invalid_input", &e.to_string(), None));
             }
+            if crate::exit::is_type_error(&e) {
+                return Ok(build_error_output("type_error", &e.to_string(), None));
+            }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
     };
