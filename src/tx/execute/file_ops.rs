@@ -16,7 +16,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 .into());
             }
             if tx.deletions.contains(&file_path) {
-                anyhow::bail!("file was deleted earlier in this transaction: {path}");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file was deleted earlier in this transaction: {path}"),
+                )
+                .into());
             }
             if !file_path.exists() && !tx.pending.contains_key(&file_path) {
                 return Err(std::io::Error::new(
@@ -45,7 +49,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 .into());
             }
             if tx.deletions.contains(&file_path) {
-                anyhow::bail!("file was deleted earlier in this transaction: {path}");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file was deleted earlier in this transaction: {path}"),
+                )
+                .into());
             }
             if !file_path.exists() && !tx.pending.contains_key(&file_path) {
                 return Err(std::io::Error::new(
@@ -163,7 +171,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             let dst_path = tx.cwd.join(to);
 
             if tx.deletions.contains(&src_path) {
-                anyhow::bail!("source file was deleted earlier in this transaction: {from}");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("source file was deleted earlier in this transaction: {from}"),
+                )
+                .into());
             }
             if src_path.exists() && !src_path.is_file() {
                 return Err(crate::exit::InvalidInputError {
