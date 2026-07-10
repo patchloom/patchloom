@@ -7676,26 +7676,64 @@ fn test_tx_contain_rejects_parent_escape_in_plan() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let assert = Command::cargo_bin("patchloom")
         .unwrap()
         .args(["--cwd"])
         .arg(dir.path())
-        .args(["--contain", "tx"])
+        .args(["--json", "--contain", "tx"])
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .failure()
-        .stderr(
-            predicate::str::contains("escapes")
-                .or(predicate::str::contains("rejected"))
-                .or(predicate::str::contains("workspace guard")),
-        );
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "contain escape should be invalid_input: {stdout}"
+    );
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("escapes") || err.contains("rejected") || err.contains("workspace guard"),
+        "error should mention containment: {stdout}"
+    );
 
     assert!(
         !outside.exists(),
         "tx --contain must not create escaped path {outside:?}"
     );
     let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_tx_append_after_delete_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("gone.txt");
+    fs::write(&file, "hi\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.delete", "path": portable_path_str(&file)},
+            {"op": "file.append", "path": portable_path_str(&file), "content": "nope\n"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "not_found",
+        "append after delete in same plan: {stdout}"
+    );
 }
 
 #[test]

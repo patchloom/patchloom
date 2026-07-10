@@ -72,6 +72,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Tx AST empty directory `no_matches`.** Plan `ast.rename` on a directory with no source files exits **3** with `error_kind: "no_matches"` (was `operation_failed` / 9), matching CLI `ast rename`.
 - **Doc parse failures `parse_error`.** Malformed JSON/YAML/TOML content exits **4** with `error_kind: "parse_error"` (was unstructured exit 1), for CLI doc and plan/tx doc ops.
 - **Tx AST extract/rewrite kinds.** `ast.extract_to_file` into an existing target without `force` sets `already_exists` (exit 1). `ast.rewrite_signature` without signature fields sets `invalid_input` (exit 1).
+- **Tx mid-plan delete then use is `not_found`.** Append/prepend/rename after `file.delete` in the same plan set `error_kind: "not_found"` (exit 1). Workspace-guard escapes set `invalid_input`.
 
 ## Agent and library notes
 
