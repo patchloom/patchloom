@@ -161,7 +161,7 @@ fn execute_md_op(
         Ok(code) => Ok(code),
         Err(e) => {
             if exit::is_no_match(&e) {
-                global.emit_error_json(&e.to_string())?;
+                global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
                 Ok(exit::NO_MATCHES)
             } else {
                 Err(e)
@@ -375,7 +375,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             match find_section(&content, &heading) {
                 None => {
                     let msg = format!("heading {:?} not found in {file}", heading);
-                    global.emit_error_json(&msg)?;
+                    global.emit_error_json_kind(Some("no_matches"), &msg)?;
                     Ok(exit::NO_MATCHES)
                 }
                 Some((body_start, body_end)) => {
