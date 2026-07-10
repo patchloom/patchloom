@@ -2,8 +2,8 @@
 //!
 //! A token is in **command position** when it is the invocable command of a
 //! simple shell fragment: start of line (after whitespace), after `&&` `|` `;`,
-//! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`, `xargs`, `eval`,
-//! and common option flags like `-E` / `-p`). It is **not** command position
+//! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`, `setsid`, `xargs`,
+//! `eval`, and common option flags like `-E` / `-p`). It is **not** command position
 //! when it is an argument (`uv pip`) or inside a longer word (`pipenv`).
 //!
 //! Known false positive: `command -v pip` may treat `pip` as command position
@@ -15,7 +15,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "sudo", "doas", "env", "command", "builtin", "exec", "time", "nice", "nohup",
     // Agent scripts often wrap installs: `timeout 30 pip install`, `stdbuf -oL …`.
     "timeout", "stdbuf", "ionice",
-    // Invokers that take a command as their first non-option arg.
+    // Detach from controlling TTY (common in agent/CI isolation wrappers).
+    "setsid", // Invokers that take a command as their first non-option arg.
     "xargs", "watch", "strace",
     // Shell builtins that re-parse a command string / file.
     "eval", "source", ".",
@@ -490,6 +491,23 @@ mod tests {
         let (out, n) = replace_command_position(content, "pip", "uv");
         assert_eq!(n, 1, "out={out:?}");
         assert!(out.contains("uv install"), "{out:?}");
+    }
+
+    #[test]
+    fn setsid_allows_command() {
+        assert_eq!(
+            replace_command_position("setsid pip install\n", "pip", "uv").0,
+            "setsid uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("setsid -f pip install\n", "pip", "uv").0,
+            "setsid -f uv install\n"
+        );
+        // Argument-position after a real command stays untouched.
+        assert_eq!(
+            replace_command_position("echo setsid pip\n", "pip", "uv").1,
+            0
+        );
     }
 
     #[test]

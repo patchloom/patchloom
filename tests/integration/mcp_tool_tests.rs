@@ -2210,8 +2210,8 @@ async fn test_mcp_replace_command_position_rejects_regex() {
     assert!(is_error, "command_position+regex must fail: {val}");
     let err = val.to_string();
     assert!(
-        err.contains("command_position") || err.contains("combined") || err.contains("Invalid"),
-        "error should mention conflict: {val}"
+        err.contains("command_position cannot be combined"),
+        "error should name the command_position combo conflict: {val}"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("install.sh")).unwrap(),
