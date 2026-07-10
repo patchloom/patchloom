@@ -578,6 +578,23 @@ mod tests {
     }
 
     #[test]
+    fn compound_wrappers_chain() {
+        // Nested isolation wrappers agents use in CI scripts.
+        assert_eq!(
+            replace_command_position("sudo busybox wget http://x\n", "wget", "curl").0,
+            "sudo busybox curl http://x\n"
+        );
+        assert_eq!(
+            replace_command_position("runuser -u app setsid pip install\n", "pip", "uv").0,
+            "runuser -u app setsid uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("flock -n /tmp/l busybox sh -c true\n", "sh", "ash").0,
+            "flock -n /tmp/l busybox ash -c true\n"
+        );
+    }
+
+    #[test]
     fn busybox_allows_applet_command() {
         assert_eq!(
             replace_command_position("busybox wget http://x\n", "wget", "curl").0,
