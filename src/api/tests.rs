@@ -3577,6 +3577,37 @@ fn ast_rewrite_signature_api_updates_params() {
     assert_eq!(result.action, "ast.rewrite_signature");
     let on_disk = fs::read_to_string(&file).unwrap();
     assert!(on_disk.contains("u64"), "got: {on_disk}");
+    assert!(
+        on_disk.contains("-> u64 {"),
+        "structured API path must keep body gap (#1503): {on_disk}"
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_full_string_preserves_body_gap() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n").unwrap();
+    let edit = crate::ast::rewrite::FunctionSigEdit::default();
+    // Logical signature with no trailing space (agent/embedder style).
+    let result = ast_rewrite_signature(
+        &file,
+        "add",
+        &edit,
+        Some("pub fn add(a: i32, b: i32, c: i32) -> i32"),
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("full-string rewrite");
+    assert!(result.changed && result.applied);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.contains("-> i32 {"),
+        "full new_signature must not glue to brace: {on_disk}"
+    );
+    assert!(!on_disk.contains("i32{"), "got: {on_disk}");
+    assert!(on_disk.contains("c: i32"), "params updated: {on_disk}");
 }
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
@@ -3607,6 +3638,15 @@ fn ast_rewrite_signature_plan_execute() {
     assert!(
         on_disk.contains("name: &str"),
         "plan rewrite should update signature: {on_disk}"
+    );
+    // #1503: logical new_signature without trailing space must not glue to `{`.
+    assert!(
+        on_disk.contains("fn greet(name: &str) {"),
+        "plan path must preserve body gap, got: {on_disk}"
+    );
+    assert!(
+        !on_disk.contains("str){"),
+        "must not glue type to brace: {on_disk}"
     );
 }
 

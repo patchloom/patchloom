@@ -76,6 +76,8 @@
 //! - In-memory: `api::ast_rewrite_signature_in_content` or
 //!   `ast::rewrite::rewrite_function_signature` with `FunctionSigEdit`
 //! - Parse Rust fragments: `FunctionSigEdit::parse_rust("pub fn f(x: i32) -> T")`
+//! - Full-string rewrites accept a logical signature without trailing space;
+//!   high-level helpers preserve the body gap before `{` (`splice_function_signature`, #1503)
 //! - On disk: `api::ast_rewrite_signature`, `api::ast_rename`, `api::ast_replace_in_symbol`
 //! - Multi-file rename: `api::ast_rename_batch` (same-file serialization, per-file results; #1495)
 //! - Plans / MCP: op `ast.rewrite_signature` / tool `ast_rewrite_signature`

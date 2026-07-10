@@ -1157,6 +1157,7 @@ The operations below are the building blocks inside `operations`.
 ### `ast.rewrite_signature`
 
 - **What it does:** Rewrites a function signature using tree-sitter. Structured fields `visibility`, `parameters`, and `return_type` map to [`FunctionSigEdit`](https://docs.rs/patchloom); optional `new_signature` replaces the whole signature span. Field `old` (alias `name`) is the function name. Library: `api::ast_rewrite_signature`. MCP: `ast_rewrite_signature`.
+- **Body gap:** High-level paths accept a logical `new_signature` without trailing whitespace and preserve the original gap before `{` (or insert a conventional space if the original was already glued). Trait/extern forms ending in `;` do not get a spurious space. See #1503 / `splice_function_signature`.
 - **Use when:** Changing parameter lists, visibility, or return types without a brittle line scan (agent hosts such as Bline).
 - **Failure behavior:** Missing function name exits 3 (`no_matches`) with the function name in the error; JSON plans report `error_kind: "no_matches"`.
 - **Related:** `ast.replace`, `ast.rename`
