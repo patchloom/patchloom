@@ -209,6 +209,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Searches text files with literal or regex matching, optional context, counts, and file only results. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You need to locate candidate edits, audit repo state, or narrow inputs before changing files. For AI agents, native search/grep tools are typically faster for simple pattern matching.
 - **Prefer instead:** Use `replace` for actual text mutation, or `doc`, `md`, or `patch` when you already know the structured change you want.
+- **Failure behavior:** Pattern miss on existing roots exits `3` with `error_kind: "no_matches"`. When every explicit path root (or non-stdin `--files-from` entry) is missing, exit `1` with `error_kind: "not_found"`. Empty pattern and incompatible flags use `invalid_input`.
 - **Related:** `--glob`, `--files-from`, `replace`
 
 <!-- ref:command:replace -->
@@ -217,6 +218,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Performs mechanical string replacement across one or many text files, with literal or regex matching. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You are doing a rename, version bump, boilerplate rewrite, or another string level change where plain text semantics are enough. For AI agents doing single-file replacements, native search_replace tools are typically faster; use patchloom `replace` inside `tx` plans when batching multiple file edits.
 - **Prefer instead:** Use `doc` for structured data, `md` for heading aware markdown, or `patch` when you already have a unified diff.
+- **Failure behavior:** Soft pattern miss exits `3` with `error_kind: "no_matches"`; `--unique` multi-match exits `5` with `ambiguous`. All-explicit-path-missing (or all-missing `--files-from` list) exits `1` with `not_found`. Validation failures use `invalid_input`.
 - **Related:** `search`, `tx`
 
 <!-- ref:command:patch -->
@@ -249,7 +251,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines in text files. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You need repo text normalization, or a CI guard for basic text tidiness.
-- **Failure behavior:** `tidy fix` with both `--dedent` and `--indent` exits `1` with `error_kind: "invalid_input"` under `--json`/`--jsonl`.
+- **Failure behavior:** `tidy fix` with both `--dedent` and `--indent` exits `1` with `error_kind: "invalid_input"` under `--json`/`--jsonl`. When every explicit path root is missing, exit `1` with `error_kind: "not_found"` (not vacuous clean success). Pending tidy issues under `tidy check` exit `2` (`CHANGES_DETECTED`).
 - **Prefer instead:** Use write policy flags when the cleanup should only apply to files already being touched by another command.
 - **Related:** `tidy check`, `tidy fix`, `tx tidy.fix`
 
