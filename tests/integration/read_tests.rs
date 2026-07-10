@@ -81,6 +81,10 @@ fn test_read_json_invalid_lines_returns_error_object() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("invalid --lines value '0:1'"));
     assert!(error.contains("line numbers are 1-based"));
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "read invalid --lines should set error_kind: {json}"
+    );
 }
 
 #[test]
@@ -293,6 +297,10 @@ fn test_read_json_all_fail_returns_error_object() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("no-1-json-read-fail"));
     assert!(error.contains("no-2-json-read-fail"));
+    assert_eq!(
+        json["error_kind"], "not_found",
+        "read all-fail should set error_kind: {json}"
+    );
 }
 
 #[test]
@@ -317,6 +325,10 @@ fn test_read_jsonl_all_fail_returns_error_object() {
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("no-1-jsonl-read-fail"));
     assert!(error.contains("no-2-jsonl-read-fail"));
+    assert_eq!(
+        json["error_kind"], "not_found",
+        "read jsonl all-fail should set error_kind: {json}"
+    );
 }
 
 #[test]

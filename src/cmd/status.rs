@@ -138,7 +138,14 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("status: checking {} path(s)", args.paths.len());
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, &args.paths)?;
-    let out = collect_status(&args.paths, global)?;
+    let out = match collect_status(&args.paths, global) {
+        Ok(o) => o,
+        Err(e) => {
+            // Outside a git repo, missing git binary, etc.
+            global.emit_error_json_kind(Some("invalid_input"), &format!("{e:#}"))?;
+            return Ok(exit::FAILURE);
+        }
+    };
     crate::verbose!(
         "status: {} modified, {} created, {} deleted",
         out.modified.len(),

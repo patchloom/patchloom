@@ -71,11 +71,8 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         match parse_line_range(spec) {
             Ok(range) => Some(range),
             Err(err) => {
-                if structured {
-                    anyhow::bail!("invalid --lines value '{spec}': {err}");
-                }
-                // Always show errors on stderr, even with --quiet (#1179).
-                eprintln!("read: {err}");
+                let msg = format!("invalid --lines value '{spec}': {err}");
+                global.emit_error_json_kind(Some("invalid_input"), &msg)?;
                 return Ok(exit::FAILURE);
             }
         }
@@ -117,9 +114,9 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if errors.len() == args.files.len() {
-        if structured {
-            anyhow::bail!(errors.join("\n"));
-        }
+        // Prefer not_found when every path failed (typical: missing files).
+        let msg = errors.join("\n");
+        global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(exit::FAILURE);
     }
 
