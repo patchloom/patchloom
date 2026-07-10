@@ -145,6 +145,9 @@ pub fn execute_plan_direct(
             if crate::exit::is_no_match(&e) {
                 return Ok(build_error_output("no_matches", &e.to_string(), None));
             }
+            if crate::exit::is_ambiguous(&e) {
+                return Ok(build_error_output("ambiguous", &e.to_string(), None));
+            }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
     };

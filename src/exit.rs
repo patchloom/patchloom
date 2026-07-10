@@ -39,6 +39,29 @@ pub fn is_no_match(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<NoMatchError>().is_some())
 }
 
+/// Typed error for ambiguous multi-match conditions in tx engine operations.
+///
+/// Parallel to [`NoMatchError`]: lets `tx` map `unique` multi-match failures
+/// to exit code [`AMBIGUOUS`] (5) instead of generic [`OPERATION_FAILED`] (9).
+#[derive(Debug)]
+pub struct AmbiguousError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for AmbiguousError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for AmbiguousError {}
+
+/// Check whether an `anyhow::Error` chain contains an [`AmbiguousError`].
+pub fn is_ambiguous(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<AmbiguousError>().is_some())
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.
@@ -119,6 +142,26 @@ mod tests {
             !is_no_match(&err),
             "is_no_match should return false for non-NoMatchError in chain"
         );
+    }
+
+    #[test]
+    fn is_ambiguous_finds_wrapped_error() {
+        let err: anyhow::Error = AmbiguousError {
+            msg: "ambiguous match: pattern \"a\" matches 2 times".to_string(),
+        }
+        .into();
+        let wrapped = err.context("operation 1 (replace) failed");
+        assert!(
+            is_ambiguous(&wrapped),
+            "is_ambiguous should find AmbiguousError through .context() wrapper"
+        );
+        assert!(!is_no_match(&wrapped));
+    }
+
+    #[test]
+    fn is_ambiguous_rejects_plain_error() {
+        let err = anyhow::anyhow!("some other error").context("operation 1 failed");
+        assert!(!is_ambiguous(&err));
     }
 
     #[test]

@@ -129,12 +129,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             replace_content(content, old, &replacement, compiled_re.as_ref(), *nth)
         };
         if *unique && match_count > 1 {
-            anyhow::bail!(
-                "ambiguous match: pattern {:?} matches {} times in {}; provide more context to disambiguate",
-                crate::fallback::truncate_str(old, 60),
-                match_count,
-                p
-            );
+            return Err(crate::exit::AmbiguousError {
+                msg: format!(
+                    "ambiguous match: pattern {:?} matches {} times in {}; provide more context to disambiguate",
+                    crate::fallback::truncate_str(old, 60),
+                    match_count,
+                    p
+                ),
+            }
+            .into());
         }
         if match_count > 0 {
             // When there are multiple exact matches and context is provided
@@ -233,7 +236,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .replace_hint
                     .clone()
                     .unwrap_or_else(|| format!("no matches for {old:?} in {p}"));
-                anyhow::bail!(msg);
+                return Err(crate::exit::NoMatchError { msg }.into());
             }
             Ok(0)
         }
@@ -336,7 +339,10 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             }
         }
         if total_matches == 0 && *require_change && !if_exists {
-            anyhow::bail!("no matches for {old:?} (glob {pattern})");
+            return Err(crate::exit::NoMatchError {
+                msg: format!("no matches for {old:?} (glob {pattern})"),
+            }
+            .into());
         }
         Ok(total_matches)
     } else {

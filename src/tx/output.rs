@@ -284,6 +284,7 @@ pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
         match report.error_kind.as_deref() {
             Some("no_matches") => exit::NO_MATCHES,
             Some("parse_error") => exit::PARSE_ERROR,
+            Some("ambiguous") => exit::AMBIGUOUS,
             Some("rollback") => exit::ROLLBACK,
             Some("rollback_failed") => exit::FAILURE,
             Some("validation_failed") | Some("format_failed") | Some("verification_failed") => {
@@ -507,6 +508,10 @@ mod tests {
         assert_eq!(
             exit_code_from_tx_output(&err_output("operation_failed")),
             exit::OPERATION_FAILED
+        );
+        assert_eq!(
+            exit_code_from_tx_output(&err_output("ambiguous")),
+            exit::AMBIGUOUS
         );
         assert_eq!(
             exit_code_from_tx_output(&err_output("unknown_kind")),
