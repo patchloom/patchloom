@@ -35,6 +35,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **`timeout --kill-after` stacked durations.** Peels consecutive duration tokens so `timeout --kill-after 5 30 pip` and `timeout --kill-after=5 30 pip` rewrite the command (bare `5 30 pip` still stays non-command).
 - **CI isolation wrappers.** `command_position` peels `unshare`, `nsenter`, `taskset`, `prlimit`, `numactl`, `chrt`, and `setpriv` (plus list values like `taskset -c 0,1`) so sandbox and affinity-wrapped installs rewrite.
 - **Unit/sandbox wrappers.** `command_position` peels `systemd-run`, `firejail`, `dbus-run-session`, and `chronic`, plus bare `--` end-of-options markers (`dbus-run-session -- pip`).
+- **`run0` privilege wrapper.** `command_position` peels systemd `run0` (modern `sudo` alternative) so `run0 -u root pip` rewrites the command.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.
 

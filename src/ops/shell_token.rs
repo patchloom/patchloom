@@ -38,6 +38,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     // Isolation / privilege wrappers used by agent and CI scripts.
     "setsid",
     "runuser",
+    // systemd-run0 alternative to sudo (flags like -u / --user peel as arg-taking).
+    "run0",
     // Namespace / CPU affinity / resource-limit wrappers (CI and sandbox scripts).
     "unshare",
     "nsenter",
@@ -963,6 +965,22 @@ mod tests {
         );
         assert_eq!(
             replace_command_position("echo runuser pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn run0_allows_command() {
+        assert_eq!(
+            replace_command_position("run0 pip install\n", "pip", "uv").0,
+            "run0 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("run0 -u root pip install\n", "pip", "uv").0,
+            "run0 -u root uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("echo run0 pip\n", "pip", "uv").1,
             0
         );
     }
