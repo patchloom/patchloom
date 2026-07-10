@@ -1127,3 +1127,30 @@ fn test_md_empty_path_rejected() {
         .code(1)
         .stderr(predicate::str::contains("path must not be empty"));
 }
+
+#[test]
+fn test_md_move_section_json_requires_before_or_after() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.md");
+    fs::write(&file, "# A\nbody\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "md",
+            "move-section",
+            file.to_str().unwrap(),
+            "--heading",
+            "A",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "md move-section missing before/after: {parsed}"
+    );
+}
