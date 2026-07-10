@@ -465,27 +465,28 @@ fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Res
 /// Used by read-only doc subcommands (get, keys, len, flatten) to produce
 /// consistent no-match output without repeating the Json/Jsonl/Text match.
 fn format_no_match(error_msg: &str, mode: OutputMode, quiet: bool) -> anyhow::Result<(String, u8)> {
-    format_error(error_msg, mode, quiet, exit::NO_MATCHES)
+    format_error(error_msg, mode, quiet, exit::NO_MATCHES, Some("no_matches"))
 }
 
 /// Format an error result for the given output mode and exit code.
 ///
 /// In Json/Jsonl mode, wraps the message in a `{"ok": false, "error": ...}`
-/// envelope. In Text mode, prints to stderr (unless quiet). Returns the
-/// supplied exit code.
+/// envelope (plus optional `error_kind`). In Text mode, prints to stderr
+/// (unless quiet). Returns the supplied exit code.
 fn format_error(
     error_msg: &str,
     mode: OutputMode,
     quiet: bool,
     code: u8,
+    error_kind: Option<&'static str>,
 ) -> anyhow::Result<(String, u8)> {
+    let mut payload = serde_json::json!({"ok": false, "error": error_msg});
+    if let Some(kind) = error_kind {
+        payload["error_kind"] = serde_json::Value::String(kind.into());
+    }
     let output = match mode {
-        OutputMode::Json => {
-            serde_json::to_string_pretty(&serde_json::json!({"ok": false, "error": error_msg}))?
-        }
-        OutputMode::Jsonl => {
-            serde_json::to_string(&serde_json::json!({"ok": false, "error": error_msg}))?
-        }
+        OutputMode::Json => serde_json::to_string_pretty(&payload)?,
+        OutputMode::Jsonl => serde_json::to_string(&payload)?,
         OutputMode::Text => {
             if !quiet {
                 eprintln!("{error_msg}");
@@ -562,6 +563,7 @@ fn execute_with_mode_inner(
                     output_mode,
                     quiet,
                     exit::FAILURE,
+                    None,
                 ),
                 crate::ops::doc::query::QueryKeysResult::Keys(keys) => {
                     let output = match output_mode {
@@ -592,6 +594,7 @@ fn execute_with_mode_inner(
                     output_mode,
                     quiet,
                     exit::FAILURE,
+                    None,
                 ),
                 crate::ops::doc::query::QueryLenResult::Len(len) => {
                     let output = match output_mode {
@@ -796,7 +799,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             Ok(code) => return Ok(code),
             Err(e) => {
                 if exit::is_no_match(&e) {
-                    global.emit_error_json(&e.to_string())?;
+                    global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
                     return Ok(exit::NO_MATCHES);
                 }
                 // TypeError or other engine error → FAILURE
