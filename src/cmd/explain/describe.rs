@@ -42,6 +42,8 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             word_boundary,
             multiline,
             if_exists,
+            require_change,
+            command_position,
             ..
         } => {
             let target = path.as_deref().or(glob.as_deref()).unwrap_or("(all files)");
@@ -76,8 +78,18 @@ pub(super) fn describe_operation(op: &Operation) -> String {
                 .unwrap_or_default();
             let ml_str = if *multiline { ", multiline" } else { "" };
             let ie_str = if *if_exists { ", if-exists" } else { "" };
+            let rc_str = if *require_change {
+                ", require-change"
+            } else {
+                ""
+            };
+            let cp_str = if *command_position {
+                ", command-position"
+            } else {
+                ""
+            };
             format!(
-                "Replace \"{old}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{ml_str}{ie_str}{range_str})"
+                "Replace \"{old}\" with \"{to_str}\" in {target} ({mode_str}{nth_str}{ci_str}{wl_str}{wb_str}{ml_str}{ie_str}{rc_str}{cp_str}{range_str})"
             )
         }
         Operation::DocSet {
@@ -795,6 +807,36 @@ mod tests {
         assert!(
             desc.contains(", if-exists"),
             "missing if-exists flag: {desc}"
+        );
+    }
+
+    #[test]
+    fn describe_replace_require_change_and_command_position_flags() {
+        let op = Operation::Replace {
+            path: Some("install.sh".into()),
+            glob: None,
+            regex: false,
+            old: "pip".into(),
+            new_text: Some("uv".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            range: None,
+            word_boundary: false,
+            before_context: None,
+            after_context: None,
+            unique: false,
+            require_change: true,
+            command_position: true,
+        };
+        let desc = describe_operation(&op);
+        assert!(
+            desc.contains(", require-change") && desc.contains(", command-position"),
+            "missing flags: {desc}"
         );
     }
 
