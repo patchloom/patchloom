@@ -576,7 +576,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:replace-mode:command-position -->
 ### Library `ReplaceOptions.command_position`
 
-- **What it does:** Replaces only tokens in shell **command position** (start of line, after `&&` `|` `;` / newlines, after wrappers like `sudo`, `timeout 30`, `nice -n 10`, `xargs`, `env KEY=val`). Does not rewrite arguments (`uv pip`) or longer words (`pipenv`). Literal only.
+- **What it does:** Replaces only tokens in shell **command position** (start of line, after `&&` `|` `;` / newlines, after wrappers like `sudo`, `timeout 30`, `nice -n 10`, `xargs`, `eval`, `source`, `env KEY=val`). Does not rewrite arguments (`uv pip`) or longer words (`pipenv`). Literal only.
 - **Use when:** Migrating install tooling in shell scripts or agent-generated commands without breaking package names that embed the same substring.
 - **Prefer instead:** Ordinary replace or `word_boundary` for identifiers. Cannot combine with `regex`, `case_insensitive`, `word_boundary`, `fuzzy`, `nth`, multiline/whole-line, context anchors, or insert-before/after (`InvalidInput`).
 
