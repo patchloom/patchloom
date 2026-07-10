@@ -312,7 +312,9 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              # Delete entire lines containing a pattern; collapse consecutive blanks\n\
              patchloom replace 'dbg!' --whole-line --new '' src/ --collapse-blanks --apply\n\n\
              # Restrict to a line range (e.g. implementation only, skip tests)\n\
-             patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply\n\
+             patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply\n\n\
+             # Rewrite shell invocable tokens only (not uv pip / pipenv):\n\
+             patchloom replace pip --new uv install.sh --command-position --require-change --apply\n\
              ```\n\n",
         );
 
@@ -667,6 +669,10 @@ mod tests {
         assert!(
             out.contains("require_change") && out.contains("command_position"),
             "plan replace library flags must be documented for agents"
+        );
+        assert!(
+            out.contains("--command-position") && out.contains("--require-change"),
+            "CLI flags must appear in agent-rules examples"
         );
         let mcp = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(

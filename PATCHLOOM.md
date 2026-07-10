@@ -181,6 +181,9 @@ patchloom replace 'dbg!' --whole-line --new '' src/ --collapse-blanks --apply
 
 # Restrict to a line range (e.g. implementation only, skip tests)
 patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply
+
+# Rewrite shell invocable tokens only (not uv pip / pipenv):
+patchloom replace pip --new uv install.sh --command-position --require-change --apply
 ```
 
 ### Edit a CI workflow
