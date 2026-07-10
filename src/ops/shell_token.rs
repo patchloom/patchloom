@@ -7,8 +7,12 @@
 //! It is **not** command position when it is an argument (`uv pip`) or inside a longer
 //! word (`pipenv`).
 //!
-//! Known false positive: `command -v pip` may treat `pip` as command position
-//! because `-v` is peeled as a flag after the transparent `command` prefix.
+//! Known false positives:
+//! - `command -v pip` may treat `pip` as command position because `-v` is peeled
+//!   as a flag after the transparent `command` prefix.
+//! - `sudo -u pip install` peels `pip` as the `-u` username argument, then rewrites
+//!   it when searching for the token `pip`. Prefer `sudo -u deploy pip` (real user
+//!   name) so the invocable token is not also the username.
 
 /// Transparent prefixes that may appear before a command without making the
 /// next token an argument.
@@ -574,6 +578,20 @@ mod tests {
         assert_eq!(
             replace_command_position("echo flock /tmp/l pip\n", "pip", "uv").1,
             0
+        );
+    }
+
+    #[test]
+    fn sudo_u_username_false_positive_when_token_is_user() {
+        // Documented known false positive: -u peels the next token as username.
+        // When the token equals the search string, it is rewritten as if command.
+        let (out, n) = replace_command_position("sudo -u pip install\n", "pip", "uv");
+        assert_eq!(n, 1);
+        assert_eq!(out, "sudo -u uv install\n");
+        // Real username before command: only the invocable token rewrites.
+        assert_eq!(
+            replace_command_position("sudo -u deploy pip install\n", "pip", "uv").0,
+            "sudo -u deploy uv install\n"
         );
     }
 
