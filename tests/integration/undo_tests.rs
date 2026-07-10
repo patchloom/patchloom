@@ -326,7 +326,7 @@ fn test_undo_no_sessions_exits_3() {
 }
 
 #[test]
-fn test_undo_list_json_empty_emits_array() {
+fn test_undo_list_json_empty_sets_error_kind() {
     let dir = TempDir::new().unwrap();
 
     let output = Command::cargo_bin("patchloom")
@@ -338,8 +338,38 @@ fn test_undo_list_json_empty_emits_array() {
 
     assert_eq!(output.status.code(), Some(3));
     let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(parsed.is_array(), "empty undo --list --json should emit []");
-    assert_eq!(parsed.as_array().unwrap().len(), 0);
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "no_matches",
+        "empty undo --list --json should set error_kind: {parsed}"
+    );
+    assert!(
+        parsed["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("no backup sessions found"),
+        "expected no-sessions error message: {parsed}"
+    );
+}
+
+#[test]
+fn test_undo_json_no_sessions_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "undo", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "no_matches",
+        "undo --json with no sessions should set error_kind: {parsed}"
+    );
 }
 
 // ---------------------------------------------------------------------------
