@@ -56,7 +56,11 @@ pub fn navigate_mut<'a>(
                         if needs_create {
                             current
                                 .as_object_mut()
-                                .ok_or_else(|| anyhow::anyhow!("not an object at key '{k}'"))?
+                                .ok_or_else(|| {
+                                    anyhow::Error::new(crate::exit::TypeErrorError {
+                                        msg: format!("not an object at key '{k}'"),
+                                    })
+                                })?
                                 .insert(
                                     k.clone(),
                                     serde_json::Value::Object(serde_json::Map::new()),
@@ -124,13 +128,19 @@ pub fn set_at_path(
             }
             parent
                 .as_object_mut()
-                .ok_or_else(|| anyhow::anyhow!("parent is not an object"))?
+                .ok_or_else(|| {
+                    anyhow::Error::new(crate::exit::TypeErrorError {
+                        msg: "parent is not an object".into(),
+                    })
+                })?
                 .insert(k.clone(), value);
         }
         selector::Segment::Index(i) => {
-            let arr = parent
-                .as_array_mut()
-                .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+            let arr = parent.as_array_mut().ok_or_else(|| {
+                anyhow::Error::new(crate::exit::TypeErrorError {
+                    msg: "parent is not an array".into(),
+                })
+            })?;
             if *i < arr.len() {
                 arr[*i] = value;
             } else {
@@ -284,9 +294,11 @@ pub fn move_at_path(
         && let (selector::Segment::Index(fi), selector::Segment::Index(ti)) = (from_last, to_last)
     {
         let parent = navigate_mut(root, from_parent, false)?;
-        let arr = parent
-            .as_array_mut()
-            .ok_or_else(|| anyhow::anyhow!("parent is not an array"))?;
+        let arr = parent.as_array_mut().ok_or_else(|| {
+            anyhow::Error::new(crate::exit::TypeErrorError {
+                msg: "parent is not an array".into(),
+            })
+        })?;
         if *fi >= arr.len() {
             anyhow::bail!("source index {fi} out of bounds");
         }
@@ -308,9 +320,11 @@ pub fn move_at_path(
                 // Numeric dot-notation on arrays (#1288).
                 if parent.is_array() {
                     if let Ok(idx) = k.parse::<usize>() {
-                        let arr = parent
-                            .as_array()
-                            .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
+                        let arr = parent.as_array().ok_or_else(|| {
+                            anyhow::Error::new(crate::exit::TypeErrorError {
+                                msg: "source parent is not an array".into(),
+                            })
+                        })?;
                         if idx < arr.len() {
                             arr[idx].clone()
                         } else {
@@ -328,9 +342,11 @@ pub fn move_at_path(
                 }
             }
             selector::Segment::Index(i) => {
-                let arr = parent
-                    .as_array()
-                    .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
+                let arr = parent.as_array().ok_or_else(|| {
+                    anyhow::Error::new(crate::exit::TypeErrorError {
+                        msg: "source parent is not an array".into(),
+                    })
+                })?;
                 if *i < arr.len() {
                     arr[*i].clone()
                 } else {
@@ -401,9 +417,11 @@ pub fn move_at_path(
                 }
             }
             selector::Segment::Index(i) => {
-                let arr = parent
-                    .as_array_mut()
-                    .ok_or_else(|| anyhow::anyhow!("source parent is not an array"))?;
+                let arr = parent.as_array_mut().ok_or_else(|| {
+                    anyhow::Error::new(crate::exit::TypeErrorError {
+                        msg: "source parent is not an array".into(),
+                    })
+                })?;
                 arr.remove(*i);
             }
             _ => anyhow::bail!("cannot remove from wildcard/predicate selector"),
