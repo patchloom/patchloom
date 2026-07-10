@@ -1157,3 +1157,30 @@ fn test_md_move_section_json_requires_before_or_after() {
         "md move-section missing before/after: {parsed}"
     );
 }
+
+#[test]
+fn test_md_missing_file_json_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nope.md");
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "md",
+            "replace-section",
+            missing.to_str().unwrap(),
+            "--heading",
+            "## H",
+            "--content",
+            "body",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "not_found",
+        "md missing file should set not_found: {parsed}"
+    );
+}

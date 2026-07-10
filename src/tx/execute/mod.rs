@@ -12,6 +12,7 @@ use crate::ops::doc::{
 use crate::plan::{Operation, Plan};
 use crate::tx::context::EngineContext;
 use crate::write::apply_policy;
+use anyhow::Context;
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -44,7 +45,7 @@ pub(crate) fn read_file_content<'a>(
             // Callers pass already-resolved paths (cwd.join(rel_path)),
             // so read directly without double-joining (#385).
             let content = std::fs::read_to_string(path)
-                .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
+                .with_context(|| format!("failed to read {}", path.display()))?;
             existed_before.insert(path.to_path_buf());
             Ok(&entry.insert((content.clone(), content)).1)
         }
@@ -64,8 +65,8 @@ pub(crate) fn read_and_probe(
     if pending.contains_key(path) {
         return Ok(true); // already loaded, not binary
     }
-    let bytes = std::fs::read(path)
-        .map_err(|e| anyhow::anyhow!("failed to read {}: {e}", path.display()))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
     if crate::files::is_binary(&bytes) {
         return Ok(false);
     }
@@ -598,7 +599,14 @@ pub(crate) fn execute_and_collect(
                     }
                     .into());
                 }
-                anyhow::bail!("operation {} ({}) failed: {e}", i + 1, op_label(op));
+                // Keep a readable Display string for stderr/tests, and when the
+                // root cause is IO NotFound re-emit as NotFound so CLI --json
+                // maps error_kind: not_found via is_io_not_found.
+                let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
+                if crate::exit::is_io_not_found(&e) {
+                    return Err(std::io::Error::new(std::io::ErrorKind::NotFound, msg).into());
+                }
+                anyhow::bail!("{msg}");
             }
         }
     }
