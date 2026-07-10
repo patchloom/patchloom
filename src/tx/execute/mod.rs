@@ -622,6 +622,9 @@ pub(crate) fn execute_and_collect(
                 if crate::exit::is_type_error(&e) {
                     return Err(crate::exit::TypeErrorError { msg }.into());
                 }
+                if crate::exit::is_conflicts(&e) {
+                    return Err(crate::exit::ConflictsError { msg }.into());
+                }
                 anyhow::bail!("{msg}");
             }
         }

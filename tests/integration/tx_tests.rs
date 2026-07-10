@@ -3262,14 +3262,25 @@ fn test_tx_patch_apply_merge_conflict_without_allow_conflicts() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let assert = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--json")
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED during staging
+        .code(8); // CONFLICTS
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error_kind"], "conflicts",
+        "tx patch.apply merge conflicts must set error_kind conflicts: {stdout}"
+    );
+    assert!(
+        v["error"].as_str().unwrap_or("").contains("conflict(s)"),
+        "error should mention conflicts: {stdout}"
+    );
 }
 
 #[test]

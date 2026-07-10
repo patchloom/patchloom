@@ -451,7 +451,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |\n\
              | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |\n\
              | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
-             | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\
+             | 8 | Patch merge conflicts (CLI `patch merge` or plan/tx `patch.apply` with `on_stale: merge` without `allow_conflicts`; `error_kind: conflicts`) |\n\
              | 9 | Tx operation staging failure (`operation_failed`) |\n\n\
              **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set \
              `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source, \

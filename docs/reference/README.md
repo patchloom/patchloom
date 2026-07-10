@@ -1165,6 +1165,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Applies a unified diff inside a transaction. Supports `on_stale: "merge"` for three-way merge when the on-disk file diverged from the patch base, and `allow_conflicts: true` to write conflict markers instead of failing during staging.
 - **Use when:** Patch replay needs to compose with earlier in-plan edits and share the same rollback or validation behavior.
+- **Failure behavior:** Merge conflicts without `allow_conflicts` exit **8** (`CONFLICTS`) with `error_kind: "conflicts"` under `--json` (not generic `operation_failed` / 9). Stale context without merge exits **5** (`ambiguous`).
 - **Related:** top level `patch apply`, `patch merge`
 
 <!-- ref:tx-op:ast.rename -->

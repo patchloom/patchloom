@@ -291,6 +291,7 @@ pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
                 exit::VALIDATION_FAILED
             }
             Some("operation_failed") => exit::OPERATION_FAILED,
+            Some("conflicts") => exit::CONFLICTS,
             _ => exit::FAILURE,
         }
     }

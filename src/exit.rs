@@ -137,6 +137,27 @@ pub fn is_type_error(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<TypeErrorError>().is_some())
 }
 
+/// Typed error for patch merge conflicts that map to exit [`CONFLICTS`] (8)
+/// with JSON `error_kind: "conflicts"`.
+#[derive(Debug)]
+pub struct ConflictsError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for ConflictsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for ConflictsError {}
+
+/// Check whether an `anyhow::Error` chain contains a [`ConflictsError`].
+pub fn is_conflicts(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<ConflictsError>().is_some())
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.
