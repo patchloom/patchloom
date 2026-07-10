@@ -53,6 +53,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **CLI usage + `--json`/`--jsonl` envelope.** When parse fails after a global `--json`/`--jsonl`, stdout gets `ok: false`, `error_kind: "invalid_input"`, and the clap message (agents no longer scrape colored stderr).
 - **Replace empty-pattern wording.** Empty replace `old`/`pattern` reports `replace pattern must not be empty` (was `search pattern…`), with `error_kind: "invalid_input"` under `--json`.
 - **`--contain` JSON `invalid_input`.** Path rejections and empty path arguments under `--contain` set `error_kind: "invalid_input"` on the global `--json`/`--jsonl` error path (typed `InvalidInputError`, not English scraping).
+- **Cleaner clap JSON usage messages.** Usage failures under `--json`/`--jsonl` strip the `error: ` prefix and help footer so agents get a short actionable string.
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.

@@ -298,7 +298,7 @@ pub fn run() -> anyhow::Result<u8> {
             let wants_json = std::env::args().any(|a| a == "--json");
             let wants_jsonl = std::env::args().any(|a| a == "--jsonl");
             if wants_json || wants_jsonl {
-                let msg = e.to_string();
+                let msg = clap_usage_error_message(&e);
                 let payload = serde_json::json!({
                     "ok": false,
                     "error": msg,
@@ -338,6 +338,53 @@ pub fn run() -> anyhow::Result<u8> {
             Ok(code)
         }
         Err(e) => Err(e),
+    }
+}
+
+/// Compact clap usage text for JSON envelopes: drop the `error: ` prefix and
+/// trailing Usage / help footer so agents get a single actionable sentence.
+#[cfg(feature = "cli")]
+fn clap_usage_error_message(err: &clap::Error) -> String {
+    let raw = err.to_string();
+    let body = raw.strip_prefix("error: ").unwrap_or(&raw);
+    let mut lines = Vec::new();
+    for line in body.lines() {
+        let t = line.trim_end();
+        if t.is_empty() && lines.is_empty() {
+            continue;
+        }
+        if t.starts_with("Usage:")
+            || t.starts_with("For more information")
+            || t.starts_with("[possible values:")
+        {
+            // Keep possible-values lines: they are useful for agents.
+            if t.starts_with("[possible values:") {
+                lines.push(t.to_string());
+            }
+            if t.starts_with("Usage:") || t.starts_with("For more information") {
+                break;
+            }
+            continue;
+        }
+        // Indent under possible values is often "  [possible values: …]"
+        if t.trim_start().starts_with("[possible values:") {
+            lines.push(t.trim_start().to_string());
+            continue;
+        }
+        if lines.len() >= 3 {
+            break;
+        }
+        lines.push(t.to_string());
+    }
+    let msg = lines
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if msg.is_empty() {
+        body.trim().to_string()
+    } else {
+        msg
     }
 }
 
