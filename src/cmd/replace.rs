@@ -119,6 +119,9 @@ struct ReplaceOutput {
     files: Vec<ReplaceFileResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
+    /// Set when the pattern matched but every replacement was identical (no writes).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identity: Option<bool>,
 }
 
 /// Result of processing a single file.
@@ -306,6 +309,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         match_count: r.match_count,
                     }],
                     diff: None,
+                    identity: None,
                 };
                 global.emit_json(&output)?;
                 if !global.quiet {
@@ -336,6 +340,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 file_count: 0,
                 files: vec![],
                 diff: None,
+                identity: Some(true),
             };
             global.emit_json(&output)?;
             if !global.quiet && !global.json && !global.jsonl {
@@ -353,6 +358,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 file_count: 0,
                 files: vec![],
                 diff: None,
+                identity: None,
             };
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
@@ -363,6 +369,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             file_count: 0,
             files: vec![],
             diff: None,
+            identity: None,
         };
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
@@ -423,6 +430,7 @@ fn replace_output(
         file_count,
         files: files.to_vec(),
         diff,
+        identity: None,
     };
 
     finalize_report(
@@ -534,6 +542,7 @@ fn run_context_replace(
             file_count: 0,
             files: vec![],
             diff: None,
+            identity: None,
         };
         global.emit_json(&empty)?;
         if args.if_exists {

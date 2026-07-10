@@ -1568,6 +1568,39 @@ fn test_replace_cli_identity_match_is_success_not_no_matches() {
 }
 
 #[test]
+fn test_replace_cli_identity_json_sets_identity_flag() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "sudo pip install\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "pip",
+            "--new",
+            "pip",
+            "--command-position",
+            "install.sh",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["match_count"], 1);
+    assert_eq!(v["file_count"], 0);
+    assert_eq!(
+        v["identity"], true,
+        "JSON should flag identity-only matches: {v}"
+    );
+}
+
+#[test]
 fn test_replace_cli_unique_rejects_identity_multi_match() {
     // --unique must count identity matches, not only content-changing ones.
     let dir = TempDir::new().unwrap();
