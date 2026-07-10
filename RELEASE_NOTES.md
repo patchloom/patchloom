@@ -73,6 +73,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Doc parse failures `parse_error`.** Malformed JSON/YAML/TOML content exits **4** with `error_kind: "parse_error"` (was unstructured exit 1), for CLI doc and plan/tx doc ops.
 - **Tx AST extract/rewrite kinds.** `ast.extract_to_file` into an existing target without `force` sets `already_exists` (exit 1). `ast.rewrite_signature` without signature fields sets `invalid_input` (exit 1).
 - **Tx mid-plan delete then use is `not_found`.** Append/prepend/rename after `file.delete` in the same plan set `error_kind: "not_found"` (exit 1). Workspace-guard escapes set `invalid_input`.
+- **Tx search assert_count mismatch.** Plan `search` with `assert_count` when the actual match count differs exits **2** with `error_kind: "changes_detected"` (was `operation_failed` / 9), matching CLI `search --assert-count`.
 
 ## Agent and library notes
 

@@ -631,6 +631,9 @@ pub(crate) fn execute_and_collect(
                 if crate::exit::is_parse_error(&e) {
                     return Err(crate::exit::ParseErrorError { msg }.into());
                 }
+                if crate::exit::is_changes_detected(&e) {
+                    return Err(crate::exit::ChangesDetectedError { msg }.into());
+                }
                 anyhow::bail!("{msg}");
             }
         }
