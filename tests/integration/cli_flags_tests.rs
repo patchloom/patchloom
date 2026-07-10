@@ -90,8 +90,38 @@ fn test_cwd_nonexistent_directory_fails() {
         .arg("hello")
         .arg(".")
         .assert()
-        .failure()
+        .code(1)
         .stderr(predicate::str::contains("--cwd directory does not exist"));
+}
+
+#[test]
+fn test_cwd_nonexistent_directory_json_invalid_input() {
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "--cwd",
+            "/nonexistent/dir/12345",
+            "search",
+            "hello",
+            ".",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "missing --cwd must set invalid_input: {json}"
+    );
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("--cwd directory does not exist"),
+        "error should name --cwd: {json}"
+    );
 }
 
 // ---------------------------------------------------------------------------
