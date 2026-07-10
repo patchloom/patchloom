@@ -30,7 +30,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - Prefer `require_change: true` in agent hosts that treat zero matches as tool errors.
 - Use `command_position` only when rewriting shell invocable names; keep ordinary replace or word_boundary for identifiers.
 - Full-string signature rewrites may omit trailing space before `{`; the library normalizes the body gap.
-- Multi-op content edits expose rolled-up `match_count` on `ContentEditsResult` / file `EditResult`.
+- Multi-op content edits expose rolled-up `match_count` on `ContentEditsResult` / file `EditResult`. Crate-root re-exports include `ContentEdit`, `ContentEditsResult`, and `apply_content_edits`.
 
 ## Numbers
 
