@@ -447,7 +447,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | 2 | Changes detected (`--check` mode found pending changes) |\n\
              | 3 | No matches (search/replace pattern miss, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |\n\
              | 4 | Parse error (malformed input file or plan) |\n\
-             | 5 | Ambiguous (replacement matched multiple locations without `--nth`, or stale/missing patch context) |\n\
+             | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; tx `error_kind: ambiguous`) |\n\
              | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |\n\
              | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
              | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |\n\
