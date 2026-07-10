@@ -3894,6 +3894,32 @@ fn replace_in_content_command_position_pip() {
 }
 
 #[test]
+fn replace_in_content_command_position_timeout_and_nice() {
+    let r = replace_in_content(
+        "timeout 30 pip install x
+nice -n 10 pip list
+echo 30 pip
+",
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            require_change: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(r.match_count, 2);
+    assert_eq!(
+        r.new_content,
+        "timeout 30 uv install x
+nice -n 10 uv list
+echo 30 pip
+"
+    );
+}
+
+#[test]
 fn replace_in_content_command_position_no_match_with_require_change() {
     let err = replace_in_content(
         "uv pip install\n",
@@ -3946,6 +3972,63 @@ fn replace_in_content_command_position_rejects_regex() {
         crate::fallback::edit_error_kind(&err),
         Some(EditErrorKind::InvalidInput)
     );
+}
+
+#[test]
+fn replace_in_content_command_position_rejects_case_insensitive() {
+    let err = replace_in_content(
+        "PIP install\n",
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            case_insensitive: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+    assert!(err.to_string().contains("case_insensitive"), "msg={}", err);
+}
+
+#[test]
+fn replace_in_content_command_position_rejects_word_boundary_and_fuzzy() {
+    for (label, opts) in [
+        (
+            "word_boundary",
+            ReplaceOptions {
+                command_position: true,
+                word_boundary: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "fuzzy",
+            ReplaceOptions {
+                command_position: true,
+                fuzzy: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "before_context",
+            ReplaceOptions {
+                command_position: true,
+                before_context: Some("x".into()),
+                ..Default::default()
+            },
+        ),
+    ] {
+        let err = replace_in_content("pip install\n", "pip", "uv", &opts).unwrap_err();
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::InvalidInput),
+            "{label}"
+        );
+    }
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]

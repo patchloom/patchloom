@@ -423,4 +423,19 @@ mod tests {
             Some(EditErrorKind::NoMatch)
         );
     }
+    #[test]
+    fn command_position_in_batch_match_count() {
+        let edits = [ContentEdit::Replace {
+            old: "pip".into(),
+            new: "uv".into(),
+            options: ReplaceOptions {
+                command_position: true,
+                require_change: true,
+                ..Default::default()
+            },
+        }];
+        let r = apply_content_edits("timeout 5 pip install\nuv pip install\n", &edits).unwrap();
+        assert_eq!(r.match_count, 1);
+        assert_eq!(r.modified, "timeout 5 uv install\nuv pip install\n");
+    }
 }

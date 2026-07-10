@@ -2,9 +2,9 @@
 //!
 //! A token is in **command position** when it is the invocable command of a
 //! simple shell fragment: start of line (after whitespace), after `&&` `|` `;`,
-//! or after transparent prefixes (`sudo`, `env KEY=val`…, and common option
-//! flags like `-E` / `-p`). It is **not** command position when it is an
-//! argument (`uv pip`) or inside a longer word (`pipenv`).
+//! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`,
+//! and common option flags like `-E` / `-p`). It is **not** command position
+//! when it is an argument (`uv pip`) or inside a longer word (`pipenv`).
 //!
 //! Known false positive: `command -v pip` may treat `pip` as command position
 //! because `-v` is peeled as a flag after the transparent `command` prefix.
@@ -13,6 +13,10 @@
 /// next token an argument.
 const TRANSPARENT_PREFIXES: &[&str] = &[
     "sudo", "doas", "env", "command", "builtin", "exec", "time", "nice", "nohup",
+    // Agent scripts often wrap installs: `timeout 30 pip install`, `stdbuf -oL …`.
+    "timeout", "stdbuf", "ionice",
+    // Invokers that take a command as their first non-option arg.
+    "xargs", "watch", "strace",
 ];
 
 /// Return true if `token` at byte range `[start, end)` is in shell command position.
@@ -33,7 +37,10 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
     // Walk backward over whitespace and transparent prefixes on this command fragment.
     let mut rest = before;
     loop {
-        rest = rest.trim_end();
+        // Trim only horizontal whitespace. Newlines are command separators and
+        // must not be stripped (multi-line `timeout 30 pip` after a prior line
+        // would otherwise peel into the previous command's tokens).
+        rest = rest.trim_end_matches([' ', '\t']);
         if rest.is_empty() {
             return true;
         }
@@ -58,6 +65,20 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
         if is_env_assignment(token) {
             rest = &rest[..prefix_start];
             continue;
+        }
+        // Duration / niceness after wrappers only: `timeout 30 pip`, or value after
+        // an arg-taking / option flag (`nice -n 10`). Bare `5 pip` stays non-command.
+        if is_duration_or_number(token) {
+            let left = rest[..prefix_start].trim_end();
+            if let Some((_, prev)) = last_shell_token(left)
+                && (TRANSPARENT_PREFIXES.contains(&prev)
+                    || is_option_flag(prev)
+                    || is_arg_taking_flag(prev))
+            {
+                rest = &rest[..prefix_start];
+                continue;
+            }
+            return false;
         }
         // Option flags after sudo/time/env (`sudo -E pip`, `time -p pip`).
         // Known false positive: `command -v pip` treats `pip` as command position.
@@ -150,8 +171,64 @@ fn is_option_flag(token: &str) -> bool {
 fn is_arg_taking_flag(token: &str) -> bool {
     matches!(
         token,
-        "-u" | "--user" | "-g" | "--group" | "-C" | "--close-from" | "-p" | "--prompt"
+        // sudo / doas / env
+        "-u" | "--user"
+            | "-g"
+            | "--group"
+            | "-C"
+            | "--close-from"
+            | "-p"
+            | "--prompt"
+            // nice / ionice niceness
+            | "-n"
+            | "--adjustment"
+            // ionice class
+            | "-c"
+            | "--class"
+            // stdbuf
+            | "-o"
+            | "--output"
+            | "-e"
+            | "--error"
+            | "-i"
+            | "--input"
+            // timeout
+            | "-s"
+            | "--signal"
+            | "-k"
+            | "--kill-after"
     )
+}
+
+/// Bare duration / niceness token: `30`, `5s`, `1.5m` (GNU timeout style).
+fn is_duration_or_number(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    let bytes = token.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
+        return false;
+    }
+    // Optional fractional part.
+    if i < bytes.len() && bytes[i] == b'.' {
+        let frac_start = i + 1;
+        i += 1;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == frac_start {
+            return false; // bare trailing dot
+        }
+    }
+    if i == bytes.len() {
+        return true; // pure number
+    }
+    // Optional unit suffix used by timeout(1).
+    matches!(&token[i..], "s" | "m" | "h" | "d" | "ms")
 }
 
 /// Last shell token in `s` (no leading/trailing ws). Returns (byte start, token).
@@ -250,11 +327,55 @@ mod tests {
             replace_command_position("sudo -u root -E pip install\n", "pip", "uv").0,
             "sudo -u root -E uv install\n"
         );
+        assert_eq!(
+            replace_command_position("sudo -g wheel pip install\n", "pip", "uv").0,
+            "sudo -g wheel uv install\n"
+        );
         // Still do not rewrite argument-position pip.
         assert_eq!(
             replace_command_position("echo -u pip\n", "pip", "uv").1,
             0,
             "echo -u pip is not command-position for pip"
+        );
+    }
+
+    #[test]
+    fn nice_timeout_stdbuf_wrappers_allow_command() {
+        assert_eq!(
+            replace_command_position("nice -n 10 pip install\n", "pip", "uv").0,
+            "nice -n 10 uv install\n"
+        );
+        // Attached form is already an option flag.
+        assert_eq!(
+            replace_command_position("nice -n10 pip install\n", "pip", "uv").0,
+            "nice -n10 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("timeout 30 pip install\n", "pip", "uv").0,
+            "timeout 30 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("timeout 5s pip install\n", "pip", "uv").0,
+            "timeout 5s uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("stdbuf -oL pip install\n", "pip", "uv").0,
+            "stdbuf -oL uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("ionice -c 3 pip install\n", "pip", "uv").0,
+            "ionice -c 3 uv install\n"
+        );
+        // Non-wrapper still does not rewrite argument-position tokens after numbers.
+        assert_eq!(
+            replace_command_position("echo 30 pip\n", "pip", "uv").1,
+            0,
+            "echo 30 pip is not command-position for pip"
+        );
+        assert_eq!(
+            replace_command_position("5 pip install\n", "pip", "uv").1,
+            0,
+            "bare number is not a transparent wrapper"
         );
     }
 
@@ -296,5 +417,55 @@ mod tests {
         // `echo pip` should not rewrite pip as command.
         let (_, n) = replace_command_position("echo pip\n", "pip", "uv");
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn multiline_wrapper_after_prior_line() {
+        // Newlines must remain separators; do not peel into the previous line.
+        let content = "echo hello\ntimeout 30 pip install\nnice -n 10 pip list\n";
+        let (out, n) = replace_command_position(content, "pip", "uv");
+        assert_eq!(n, 2, "out={out}");
+        assert_eq!(
+            out,
+            "echo hello\ntimeout 30 uv install\nnice -n 10 uv list\n"
+        );
+    }
+    #[test]
+    fn crlf_multiline_wrapper() {
+        let content = "echo hello\r\ntimeout 30 pip install\r\n";
+        let (out, n) = replace_command_position(content, "pip", "uv");
+        assert_eq!(n, 1, "out={out:?}");
+        assert!(out.contains("uv install"), "{out:?}");
+    }
+
+    #[test]
+    fn xargs_watch_strace_allow_command() {
+        assert_eq!(
+            replace_command_position("xargs pip install\n", "pip", "uv").0,
+            "xargs uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("xargs -n1 pip install\n", "pip", "uv").0,
+            "xargs -n1 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("watch pip list\n", "pip", "uv").0,
+            "watch uv list\n"
+        );
+        assert_eq!(
+            replace_command_position("strace -f pip install\n", "pip", "uv").0,
+            "strace -f uv install\n"
+        );
+        // Argument-position still safe.
+        assert_eq!(
+            replace_command_position("echo xargs pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn command_position_is_case_sensitive_literal() {
+        let (_, n) = replace_command_position("PIP install\n", "pip", "uv");
+        assert_eq!(n, 0, "literal match only");
     }
 }
