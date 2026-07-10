@@ -388,6 +388,15 @@ pub(crate) fn run_parsed_plan(
                 }
                 return Ok(exit::NO_MATCHES);
             }
+            // replace unique multi-match → AMBIGUOUS (5), matching CLI.
+            if exit::is_ambiguous(&e) {
+                if structured {
+                    emit_error_json("ambiguous", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::AMBIGUOUS);
+            }
             if structured {
                 emit_error_json("operation_failed", &msg, None, compact);
             } else {

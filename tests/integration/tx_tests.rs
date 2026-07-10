@@ -137,6 +137,38 @@ fn test_tx_replace_command_position_rejects_regex() {
     );
 }
 
+#[test]
+fn test_tx_replace_unique_ambiguous_exit_5() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "a a\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "replace",
+            "path": portable_path_str(&file),
+            "old": "a",
+            "new": "b",
+            "unique": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(5) // AMBIGUOUS, not OPERATION_FAILED (9)
+        .stderr(predicate::str::contains("ambiguous match"));
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "a a\n");
+}
+
 // -- whole_line CR/CRLF tests (#999) ----------------------------------------
 
 #[test]

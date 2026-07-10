@@ -588,6 +588,16 @@ pub(crate) fn execute_and_collect(
                     }
                     .into());
                 }
+                // Preserve AmbiguousError (exit 5) for replace --unique multi-match.
+                if let Some(detail) = e.chain().find_map(|c| {
+                    c.downcast_ref::<crate::exit::AmbiguousError>()
+                        .map(|n| n.msg.clone())
+                }) {
+                    return Err(crate::exit::AmbiguousError {
+                        msg: format!("operation {} ({}) failed: {detail}", i + 1, op_label(op)),
+                    }
+                    .into());
+                }
                 anyhow::bail!("operation {} ({}) failed: {e}", i + 1, op_label(op));
             }
         }
