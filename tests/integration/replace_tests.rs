@@ -1443,3 +1443,85 @@ fn test_replace_contain_allows_in_workspace() {
         "ZAZ bar\n"
     );
 }
+
+// -- command_position CLI surface (#1494 / MPI loop21) ----------------------
+
+#[test]
+fn test_replace_cli_command_position_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "sudo pip install x\nuv pip install\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "pip",
+            "--new",
+            "uv",
+            "--command-position",
+            "install.sh",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "sudo uv install x\nuv pip install\n"
+    );
+}
+
+#[test]
+fn test_replace_cli_command_position_rejects_regex() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "sudo pip install\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "pip",
+            "--new",
+            "uv",
+            "--command-position",
+            "--regex",
+            "install.sh",
+            "--apply",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "command_position cannot be combined",
+        ));
+}
+
+#[test]
+fn test_replace_cli_require_change_no_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "missing",
+            "--new",
+            "x",
+            "--require-change",
+            "install.sh",
+            "--apply",
+        ])
+        .assert()
+        .code(3); // NO_MATCHES
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}

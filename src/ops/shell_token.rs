@@ -142,6 +142,58 @@ pub fn replace_command_position(content: &str, from: &str, to: &str) -> (String,
     (out, matches.len())
 }
 
+/// Flags that cannot be combined with `command_position` matching.
+///
+/// Shared by the library API, CLI, and tx paths so conflict messages stay
+/// consistent (avoids the prior three-copy drift, including the tx message
+/// that had a broken `"nth,              case_insensitive"` spacing).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandPositionIncompat {
+    pub regex: bool,
+    pub case_insensitive: bool,
+    pub word_boundary: bool,
+    pub whole_line: bool,
+    pub multiline: bool,
+    pub nth: bool,
+    pub insert_before: bool,
+    pub insert_after: bool,
+    pub before_context: bool,
+    pub after_context: bool,
+    pub fuzzy: bool,
+}
+
+impl CommandPositionIncompat {
+    /// True when any incompatible flag is set.
+    pub fn any(self) -> bool {
+        self.regex
+            || self.case_insensitive
+            || self.word_boundary
+            || self.whole_line
+            || self.multiline
+            || self.nth
+            || self.insert_before
+            || self.insert_after
+            || self.before_context
+            || self.after_context
+            || self.fuzzy
+    }
+}
+
+/// Canonical error text when `command_position` is combined with other modes.
+pub const COMMAND_POSITION_COMBO_MSG: &str = "command_position cannot be combined with regex, whole_line, multiline, nth, \
+     case_insensitive, word_boundary, fuzzy, insert_before/after, or context anchors";
+
+/// Return [`COMMAND_POSITION_COMBO_MSG`] when any incompatible option is set.
+///
+/// Call only when the caller has already decided `command_position` is true.
+pub fn command_position_combo_error(c: CommandPositionIncompat) -> Option<&'static str> {
+    if c.any() {
+        Some(COMMAND_POSITION_COMBO_MSG)
+    } else {
+        None
+    }
+}
+
 fn is_token_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.' || b == b'/'
 }
@@ -490,5 +542,76 @@ mod tests {
             replace_command_position("echo eval pip\n", "pip", "uv").1,
             0
         );
+    }
+
+    #[test]
+    fn bare_env_assignment_allows_command() {
+        // `FOO=1 pip` without the `env` wrapper is still command position.
+        assert_eq!(
+            replace_command_position("FOO=1 pip install\n", "pip", "uv").0,
+            "FOO=1 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("A=1 B=2 pip install\n", "pip", "uv").0,
+            "A=1 B=2 uv install\n"
+        );
+    }
+
+    #[test]
+    fn subshell_and_backtick_are_command_position() {
+        assert_eq!(
+            replace_command_position("$(pip list)\n", "pip", "uv").0,
+            "$(uv list)\n"
+        );
+        assert_eq!(
+            replace_command_position("`pip version`\n", "pip", "uv").0,
+            "`uv version`\n"
+        );
+        // Parenthesized groups after a separator.
+        assert_eq!(
+            replace_command_position("true && (pip install)\n", "pip", "uv").0,
+            "true && (uv install)\n"
+        );
+    }
+
+    #[test]
+    fn empty_replacement_removes_token() {
+        assert_eq!(
+            replace_command_position("sudo pip install\n", "pip", "").0,
+            "sudo  install\n"
+        );
+    }
+
+    #[test]
+    fn command_position_combo_clean_is_ok() {
+        assert!(command_position_combo_error(CommandPositionIncompat::default()).is_none());
+    }
+
+    #[test]
+    fn command_position_combo_rejects_any_flag() {
+        let cases = [
+            CommandPositionIncompat {
+                regex: true,
+                ..Default::default()
+            },
+            CommandPositionIncompat {
+                fuzzy: true,
+                ..Default::default()
+            },
+            CommandPositionIncompat {
+                insert_before: true,
+                ..Default::default()
+            },
+            CommandPositionIncompat {
+                nth: true,
+                before_context: true,
+                ..Default::default()
+            },
+        ];
+        for c in cases {
+            let msg = command_position_combo_error(c).expect("should reject");
+            assert_eq!(msg, COMMAND_POSITION_COMBO_MSG);
+            assert!(msg.contains("command_position cannot be combined"));
+        }
     }
 }

@@ -361,27 +361,24 @@ pub fn replace_in_content(
 
     // Shell command-position path (#1494): only rewrite invocable command tokens.
     if opts.command_position {
-        if is_regex
-            || opts.whole_line
-            || opts.multiline
-            || opts.nth.is_some()
-            || opts.case_insensitive
-            || opts.word_boundary
-            || opts.fuzzy
-            || opts.before_context.is_some()
-            || opts.after_context.is_some()
-        {
+        if let Some(msg) = crate::ops::shell_token::command_position_combo_error(
+            crate::ops::shell_token::CommandPositionIncompat {
+                regex: is_regex,
+                case_insensitive: opts.case_insensitive,
+                word_boundary: opts.word_boundary,
+                whole_line: opts.whole_line,
+                multiline: opts.multiline,
+                nth: opts.nth.is_some(),
+                insert_before: opts.insert_before.is_some(),
+                insert_after: opts.insert_after.is_some(),
+                before_context: opts.before_context.is_some(),
+                after_context: opts.after_context.is_some(),
+                fuzzy: opts.fuzzy,
+            },
+        ) {
             return Err(crate::fallback::EditError::new(
                 crate::fallback::EditErrorKind::InvalidInput,
-                "command_position cannot be combined with regex, whole_line, multiline, nth, \
-                 case_insensitive, word_boundary, fuzzy, or context anchors",
-            )
-            .into());
-        }
-        if opts.insert_before.is_some() || opts.insert_after.is_some() {
-            return Err(crate::fallback::EditError::new(
-                crate::fallback::EditErrorKind::InvalidInput,
-                "command_position cannot be combined with insert_before/insert_after",
+                msg,
             )
             .into());
         }

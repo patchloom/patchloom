@@ -10,7 +10,7 @@
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
-[![Tests](https://img.shields.io/badge/tests-3200%2B%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-3300%2B%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
@@ -304,7 +304,7 @@ api::doc_set(
 
 All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs.
 
-Notable library options (not CLI flags): `ReplaceOptions.require_change`, `ReplaceOptions.command_position` (shell invocable tokens only), AST mutators `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
+Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
 
 ## Getting started
 
@@ -439,7 +439,7 @@ flowchart LR
 
 ## Status
 
-3200+ tests across 23 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+3300+ tests across 23 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 | Component | Status |
 |---|---|

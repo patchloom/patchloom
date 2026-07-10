@@ -48,4 +48,4 @@ patchloom = "0.12"
 
 **Library:** New `ReplaceOptions` fields default to false (non-breaking). New AST batch / rename APIs need `features = ["ast", "files"]` (or default features). Match structured errors with `edit_error_kind(&err)`.
 
-**Release consumers:** No CLI flag changes required for the new library-only options. Plan/MCP `ast.rewrite_signature` inherits body-gap fix automatically.
+**Release consumers:** New optional CLI flags `--require-change` and `--command-position` on `replace` (defaults off; existing scripts unchanged). Library-only AST mutators and `FunctionSigEdit::parse_rust` need no CLI action. Plan/MCP `ast.rewrite_signature` inherits body-gap fix automatically.
