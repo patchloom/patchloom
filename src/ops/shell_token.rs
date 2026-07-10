@@ -18,7 +18,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "timeout", "stdbuf", "ionice",
     // Isolation / privilege wrappers used by agent and CI scripts.
     "setsid", "runuser",
-    // Invokers that take a command as their first non-option arg.
+    // Multicall binary: next token is the applet (busybox wget / busybox sh).
+    "busybox", // Invokers that take a command as their first non-option arg.
     "xargs", "watch", "strace",
     // Shell builtins that re-parse a command string / file.
     "eval", "source", ".",
@@ -568,6 +569,22 @@ mod tests {
         // Argument form stays non-command.
         assert_eq!(
             replace_command_position("echo flock /tmp/l pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn busybox_allows_applet_command() {
+        assert_eq!(
+            replace_command_position("busybox wget http://x\n", "wget", "curl").0,
+            "busybox curl http://x\n"
+        );
+        assert_eq!(
+            replace_command_position("busybox sh -c true\n", "sh", "ash").0,
+            "busybox ash -c true\n"
+        );
+        assert_eq!(
+            replace_command_position("echo busybox wget\n", "wget", "curl").1,
             0
         );
     }
