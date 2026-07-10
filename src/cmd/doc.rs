@@ -318,6 +318,8 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
         DocAction::Merge { file, stdin, value } => {
             crate::verbose!("doc: merge file={}, stdin={}", file, stdin);
             if *stdin && value.is_some() {
+                // Surface as plain anyhow; run() maps merge validation via
+                // emit_error_json_kind before staging when possible.
                 anyhow::bail!("merge: --stdin and --value are mutually exclusive");
             }
             let merge_str = if *stdin {
@@ -747,7 +749,21 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if args.action.is_write() {
         let display_path = args.action.file_path().unwrap_or("").to_string();
-        let op = action_to_operation(&args.action)?;
+        let op = match action_to_operation(&args.action) {
+            Ok(op) => op,
+            Err(e) => {
+                let msg = e.to_string();
+                // Merge flag validation and other write-op build errors.
+                if msg.contains("mutually exclusive")
+                    || msg.contains("requires --stdin or --value")
+                    || msg.contains("not a write action")
+                {
+                    global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
+                return Err(e);
+            }
+        };
 
         let check_msg = format!("would modify {display_path}");
         let apply_msg = format!("updated {display_path}");

@@ -109,7 +109,9 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
             }
         }
     } else {
-        anyhow::bail!("path not found: {}", args.path);
+        let msg = format!("path not found: {}", args.path);
+        global.emit_error_json_kind(Some("not_found"), &msg)?;
+        return Ok(exit::FAILURE);
     }
 
     if any_output {
@@ -561,7 +563,9 @@ pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8>
     );
 
     if !target.is_dir() {
-        anyhow::bail!("path must be a directory: {}", args.path);
+        let msg = format!("path must be a directory: {}", args.path);
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(exit::FAILURE);
     }
 
     let paths = collect_source_files(&target, global)?;

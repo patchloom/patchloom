@@ -32,6 +32,30 @@ fn test_status_outside_git_repo_shows_actionable_hint() {
 }
 
 #[test]
+fn test_status_json_outside_git_repo_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .arg("status")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "status outside git should set error_kind: {json}"
+    );
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("git status failed") || err.contains("git init"),
+        "expected git-related error, got: {err}"
+    );
+}
+
+#[test]
 fn test_status_modified_file() {
     let dir = TempDir::new().unwrap();
     init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");

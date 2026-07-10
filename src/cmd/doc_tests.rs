@@ -360,13 +360,8 @@ mod basic {
             value: Some(r#"{"b": 2}"#.into()),
         };
         let global = GlobalFlags::test_with_cwd(dir.path());
-        let result = run_doc(action, &global);
-        assert!(result.is_err(), "merge --stdin --value should fail");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("mutually exclusive"),
-            "error should mention mutual exclusivity: {err_msg}"
-        );
+        let code = run_doc(action, &global).unwrap();
+        assert_eq!(code, exit::FAILURE, "merge --stdin --value should fail");
     }
 
     #[test]
@@ -938,12 +933,8 @@ mod error_paths {
             stdin: false,
             value: None,
         };
-        let err = run_doc(action, &GlobalFlags::test_default()).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("merge requires --stdin or --value"),
-            "unexpected error: {err}"
-        );
+        let code = run_doc(action, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -955,11 +946,7 @@ mod error_paths {
             stdin: true,
             value: Some(r#"{"b": 2}"#.to_string()),
         };
-        let err = run_doc(action, &GlobalFlags::test_default()).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("--stdin and --value are mutually exclusive"),
-            "unexpected error: {err}"
-        );
+        let code = run_doc(action, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 }

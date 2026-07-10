@@ -2548,3 +2548,31 @@ fn test_doc_get_contain_rejects_parent_escape() {
 
     let _ = fs::remove_file(&outside);
 }
+
+#[test]
+fn test_doc_merge_json_stdin_and_value_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("c.json");
+    fs::write(&file, "{}").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "doc",
+            "merge",
+            file.to_str().unwrap(),
+            "--value",
+            "{}",
+            "--stdin",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "doc merge dual inputs: {json}"
+    );
+}
