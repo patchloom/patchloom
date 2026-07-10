@@ -25,6 +25,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **`command_position` multi-line wrappers.** Prefix peeling no longer strips newlines, so `timeout` / `nice` / `sudo` on a later line are not confused with tokens from the previous line. Also peels `timeout 30`, `nice -n 10`, `stdbuf`, `ionice`, `setsid`, `runuser -u USER`, `busybox` applets, and path-taking `flock` / `chroot` wrappers.
 - **`command_position` flag honesty.** Combining with `case_insensitive`, `word_boundary`, `fuzzy`, or context anchors is `InvalidInput` (was silently ignored, which looked like a soft no-match).
 - **CLI identity replace honesty.** When the pattern matches but `new` equals `old`, `replace` no longer reports "no matches" / exit 3. It reports success with the raw match count and an "identical (no file changes)" note so `require_change` stays satisfied. JSON includes `identity: true`.
+- **CLI patch JSON `error_kind`.** Stale apply/check failures set `error_kind: "ambiguous"` (exit 5), merge conflicts set `"conflicts"` (exit 8), and parse/input failures set `"parse_error"` (exit 4).
 - **GNU long options with `=`.** `command_position` peels `--name=value` flags (`nice --adjustment=10`, `sudo --user=root`, `timeout --signal=TERM 30`).
 - **`env --unset VAR`.** Peels `--unset` as an arg-taking flag (alongside `env -u VAR`) so the following invocable command rewrites.
 - **`env --chdir DIR`.** Peels `--chdir` the same way as `-C` so the following invocable command rewrites.
