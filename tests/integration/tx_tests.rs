@@ -24,7 +24,7 @@ fn test_tx_replace_empty_from_rejected() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4);
+        .code(1); // invalid_input (CLI parity), not parse_error (4)
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -1789,7 +1789,7 @@ fn test_tx_replace_rejects_both_insert_before_and_after() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4);
+        .code(1); // invalid_input (CLI parity), not parse_error (4)
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -1821,7 +1821,7 @@ fn test_tx_replace_rejects_to_with_insert() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4);
+        .code(1); // invalid_input (CLI parity), not parse_error (4)
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
@@ -3962,9 +3962,17 @@ fn test_tx_search_invert_match_multiline_rejected() {
         .output()
         .unwrap();
 
-    assert!(
-        !output.status.success(),
-        "invert_match + multiline should be rejected"
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "invert_match + multiline should be invalid_input: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "search flag conflict should set invalid_input: {v}"
     );
 }
 
@@ -4604,13 +4612,13 @@ fn test_tx_replace_requires_replacement_mode() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4);
+        .code(1); // invalid_input (CLI parity), not parse_error (4)
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
 
 #[test]
-fn test_tx_json_output_on_replace_missing_mode_parse_error() {
+fn test_tx_json_output_on_replace_missing_mode_invalid_input() {
     let dir = TempDir::new().unwrap();
     let plan_file = dir.path().join("bad.json");
     fs::write(
@@ -4635,18 +4643,18 @@ fn test_tx_json_output_on_replace_missing_mode_parse_error() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["status"], "error");
-    assert_eq!(json["error_kind"], "parse_error");
+    assert_eq!(json["error_kind"], "invalid_input");
     let error = json["error"].as_str().unwrap();
-    assert!(error.contains("parse_error"));
+    assert!(error.contains("invalid_input"));
     assert!(error.contains("one of 'to', 'insert_before', or 'insert_after' must be provided"));
 }
 
 #[test]
-fn test_tx_json_output_on_replace_conflict_parse_error() {
+fn test_tx_json_output_on_replace_conflict_invalid_input() {
     let dir = TempDir::new().unwrap();
     let plan_file = dir.path().join("bad.json");
     fs::write(
@@ -4674,13 +4682,13 @@ fn test_tx_json_output_on_replace_conflict_parse_error() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(4));
+    assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["status"], "error");
-    assert_eq!(json["error_kind"], "parse_error");
+    assert_eq!(json["error_kind"], "invalid_input");
     let error = json["error"].as_str().unwrap();
-    assert!(error.contains("parse_error"));
+    assert!(error.contains("invalid_input"));
     assert!(error.contains("'insert_before' and 'insert_after' cannot be combined"));
 }
 
@@ -6571,14 +6579,24 @@ fn test_tx_replace_range_without_whole_line_rejected() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let assert = Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--json")
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4)
-        .stderr(predicates::str::contains("range requires whole_line"));
+        .code(1); // invalid_input (CLI parity), not parse_error (4)
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("range requires whole_line"),
+        "error should mention range/whole_line: {stdout}"
+    );
 
     // File must not be modified
     assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\nline3\n");
@@ -6604,16 +6622,24 @@ fn test_tx_replace_whole_line_and_multiline_rejected() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let assert = Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--json")
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(4)
-        .stderr(predicates::str::contains(
-            "whole_line and multiline cannot be combined",
-        ));
+        .code(1); // invalid_input (CLI parity), not parse_error (4)
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("whole_line and multiline cannot be combined"),
+        "error should mention whole_line/multiline: {stdout}"
+    );
 
     // File must not be modified
     assert_eq!(fs::read_to_string(&file).unwrap(), "line1\nline2\nline3\n");

@@ -246,7 +246,7 @@ pub(crate) fn format_error_with_backup_hint(error: &str, backup_session: Option<
 }
 
 pub(crate) fn build_error_output(
-    error_kind: &'static str,
+    error_kind: &str,
     error: &str,
     backup_session: Option<&str>,
 ) -> TxOutput {

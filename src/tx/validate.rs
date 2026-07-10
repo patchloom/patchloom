@@ -29,7 +29,12 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             multiline: *multiline,
             has_range: range.is_some(),
         })
-        .map_err(|e| anyhow::anyhow!("replace: {e}")),
+        .map_err(|e| {
+            crate::exit::InvalidInputError {
+                msg: format!("replace: {e}"),
+            }
+            .into()
+        }),
         // Exhaustive match ensures the compiler flags new variants that may
         // need validation constraints.
         Operation::DocSet { .. }
@@ -69,16 +74,25 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::AstSplit { .. } => Ok(()),
         Operation::TidyFix { dedent, indent, .. } => {
             if dedent.is_some() && indent.is_some() {
-                anyhow::bail!("tidy.fix: 'dedent' and 'indent' cannot both be set");
+                return Err(crate::exit::InvalidInputError {
+                    msg: "tidy.fix: 'dedent' and 'indent' cannot both be set".into(),
+                }
+                .into());
             }
             Ok(())
         }
         Operation::MdMoveSection { before, after, .. } => {
             if before.is_none() && after.is_none() {
-                anyhow::bail!("md.move_section requires either 'before' or 'after'");
+                return Err(crate::exit::InvalidInputError {
+                    msg: "md.move_section requires either 'before' or 'after'".into(),
+                }
+                .into());
             }
             if before.is_some() && after.is_some() {
-                anyhow::bail!("md.move_section: 'before' and 'after' cannot both be set");
+                return Err(crate::exit::InvalidInputError {
+                    msg: "md.move_section: 'before' and 'after' cannot both be set".into(),
+                }
+                .into());
             }
             Ok(())
         }
@@ -90,10 +104,16 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             ..
         } => {
             if *invert_match && *multiline {
-                anyhow::bail!("search: invert_match and multiline cannot be combined");
+                return Err(crate::exit::InvalidInputError {
+                    msg: "search: invert_match and multiline cannot be combined".into(),
+                }
+                .into());
             }
             if *literal && *regex {
-                anyhow::bail!("search: literal and regex cannot be combined");
+                return Err(crate::exit::InvalidInputError {
+                    msg: "search: literal and regex cannot be combined".into(),
+                }
+                .into());
             }
             Ok(())
         }
