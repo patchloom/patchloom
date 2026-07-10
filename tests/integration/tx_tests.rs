@@ -98,6 +98,43 @@ fn test_tx_replace_command_position_in_plan() {
     );
 }
 
+#[test]
+fn test_tx_replace_command_position_rejects_regex() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "sudo pip install\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "replace",
+            "path": portable_path_str(&file),
+            "old": "pip",
+            "new": "uv",
+            "regex": true,
+            "command_position": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("command_position cannot be combined"));
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "sudo pip install\n",
+        "conflict must not mutate the file"
+    );
+}
+
 // -- whole_line CR/CRLF tests (#999) ----------------------------------------
 
 #[test]

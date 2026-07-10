@@ -304,7 +304,7 @@ api::doc_set(
 
 All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs.
 
-Notable library options (not CLI flags): `ReplaceOptions.require_change`, `ReplaceOptions.command_position` (shell invocable tokens only), AST mutators `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
+Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
 
 ## Getting started
 
