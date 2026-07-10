@@ -602,6 +602,38 @@ fn test_search_invert_match_multiline_rejected() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("--invert-match and --multiline"));
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "--multiline", "-v", "hello"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "search dual flags should set error_kind: {parsed}"
+    );
+}
+
+#[test]
+fn test_search_json_empty_pattern_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "", dir.path().to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "empty search pattern should set error_kind: {parsed}"
+    );
 }
 
 #[test]
