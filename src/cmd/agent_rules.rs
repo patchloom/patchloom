@@ -112,7 +112,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Get server version and working directory | `server_info` |\n\n\
              **`replace_text` / plan replace flags (default false):**\n\
              - `require_change`: error when the pattern matches zero times (fail closed).\n\
-             - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`busybox` wrappers yes; `uv pip` no).\n\
+             - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`unshare`/`nsenter`/`taskset`/`busybox` wrappers yes; `uv pip` no).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n",
         );
@@ -385,7 +385,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  All operations succeed atomically or roll back together.\n\n\
                  Plan/MCP `replace` accepts library flags (default false):\n\
                  - `require_change`: fail when the pattern matches zero times (agent fail-closed).\n\
-                 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`busybox` wrappers yes; `uv pip` no).\n\
+                 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`unshare`/`nsenter`/`taskset`/`busybox` wrappers yes; `uv pip` no).\n\
                  Example: `{\"op\":\"replace\",\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
                  \"command_position\":true,\"require_change\":true}`\n\n");
         }
@@ -678,6 +678,9 @@ mod tests {
             out.contains("flock")
                 && out.contains("runuser")
                 && out.contains("setsid")
+                && out.contains("unshare")
+                && out.contains("nsenter")
+                && out.contains("taskset")
                 && out.contains("busybox"),
             "agent-rules should name isolation wrappers for command_position"
         );

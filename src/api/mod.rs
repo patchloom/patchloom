@@ -261,10 +261,11 @@ pub struct ReplaceOptions {
     /// When true, only replace tokens in **shell command position** (start of
     /// line / after `&&` `|` `;` / newlines, after transparent prefixes like
     /// `sudo`, `env KEY=val`, `timeout 30`, `nice -n 10`, `stdbuf`, `ionice`,
-    /// `setsid`, `busybox`, `runuser`, `flock`/`chroot` + path, and option flags
-    /// like `-E` / `-p` or arg-taking `-u USER`). Does not match inside longer
-    /// tokens (`pip` vs `pipenv`) or as arguments (`uv pip`). Opt-in; not the
-    /// same as `word_boundary`. See #1494.
+    /// `setsid`, `unshare`/`nsenter`/`taskset`/`prlimit`/`numactl`, `busybox`,
+    /// `runuser`, `flock`/`chroot` + path, and option flags like `-E` / `-p` or
+    /// arg-taking `-u USER`). Does not match inside longer tokens (`pip` vs
+    /// `pipenv`) or as arguments (`uv pip`). Opt-in; not the same as
+    /// `word_boundary`. See #1494.
     pub command_position: bool,
 }
 

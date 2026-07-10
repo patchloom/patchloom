@@ -3,7 +3,8 @@
 //! A token is in **command position** when it is the invocable command of a
 //! simple shell fragment: start of line (after whitespace), after `&&` `|` `;`,
 //! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`, `setsid`,
-//! `flock` / `chroot` + path, `xargs`, `eval`, and common option flags like `-E` / `-p`).
+//! `unshare` / `nsenter` / `taskset`, `flock` / `chroot` + path, `xargs`, `eval`, and
+//! common option flags like `-E` / `-p`).
 //! It is **not** command position when it is an argument (`uv pip`) or inside a longer
 //! word (`pipenv`).
 //!
@@ -22,6 +23,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "timeout", "stdbuf", "ionice",
     // Isolation / privilege wrappers used by agent and CI scripts.
     "setsid", "runuser",
+    // Namespace / CPU affinity / resource-limit wrappers (CI and sandbox scripts).
+    "unshare", "nsenter", "taskset", "prlimit", "numactl",
     // Multicall binary: next token is the applet (busybox wget / busybox sh).
     "busybox", // Invokers that take a command as their first non-option arg.
     "xargs", "watch", "strace",
@@ -253,7 +256,8 @@ pub fn command_position_combo_error(c: CommandPositionIncompat) -> Option<&'stat
 }
 
 fn is_token_char(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.' || b == b'/'
+    // Include `,` so CPU lists / resource lists stay one token (`taskset -c 0,1`).
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.' || b == b'/' || b == b','
 }
 
 fn is_env_assignment(token: &str) -> bool {
@@ -313,6 +317,17 @@ fn is_arg_taking_flag(token: &str) -> bool {
             | "--signal"
             | "-k"
             | "--kill-after"
+            // nsenter (target PID / root / workdir / uid)
+            | "-t"
+            | "--target"
+            | "--setuid"
+            | "--setgid"
+            | "--root"
+            | "--wd"
+            // taskset CPU list (`-c` already covered via ionice)
+            | "--cpu-list"
+            // prlimit / numactl PID (when not equals-attached)
+            | "--pid"
     )
 }
 
@@ -571,6 +586,51 @@ mod tests {
         // Argument-position after a real command stays untouched.
         assert_eq!(
             replace_command_position("echo setsid pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn isolation_wrappers_allow_command() {
+        // unshare boolean flags then command.
+        assert_eq!(
+            replace_command_position("unshare -n pip install\n", "pip", "uv").0,
+            "unshare -n uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("unshare -m -u pip install\n", "pip", "uv").0,
+            "unshare -m -u uv install\n"
+        );
+        // nsenter target PID + boolean namespaces.
+        assert_eq!(
+            replace_command_position("nsenter -t 1 -m pip install\n", "pip", "uv").0,
+            "nsenter -t 1 -m uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("nsenter --target=1 -n pip install\n", "pip", "uv").0,
+            "nsenter --target=1 -n uv install\n"
+        );
+        // taskset CPU affinity.
+        assert_eq!(
+            replace_command_position("taskset -c 0 pip install\n", "pip", "uv").0,
+            "taskset -c 0 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("taskset --cpu-list 0,1 pip install\n", "pip", "uv").0,
+            "taskset --cpu-list 0,1 uv install\n"
+        );
+        // prlimit / numactl equals-attached resource limits.
+        assert_eq!(
+            replace_command_position("prlimit --as=1000000 pip install\n", "pip", "uv").0,
+            "prlimit --as=1000000 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("numactl --cpunodebind=0 pip install\n", "pip", "uv").0,
+            "numactl --cpunodebind=0 uv install\n"
+        );
+        // Argument-position stays non-command.
+        assert_eq!(
+            replace_command_position("echo unshare -n pip\n", "pip", "uv").1,
             0
         );
     }
