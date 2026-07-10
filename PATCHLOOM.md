@@ -307,7 +307,7 @@ dependencies[name=react].version # predicate filter
 | 2 | Changes detected (`--check` mode found pending changes) |
 | 3 | No matches (search/replace pattern miss, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |
 | 4 | Parse error (malformed input file or plan) |
-| 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; tx `error_kind: ambiguous`) |
+| 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |
 | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |
 | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |
 | 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |
