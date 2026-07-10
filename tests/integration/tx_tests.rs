@@ -7582,6 +7582,72 @@ fn test_tx_ast_rename_empty_directory_fails() {
     );
 }
 
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_existing_target_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();
+    fs::write(dir.path().join("dest.rs"), "// already here\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "dest.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1); // already_exists, not operation_failed (9)
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "already_exists",
+        "extract into existing file without force: {stdout}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rewrite_signature_missing_fields_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn process() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rewrite_signature",
+            "path": "lib.rs",
+            "old": "process"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1); // invalid_input
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "rewrite_signature without fields: {stdout}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // CLI --contain on tx plans (MPI cycle 13)
 // ---------------------------------------------------------------------------
