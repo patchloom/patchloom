@@ -428,4 +428,17 @@ mod tests {
             "echo hello\ntimeout 30 uv install\nnice -n 10 uv list\n"
         );
     }
+    #[test]
+    fn crlf_multiline_wrapper() {
+        let content = "echo hello\r\ntimeout 30 pip install\r\n";
+        let (out, n) = replace_command_position(content, "pip", "uv");
+        assert_eq!(n, 1, "out={out:?}");
+        assert!(out.contains("uv install"), "{out:?}");
+    }
+
+    #[test]
+    fn command_position_is_case_sensitive_literal() {
+        let (_, n) = replace_command_position("PIP install\n", "pip", "uv");
+        assert_eq!(n, 0, "literal match only");
+    }
 }
