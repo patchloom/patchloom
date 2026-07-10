@@ -2775,6 +2775,14 @@ async fn test_mcp_ast_rewrite_signature_applies() {
         content.contains("u64"),
         "signature should be rewritten: {content}"
     );
+    assert!(
+        content.contains("-> u64 {"),
+        "MCP rewrite_signature must preserve body gap (#1503): {content}"
+    );
+    assert!(
+        !content.contains("u64{"),
+        "must not glue type to brace: {content}"
+    );
     client.cancel().await.unwrap();
 }
 
