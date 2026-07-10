@@ -183,12 +183,18 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     // --- Weak tier ---
     OpMeta {
         name: "replace",
-        description: "Replace text in a file using literal string matching.",
+        description: "Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only).",
         tier: Tier::Weak,
-        examples: &[(
-            "Replace a function name",
-            r###"{"op":"replace","path":"src/main.rs","old":"old_name","new":"new_name"}"###,
-        )],
+        examples: &[
+            (
+                "Replace a function name",
+                r###"{"op":"replace","path":"src/main.rs","old":"old_name","new":"new_name"}"###,
+            ),
+            (
+                "Rewrite shell command tokens only",
+                r###"{"op":"replace","path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}"###,
+            ),
+        ],
     },
     OpMeta {
         name: "file.append",
