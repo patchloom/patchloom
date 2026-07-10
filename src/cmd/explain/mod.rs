@@ -43,17 +43,36 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
         (buf, None)
     } else {
-        let p = args
-            .path
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("path is required when --stdin is not set"))?;
+        let p = match args.path.as_deref() {
+            Some(p) => p,
+            None => {
+                global.emit_error_json_kind(
+                    Some("invalid_input"),
+                    "path is required when --stdin is not set",
+                )?;
+                return Ok(exit::FAILURE);
+            }
+        };
         let full = global.resolve_user_path(p)?;
-        let content = std::fs::read_to_string(&full)
-            .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", full.display()))?;
+        let content = match std::fs::read_to_string(&full) {
+            Ok(c) => c,
+            Err(e) => {
+                let msg = format!("cannot read {}: {e}", full.display());
+                global.emit_error_json_kind(Some("not_found"), &msg)?;
+                return Ok(exit::FAILURE);
+            }
+        };
         (content, Some(p.to_string()))
     };
 
-    let mut plan = crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref())?;
+    let mut plan =
+        match crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref()) {
+            Ok(p) => p,
+            Err(e) => {
+                global.emit_error_json_kind(Some("parse_error"), &e.to_string())?;
+                return Ok(exit::PARSE_ERROR);
+            }
+        };
     let cwd = global.resolve_cwd()?;
 
     // Expand for_each before summarizing so the explain output shows all

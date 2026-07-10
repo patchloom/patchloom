@@ -457,8 +457,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, \
              `status` outside a git repo, AST map non-dir, doc merge flag conflicts). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type).\n\n\
-             **JSON `error_kind` (exit 4):** Batch line parse failures set `parse_error` (unknown op, bad arity, \
-             bad quotes) so agents can distinguish syntax mistakes from runtime failures.\n\n\
+             **JSON `error_kind` (exit 4):** Batch line parse failures and `explain` plan parse failures set \
+             `parse_error` so agents can distinguish syntax mistakes from runtime failures.\n\n\
              **Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, \
              doc delete success includes `changed` (bool) and `removed` (usize). Multi-op \
              plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with \
