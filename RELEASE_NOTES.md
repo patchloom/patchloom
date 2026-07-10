@@ -24,7 +24,8 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Restore path matching.** Basename-only match removed so a different path with the same file name cannot restore the wrong session. (#1499)
 - **`command_position` multi-line wrappers.** Prefix peeling no longer strips newlines, so `timeout` / `nice` / `sudo` on a later line are not confused with tokens from the previous line. Also peels `timeout 30`, `nice -n 10`, `stdbuf`, `ionice`, `setsid`, `runuser -u USER`, `busybox` applets, and path-taking `flock` / `chroot` wrappers.
 - **`command_position` flag honesty.** Combining with `case_insensitive`, `word_boundary`, `fuzzy`, or context anchors is `InvalidInput` (was silently ignored, which looked like a soft no-match).
-- **CLI identity replace honesty.** When the pattern matches but `new` equals `old`, `replace` no longer reports "no matches" / exit 3. It reports success with the raw match count and an "identical (no file changes)" note so `require_change` stays satisfied.
+- **CLI identity replace honesty.** When the pattern matches but `new` equals `old`, `replace` no longer reports "no matches" / exit 3. It reports success with the raw match count and an "identical (no file changes)" note so `require_change` stays satisfied. JSON includes `identity: true`.
+- **GNU long options with `=`.** `command_position` peels `--name=value` flags (`nice --adjustment=10`, `sudo --user=root`, `timeout --signal=TERM 30`).
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.
 

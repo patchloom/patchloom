@@ -254,18 +254,20 @@ fn is_env_assignment(token: &str) -> bool {
     }
 }
 
-/// Shell option flag (`-E`, `-p`, `--preserve-env`), not a command name.
+/// Shell option flag (`-E`, `-p`, `--preserve-env`, `--user=root`), not a command name.
 fn is_option_flag(token: &str) -> bool {
     if token.len() < 2 || !token.starts_with('-') {
         return false;
     }
     // Reject bare `-` / `--` and numeric tokens like `-1` used as args.
+    // GNU long options may use `--name=value` (equals-attached value).
     let body = token.trim_start_matches('-');
-    !body.is_empty()
-        && body
+    let name = body.split_once('=').map(|(n, _)| n).unwrap_or(body);
+    !name.is_empty()
+        && name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        && body.chars().any(|c| c.is_ascii_alphabetic())
+        && name.chars().any(|c| c.is_ascii_alphabetic())
 }
 
 /// Flags whose next token is an argument (`sudo -u root`, `sudo --user root`).
@@ -578,6 +580,22 @@ mod tests {
         assert_eq!(
             replace_command_position("echo flock /tmp/l pip\n", "pip", "uv").1,
             0
+        );
+    }
+
+    #[test]
+    fn gnu_long_option_equals_value_peels() {
+        assert_eq!(
+            replace_command_position("nice --adjustment=10 pip list\n", "pip", "uv").0,
+            "nice --adjustment=10 uv list\n"
+        );
+        assert_eq!(
+            replace_command_position("timeout --signal=TERM 30 pip install\n", "pip", "uv").0,
+            "timeout --signal=TERM 30 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("sudo --user=root pip install\n", "pip", "uv").0,
+            "sudo --user=root uv install\n"
         );
     }
 
