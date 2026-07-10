@@ -341,6 +341,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
   - `--list` shows available backup sessions. `--json` emits the full session list as one array, while `--jsonl` emits one session object per line.
   - `--session <timestamp>` targets a specific session (defaults to most recent).
   - `--apply` actually restores files (dry-run by default, showing what would change).
+- **Failure behavior:** No backup sessions (`--list` empty, or restore with no sessions) exits `3` (`NO_MATCHES`). With `--json`/`--jsonl`, the error envelope includes `error_kind: "no_matches"` so agents can branch without scraping stderr.
 - **Prefer instead:** Use `git checkout` or `git stash` when working in a committed git repo.
 - **Related:** `tx`, `replace`, `tidy`
 

@@ -51,10 +51,9 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.list {
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
-            let empty: Vec<()> = vec![];
-            if !global.emit_json(&empty)? && !global.quiet {
-                eprintln!("no backup sessions found");
-            }
+            // Match other CLI exit-3 paths: agents branch on error_kind without
+            // scraping stderr (empty array alone was inconsistent with undo apply).
+            global.emit_error_json_kind(Some("no_matches"), "no backup sessions found")?;
             return Ok(exit::NO_MATCHES);
         }
 
@@ -83,13 +82,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Use the most recent session.
         let sessions = backup::list_sessions(&cwd)?;
         if sessions.is_empty() {
-            if !global.emit_json(&serde_json::json!({
-                "ok": false,
-                "error": "no backup sessions found",
-            }))? && !global.quiet
-            {
-                eprintln!("no backup sessions found");
-            }
+            global.emit_error_json_kind(Some("no_matches"), "no backup sessions found")?;
             return Ok(exit::NO_MATCHES);
         }
         sessions[0].timestamp.clone()
@@ -315,9 +308,25 @@ mod tests {
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
-        // JSON error object is emitted via global.emit_json which writes to
-        // stdout. We verify the exit code; emit_json return-value correctness
-        // is covered by unit tests in cli/global.rs.
+        // JSON error envelope (ok/error/error_kind) is emitted via
+        // emit_error_json_kind. Exit code is the unit-test contract; payload
+        // shape is covered by emit_error_json_kind tests in cli/global.rs and
+        // by integration coverage for other exit-3 commands.
+    }
+
+    #[test]
+    fn list_empty_json_exits_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: true,
+            session: None,
+            apply: false,
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
     }
 
     #[test]
