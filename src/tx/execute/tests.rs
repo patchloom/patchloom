@@ -160,8 +160,18 @@ fn update_file_content_clears_deletion() {
 #[test]
 fn path_err_wraps_message() {
     let wrapper = path_err("config.yaml");
-    let err = wrapper("invalid key");
-    assert_eq!(format!("{err}"), "config.yaml: invalid key");
+    let err = wrapper(anyhow::anyhow!("invalid key"));
+    assert_eq!(err.to_string(), "config.yaml: invalid key");
+}
+
+#[test]
+fn path_err_preserves_io_not_found() {
+    let io_err: anyhow::Error = std::io::Error::new(std::io::ErrorKind::NotFound, "nope").into();
+    let err = path_err("missing.json")(io_err.context("failed to read"));
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "path_err must keep NotFound: {err:#}"
+    );
 }
 
 // ---- op_needs_doc_flush ----

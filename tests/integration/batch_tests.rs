@@ -263,7 +263,7 @@ fn test_batch_nonexistent_target_file_rollback() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(1); // not_found (missing target)
 }
 
 #[test]
@@ -724,7 +724,7 @@ fn test_batch_multi_op_rollback_on_second_failure() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(1); // not_found on second op
 
     // data.json must be rolled back to original content.
     let content = fs::read_to_string(&file).unwrap();

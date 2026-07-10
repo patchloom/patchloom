@@ -148,9 +148,15 @@ pub(crate) fn flush_doc_cache(
 /// Wrap an error with the file path for context.
 ///
 /// This replaces 27 identical `.map_err(path_err(path))` calls
-/// throughout `execute_operation` and `get_doc_root`.
-pub(crate) fn path_err<E: std::fmt::Display>(path: &str) -> impl FnOnce(E) -> anyhow::Error + '_ {
-    move |e| anyhow::anyhow!("{path}: {e}")
+/// throughout `execute_operation` and `get_doc_root`. Preserves the
+/// source chain so typed kinds (IO NotFound, etc.) remain downcastable.
+pub(crate) fn path_err(path: &str) -> impl FnOnce(anyhow::Error) -> anyhow::Error + '_ {
+    // Include the prior Display text in the context so stderr stays informative,
+    // while keeping the source chain for is_io_not_found / typed kinds.
+    move |e| {
+        let prior = e.to_string();
+        e.context(format!("{path}: {prior}"))
+    }
 }
 
 /// Load a structured document from the cache (or parse from pending buffer)
@@ -608,6 +614,9 @@ pub(crate) fn execute_and_collect(
                 }
                 if crate::exit::is_already_exists(&e) {
                     return Err(crate::exit::AlreadyExistsError { msg }.into());
+                }
+                if crate::exit::is_invalid_input(&e) {
+                    return Err(crate::exit::InvalidInputError { msg }.into());
                 }
                 anyhow::bail!("{msg}");
             }

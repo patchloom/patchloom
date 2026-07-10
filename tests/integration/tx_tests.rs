@@ -433,7 +433,7 @@ fn test_tx_rollback_on_failure() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(9);
+        .code(1); // not_found on missing doc path
 
     let txt_content = fs::read_to_string(&txt_file).unwrap();
     assert_eq!(
@@ -471,7 +471,7 @@ fn test_tx_rollback_preserves_original_content() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(1); // not_found on missing b.json
 
     // a.json should be unchanged (no writes occurred).
     let content = fs::read_to_string(&file_a).unwrap();
@@ -866,7 +866,7 @@ fn test_tx_file_delete_directory_target_fails() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(9)
+        .code(1) // invalid_input: not a file
         .stderr(predicate::str::contains("target is not a file"));
 
     assert!(target.is_dir(), "directory should remain in place");
@@ -1171,7 +1171,7 @@ fn test_tx_file_rename_directory_source_fails() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(9)
+        .code(1) // invalid_input
         .stderr(predicate::str::contains("source is not a file"));
 
     assert!(src.is_dir(), "source directory should remain in place");
@@ -1302,7 +1302,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
         .arg("tx")
         .arg(&plan_file)
         .assert()
-        .code(9)
+        .code(1) // invalid_input
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -1332,7 +1332,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
         .arg(&plan_file)
         .arg("--check")
         .assert()
-        .code(9)
+        .code(1) // invalid_input
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -1362,7 +1362,7 @@ fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(9)
+        .code(1) // invalid_input
         .stderr(predicate::str::contains("destination is not a file"));
 
     assert!(dir.path().join("old.txt").is_file());
@@ -1880,7 +1880,7 @@ fn test_tx_file_create_force_directory_target_fails() {
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .assert()
-        .code(9)
+        .code(1) // invalid_input: not a file
         .stderr(predicate::str::contains("target is not a file"));
 
     assert!(target.is_dir(), "directory should remain in place");
