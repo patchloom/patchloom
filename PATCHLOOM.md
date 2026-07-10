@@ -315,7 +315,7 @@ dependencies[name=react].version # predicate filter
 
 **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source, or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, `status` outside a git repo, AST map non-dir, doc merge flag conflicts). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type).
 
-**JSON `error_kind` (exit 4):** Batch line parse failures set `parse_error` (unknown op, bad arity, bad quotes) so agents can distinguish syntax mistakes from runtime failures.
+**JSON `error_kind` (exit 4):** Batch line parse failures and `explain` plan parse failures set `parse_error` so agents can distinguish syntax mistakes from runtime failures.
 
 **Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, doc delete success includes `changed` (bool) and `removed` (usize). Multi-op plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with `removed: 0` means idempotent cleanup (nothing matched); do not assume data was deleted from exit status alone.
 

@@ -204,8 +204,22 @@ fn test_explain_invalid_plan_fails() {
         .args(["explain"])
         .arg(&plan)
         .assert()
-        .failure()
+        .code(4) // PARSE_ERROR
         .stderr(predicate::str::contains("expected ident").or(predicate::str::contains("parse")));
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "explain"])
+        .arg(&plan)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(4));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "parse_error",
+        "explain invalid plan should set error_kind: {json}"
+    );
 }
 
 #[test]
