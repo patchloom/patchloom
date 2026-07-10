@@ -2107,6 +2107,39 @@ async fn test_mcp_replace_if_exists_no_match_succeeds() {
 }
 
 #[tokio::test]
+async fn test_mcp_replace_command_position_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("install.sh"),
+        "sudo pip install x\nuv pip install\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "install.sh",
+            "old": "pip",
+            "new": "uv",
+            "command_position": true,
+            "require_change": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "command_position replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "command_position ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("install.sh")).unwrap();
+    assert_eq!(content, "sudo uv install x\nuv pip install\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_replace_whole_line_round_trip() {
     if !has_mcp_support() {
         return;
