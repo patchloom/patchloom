@@ -103,13 +103,23 @@ pub enum MdAction {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn read_content(use_stdin: bool, content: &Option<String>) -> anyhow::Result<String> {
+/// Read replacement/insertion content. Returns `Ok(None)` after emitting a
+/// structured validation error when neither stdin nor content is provided.
+fn read_content(
+    use_stdin: bool,
+    content: &Option<String>,
+    global: &GlobalFlags,
+) -> anyhow::Result<Option<String>> {
     if use_stdin {
-        Ok(std::io::read_to_string(std::io::stdin())?)
+        Ok(Some(std::io::read_to_string(std::io::stdin())?))
     } else if let Some(c) = content {
-        Ok(c.clone())
+        Ok(Some(c.clone()))
     } else {
-        anyhow::bail!("one of --stdin or --content must be provided")
+        global.emit_error_json_kind(
+            Some("invalid_input"),
+            "one of --stdin or --content must be provided",
+        )?;
+        Ok(None)
     }
 }
 
@@ -184,7 +194,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content,
         } => {
             crate::verbose!("md: replace-section file={}, heading={:?}", file, heading);
-            let replacement = read_content(stdin, &content)?;
+            let Some(replacement) = read_content(stdin, &content, global)? else {
+                return Ok(exit::FAILURE);
+            };
             let op = Operation::MdReplaceSection {
                 path: file.clone(),
                 heading: heading.clone(),
@@ -210,7 +222,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 file,
                 heading
             );
-            let insertion = read_content(stdin, &content)?;
+            let Some(insertion) = read_content(stdin, &content, global)? else {
+                return Ok(exit::FAILURE);
+            };
             let op = Operation::MdInsertAfterHeading {
                 path: file.clone(),
                 heading: heading.clone(),
@@ -236,7 +250,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 file,
                 heading
             );
-            let insertion = read_content(stdin, &content)?;
+            let Some(insertion) = read_content(stdin, &content, global)? else {
+                return Ok(exit::FAILURE);
+            };
             let op = Operation::MdInsertBeforeHeading {
                 path: file.clone(),
                 heading: heading.clone(),
@@ -429,7 +445,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             );
             // Validate exactly one of --before or --after.
             if before.is_none() && after.is_none() {
-                anyhow::bail!("exactly one of --before or --after must be provided");
+                global.emit_error_json_kind(
+                    Some("invalid_input"),
+                    "exactly one of --before or --after must be provided",
+                )?;
+                return Ok(exit::FAILURE);
             }
 
             let dest_file = to.as_deref().unwrap_or(&file);

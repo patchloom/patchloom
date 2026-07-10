@@ -635,10 +635,11 @@ mod error_handling {
             },
             write: Default::default(),
         };
-        let result = run(args, &GlobalFlags::test_apply());
-        assert!(
-            result.is_err(),
-            "expected error when neither --before nor --after is provided"
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
+        assert_eq!(
+            code,
+            crate::exit::FAILURE,
+            "expected FAILURE when neither --before nor --after is provided"
         );
     }
 }
