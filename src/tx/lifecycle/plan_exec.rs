@@ -45,11 +45,14 @@ pub(crate) fn validate_and_prepare_plan(
     }
     if let Err(e) = validate_plan_operations(plan) {
         crate::verbose!("tx: plan operation validation failed: {e}");
-        return Err(Box::new(build_error_output(
-            "parse_error",
-            &e.to_string(),
-            None,
-        )));
+        // Flag/option conflicts match CLI invalid_input (exit 1), not plan
+        // parse_error (exit 4). Version mismatches stay parse_error above.
+        let kind = if crate::exit::is_invalid_input(&e) {
+            "invalid_input"
+        } else {
+            "parse_error"
+        };
+        return Err(Box::new(build_error_output(kind, &e.to_string(), None)));
     }
 
     let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
@@ -159,6 +162,9 @@ pub fn execute_plan_direct(
             }
             if crate::exit::is_type_error(&e) {
                 return Ok(build_error_output("type_error", &e.to_string(), None));
+            }
+            if crate::exit::is_conflicts(&e) {
+                return Ok(build_error_output("conflicts", &e.to_string(), None));
             }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
@@ -382,7 +388,7 @@ mod tests {
             for_each: None,
         };
         let err = validate_and_prepare_plan(&plan, dir.path(), false).unwrap_err();
-        assert_eq!(err.error_kind.as_deref(), Some("parse_error"));
+        assert_eq!(err.error_kind.as_deref(), Some("invalid_input"));
         let msg = err.error.as_deref().unwrap_or("");
         assert!(
             msg.contains("whole_line") && msg.contains("multiline"),

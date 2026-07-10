@@ -25,12 +25,7 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     }
 }
 
-fn emit_error_json(
-    error_kind: &'static str,
-    error: &str,
-    backup_session: Option<&str>,
-    compact: bool,
-) {
+fn emit_error_json(error_kind: &str, error: &str, backup_session: Option<&str>, compact: bool) {
     emit_output_json(
         &build_error_output(error_kind, error, backup_session),
         compact,
@@ -297,15 +292,19 @@ pub(crate) fn run_parsed_plan(
         match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, no_strict) {
             Ok(v) => v,
             Err(output) => {
-                let code = if output.error_kind.as_deref() == Some("parse_error") {
-                    exit::PARSE_ERROR
-                } else {
-                    exit::FAILURE
+                let kind = output
+                    .error_kind
+                    .clone()
+                    .unwrap_or_else(|| "parse_error".into());
+                let code = match kind.as_str() {
+                    "parse_error" => exit::PARSE_ERROR,
+                    "invalid_input" => exit::FAILURE,
+                    _ => exit::FAILURE,
                 };
                 let msg = output.error.as_deref().unwrap_or("plan validation failed");
                 let bs = output.backup_session.as_deref();
                 if structured {
-                    emit_error_json("parse_error", msg, bs, compact);
+                    emit_error_json(&kind, msg, bs, compact);
                 } else {
                     eprintln!("tx: {msg}");
                 }
@@ -428,6 +427,14 @@ pub(crate) fn run_parsed_plan(
                     eprintln!("tx: {msg}");
                 }
                 return Ok(exit::FAILURE);
+            }
+            if exit::is_conflicts(&e) {
+                if structured {
+                    emit_error_json("conflicts", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::CONFLICTS);
             }
             if structured {
                 emit_error_json("operation_failed", &msg, None, compact);

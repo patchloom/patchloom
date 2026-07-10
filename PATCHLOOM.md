@@ -310,10 +310,10 @@ dependencies[name=react].version # predicate filter
 | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |
 | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |
 | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |
-| 8 | Patch merge conflicts (`patch merge` or `--on-stale merge` without `--allow-conflicts`) |
+| 8 | Patch merge conflicts (CLI `patch merge` or plan/tx `patch.apply` with `on_stale: merge` without `allow_conflicts`; `error_kind: conflicts`) |
 | 9 | Tx operation staging failure (`operation_failed`) |
 
-**JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source, or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, `status` outside a git repo, AST map non-dir, doc merge flag conflicts, CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, all-explicit-paths-missing for search/replace/tidy). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type). Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.
+**JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source, or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, `status` outside a git repo, AST map non-dir, doc merge flag conflicts, CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, all-explicit-paths-missing for search/replace/tidy, and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, md.move_section before/after, search invert_match+multiline). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type). Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.
 
 **JSON `error_kind` (exit 4):** Batch line parse failures and `explain` plan parse failures set `parse_error` so agents can distinguish syntax mistakes from runtime failures.
 

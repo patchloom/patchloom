@@ -431,7 +431,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // The engine error from apply_patch_with_loader already includes
                 // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
                 // FAILED label to match the original CLI format.
-                let (exit_code, kind) = if msg.contains("conflict(s)") {
+                // Prefer typed ConflictsError; keep conflict(s) text fallback for
+                // any remaining untyped paths.
+                let (exit_code, kind) = if exit::is_conflicts(&e) || msg.contains("conflict(s)") {
                     (exit::CONFLICTS, "conflicts")
                 } else {
                     (exit::AMBIGUOUS, "ambiguous")

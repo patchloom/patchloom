@@ -729,8 +729,20 @@ where
             });
             continue;
         }
-        let applied = apply_hunks_with_options(&original, &pf.hunks, options)
-            .map_err(|msg| anyhow::anyhow!("patch apply: {} -- {msg}", pf.path))?;
+        let applied = match apply_hunks_with_options(&original, &pf.hunks, options) {
+            Ok(applied) => applied,
+            // Merge conflicts without allow_conflicts: typed kind so CLI/tx
+            // map to exit CONFLICTS (8) and error_kind "conflicts".
+            Err(msg) if msg.contains("conflict(s)") => {
+                return Err(crate::exit::ConflictsError {
+                    msg: format!("patch apply: {} -- {msg}", pf.path),
+                }
+                .into());
+            }
+            Err(msg) => {
+                return Err(anyhow::anyhow!("patch apply: {} -- {msg}", pf.path));
+            }
+        };
         results.push(PatchApplyFileResult {
             path: pf.path.clone(),
             content: applied.content,

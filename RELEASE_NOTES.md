@@ -66,6 +66,8 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.
+- **Tx patch.apply merge conflicts.** Plan `patch.apply` with `on_stale: "merge"` without `allow_conflicts` exits **8** with `error_kind: "conflicts"` (was generic `operation_failed` / 9), matching CLI `patch merge`.
+- **Tx op flag conflicts `invalid_input`.** Plan-level option conflicts (replace whole_line+multiline, range without whole_line, tidy dedent+indent, md.move_section before/after, search invert+multiline) exit **1** with `error_kind: "invalid_input"` (was `parse_error` / 4), matching standalone CLI flags.
 
 ## Agent and library notes
 
