@@ -56,6 +56,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Cleaner clap JSON usage messages.** Usage failures under `--json`/`--jsonl` strip the `error: ` prefix and help footer so agents get a short actionable string.
 - **Plan `ops` alias.** Transaction plans accept `"ops"` as a serde alias for `"operations"` so agents that emit the shorter field name parse without a `missing field` error.
 - **Missing path roots are `not_found`.** When every explicit path root for `search`, `replace`, or `tidy` is missing (including `--files-from` lists, not stdin), exit **1** with `error_kind: "not_found"` (was soft `no_matches` / vacuous tidy success). Pattern misses and clean trees still use exit 3 / 0.
+- **Tx file ops missing targets `not_found`.** Plan `file.append` / `file.prepend` / `file.delete` on missing paths emit `error_kind: "not_found"` (exit 1), not generic `operation_failed`.
 - **Tx missing-file `not_found`.** Plan/tx engine IO `NotFound` (e.g. `md.replace_section` on a missing path) sets `error_kind: "not_found"` and exit **1** instead of generic `operation_failed` (9).
 - **Engine IO not_found chain.** Tx/CLI engine read failures preserve `std::io::ErrorKind::NotFound` through context wrappers so global `--json` maps them to `error_kind: "not_found"` (e.g. `md replace-section` on a missing file).
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
