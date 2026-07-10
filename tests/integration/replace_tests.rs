@@ -1680,3 +1680,25 @@ fn test_replace_cli_unique_rejects_identity_multi_match() {
         "pip install\npip list\n"
     );
 }
+
+#[test]
+fn test_replace_json_range_without_whole_line_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "hello\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json", "replace", "hello", "--new", "hi", "--range", "1:1",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "replace range without whole_line: {parsed}"
+    );
+}
