@@ -7792,3 +7792,27 @@ fn test_tx_md_missing_file_json_not_found() {
         "tx missing file should be not_found not operation_failed: {json}"
     );
 }
+
+#[test]
+fn test_tx_file_append_missing_json_not_found() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "file.append",
+            "path": "missing.txt",
+            "content": "x\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tx", plan_file.to_str().unwrap(), "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "not_found");
+}

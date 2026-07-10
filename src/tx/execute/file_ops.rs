@@ -16,7 +16,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 anyhow::bail!("file was deleted earlier in this transaction: {path}");
             }
             if !file_path.exists() && !tx.pending.contains_key(&file_path) {
-                anyhow::bail!("file does not exist: {path}");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file does not exist: {path}"),
+                )
+                .into());
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::append_content(existing, content);
@@ -38,7 +42,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 anyhow::bail!("file was deleted earlier in this transaction: {path}");
             }
             if !file_path.exists() && !tx.pending.contains_key(&file_path) {
-                anyhow::bail!("file does not exist: {path}");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file does not exist: {path}"),
+                )
+                .into());
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::prepend_content(existing, content);
@@ -96,7 +104,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
                 None => {
                     if !file_path.exists() {
-                        anyhow::bail!("file not found: {path}");
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            format!("file not found: {path}"),
+                        )
+                        .into());
                     }
                     tx.existed_before.insert(file_path.clone());
                     // Try to read as text for strict rollback; fall back to
