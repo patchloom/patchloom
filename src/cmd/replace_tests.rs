@@ -669,26 +669,26 @@ mod edge_cases {
     }
 
     #[test]
-    fn identity_replacement_treated_as_no_match() {
+    fn identity_replacement_kept_in_scan_for_unique_and_require_change() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
         fs::write(&file, "hello world\n").unwrap();
 
-        // Replacing "hello" with "hello" should produce no change.
+        // Replacing "hello" with "hello" is still a match at scan time so
+        // --unique / require_change see the real count; run() drops it later.
         let args = make_args(
             "hello",
             "hello",
             vec![dir.path().to_string_lossy().into_owned()],
         );
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
-        assert!(
-            replacements.is_empty(),
-            "identity replacement must be filtered out"
-        );
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].match_count, 1);
+        assert_eq!(replacements[0].original, replacements[0].replaced);
     }
 
     #[test]
-    fn identity_replacement_check_returns_no_matches() {
+    fn identity_replacement_check_returns_success() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
         fs::write(&file, "hello world\n").unwrap();
@@ -702,10 +702,12 @@ mod edge_cases {
         global.check = true;
 
         let code = run(args, &global).unwrap();
+        // Pattern matched; new == old so no file changes. Do not report
+        // NO_MATCHES (exit 3) — that hides that the pattern was found.
         assert_eq!(
             code,
-            exit::NO_MATCHES,
-            "--check with identity replacement must not report changes"
+            exit::SUCCESS,
+            "--check with identity replacement is zero effective changes, not zero matches"
         );
     }
 

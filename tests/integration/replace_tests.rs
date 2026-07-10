@@ -1525,3 +1525,75 @@ fn test_replace_cli_require_change_no_match() {
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
 }
+
+#[test]
+fn test_replace_cli_identity_match_is_success_not_no_matches() {
+    // Pattern is present but new == old: do not claim "no matches".
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "sudo pip install\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "pip",
+            "--new",
+            "pip",
+            "--command-position",
+            "--require-change",
+            "install.sh",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "identity match should satisfy require_change: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("identical") || stderr.contains("no file changes"),
+        "should explain identity-only matches: {stderr}"
+    );
+    assert!(
+        !stderr.contains("no matches for"),
+        "must not claim no matches when the pattern was found: {stderr}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "sudo pip install\n");
+}
+
+#[test]
+fn test_replace_cli_unique_rejects_identity_multi_match() {
+    // --unique must count identity matches, not only content-changing ones.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "pip install\npip list\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "pip",
+            "--new",
+            "pip",
+            "--command-position",
+            "--unique",
+            "install.sh",
+            "--apply",
+        ])
+        .assert()
+        .code(5) // AMBIGUOUS
+        .stderr(predicate::str::contains("ambiguous match"));
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "pip install\npip list\n"
+    );
+}
