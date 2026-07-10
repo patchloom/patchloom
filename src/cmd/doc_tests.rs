@@ -759,6 +759,11 @@ mod error_handling {
         .unwrap();
         assert_eq!(json_code, exit::FAILURE);
         assert!(json_output.contains("not an object"));
+        assert!(
+            json_output.contains(r#""error_kind": "type_error""#)
+                || json_output.contains(r#""error_kind":"type_error""#),
+            "JSON type mismatch should set error_kind type_error: {json_output}"
+        );
     }
 
     #[test]
@@ -786,6 +791,11 @@ mod error_handling {
         .unwrap();
         assert_eq!(json_code, exit::FAILURE);
         assert!(json_output.contains("not an array or object"));
+        assert!(
+            json_output.contains(r#""error_kind": "type_error""#)
+                || json_output.contains(r#""error_kind":"type_error""#),
+            "JSON type mismatch should set error_kind type_error: {json_output}"
+        );
     }
 
     #[test]

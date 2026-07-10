@@ -38,6 +38,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **`run0` privilege wrapper.** `command_position` peels systemd `run0` (modern `sudo` alternative) so `run0 -u root pip` rewrites the command.
 - **Container entrypoint wrappers.** `command_position` peels `gosu`, `su-exec`, `tini`, and `dumb-init` so Docker/K8s install scripts rewrite the invocable command.
 - **CLI undo JSON `error_kind`.** Soft no-session paths (`undo --list` empty, or no sessions to restore) set `error_kind: "no_matches"` (exit 3), matching other CLI exit-3 JSON envelopes.
+- **CLI doc JSON `error_kind: type_error`.** `doc keys` / `doc len` on the wrong value type, and write-path type failures, set `error_kind: "type_error"` (exit 1) so agents can distinguish type mismatches from soft no-matches.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.
 

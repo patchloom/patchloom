@@ -2454,6 +2454,11 @@ fn test_doc_keys_not_an_object_returns_failure() {
         stdout.contains("not an object"),
         "JSON output should contain error, got: {stdout}"
     );
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["error_kind"], "type_error",
+        "doc keys type mismatch should set error_kind: {parsed}"
+    );
 }
 
 #[test]
@@ -2497,6 +2502,11 @@ fn test_doc_len_not_array_or_object_returns_failure() {
     assert!(
         stdout.contains("not an array or object"),
         "JSON output should contain error, got: {stdout}"
+    );
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["error_kind"], "type_error",
+        "doc len type mismatch should set error_kind: {parsed}"
     );
 }
 
