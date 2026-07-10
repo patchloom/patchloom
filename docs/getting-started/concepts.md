@@ -140,7 +140,7 @@ Every command returns a specific exit code:
 
 These codes let CI pipelines and agent frameworks branch on outcomes without parsing output.
 
-When `--json` or `--jsonl` is set, CLI usage failures (invalid flags, enum values, missing required args, unknown subcommands) emit a JSON envelope on stdout with `error_kind: "invalid_input"` and exit 1. Without those flags, clap prints human usage text on stderr.
+When `--json` or `--jsonl` is set, CLI usage failures (invalid flags, enum values, missing required args, unknown subcommands) emit a JSON envelope on stdout with `error_kind: "invalid_input"` and exit 1. Without those flags, clap prints human usage text on stderr. Path rejections under `--contain` (and empty path arguments) also set `error_kind: "invalid_input"` on the structured error path.
 
 ## Glob filtering
 

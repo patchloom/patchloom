@@ -265,6 +265,41 @@ fn test_contain_help_documents_allow_absolute_under_workspace() {
 }
 
 #[test]
+fn test_contain_json_escape_sets_invalid_input_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "--cwd",
+            dir.path().to_str().unwrap(),
+            "--contain",
+            "read",
+            "/etc/passwd",
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "containment rejections must set error_kind for agents: {json}"
+    );
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("workspace guard"),
+        "payload={json}"
+    );
+}
+
+#[test]
 fn test_confirm_conflicts_with_apply() {
     Command::cargo_bin("patchloom")
         .unwrap()
