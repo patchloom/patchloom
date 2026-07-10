@@ -358,10 +358,20 @@ pub fn replace_in_content(
 
     // Shell command-position path (#1494): only rewrite invocable command tokens.
     if opts.command_position {
-        if is_regex || opts.whole_line || opts.multiline || opts.nth.is_some() {
+        if is_regex
+            || opts.whole_line
+            || opts.multiline
+            || opts.nth.is_some()
+            || opts.case_insensitive
+            || opts.word_boundary
+            || opts.fuzzy
+            || opts.before_context.is_some()
+            || opts.after_context.is_some()
+        {
             return Err(crate::fallback::EditError::new(
                 crate::fallback::EditErrorKind::InvalidInput,
-                "command_position cannot be combined with regex, whole_line, multiline, or nth",
+                "command_position cannot be combined with regex, whole_line, multiline, nth, \
+                 case_insensitive, word_boundary, fuzzy, or context anchors",
             )
             .into());
         }

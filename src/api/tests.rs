@@ -3974,6 +3974,26 @@ fn replace_in_content_command_position_rejects_regex() {
     );
 }
 
+#[test]
+fn replace_in_content_command_position_rejects_case_insensitive() {
+    let err = replace_in_content(
+        "PIP install\n",
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            case_insensitive: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+    assert!(err.to_string().contains("case_insensitive"), "msg={}", err);
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn replace_text_require_change_file_no_match() {
