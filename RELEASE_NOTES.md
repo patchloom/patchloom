@@ -75,6 +75,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Tx mid-plan delete then use is `not_found`.** Append/prepend/rename after `file.delete` in the same plan set `error_kind: "not_found"` (exit 1). Workspace-guard escapes set `invalid_input`.
 - **Tx search assert_count mismatch.** Plan `search` with `assert_count` when the actual match count differs exits **2** with `error_kind: "changes_detected"` (was `operation_failed` / 9), matching CLI `search --assert-count`.
 - **CLI `--cwd` missing/non-dir `invalid_input`.** Bad `--cwd` paths exit **1** with `error_kind: "invalid_input"` under `--json` (typed `InvalidInputError`).
+- **Empty path strings `invalid_input`.** `resolve_user_path` rejects empty paths with typed `InvalidInputError` (same as `check_paths_contained`).
 
 ## Agent and library notes
 

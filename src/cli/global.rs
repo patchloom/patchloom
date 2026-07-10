@@ -405,7 +405,10 @@ impl GlobalFlags {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
         if path_str.trim().is_empty() {
-            anyhow::bail!("path must not be empty");
+            return Err(crate::exit::InvalidInputError {
+                msg: "path must not be empty".into(),
+            }
+            .into());
         }
         let cwd = self.resolve_cwd()?;
         // Always run empty-path + optional --contain checks via the shared helper.
@@ -1006,6 +1009,17 @@ mod tests {
         };
         let resolved = g.resolve_user_path("ops.txt").unwrap();
         assert_eq!(resolved, dir.path().join("ops.txt"));
+    }
+
+    #[test]
+    fn resolve_user_path_empty_is_invalid_input() {
+        let g = GlobalFlags::default();
+        let err = g.resolve_user_path("").unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty path should be InvalidInputError: {err}"
+        );
+        assert!(err.to_string().contains("path must not be empty"));
     }
 
     #[test]
