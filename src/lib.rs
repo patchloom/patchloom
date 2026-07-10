@@ -207,10 +207,10 @@ pub mod write;
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::search_one_file;
 pub use api::{
-    ApplyMode, ContentEditResult, EditError, EditErrorKind, EditResult, Hunk, PatchFile, PatchLine,
-    ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, build_context_lines,
-    edit_error_kind, edit_error_ref, format_search_results, parse_unified_diff, search_file,
-    text_diff,
+    ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult, EditError, EditErrorKind,
+    EditResult, Hunk, PatchFile, PatchLine, ReplaceOptions, SearchOptions, SearchResult,
+    WritePolicyOptions, apply_content_edits, build_context_lines, edit_error_kind, edit_error_ref,
+    format_search_results, parse_unified_diff, search_file, text_diff,
 };
 pub use plan::Plan;
 

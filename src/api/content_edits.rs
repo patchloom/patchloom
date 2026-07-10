@@ -2,6 +2,8 @@
 //!
 //! Compose sequential text operations on one buffer with all-or-nothing
 //! semantics, then optionally write once via [`apply_content_edits_to_file`].
+//! Results include rolled-up [`ContentEditsResult::match_count`] from replace
+//! ops (and the file helper surfaces the same on [`EditResult::match_count`]).
 
 use anyhow::Context;
 
