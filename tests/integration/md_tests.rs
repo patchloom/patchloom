@@ -704,6 +704,8 @@ fn test_md_apply_check_does_not_write() {
     let original = "# Title\n\n## Section\n\nold content\n";
     fs::write(&file, original).unwrap();
 
+    // --apply and --check are mutually exclusive at clap parse time (exit 1
+    // FAILURE, not CHANGES_DETECTED). No write path runs.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("md")
@@ -716,12 +718,13 @@ fn test_md_apply_check_does_not_write() {
         .arg("--apply")
         .arg("--check")
         .assert()
-        .code(2);
+        .code(1)
+        .stderr(predicate::str::contains("cannot be used"));
 
     let content = fs::read_to_string(&file).unwrap();
     assert_eq!(
         content, original,
-        "--check should prevent writing even with --apply"
+        "mutually exclusive --apply/--check must not write"
     );
 }
 

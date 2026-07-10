@@ -543,10 +543,11 @@ fn test_ast_rename_legacy_positionals_rejected() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("rename.rs");
     fs::write(&f, "fn alpha() {}\n").unwrap();
+    // Clap usage error → FAILURE (1), not CHANGES_DETECTED (2).
     patchloom_in(dir.path())
         .args(["ast", "rename", "alpha", "beta", "rename.rs", "--apply"])
         .assert()
-        .code(2)
+        .code(1)
         .stderr(predicates::str::contains("--old"))
         .stderr(predicates::str::contains("--new"));
 }

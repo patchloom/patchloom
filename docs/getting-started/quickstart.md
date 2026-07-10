@@ -269,8 +269,8 @@ This is safe; the next `--apply` run will create a fresh backup directory.
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | General failure |
-| 2 | Changes detected (used by `--check`) |
+| 1 | General failure (including invalid CLI usage) |
+| 2 | Changes detected (used by `--check` / write preview; not CLI usage errors) |
 | 3 | No matches found |
 | 4 | Parse error |
 | 5 | Ambiguous match |

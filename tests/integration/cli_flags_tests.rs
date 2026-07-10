@@ -631,11 +631,12 @@ fn test_completions_powershell() {
 
 #[test]
 fn test_completions_invalid_shell_fails() {
+    // Clap invalid enum → FAILURE (1), not CHANGES_DETECTED (2).
     Command::cargo_bin("patchloom")
         .unwrap()
         .args(["completions", "nonexistent"])
         .assert()
-        .code(2)
+        .code(1)
         .stderr(predicate::str::contains("invalid value"));
 }
 

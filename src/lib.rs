@@ -273,11 +273,31 @@ pub fn bounded_regex_builder(pattern: &str) -> regex::RegexBuilder {
 /// Run the patchloom CLI. Returns the exit code as a u8.
 ///
 /// Requires the `cli` feature (enabled by default).
+///
+/// CLI usage errors (unknown flags, invalid enum values, missing required
+/// args, unrecognized subcommands) map to [`exit::FAILURE`] (1). Clap's
+/// default exit 2 collides with [`exit::CHANGES_DETECTED`] (preview/`--check`
+/// pending changes), so agents and scripts must not treat clap's default as
+/// "changes detected."
 #[cfg(feature = "cli")]
 pub fn run() -> anyhow::Result<u8> {
     use clap::Parser;
 
-    let cli = crate::cli::Cli::parse();
+    let cli = match crate::cli::Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            // Help/version print to stdout and are success; everything else
+            // (usage, invalid value, missing arg) is a general failure.
+            let code = if e.use_stderr() {
+                exit::FAILURE
+            } else {
+                exit::SUCCESS
+            };
+            // Swallow broken-pipe on print (same as clap::Error::exit).
+            let _ = e.print();
+            return Ok(code);
+        }
+    };
 
     // Enable verbose mode from --verbose flag or PATCHLOOM_LOG env var.
     if cli.global.verbose || std::env::var_os("PATCHLOOM_LOG").is_some() {
