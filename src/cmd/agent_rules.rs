@@ -375,7 +375,12 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  ]}\n\
                  EOF\n\
                  ```\n\n\
-                 All operations succeed atomically or roll back together.\n\n");
+                 All operations succeed atomically or roll back together.\n\n\
+                 Plan/MCP `replace` accepts library flags (default false):\n\
+                 - `require_change`: fail when the pattern matches zero times (agent fail-closed).\n\
+                 - `command_position`: rewrite only shell invocable tokens (`sudo pip` yes; `uv pip` no).\n\
+                 Example: `{\"op\":\"replace\",\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
+                 \"command_position\":true,\"require_change\":true}`\n\n");
         }
     }
 
@@ -649,6 +654,15 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(out.contains("--whole-line"));
         assert!(out.contains("--collapse-blanks"));
+    }
+
+    #[test]
+    fn workflow_includes_plan_require_change_and_command_position() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("require_change") && out.contains("command_position"),
+            "plan replace library flags must be documented for agents"
+        );
     }
 
     #[test]
