@@ -399,6 +399,8 @@ fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
         (Some("ambiguous"), exit::AMBIGUOUS)
     } else if exit::is_invalid_input(err) {
         (Some("invalid_input"), exit::FAILURE)
+    } else if exit::is_io_not_found(err) {
+        (Some("not_found"), exit::FAILURE)
     } else {
         (None, exit::FAILURE)
     };
@@ -475,6 +477,16 @@ mod tests {
                 .contains("workspace guard"),
             "payload={payload}"
         );
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn structured_dispatch_error_maps_io_not_found() {
+        let err: anyhow::Error = std::io::Error::new(std::io::ErrorKind::NotFound, "nope").into();
+        let err = err.context("reading missing.md");
+        let (payload, code) = structured_dispatch_error(&err);
+        assert_eq!(code, exit::FAILURE);
+        assert_eq!(payload["error_kind"], "not_found");
     }
 
     #[test]

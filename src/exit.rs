@@ -86,6 +86,15 @@ pub fn is_invalid_input(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<InvalidInputError>().is_some())
 }
 
+/// True when any cause is an IO `NotFound` (missing file/dir).
+pub fn is_io_not_found(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    })
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.
@@ -218,5 +227,17 @@ mod tests {
         for code in codes {
             assert!(seen.insert(code), "duplicate exit code: {code}");
         }
+    }
+
+    #[test]
+    fn is_io_not_found_preserves_with_context_chain() {
+        use anyhow::Context;
+        let err = std::fs::read_to_string("/tmp/patchloom-definitely-missing-xyz-99999")
+            .with_context(|| "failed to read path");
+        let err = err.unwrap_err();
+        assert!(
+            is_io_not_found(&err),
+            "with_context should keep NotFound in chain: {err:#}"
+        );
     }
 }

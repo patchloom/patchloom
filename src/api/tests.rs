@@ -336,9 +336,10 @@ fn file_create_force_propagates_read_error() {
     let err = file_create(&file, "new", true, ApplyMode::Apply, None).unwrap_err();
     // Restore permissions so TempDir cleanup succeeds.
     fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let msg = format!("{err:#}");
     assert!(
-        err.to_string().contains("failed to read"),
-        "expected read error, got: {err}"
+        msg.contains("failed to read"),
+        "expected read error, got: {msg}"
     );
 }
 
@@ -730,7 +731,8 @@ fn md_table_append_column_mismatch_gives_specific_error() {
     .unwrap();
 
     let err = md_table_append(&file, "# Data", "| x |", ApplyMode::Preview, None).unwrap_err();
-    let msg = err.to_string();
+    // Engine wraps with context; use alternate Display for the full chain.
+    let msg = format!("{err:#}");
     assert!(
         msg.contains("column"),
         "error should mention column mismatch, got: {msg}"
@@ -749,7 +751,7 @@ fn md_table_append_no_table_gives_specific_error() {
     fs::write(&file, "# Data\n\nJust text, no table.\n").unwrap();
 
     let err = md_table_append(&file, "# Data", "| x |", ApplyMode::Preview, None).unwrap_err();
-    let msg = err.to_string();
+    let msg = format!("{err:#}");
     assert!(
         msg.contains("no markdown table"),
         "error should mention 'no markdown table', got: {msg}"
