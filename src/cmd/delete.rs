@@ -31,10 +31,14 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let path = cwd.join(&args.file);
 
     if !path.exists() {
-        anyhow::bail!("file not found: {}", args.file);
+        let msg = format!("file not found: {}", args.file);
+        global.emit_error_json_kind(Some("not_found"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
     if !path.is_file() {
-        anyhow::bail!("target is not a file: {}", args.file);
+        let msg = format!("target is not a file: {}", args.file);
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     let op = Operation::FileDelete {
@@ -117,15 +121,12 @@ mod tests {
         let target = dir.path().join("folder");
         std::fs::create_dir(&target).unwrap();
 
-        let result = run(
+        let code = run(
             make_args(&target.to_string_lossy()),
             &GlobalFlags::default(),
-        );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("target is not a file"),
-            "expected 'target is not a file' error, got: {err}"
-        );
+        )
+        .unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -154,14 +155,11 @@ mod tests {
 
     #[test]
     fn nonexistent_file_returns_error() {
-        let result = run(
+        let code = run(
             make_args("/tmp/nonexistent_patchloom_test_file_xyz.txt"),
             &GlobalFlags::default(),
-        );
-        let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("file not found"),
-            "error should mention 'file not found', got: {err}"
-        );
+        )
+        .unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 }

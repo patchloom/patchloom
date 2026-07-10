@@ -39,6 +39,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Container entrypoint wrappers.** `command_position` peels `gosu`, `su-exec`, `tini`, and `dumb-init` so Docker/K8s install scripts rewrite the invocable command.
 - **CLI undo JSON `error_kind`.** Soft no-session paths (`undo --list` empty, or no sessions to restore) set `error_kind: "no_matches"` (exit 3), matching other CLI exit-3 JSON envelopes.
 - **CLI doc JSON `error_kind: type_error`.** `doc keys` / `doc len` on the wrong value type, and write-path type failures, set `error_kind: "type_error"` (exit 1) so agents can distinguish type mismatches from soft no-matches.
+- **CLI file ops JSON error_kind.** `create`/`rename` conflicts set `already_exists`; missing targets for `delete`/`append`/`prepend`/`rename` set `not_found`; invalid flag combinations and non-file targets set `invalid_input` (all exit 1).
 - **CLI top-level JSON typed errors.** When a command returns a typed `NoMatchError` / `AmbiguousError` through the global error path under `--json`/`--jsonl`, the envelope includes `error_kind` and exits 3/5 (was generic exit 1 without kind).
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).

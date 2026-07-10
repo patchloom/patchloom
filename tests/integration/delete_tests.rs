@@ -398,3 +398,21 @@ fn test_delete_contain_allows_in_workspace() {
 
     assert!(!dir.path().join("inside.txt").exists());
 }
+
+#[test]
+fn test_delete_json_not_found_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "delete", "missing.txt", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "not_found",
+        "delete --json missing file should set error_kind: {parsed}"
+    );
+}
