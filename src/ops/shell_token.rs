@@ -15,6 +15,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "sudo", "doas", "env", "command", "builtin", "exec", "time", "nice", "nohup",
     // Agent scripts often wrap installs: `timeout 30 pip install`, `stdbuf -oL …`.
     "timeout", "stdbuf", "ionice",
+    // Invokers that take a command as their first non-option arg.
+    "xargs", "watch", "strace",
 ];
 
 /// Return true if `token` at byte range `[start, end)` is in shell command position.
@@ -434,6 +436,31 @@ mod tests {
         let (out, n) = replace_command_position(content, "pip", "uv");
         assert_eq!(n, 1, "out={out:?}");
         assert!(out.contains("uv install"), "{out:?}");
+    }
+
+    #[test]
+    fn xargs_watch_strace_allow_command() {
+        assert_eq!(
+            replace_command_position("xargs pip install\n", "pip", "uv").0,
+            "xargs uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("xargs -n1 pip install\n", "pip", "uv").0,
+            "xargs -n1 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("watch pip list\n", "pip", "uv").0,
+            "watch uv list\n"
+        );
+        assert_eq!(
+            replace_command_position("strace -f pip install\n", "pip", "uv").0,
+            "strace -f uv install\n"
+        );
+        // Argument-position still safe.
+        assert_eq!(
+            replace_command_position("echo xargs pip\n", "pip", "uv").1,
+            0
+        );
     }
 
     #[test]
