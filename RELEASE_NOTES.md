@@ -24,6 +24,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Restore path matching.** Basename-only match removed so a different path with the same file name cannot restore the wrong session. (#1499)
 - **`command_position` multi-line wrappers.** Prefix peeling no longer strips newlines, so `timeout` / `nice` / `sudo` on a later line are not confused with tokens from the previous line. Also peels `timeout 30`, `nice -n 10`, `stdbuf`, `ionice`, `setsid`, `runuser -u USER`, and path-taking `flock` / `chroot` wrappers.
 - **`command_position` flag honesty.** Combining with `case_insensitive`, `word_boundary`, `fuzzy`, or context anchors is `InvalidInput` (was silently ignored, which looked like a soft no-match).
+- **CLI identity replace honesty.** When the pattern matches but `new` equals `old`, `replace` no longer reports "no matches" / exit 3. It reports success with the raw match count and an "identical (no file changes)" note so `require_change` stays satisfied.
 
 ## Agent and library notes
 
