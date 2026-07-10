@@ -245,12 +245,16 @@ fn execute_plan_inner(
         options.guard.is_some()
     );
     // Validate TidyFix-specific constraints (dedent + indent mutual exclusion).
+    // Defense in depth when callers skip validate_plan_operations.
     for op in &operations {
         if let Operation::TidyFix { dedent, indent, .. } = op
             && dedent.is_some()
             && indent.is_some()
         {
-            anyhow::bail!("tidy.fix: 'dedent' and 'indent' cannot both be set");
+            return Err(crate::exit::InvalidInputError {
+                msg: "tidy.fix: 'dedent' and 'indent' cannot both be set".into(),
+            }
+            .into());
         }
     }
 

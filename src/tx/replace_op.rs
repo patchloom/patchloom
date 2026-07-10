@@ -83,7 +83,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             },
         )
     {
-        anyhow::bail!("{msg}");
+        return Err(crate::exit::InvalidInputError { msg: msg.into() }.into());
     }
     let use_regex = regex_mode || *case_insensitive || word_boundary;
     let replacement = replacement_text(
@@ -102,7 +102,10 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         word_boundary,
     )?;
     if range.is_some() && !*whole_line {
-        anyhow::bail!("range requires whole_line mode");
+        return Err(crate::exit::InvalidInputError {
+            msg: "range requires whole_line mode".into(),
+        }
+        .into());
     }
     let parsed_range = range
         .as_deref()
@@ -346,7 +349,10 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         }
         Ok(total_matches)
     } else {
-        anyhow::bail!("replace operation requires either 'path' or 'glob'");
+        Err(crate::exit::InvalidInputError {
+            msg: "replace operation requires either 'path' or 'glob'".into(),
+        }
+        .into())
     }
 }
 
@@ -528,8 +534,15 @@ mod tests {
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
         let result = execute_replace_op(&op, &mut tx);
-        assert!(result.is_err(), "expected error, got Ok: {result:?}");
-        assert!(result.unwrap_err().to_string().contains("'path' or 'glob'"));
+        let err = result.expect_err("expected error when path and glob are both None");
+        assert!(
+            err.to_string().contains("'path' or 'glob'"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "missing path/glob should be InvalidInputError: {err}"
+        );
     }
 
     #[test]

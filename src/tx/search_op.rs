@@ -52,10 +52,16 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
     };
 
     if *invert_match && *multiline {
-        anyhow::bail!("invert_match and multiline cannot be combined");
+        return Err(crate::exit::InvalidInputError {
+            msg: "invert_match and multiline cannot be combined".into(),
+        }
+        .into());
     }
     if *literal && *regex {
-        anyhow::bail!("search: literal and regex cannot be combined");
+        return Err(crate::exit::InvalidInputError {
+            msg: "search: literal and regex cannot be combined".into(),
+        }
+        .into());
     }
 
     // Treat pattern as literal text only when explicitly requested.

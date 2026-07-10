@@ -89,7 +89,12 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             if abs.is_dir() {
                 let files = collect_ast_source_files(&abs)?;
                 if files.is_empty() {
-                    anyhow::bail!("no source files found in {}", path);
+                    // Match CLI ast rename: empty dir is no_matches (exit 3), not
+                    // generic operation_failed (9).
+                    return Err(crate::exit::NoMatchError {
+                        msg: format!("no source files found in {path}"),
+                    }
+                    .into());
                 }
                 let mut total = 0usize;
                 for file_path in &files {

@@ -113,7 +113,12 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
             let position = match (before.as_deref(), after.as_deref()) {
                 (Some(b), None) => ("before", b),
                 (None, Some(a)) => ("after", a),
-                _ => anyhow::bail!("md.move_section requires exactly one of 'before' or 'after'"),
+                _ => {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: "md.move_section requires exactly one of 'before' or 'after'".into(),
+                    }
+                    .into());
+                }
             };
             let dest_path_str = to.as_deref().unwrap_or(path.as_str());
             let source_path = tx.cwd.join(path);
