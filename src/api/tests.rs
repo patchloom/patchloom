@@ -3838,6 +3838,23 @@ fn replace_in_content_require_change_false_no_match_ok() {
 }
 
 #[test]
+fn replace_in_content_require_change_identity_match_is_ok() {
+    // Matches exist but replacement equals the match: still Ok (not NoMatch).
+    let r = replace_in_content(
+        "hello hello",
+        "hello",
+        "hello",
+        &ReplaceOptions {
+            require_change: true,
+            ..Default::default()
+        },
+    )
+    .expect("require_change cares about zero matches, not identity replace");
+    assert!(!r.changed);
+    assert_eq!(r.match_count, 2);
+}
+
+#[test]
 fn replace_in_content_unique_multi_is_ambiguous() {
     let err = replace_in_content(
         "a a a",

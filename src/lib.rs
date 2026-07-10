@@ -98,14 +98,16 @@
 //! ```
 //!
 //! Shell command-position matching (#1494): opt-in `ReplaceOptions.command_position`
-//! rewrites invocable tokens (`pip install`) without touching arguments (`uv pip`) or
-//! longer words (`pipenv`). Not the same as `word_boundary`. Post-Apply validate/revert:
-//! host runs a validator, then `backup::restore_path_from_latest_backup(project_root, path)`.
+//! rewrites invocable tokens (`pip install`, `sudo -E pip`) without touching arguments
+//! (`uv pip`) or longer words (`pipenv`). Not the same as `word_boundary`. Post-Apply
+//! validate/revert: host runs a validator, then
+//! `backup::restore_path_from_latest_backup(project_root, path)`.
 //!
 //! For several ordered text edits on **one buffer** then a single write (agent intent engines):
 //! use `api::apply_content_edits` / `api::apply_content_edits_to_file` with
 //! `ContentEdit::{Replace, InsertBefore, InsertAfter, Append, Prepend}` (all-or-nothing).
-//! Multi-file multi-op remains `execute_plan`.
+//! Results expose rolled-up `match_count` across replace ops. Multi-file multi-op remains
+//! `execute_plan`.
 //!
 //! **Note on results**: Single-file ops return `EditResult` (with `action`, `dest_path`,
 //! `match_count` for replace, and `removed` for `doc.delete` / `doc.delete_where`).
