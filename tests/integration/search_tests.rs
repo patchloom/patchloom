@@ -74,10 +74,11 @@ fn test_search_no_match_quiet_suppresses_stderr() {
 fn test_search_no_match_files_from_mentions_files_from_not_dot() {
     // When the file list is --files-from, "no matches in ." is wrong: search never
     // walked the workspace root. Scope description must name --files-from.
+    // Use an existing file with no pattern hit (missing list entries are not_found).
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
     let list = dir.path().join("list.txt");
-    fs::write(&list, "missing.txt\n").unwrap();
+    fs::write(&list, "a.txt\n").unwrap();
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -86,7 +87,7 @@ fn test_search_no_match_files_from_mentions_files_from_not_dot() {
         .arg("--files-from")
         .arg("list.txt")
         .arg("search")
-        .arg("hello")
+        .arg("zzz_no_match_zzz")
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(3));
@@ -1186,4 +1187,22 @@ fn test_search_contain_rejects_files_from_parent_escape() {
         );
 
     let _ = fs::remove_file(&outside);
+}
+
+#[test]
+fn test_search_files_from_all_missing_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let list = dir.path().join("list.txt");
+    fs::write(&list, format!("{}/nope.txt\n", dir.path().display())).unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--files-from"])
+        .arg(&list)
+        .args(["search", "hello"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error_kind"], "not_found");
 }

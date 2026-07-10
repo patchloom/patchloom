@@ -55,7 +55,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **`--contain` JSON `invalid_input`.** Path rejections and empty path arguments under `--contain` set `error_kind: "invalid_input"` on the global `--json`/`--jsonl` error path (typed `InvalidInputError`, not English scraping).
 - **Cleaner clap JSON usage messages.** Usage failures under `--json`/`--jsonl` strip the `error: ` prefix and help footer so agents get a short actionable string.
 - **Plan `ops` alias.** Transaction plans accept `"ops"` as a serde alias for `"operations"` so agents that emit the shorter field name parse without a `missing field` error.
-- **Missing path roots are `not_found`.** When every explicit path root for `search`, `replace`, or `tidy` is missing, exit **1** with `error_kind: "not_found"` (was soft `no_matches` / vacuous tidy success). Pattern misses and clean trees still use exit 3 / 0.
+- **Missing path roots are `not_found`.** When every explicit path root for `search`, `replace`, or `tidy` is missing (including `--files-from` lists, not stdin), exit **1** with `error_kind: "not_found"` (was soft `no_matches` / vacuous tidy success). Pattern misses and clean trees still use exit 3 / 0.
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.

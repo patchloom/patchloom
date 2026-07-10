@@ -216,7 +216,7 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
     use crate::exit;
     crate::verbose!("tidy: checking {} path(s)", paths.len());
     let cwd = global.resolve_cwd()?;
-    if crate::files::all_explicit_paths_missing(paths, Some(&cwd)) {
+    if crate::files::all_scan_targets_missing(global, paths, Some(&cwd))? {
         let msg = format!(
             "no such file or directory: {}",
             global.path_scope_description(paths)

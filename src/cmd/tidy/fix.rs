@@ -231,7 +231,7 @@ pub(super) fn run_fix(
 
     crate::verbose!("tidy: {} file(s) need fixing", dirty_rel_paths.len());
     if dirty_rel_paths.is_empty() {
-        if crate::files::all_explicit_paths_missing(&paths, Some(&cwd)) {
+        if crate::files::all_scan_targets_missing(global, &paths, Some(&cwd))? {
             let msg = format!(
                 "no such file or directory: {}",
                 global.path_scope_description(&paths)

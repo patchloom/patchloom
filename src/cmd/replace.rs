@@ -373,7 +373,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
         }
-        if crate::files::all_explicit_paths_missing(&args.paths, Some(&cwd)) {
+        if crate::files::all_scan_targets_missing(global, &args.paths, Some(&cwd))? {
             let msg = format!(
                 "no such file or directory: {}",
                 global.path_scope_description(&args.paths)
