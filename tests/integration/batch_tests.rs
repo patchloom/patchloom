@@ -596,6 +596,15 @@ fn test_batch_ast_rewrite_signature() {
         content.contains("u64"),
         "batch rewrite_signature should update types: {content}"
     );
+    // #1503: structured batch path must keep space before body brace.
+    assert!(
+        content.contains("-> u64 {"),
+        "batch rewrite_signature must preserve body gap: {content}"
+    );
+    assert!(
+        !content.contains("u64{"),
+        "must not glue type to brace: {content}"
+    );
 }
 
 #[test]
