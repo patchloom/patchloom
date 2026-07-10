@@ -23,6 +23,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **`if_exists` vs `require_change` on file replace.** File path honors the same "if_exists wins" rule as content replace. (#1499)
 - **Restore path matching.** Basename-only match removed so a different path with the same file name cannot restore the wrong session. (#1499)
 - **`command_position` multi-line wrappers.** Prefix peeling no longer strips newlines, so `timeout` / `nice` / `sudo` on a later line are not confused with tokens from the previous line. Also peels `timeout 30`, `nice -n 10`, `stdbuf`, and `ionice` wrappers.
+- **`command_position` flag honesty.** Combining with `case_insensitive`, `word_boundary`, `fuzzy`, or context anchors is `InvalidInput` (was silently ignored, which looked like a soft no-match).
 
 ## Agent and library notes
 
