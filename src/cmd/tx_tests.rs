@@ -1104,7 +1104,7 @@ mod integrity {
         global.apply = true;
 
         let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::OPERATION_FAILED);
+        assert_eq!(code, exit::FAILURE); // not_found on missing doc path
 
         // Verify no files were modified.
         assert_eq!(fs::read_to_string(&txt).unwrap(), "hello world\n");

@@ -10,7 +10,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
         Operation::FileAppend { path, content } => {
             let file_path = tx.cwd.join(path);
             if file_path.exists() && !file_path.is_file() {
-                anyhow::bail!("target is not a file: {path}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {path}"),
+                }
+                .into());
             }
             if tx.deletions.contains(&file_path) {
                 anyhow::bail!("file was deleted earlier in this transaction: {path}");
@@ -36,7 +39,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
         Operation::FilePrepend { path, content } => {
             let file_path = tx.cwd.join(path);
             if file_path.exists() && !file_path.is_file() {
-                anyhow::bail!("target is not a file: {path}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {path}"),
+                }
+                .into());
             }
             if tx.deletions.contains(&file_path) {
                 anyhow::bail!("file was deleted earlier in this transaction: {path}");
@@ -66,7 +72,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
         } => {
             let file_path = tx.cwd.join(path);
             if file_path.exists() && !file_path.is_file() {
-                anyhow::bail!("target is not a file: {path}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {path}"),
+                }
+                .into());
             }
             if force.unwrap_or(false) {
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
@@ -101,7 +110,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
         Operation::FileDelete { path } => {
             let file_path = tx.cwd.join(path);
             if file_path.exists() && !file_path.is_file() {
-                anyhow::bail!("target is not a file: {path}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {path}"),
+                }
+                .into());
             }
             let created_in_tx = match tx.pending.get(&file_path) {
                 Some((original, _)) => original.is_empty() && !file_path.exists(),
@@ -154,10 +166,16 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 anyhow::bail!("source file was deleted earlier in this transaction: {from}");
             }
             if src_path.exists() && !src_path.is_file() {
-                anyhow::bail!("source is not a file: {from}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("source is not a file: {from}"),
+                }
+                .into());
             }
             if dst_path.exists() && !dst_path.is_file() {
-                anyhow::bail!("destination is not a file: {to}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("destination is not a file: {to}"),
+                }
+                .into());
             }
 
             // If source and destination resolve to the same file, no-op.

@@ -413,6 +413,14 @@ pub(crate) fn run_parsed_plan(
                 }
                 return Ok(exit::FAILURE);
             }
+            if exit::is_invalid_input(&e) {
+                if structured {
+                    emit_error_json("invalid_input", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::FAILURE);
+            }
             if structured {
                 emit_error_json("operation_failed", &msg, None, compact);
             } else {
