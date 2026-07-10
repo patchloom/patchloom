@@ -397,6 +397,14 @@ pub(crate) fn run_parsed_plan(
                 }
                 return Ok(exit::AMBIGUOUS);
             }
+            if exit::is_io_not_found(&e) {
+                if structured {
+                    emit_error_json("not_found", &msg, None, compact);
+                } else {
+                    eprintln!("tx: {msg}");
+                }
+                return Ok(exit::FAILURE);
+            }
             if structured {
                 emit_error_json("operation_failed", &msg, None, compact);
             } else {

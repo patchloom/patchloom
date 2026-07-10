@@ -1319,8 +1319,8 @@ mod integrity {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::OPERATION_FAILED,
-            "strict plan with failing op should fail before commit"
+            exit::FAILURE,
+            "strict plan with failing op (missing path → not_found) should fail before commit"
         );
 
         // File should remain untouched because execution failed before any writes.
@@ -1428,8 +1428,8 @@ mod integrity {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::OPERATION_FAILED,
-            "strict plan with failing op should fail"
+            exit::FAILURE,
+            "strict plan with failing op (missing path → not_found) should fail"
         );
         assert!(
             !created.exists(),
@@ -1473,8 +1473,8 @@ mod integrity {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::OPERATION_FAILED,
-            "strict plan with failing op should fail"
+            exit::FAILURE,
+            "strict plan with failing op (missing path → not_found) should fail"
         );
         assert!(
             victim.exists(),

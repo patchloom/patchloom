@@ -148,6 +148,9 @@ pub fn execute_plan_direct(
             if crate::exit::is_ambiguous(&e) {
                 return Ok(build_error_output("ambiguous", &e.to_string(), None));
             }
+            if crate::exit::is_io_not_found(&e) {
+                return Ok(build_error_output("not_found", &e.to_string(), None));
+            }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
     };
