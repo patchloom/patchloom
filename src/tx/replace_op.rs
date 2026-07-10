@@ -236,7 +236,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .replace_hint
                     .clone()
                     .unwrap_or_else(|| format!("no matches for {old:?} in {p}"));
-                anyhow::bail!(msg);
+                return Err(crate::exit::NoMatchError { msg }.into());
             }
             Ok(0)
         }
@@ -339,7 +339,10 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             }
         }
         if total_matches == 0 && *require_change && !if_exists {
-            anyhow::bail!("no matches for {old:?} (glob {pattern})");
+            return Err(crate::exit::NoMatchError {
+                msg: format!("no matches for {old:?} (glob {pattern})"),
+            }
+            .into());
         }
         Ok(total_matches)
     } else {

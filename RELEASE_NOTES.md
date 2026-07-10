@@ -26,6 +26,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **`command_position` flag honesty.** Combining with `case_insensitive`, `word_boundary`, `fuzzy`, or context anchors is `InvalidInput` (was silently ignored, which looked like a soft no-match).
 - **CLI identity replace honesty.** When the pattern matches but `new` equals `old`, `replace` no longer reports "no matches" / exit 3. It reports success with the raw match count and an "identical (no file changes)" note so `require_change` stays satisfied.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
+- **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.
 
 ## Agent and library notes
 
