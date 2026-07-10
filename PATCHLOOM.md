@@ -305,7 +305,7 @@ dependencies[name=react].version # predicate filter
 | 0 | Success (operation completed, or no changes needed) |
 | 1 | Failure (error during execution), or tx `rollback_failed` when mid-commit rollback could not fully restore files |
 | 2 | Changes detected (`--check` mode found pending changes) |
-| 3 | No matches (search/replace pattern miss, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |
+| 3 | No matches (search/replace pattern miss, undo with no sessions, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |
 | 4 | Parse error (malformed input file or plan) |
 | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |
 | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |
@@ -317,7 +317,7 @@ dependencies[name=react].version # predicate filter
 
 ## Operations (from schema registry)
 
-- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/unshare/nsenter/taskset wrappers, not uv pip).
+- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail wrappers, not uv pip).
 - `file.append`: Append content to an existing file.
 - `file.prepend`: Prepend content to an existing file.
 - `file.create`: Create a new file with specified content.

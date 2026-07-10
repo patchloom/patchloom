@@ -1006,6 +1006,10 @@ mod tests {
             "tini -- uv install\n"
         );
         assert_eq!(
+            replace_command_position("tini -g -- pip install\n", "pip", "uv").0,
+            "tini -g -- uv install\n"
+        );
+        assert_eq!(
             replace_command_position("dumb-init -- pip install\n", "pip", "uv").0,
             "dumb-init -- uv install\n"
         );

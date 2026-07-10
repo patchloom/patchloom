@@ -563,7 +563,7 @@ fn execute_with_mode_inner(
                     output_mode,
                     quiet,
                     exit::FAILURE,
-                    None,
+                    Some("type_error"),
                 ),
                 crate::ops::doc::query::QueryKeysResult::Keys(keys) => {
                     let output = match output_mode {
@@ -594,7 +594,7 @@ fn execute_with_mode_inner(
                     output_mode,
                     quiet,
                     exit::FAILURE,
-                    None,
+                    Some("type_error"),
                 ),
                 crate::ops::doc::query::QueryLenResult::Len(len) => {
                     let output = match output_mode {
@@ -802,8 +802,8 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
                     return Ok(exit::NO_MATCHES);
                 }
-                // TypeError or other engine error → FAILURE
-                global.emit_error_json(&e.to_string())?;
+                // TypeError or other engine error → FAILURE (typed for agents)
+                global.emit_error_json_kind(Some("type_error"), &e.to_string())?;
                 return Ok(exit::FAILURE);
             }
         }
