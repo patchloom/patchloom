@@ -878,8 +878,9 @@ mod error_handling {
 
         let err = validate_operation(&plan.operations[0]).unwrap_err();
         assert!(
-            err.to_string().contains("search pattern must not be empty"),
-            "expected 'search pattern must not be empty' error, got: {}",
+            err.to_string()
+                .contains("replace pattern must not be empty"),
+            "expected 'replace pattern must not be empty' error, got: {}",
             err
         );
     }

@@ -83,7 +83,7 @@ pub enum ReplaceValidationError {
 impl std::fmt::Display for ReplaceValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::EmptyPattern => write!(f, "search pattern must not be empty"),
+            Self::EmptyPattern => write!(f, "replace pattern must not be empty"),
             Self::NthZero => {
                 write!(
                     f,

@@ -59,7 +59,7 @@ mod replace_tests {
             assert!(
                 ReplaceValidationError::EmptyPattern
                     .to_string()
-                    .contains("search pattern must not be empty")
+                    .contains("replace pattern must not be empty")
             );
             assert!(ReplaceValidationError::NthZero.to_string().contains("nth"));
             assert!(

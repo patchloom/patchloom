@@ -194,7 +194,8 @@ mod tests {
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(
-            err.to_string().contains("search pattern must not be empty"),
+            err.to_string()
+                .contains("replace pattern must not be empty"),
             "unexpected error: {err}"
         );
     }
