@@ -55,6 +55,14 @@ pub enum Operation {
         /// Fail if the pattern matches more than once (enforce unambiguous edits).
         #[serde(default)]
         unique: bool,
+        /// Zero matches is an error (library fail-closed). Soft no-match when false.
+        /// When both this and `if_exists` are true, `if_exists` wins.
+        #[serde(default)]
+        require_change: bool,
+        /// Only rewrite shell command-position tokens (not arguments / longer words).
+        /// Literal only; incompatible with regex/case_insensitive/word_boundary/fuzzy.
+        #[serde(default)]
+        command_position: bool,
     },
     #[serde(rename = "doc.set")]
     DocSet {

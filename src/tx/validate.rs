@@ -132,6 +132,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         }
     }
 
@@ -187,6 +189,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(

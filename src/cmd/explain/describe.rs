@@ -429,6 +429,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Replace "v1" with "v2" in README.md (literal)"#);
@@ -454,6 +456,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -582,6 +586,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -611,6 +617,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Insert "// added" after "use crate" in lib.rs"#);
@@ -636,6 +644,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("whole-line"), "{desc}");
@@ -747,6 +757,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert!(
@@ -776,6 +788,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert!(
@@ -805,6 +819,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains(", multiline"), "missing multiline: {desc}");
@@ -831,6 +847,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("**/*.rs"), "{desc}");
@@ -856,6 +874,8 @@ mod tests {
             before_context: None,
             after_context: None,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("(delete)"), "{desc}");

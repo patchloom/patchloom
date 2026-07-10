@@ -60,6 +60,12 @@ pub(crate) struct ReplaceParams {
     /// Fail if the pattern matches more than once (enforce unambiguous edits).
     #[serde(default)]
     pub unique: bool,
+    /// Zero matches is an error (fail closed). Softened when if_exists is true.
+    #[serde(default)]
+    pub require_change: bool,
+    /// Only rewrite shell command-position tokens (not arguments / longer words).
+    #[serde(default)]
+    pub command_position: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,

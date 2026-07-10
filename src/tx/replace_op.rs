@@ -44,6 +44,8 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         before_context,
         after_context,
         unique,
+        require_change,
+        command_position,
         ..
     } = op
     else {
@@ -57,6 +59,29 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             ..
         }
     );
+    let if_exists = matches!(
+        op,
+        Operation::Replace {
+            if_exists: true,
+            ..
+        }
+    );
+    if *command_position
+        && (regex_mode
+            || *case_insensitive
+            || word_boundary
+            || *whole_line
+            || *multiline
+            || nth.is_some()
+            || insert_before.is_some()
+            || insert_after.is_some()
+            || before_context.is_some()
+            || after_context.is_some())
+    {
+        anyhow::bail!(
+            "command_position cannot be combined with regex, whole_line, multiline, nth,              case_insensitive, word_boundary, insert_before/after, or context anchors"
+        );
+    }
     let use_regex = regex_mode || *case_insensitive || word_boundary;
     let replacement = replacement_text(
         old,
@@ -84,7 +109,11 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
         let content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
-        let (replaced, match_count) = if *whole_line {
+        let (replaced, match_count) = if *command_position {
+            let to = new_text.as_deref().unwrap_or("");
+            let (out, n) = crate::ops::shell_token::replace_command_position(content, old, to);
+            (std::borrow::Cow::Owned(out), n)
+        } else if *whole_line {
             replace_whole_lines(
                 content,
                 old,
@@ -196,6 +225,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     ));
                 }
             }
+            if *require_change && !if_exists {
+                let msg = tx
+                    .replace_hint
+                    .clone()
+                    .unwrap_or_else(|| format!("no matches for {old:?} in {p}"));
+                anyhow::bail!(msg);
+            }
             Ok(0)
         }
     } else if let Some(pattern) = glob {
@@ -269,7 +305,11 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 .get(&file_path)
                 .map(|(_, c)| c.clone())
                 .expect("read_and_probe guarantees entry exists in pending");
-            let (replaced, match_count) = if *whole_line {
+            let (replaced, match_count) = if *command_position {
+                let to = new_text.as_deref().unwrap_or("");
+                let (out, n) = crate::ops::shell_token::replace_command_position(&content, old, to);
+                (std::borrow::Cow::Owned(out), n)
+            } else if *whole_line {
                 replace_whole_lines(
                     &content,
                     old,
@@ -291,6 +331,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     replaced.into_owned(),
                 );
             }
+        }
+        if total_matches == 0 && *require_change && !if_exists {
+            anyhow::bail!("no matches for {old:?} (glob {pattern})");
         }
         Ok(total_matches)
     } else {
@@ -329,6 +372,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -363,6 +408,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -395,6 +442,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -429,6 +478,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -461,6 +512,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -495,6 +548,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -532,6 +587,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -581,6 +638,8 @@ mod tests {
             after_context: Some("port = 5432".into()),
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -627,6 +686,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -669,6 +730,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -709,6 +772,8 @@ mod tests {
             after_context: None,
             if_exists: false,
             unique: false,
+            require_change: false,
+            command_position: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -718,5 +783,70 @@ mod tests {
             err.to_string().contains("range requires whole_line"),
             "should reject range without whole_line: {err}"
         );
+    }
+    #[test]
+    fn command_position_rewrites_sudo_pip() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("install.sh");
+        std::fs::write(&file, "sudo pip install x\nuv pip install\n").unwrap();
+        let op = Operation::Replace {
+            path: Some("install.sh".into()),
+            glob: None,
+            regex: false,
+            old: "pip".into(),
+            new_text: Some("uv".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: true,
+            command_position: true,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1);
+        assert_eq!(f.pending[&file].1, "sudo uv install x\nuv pip install\n");
+    }
+
+    #[test]
+    fn require_change_bails_on_zero_matches() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("f.txt");
+        std::fs::write(&file, "hello\n").unwrap();
+        let op = Operation::Replace {
+            path: Some("f.txt".into()),
+            glob: None,
+            regex: false,
+            old: "missing".into(),
+            new_text: Some("x".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: true,
+            command_position: false,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_replace_op(&op, &mut tx).unwrap_err();
+        assert!(err.to_string().contains("no matches"), "{err}");
     }
 }

@@ -83,6 +83,9 @@ pub fn replace_text(
         before_context: opts.before_context.clone(),
         after_context: opts.after_context.clone(),
         unique: opts.unique,
+        // require_change is applied below as structured EditError (not via tx bail).
+        require_change: false,
+        command_position: opts.command_position,
     };
     let result = replace_write(op, path, mode, guard, opts.fuzzy)?;
     // if_exists intentionally softens zero-match (Ok unchanged). require_change

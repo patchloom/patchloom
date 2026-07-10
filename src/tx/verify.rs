@@ -515,6 +515,8 @@ mod tests {
                 before_context: None,
                 after_context: None,
                 unique: false,
+                require_change: false,
+                command_position: false,
             }],
             write_policy: None,
             format: None,

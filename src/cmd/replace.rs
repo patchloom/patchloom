@@ -456,6 +456,8 @@ fn run_context_replace(
             before_context: args.before_context.clone(),
             after_context: args.after_context.clone(),
             unique: args.unique,
+            require_change: false,
+            command_position: false,
         })
         .collect();
 
