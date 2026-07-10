@@ -2,7 +2,7 @@
 //!
 //! A token is in **command position** when it is the invocable command of a
 //! simple shell fragment: start of line (after whitespace), after `&&` `|` `;`,
-//! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`,
+//! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`, `xargs`, `eval`,
 //! and common option flags like `-E` / `-p`). It is **not** command position
 //! when it is an argument (`uv pip`) or inside a longer word (`pipenv`).
 //!
@@ -17,6 +17,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "timeout", "stdbuf", "ionice",
     // Invokers that take a command as their first non-option arg.
     "xargs", "watch", "strace",
+    // Shell builtins that re-parse a command string / file.
+    "eval", "source", ".",
 ];
 
 /// Return true if `token` at byte range `[start, end)` is in shell command position.
@@ -467,5 +469,26 @@ mod tests {
     fn command_position_is_case_sensitive_literal() {
         let (_, n) = replace_command_position("PIP install\n", "pip", "uv");
         assert_eq!(n, 0, "literal match only");
+    }
+    #[test]
+    fn eval_source_allow_command() {
+        assert_eq!(
+            replace_command_position("eval pip install\n", "pip", "uv").0,
+            "eval uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("source pip\n", "pip", "uv").0,
+            "source uv\n"
+        );
+        // Bare `.` is a transparent source alias in shells.
+        assert_eq!(
+            replace_command_position(". pip install\n", "pip", "uv").0,
+            ". uv install\n"
+        );
+        // Do not rewrite argument-position after a real command named eval as arg.
+        assert_eq!(
+            replace_command_position("echo eval pip\n", "pip", "uv").1,
+            0
+        );
     }
 }
