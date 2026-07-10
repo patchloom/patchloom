@@ -250,6 +250,12 @@ pub(crate) struct BatchReplaceParams {
     /// instead of returning an error. Useful for idempotent batch replacements.
     #[serde(default)]
     pub if_exists: bool,
+    /// Fail when a file has zero matches (fail closed). Softened when if_exists is true.
+    #[serde(default)]
+    pub require_change: bool,
+    /// Only rewrite shell command-position tokens (not arguments / longer words).
+    #[serde(default)]
+    pub command_position: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,

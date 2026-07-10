@@ -531,8 +531,8 @@ impl PatchloomService {
                     before_context: None,
                     after_context: None,
                     unique: false,
-                    require_change: false,
-                    command_position: false,
+                    require_change: p.require_change,
+                    command_position: p.command_position,
                 })
                 .collect();
             svc.run_ops(ops, Some(p.strict))
