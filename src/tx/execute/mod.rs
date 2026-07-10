@@ -599,12 +599,15 @@ pub(crate) fn execute_and_collect(
                     }
                     .into());
                 }
-                // Keep a readable Display string for stderr/tests, and when the
-                // root cause is IO NotFound re-emit as NotFound so CLI --json
-                // maps error_kind: not_found via is_io_not_found.
+                // Keep a readable Display string for stderr/tests, and re-emit
+                // typed kinds so CLI/tx --json can map error_kind without
+                // scraping English.
                 let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
                 if crate::exit::is_io_not_found(&e) {
                     return Err(std::io::Error::new(std::io::ErrorKind::NotFound, msg).into());
+                }
+                if crate::exit::is_already_exists(&e) {
+                    return Err(crate::exit::AlreadyExistsError { msg }.into());
                 }
                 anyhow::bail!("{msg}");
             }
