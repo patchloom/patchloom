@@ -41,6 +41,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **CLI doc JSON `error_kind: type_error`.** `doc keys` / `doc len` on the wrong value type, and write-path type failures, set `error_kind: "type_error"` (exit 1) so agents can distinguish type mismatches from soft no-matches.
 - **CLI file ops JSON error_kind.** `create`/`rename` conflicts set `already_exists`; missing targets for `delete`/`append`/`prepend`/`rename` set `not_found`; invalid flag combinations and non-file targets set `invalid_input` (all exit 1).
 - **CLI tidy JSON `invalid_input`.** `tidy fix --dedent … --indent …` together exits 1 with `error_kind: "invalid_input"` under `--json`.
+- **CLI search JSON `invalid_input`.** Empty pattern and `--invert-match` + `--multiline` together exit 1 with `error_kind: "invalid_input"` under `--json`.
 - **CLI top-level JSON typed errors.** When a command returns a typed `NoMatchError` / `AmbiguousError` through the global error path under `--json`/`--jsonl`, the envelope includes `error_kind` and exits 3/5 (was generic exit 1 without kind).
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).

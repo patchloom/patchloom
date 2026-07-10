@@ -1,7 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::ops::search::{self as ops_search, SearchMatch, SearchResults};
-use anyhow::bail;
 use clap::Args;
 use serde::Serialize;
 
@@ -316,10 +315,14 @@ pub(crate) fn format_results(
 
 pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if args.pattern.is_empty() {
-        bail!("search pattern must not be empty");
+        let msg = "search pattern must not be empty";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(exit::FAILURE);
     }
     if args.invert_match && args.multiline {
-        bail!("--invert-match and --multiline cannot be combined");
+        let msg = "--invert-match and --multiline cannot be combined";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(exit::FAILURE);
     }
 
     let results = collect_matches(&args, global)?;
@@ -441,14 +444,8 @@ mod tests {
     fn empty_pattern_rejected() {
         let dir = make_test_dir();
         let args = make_args("", vec![dir.path().to_string_lossy().into_owned()]);
-        let result = run(args, &GlobalFlags::test_default());
-        let msg = result
-            .expect_err("empty pattern should be rejected")
-            .to_string();
-        assert!(
-            msg.contains("must not be empty"),
-            "error should mention empty pattern: {msg}"
-        );
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
@@ -706,12 +703,8 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.invert_match = true;
         args.multiline = true;
-        let err = run(args, &GlobalFlags::test_default()).unwrap_err();
-        assert!(
-            err.to_string().contains("--invert-match and --multiline"),
-            "should reject incompatible flags: {}",
-            err
-        );
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
