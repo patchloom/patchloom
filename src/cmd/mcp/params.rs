@@ -706,7 +706,7 @@ pub(crate) struct EmptyParams {}
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExecutePlanParams {
     /// Full inline plan object (preferred for agents; same schema as CLI tx plans).
-    /// Must contain at minimum "version" and "operations".
+    /// Must contain at minimum `version` and `operations` (alias `ops` also accepted).
     pub plan: Option<Plan>,
     /// Path (relative to cwd) to a plan file (JSON, YAML, or TOML).
     /// Used only if `plan` is not provided.
