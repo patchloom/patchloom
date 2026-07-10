@@ -62,6 +62,30 @@ pub fn is_ambiguous(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<AmbiguousError>().is_some())
 }
 
+/// Typed error for invalid CLI/input conditions that map to exit
+/// [`FAILURE`] (1) with JSON `error_kind: "invalid_input"`.
+///
+/// Used for `--contain` path rejections and empty-path validation so the
+/// global `--json` dispatch path does not require English string matching.
+#[derive(Debug)]
+pub struct InvalidInputError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for InvalidInputError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for InvalidInputError {}
+
+/// Check whether an `anyhow::Error` chain contains an [`InvalidInputError`].
+pub fn is_invalid_input(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<InvalidInputError>().is_some())
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.
@@ -162,6 +186,18 @@ mod tests {
     fn is_ambiguous_rejects_plain_error() {
         let err = anyhow::anyhow!("some other error").context("operation 1 failed");
         assert!(!is_ambiguous(&err));
+    }
+
+    #[test]
+    fn is_invalid_input_finds_wrapped_error() {
+        let err: anyhow::Error = InvalidInputError {
+            msg: "path rejected by workspace guard: escapes".to_string(),
+        }
+        .into();
+        let wrapped = err.context("create failed");
+        assert!(is_invalid_input(&wrapped));
+        assert!(!is_no_match(&wrapped));
+        assert!(!is_ambiguous(&wrapped));
     }
 
     #[test]

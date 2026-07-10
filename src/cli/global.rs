@@ -447,7 +447,10 @@ impl GlobalFlags {
         for p in &paths {
             let p = p.as_ref();
             if p.trim().is_empty() {
-                anyhow::bail!("path must not be empty");
+                return Err(crate::exit::InvalidInputError {
+                    msg: "path must not be empty".into(),
+                }
+                .into());
             }
         }
         let Some(guard) = self.workspace_guard(cwd)? else {
@@ -455,9 +458,11 @@ impl GlobalFlags {
         };
         for p in paths {
             let p = p.as_ref();
-            guard
-                .check_path(p)
-                .map_err(|e| anyhow::anyhow!("path rejected by workspace guard: {e}"))?;
+            guard.check_path(p).map_err(|e| {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("path rejected by workspace guard: {e}"),
+                })
+            })?;
         }
         Ok(())
     }

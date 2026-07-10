@@ -343,13 +343,15 @@ pub fn run() -> anyhow::Result<u8> {
 
 /// Build the JSON error envelope and exit code for a dispatch `Err` under
 /// `--json` / `--jsonl`. Typed [`exit::NoMatchError`] / [`exit::AmbiguousError`]
-/// chains get `error_kind` and their dedicated exit codes.
+/// / [`exit::InvalidInputError`] chains get `error_kind` and their exit codes.
 #[cfg(feature = "cli")]
 fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
     let (kind, code) = if exit::is_no_match(err) {
         (Some("no_matches"), exit::NO_MATCHES)
     } else if exit::is_ambiguous(err) {
         (Some("ambiguous"), exit::AMBIGUOUS)
+    } else if exit::is_invalid_input(err) {
+        (Some("invalid_input"), exit::FAILURE)
     } else {
         (None, exit::FAILURE)
     };
@@ -407,6 +409,25 @@ mod tests {
         assert_eq!(code, exit::FAILURE);
         assert!(payload.get("error_kind").is_none());
         assert_eq!(payload["ok"], false);
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn structured_dispatch_error_maps_invalid_input() {
+        let err: anyhow::Error = exit::InvalidInputError {
+            msg: "path rejected by workspace guard: escapes".into(),
+        }
+        .into();
+        let (payload, code) = structured_dispatch_error(&err);
+        assert_eq!(code, exit::FAILURE);
+        assert_eq!(payload["error_kind"], "invalid_input");
+        assert!(
+            payload["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("workspace guard"),
+            "payload={payload}"
+        );
     }
 
     #[test]
