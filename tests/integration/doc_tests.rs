@@ -1827,12 +1827,50 @@ fn test_doc_get_unsupported_extension_json_envelope() {
         .args(["doc", "get", &file.to_string_lossy(), "key", "--json"])
         .output()
         .unwrap();
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(1));
 
     let json: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
     assert_eq!(json["ok"], false);
-    assert!(json["error"].is_string());
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "unsupported extension should be invalid_input, not type_error: {json}"
+    );
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("unsupported file extension"),
+        "error should mention extension: {json}"
+    );
+}
+
+#[test]
+fn test_doc_set_unsupported_extension_json_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "not structured\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "doc",
+            "set",
+            &file.to_string_lossy(),
+            "key",
+            "val",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "doc write unsupported extension must not be type_error: {json}"
+    );
 }
 
 #[test]

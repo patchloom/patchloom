@@ -2026,13 +2026,20 @@ fn test_tx_doc_set_unsupported_format_rolls_back() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let assert = Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--json")
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(1); // invalid_input (unsupported extension), not operation_failed (9)
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "unsupported doc extension should be invalid_input: {stdout}"
+    );
 
     // Original content must be preserved.
     assert_eq!(
