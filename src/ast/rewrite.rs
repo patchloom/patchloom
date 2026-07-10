@@ -1188,8 +1188,28 @@ mod tests {
 
     #[test]
     fn parse_rust_empty_is_err() {
-        assert!(FunctionSigEdit::parse_rust("").is_err());
-        assert!(FunctionSigEdit::parse_rust("   ").is_err());
+        let err = FunctionSigEdit::parse_rust("").expect_err("empty");
+        assert!(
+            err.message.contains("empty"),
+            "expected empty-signature error, got: {}",
+            err.message
+        );
+        let err2 = FunctionSigEdit::parse_rust("   ").expect_err("whitespace-only");
+        assert!(
+            err2.message.contains("empty"),
+            "expected empty-signature error, got: {}",
+            err2.message
+        );
+    }
+
+    #[test]
+    fn splice_function_signature_empty_new_sig_does_not_panic() {
+        let source = "fn f() -> i32 {\n    0\n}\n";
+        let span = find_function_span(source, "f", Language::Rust).unwrap();
+        let out = splice_function_signature(source, span.signature_range, "   ");
+        // Empty after trim: keep original gap + body; do not invent brace glue.
+        assert!(out.contains("{"), "body brace remains: {out}");
+        assert!(!out.contains("i32{"), "got: {out}");
     }
 
     // ── find_function_span tests ──────────────────────────────────
