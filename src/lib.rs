@@ -98,10 +98,10 @@
 //! ```
 //!
 //! Shell command-position matching (#1494): opt-in `ReplaceOptions.command_position`
-//! rewrites invocable tokens (`pip install`, `sudo -E pip`) without touching arguments
-//! (`uv pip`) or longer words (`pipenv`). Not the same as `word_boundary`. Post-Apply
-//! validate/revert: host runs a validator, then
-//! `backup::restore_path_from_latest_backup(project_root, path)`.
+//! rewrites invocable tokens (`pip install`, `sudo -E pip`, `timeout 30 pip`,
+//! `nice -n 10 pip`) without touching arguments (`uv pip`) or longer words (`pipenv`).
+//! Not the same as `word_boundary`. Post-Apply validate/revert: host runs a validator,
+//! then `backup::restore_path_from_latest_backup(project_root, path)`.
 //!
 //! For several ordered text edits on **one buffer** then a single write (agent intent engines):
 //! use `api::apply_content_edits` / `api::apply_content_edits_to_file` with

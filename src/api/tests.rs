@@ -3894,6 +3894,32 @@ fn replace_in_content_command_position_pip() {
 }
 
 #[test]
+fn replace_in_content_command_position_timeout_and_nice() {
+    let r = replace_in_content(
+        "timeout 30 pip install x
+nice -n 10 pip list
+echo 30 pip
+",
+        "pip",
+        "uv",
+        &ReplaceOptions {
+            command_position: true,
+            require_change: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(r.match_count, 2);
+    assert_eq!(
+        r.new_content,
+        "timeout 30 uv install x
+nice -n 10 uv list
+echo 30 pip
+"
+    );
+}
+
+#[test]
 fn replace_in_content_command_position_no_match_with_require_change() {
     let err = replace_in_content(
         "uv pip install\n",
