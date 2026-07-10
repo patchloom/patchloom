@@ -57,7 +57,7 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
                  TOML, YAML, JSON, Shell.",
                 lang, args.path,
             );
-            global.emit_error_json(&msg)?;
+            global.emit_error_json_kind(Some("no_matches"), &msg)?;
             return Ok(exit::NO_MATCHES);
         }
         let symbols = symbols::extract_symbols_from_file(&target, Some(lang));
@@ -116,7 +116,7 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
         Ok(exit::SUCCESS)
     } else {
         let msg = format!("no symbols found in {}", args.path);
-        global.emit_error_json(&msg)?;
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
         Ok(exit::NO_MATCHES)
     }
 }
@@ -151,7 +151,7 @@ pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u
         Some(s) => s,
         None => {
             let msg = format!("symbol '{}' not found in {}", args.symbol, args.path);
-            global.emit_error_json(&msg)?;
+            global.emit_error_json_kind(Some("no_matches"), &msg)?;
             return Ok(exit::NO_MATCHES);
         }
     };
@@ -347,7 +347,7 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
 
     if total_matches == 0 {
         let msg = format!("no matches for pattern in {}", args.path);
-        global.emit_error_json(&msg)?;
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
         Ok(exit::NO_MATCHES)
     } else {
         Ok(exit::SUCCESS)
@@ -395,7 +395,7 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
 
     if all_refs.is_empty() {
         let msg = format!("no references found for '{}' in {}", args.symbol, args.path);
-        global.emit_error_json(&msg)?;
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
         return Ok(exit::NO_MATCHES);
     }
 
@@ -527,7 +527,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
         Ok(exit::SUCCESS)
     } else {
         let msg = format!("no imports found in {}", args.path);
-        global.emit_error_json(&msg)?;
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
         Ok(exit::NO_MATCHES)
     }
 }
@@ -584,7 +584,7 @@ pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8>
 
     if entries.is_empty() {
         let msg = format!("no symbols found in {}", args.path);
-        global.emit_error_json(&msg)?;
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
         return Ok(exit::NO_MATCHES);
     }
 
@@ -628,7 +628,10 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
     let nodes = crate::ast::impact::compute_impact(&args.symbol, &file_pairs, args.depth);
 
     if nodes.is_empty() {
-        global.emit_error_json(&format!("no references found for '{}'", args.symbol))?;
+        global.emit_error_json_kind(
+            Some("no_matches"),
+            &format!("no references found for '{}'", args.symbol),
+        )?;
         return Ok(exit::NO_MATCHES);
     }
 
@@ -689,7 +692,7 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
     let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
 
     if changes.is_empty() {
-        global.emit_error_json("no structural changes")?;
+        global.emit_error_json_kind(Some("no_matches"), "no structural changes")?;
         return Ok(exit::NO_MATCHES);
     }
 

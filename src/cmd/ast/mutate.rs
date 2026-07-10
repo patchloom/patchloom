@@ -82,7 +82,7 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
 
     if operations.is_empty() {
         let msg = format!("symbol '{}' not found in {}", args.old, args.path);
-        global.emit_error_json(&msg)?;
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
         return Ok(exit::NO_MATCHES);
     }
 
@@ -91,7 +91,7 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
         Ok(v) => v,
         Err(e) if exit::is_no_match(&e) => {
             let msg = e.to_string();
-            global.emit_error_json(&msg)?;
+            global.emit_error_json_kind(Some("no_matches"), &msg)?;
             return Ok(exit::NO_MATCHES);
         }
         Err(e) => return Err(e),
@@ -202,7 +202,7 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
         Ok(code) => Ok(code),
         Err(e) => {
             if exit::is_no_match(&e) {
-                global.emit_error_json(&e.to_string())?;
+                global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
                 Ok(exit::NO_MATCHES)
             } else {
                 Err(e)
