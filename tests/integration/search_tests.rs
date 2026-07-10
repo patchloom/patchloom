@@ -253,6 +253,10 @@ fn test_search_json_no_match_emits_valid_json() {
     assert_eq!(parsed["match_count"], 0);
     assert_eq!(parsed["file_count"], 0);
     assert!(parsed["matches"].as_array().unwrap().is_empty());
+    assert_eq!(
+        parsed["error_kind"], "no_matches",
+        "search --json no-match should set error_kind: {parsed}"
+    );
 }
 
 #[test]
