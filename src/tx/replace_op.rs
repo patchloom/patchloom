@@ -131,7 +131,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         if *unique && match_count > 1 {
             return Err(crate::exit::AmbiguousError {
                 msg: format!(
-                    "ambiguous match: pattern {:?} matches {} times in {}; provide more context to disambiguate",
+                    "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
                     crate::fallback::truncate_str(old, 60),
                     match_count,
                     p
