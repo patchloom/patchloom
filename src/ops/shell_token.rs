@@ -545,6 +545,44 @@ mod tests {
     }
 
     #[test]
+    fn bare_env_assignment_allows_command() {
+        // `FOO=1 pip` without the `env` wrapper is still command position.
+        assert_eq!(
+            replace_command_position("FOO=1 pip install\n", "pip", "uv").0,
+            "FOO=1 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("A=1 B=2 pip install\n", "pip", "uv").0,
+            "A=1 B=2 uv install\n"
+        );
+    }
+
+    #[test]
+    fn subshell_and_backtick_are_command_position() {
+        assert_eq!(
+            replace_command_position("$(pip list)\n", "pip", "uv").0,
+            "$(uv list)\n"
+        );
+        assert_eq!(
+            replace_command_position("`pip version`\n", "pip", "uv").0,
+            "`uv version`\n"
+        );
+        // Parenthesized groups after a separator.
+        assert_eq!(
+            replace_command_position("true && (pip install)\n", "pip", "uv").0,
+            "true && (uv install)\n"
+        );
+    }
+
+    #[test]
+    fn empty_replacement_removes_token() {
+        assert_eq!(
+            replace_command_position("sudo pip install\n", "pip", "").0,
+            "sudo  install\n"
+        );
+    }
+
+    #[test]
     fn command_position_combo_clean_is_ok() {
         assert!(command_position_combo_error(CommandPositionIncompat::default()).is_none());
     }
