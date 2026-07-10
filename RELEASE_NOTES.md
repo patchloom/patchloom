@@ -71,6 +71,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Doc unsupported extension `invalid_input`.** `doc` on non-JSON/YAML/TOML paths (and plan doc ops on those paths) set `error_kind: "invalid_input"` (exit 1). CLI write path no longer mislabels them as `type_error`.
 - **Tx AST empty directory `no_matches`.** Plan `ast.rename` on a directory with no source files exits **3** with `error_kind: "no_matches"` (was `operation_failed` / 9), matching CLI `ast rename`.
 - **Doc parse failures `parse_error`.** Malformed JSON/YAML/TOML content exits **4** with `error_kind: "parse_error"` (was unstructured exit 1), for CLI doc and plan/tx doc ops.
+- **Tx AST extract/rewrite kinds.** `ast.extract_to_file` into an existing target without `force` sets `already_exists` (exit 1). `ast.rewrite_signature` without signature fields sets `invalid_input` (exit 1).
 
 ## Agent and library notes
 

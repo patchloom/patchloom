@@ -175,9 +175,10 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             let has_structured =
                 visibility.is_some() || parameters.is_some() || return_type.is_some();
             if new_signature.is_none() && !has_structured {
-                anyhow::bail!(
-                    "ast.rewrite_signature requires new_signature and/or visibility/parameters/return_type"
-                );
+                return Err(crate::exit::InvalidInputError {
+                    msg: "ast.rewrite_signature requires new_signature and/or visibility/parameters/return_type".into(),
+                }
+                .into());
             }
             let new_content = if let Some(new_sig) = new_signature {
                 let span = crate::ast::rewrite::find_function_span(content, old, lang_val)
@@ -455,10 +456,12 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             let abs_source = tx.cwd.join(source);
             let abs_target = tx.cwd.join(target);
             if !force && (abs_target.exists() || tx.pending.contains_key(&abs_target)) {
-                anyhow::bail!(
-                    "target file '{}' already exists (use force: true to overwrite)",
-                    target
-                );
+                return Err(crate::exit::AlreadyExistsError {
+                    msg: format!(
+                        "target file '{target}' already exists (use force: true to overwrite)"
+                    ),
+                }
+                .into());
             }
             let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
             let lang_val = lang
