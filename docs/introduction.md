@@ -73,10 +73,10 @@ its async dependencies.
 Agent hosts often set `ReplaceOptions.require_change = true` so missing targets
 are structured errors (`EditErrorKind::NoMatch`) instead of soft no-ops. Opt-in
 `command_position` rewrites shell command tokens without touching arguments
-(including after `sudo` / `timeout 30` / `nice -n 10` / `setsid` / `flock` /
-`chroot` wrappers, across lines). The same options are available on the CLI
-(`patchloom replace … --require-change --command-position`), plan/MCP replace,
-and `batch_replace`. See the [crate documentation](https://docs.rs/patchloom)
+(including after `sudo` / `timeout 30` / `nice -n 10` / `setsid` / `runuser` /
+`flock` / `chroot` wrappers, across lines). The same options are available on
+the CLI (`patchloom replace … --require-change --command-position`), plan/MCP
+replace, and `batch_replace`. See the [crate documentation](https://docs.rs/patchloom)
 for the full API surface.
 
 ## Get started
