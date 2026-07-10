@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "op": "replace",
+      "path": "scripts/install.sh",
+      "old": "pip",
+      "new": "uv",
+      "command_position": true,
+      "require_change": true
+    }
+  ]
+}
