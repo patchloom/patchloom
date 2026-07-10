@@ -274,7 +274,12 @@ fn generate_completions(shell: &str, target: &Path) -> anyhow::Result<()> {
         "zsh" => clap_complete::Shell::Zsh,
         "fish" => clap_complete::Shell::Fish,
         "elvish" => clap_complete::Shell::Elvish,
-        _ => anyhow::bail!("unsupported shell: {shell}"),
+        _ => {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("unsupported shell: {shell}"),
+            }
+            .into());
+        }
     };
     let mut cmd = <Cli as clap::CommandFactory>::command();
     let mut buf = Vec::new();
