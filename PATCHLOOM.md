@@ -238,6 +238,11 @@ EOF
 
 All operations succeed atomically or roll back together.
 
+Plan/MCP `replace` accepts library flags (default false):
+- `require_change`: fail when the pattern matches zero times (agent fail-closed).
+- `command_position`: rewrite only shell invocable tokens (`sudo pip` yes; `uv pip` no).
+Example: `{"op":"replace","path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
+
 ## AST-aware operations
 
 Tree-sitter-backed operations that understand code structure (20 languages).
