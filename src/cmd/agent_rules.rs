@@ -443,8 +443,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Code | Meaning |\n\
              |------|---------|\n\
              | 0 | Success (operation completed, or no changes needed) |\n\
-             | 1 | Failure (error during execution), or tx `rollback_failed` when mid-commit rollback could not fully restore files |\n\
-             | 2 | Changes detected (`--check` mode found pending changes) |\n\
+             | 1 | Failure (error during execution, CLI usage/invalid args/unknown flags/subcommands), or tx `rollback_failed` when mid-commit rollback could not fully restore files |\n\
+             | 2 | Changes detected (`--check` mode found pending changes; not used for CLI usage errors) |\n\
              | 3 | No matches (search/replace pattern miss, undo with no sessions, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |\n\
              | 4 | Parse error (malformed input file or plan) |\n\
              | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |\n\

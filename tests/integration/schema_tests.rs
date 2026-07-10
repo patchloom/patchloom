@@ -187,12 +187,13 @@ fn test_schema_quiet_suppresses_output() {
 
 #[test]
 fn test_schema_invalid_tier_fails() {
-    // clap ValueEnum rejects free strings at parse time (exit 2) and lists values.
+    // clap ValueEnum rejects free strings at parse time. Mapped to FAILURE (1)
+    // so it does not collide with CHANGES_DETECTED (2).
     Command::cargo_bin("patchloom")
         .unwrap()
         .args(["schema", "--tier", "invalid"])
         .assert()
-        .code(2)
+        .code(1)
         .stderr(predicate::str::contains("possible values"))
         .stderr(predicate::str::contains("weak"));
 }
@@ -204,7 +205,7 @@ fn test_schema_tier_small_is_not_accepted() {
         .unwrap()
         .args(["schema", "--tier", "small"])
         .assert()
-        .code(2)
+        .code(1)
         .stderr(predicate::str::contains("possible values"));
 }
 

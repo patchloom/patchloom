@@ -110,12 +110,50 @@ fn test_parse_write_flag_normalize_eol() {
 
 #[test]
 fn test_parse_unknown_subcommand_fails() {
+    // Usage errors exit FAILURE (1), not CHANGES_DETECTED (2).
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("nonexistent-command")
         .assert()
-        .code(2)
+        .code(1)
         .stderr(predicate::str::contains("unrecognized subcommand"));
+}
+
+#[test]
+fn test_parse_missing_required_arg_exits_failure_not_changes_detected() {
+    // Clap default is exit 2; patchloom remaps so scripts can branch on
+    // CHANGES_DETECTED without false positives from usage mistakes.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["create"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("required arguments"));
+}
+
+#[test]
+fn test_parse_unexpected_flag_exits_failure_not_changes_detected() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["schema", "--not-a-real-flag"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unexpected argument"));
+}
+
+#[test]
+fn test_parse_help_and_version_still_exit_success() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("Usage"));
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--version")
+        .assert()
+        .code(0);
 }
 
 // ---------------------------------------------------------------------------

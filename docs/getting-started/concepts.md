@@ -128,8 +128,8 @@ Every command returns a specific exit code:
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | General error, or tx `rollback_failed` when mid-commit rollback could not fully restore files |
-| 2 | Changes detected (with `--check`) |
+| 1 | General error (including CLI usage: invalid flags, enum values, missing args, unknown subcommands), or tx `rollback_failed` when mid-commit rollback could not fully restore files |
+| 2 | Changes detected (with `--check` or write preview; not used for CLI usage errors) |
 | 3 | No matches found |
 | 4 | Parse error in input |
 | 5 | Ambiguous (multiple replace matches, or stale patch context) |
