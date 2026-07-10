@@ -41,7 +41,7 @@ mod basic {
             "hi",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -76,7 +76,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -111,7 +111,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(replacements.len(), 1);
         assert_eq!(
             replacements[0].replaced, "version = \"1.2.99\"\n",
@@ -130,7 +130,7 @@ mod basic {
             "new",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(replacements.len(), 1);
 
         // Verify the replacement content produces a valid diff.
@@ -181,7 +181,7 @@ mod basic {
             "hi",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 2);
         let total: usize = replacements.iter().map(|r| r.match_count).sum();
@@ -276,7 +276,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 1);
@@ -337,7 +337,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -379,7 +379,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -414,7 +414,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].replaced, "alpha\nreplaced line\ngamma\n");
@@ -448,7 +448,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         // Only the bbb on line 2 should be deleted; the one on line 4 is outside range.
@@ -484,7 +484,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 1);
@@ -524,7 +524,7 @@ mod basic {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(replacements[0].match_count, 2);
@@ -624,7 +624,7 @@ mod edge_cases {
             "replaced",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
         assert!(
             replacements.is_empty(),
             "binary files should be skipped, got {} matches",
@@ -660,7 +660,7 @@ mod edge_cases {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert!(
             replacements.is_empty(),
@@ -669,22 +669,22 @@ mod edge_cases {
     }
 
     #[test]
-    fn identity_replacement_treated_as_no_match() {
+    fn identity_replacement_kept_in_scan_for_unique_and_require_change() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
         fs::write(&file, "hello world\n").unwrap();
 
-        // Replacing "hello" with "hello" should produce no change.
+        // Replacing "hello" with "hello" is still a match at scan time so
+        // --unique / require_change see the real count; run() drops it later.
         let args = make_args(
             "hello",
             "hello",
             vec![dir.path().to_string_lossy().into_owned()],
         );
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
-        assert!(
-            replacements.is_empty(),
-            "identity replacement must be filtered out"
-        );
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert_eq!(replacements[0].match_count, 1);
+        assert_eq!(replacements[0].original, replacements[0].replaced);
     }
 
     #[test]
@@ -739,7 +739,7 @@ mod edge_cases {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         assert_eq!(
@@ -783,7 +783,7 @@ mod edge_cases {
             command_position: false,
             write: Default::default(),
         };
-        let (replacements, _) = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
+        let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
 
         assert_eq!(replacements.len(), 1);
         // SetupFile in the string IS matched (word boundaries don't know about strings)

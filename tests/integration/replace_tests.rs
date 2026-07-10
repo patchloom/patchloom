@@ -1566,3 +1566,34 @@ fn test_replace_cli_identity_match_is_success_not_no_matches() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "sudo pip install\n");
 }
+
+#[test]
+fn test_replace_cli_unique_rejects_identity_multi_match() {
+    // --unique must count identity matches, not only content-changing ones.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("install.sh");
+    fs::write(&file, "pip install\npip list\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "pip",
+            "--new",
+            "pip",
+            "--command-position",
+            "--unique",
+            "install.sh",
+            "--apply",
+        ])
+        .assert()
+        .code(5) // AMBIGUOUS
+        .stderr(predicate::str::contains("ambiguous match"));
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "pip install\npip list\n"
+    );
+}

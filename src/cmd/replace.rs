@@ -154,15 +154,14 @@ fn build_replacement(args: &ReplaceArgs) -> String {
     )
 }
 
-/// Walk files and collect effective replacements using parallel file processing.
+/// Walk files and collect replacements using parallel file processing.
 ///
-/// Returns `(effective_replacements, raw_match_count)` where `raw_match_count`
-/// is the total matches before identity filtering (so `require_change` and
-/// diagnostics can tell "pattern found but new == old" from "pattern absent").
+/// Includes identity matches (`new == old`) so callers can enforce `--unique`
+/// and distinguish "pattern found" from "pattern absent" before filtering.
 fn collect_replacements(
     args: &ReplaceArgs,
     global: &GlobalFlags,
-) -> anyhow::Result<(Vec<FileReplacement>, usize)> {
+) -> anyhow::Result<Vec<FileReplacement>> {
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
@@ -222,15 +221,10 @@ fn collect_replacements(
             }
         });
 
-    let raw_match_count: usize = replacements.iter().map(|r| r.match_count).sum();
-
-    // Drop files where the replacement produces identical content (e.g.
-    // replacing "X" with "X").  The match count was non-zero, but there is
-    // no actual change to write, diff, or report.
-    replacements.retain(|r| r.original != r.replaced);
-
     replacements.sort_unstable_by(|a, b| a.path.cmp(&b.path));
-    Ok((replacements, raw_match_count))
+    // Caller runs unique against this list (including identity matches), then
+    // filters identity so writes/diffs only cover real content changes.
+    Ok(replacements)
 }
 
 fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult> {
@@ -294,12 +288,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return run_context_replace(args, global, &cwd);
     }
 
-    // Phase 1: Parallel file scan to identify files with matches.
-    let (replacements, raw_match_count) = collect_replacements(&args, global)?;
+    // Phase 1: Parallel file scan to identify files with matches (includes identity).
+    let mut replacements = collect_replacements(&args, global)?;
+    let raw_match_count: usize = replacements.iter().map(|r| r.match_count).sum();
 
-    // Unique check: fail if any file has more than one match.
-    // Uses effective replacements (identity-filtered); identity multi-match is
-    // still multi-match on the raw scan because those rows keep match_count.
+    // Unique check: fail if any file has more than one match (before identity
+    // filter so `--unique` is honest when new == old).
     if args.unique {
         for r in &replacements {
             if r.match_count > 1 {
@@ -326,6 +320,11 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
     }
+
+    // Drop files where the replacement produces identical content (e.g.
+    // replacing "X" with "X"). Match count was non-zero, but there is no
+    // actual change to write, diff, or report.
+    replacements.retain(|r| r.original != r.replaced);
 
     if replacements.is_empty() {
         // Identity-only matches (pattern found, new == old): not a soft no-match.
