@@ -167,7 +167,9 @@ pub(super) fn run_fix(
 ) -> anyhow::Result<u8> {
     crate::verbose!("tidy: fixing {} path(s)", paths.len());
     if dedent.is_some() && indent.is_some() {
-        anyhow::bail!("--dedent and --indent cannot both be set");
+        let msg = "--dedent and --indent cannot both be set";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(crate::exit::FAILURE);
     }
 
     let policy_flags = effective_tidy_fix_policy(global, dedent.as_deref(), indent.as_deref());
