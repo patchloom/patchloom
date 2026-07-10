@@ -350,6 +350,8 @@ mod basic {
                     before_context: Some("ctx".into()),
                     after_context: Some("ctx".into()),
                     unique: false,
+                    require_change: false,
+                    command_position: false,
                 },
             ),
             (

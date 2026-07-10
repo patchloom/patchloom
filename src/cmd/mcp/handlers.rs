@@ -382,6 +382,8 @@ impl PatchloomService {
                 before_context: p.before_context,
                 after_context: p.after_context,
                 unique: p.unique,
+                require_change: p.require_change,
+                command_position: p.command_position,
             };
             let mut tool_result = svc.run_one_op(replace_op, Some(p.strict))?;
 
@@ -529,6 +531,8 @@ impl PatchloomService {
                     before_context: None,
                     after_context: None,
                     unique: false,
+                    require_change: false,
+                    command_position: false,
                 })
                 .collect();
             svc.run_ops(ops, Some(p.strict))
