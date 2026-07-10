@@ -1,5 +1,9 @@
 //! Shell command-position token matching for agent hosts (#1494).
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). One module owns
+//! transparent wrapper peeling, duration/flag grammar, and co-located unit
+//! coverage for agent install-script rewrites; do not split for LOC alone.
+//!
 //! A token is in **command position** when it is the invocable command of a
 //! simple shell fragment: start of line (after whitespace), after `&&` `|` `;`,
 //! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`, `setsid`,
@@ -18,20 +22,48 @@
 /// Transparent prefixes that may appear before a command without making the
 /// next token an argument.
 const TRANSPARENT_PREFIXES: &[&str] = &[
-    "sudo", "doas", "env", "command", "builtin", "exec", "time", "nice", "nohup",
+    "sudo",
+    "doas",
+    "env",
+    "command",
+    "builtin",
+    "exec",
+    "time",
+    "nice",
+    "nohup",
     // Agent scripts often wrap installs: `timeout 30 pip install`, `stdbuf -oL …`.
-    "timeout", "stdbuf", "ionice",
+    "timeout",
+    "stdbuf",
+    "ionice",
     // Isolation / privilege wrappers used by agent and CI scripts.
-    "setsid", "runuser",
+    "setsid",
+    "runuser",
+    // systemd-run0 alternative to sudo (flags like -u / --user peel as arg-taking).
+    "run0",
     // Namespace / CPU affinity / resource-limit wrappers (CI and sandbox scripts).
-    "unshare", "nsenter", "taskset", "prlimit", "numactl",
+    "unshare",
+    "nsenter",
+    "taskset",
+    "prlimit",
+    "numactl",
     // Priority / privilege wrappers: `chrt -f 10 cmd`, `setpriv --reuid=… cmd`.
-    "chrt", "setpriv",
+    "chrt",
+    "setpriv",
+    // Unit / sandbox / session wrappers used in CI and agent install scripts.
+    "systemd-run",
+    "firejail",
+    "dbus-run-session",
+    // moreutils: suppress success output, keep failures.
+    "chronic",
     // Multicall binary: next token is the applet (busybox wget / busybox sh).
     "busybox", // Invokers that take a command as their first non-option arg.
-    "xargs", "watch", "strace",
+    "xargs",
+    "watch",
+    "strace",
     // Shell builtins that re-parse a command string / file.
-    "eval", "source", ".",
+    "eval",
+    "source",
+    ".",
 ];
 
 /// Wrappers whose next non-option argument is a path (not the command):
@@ -113,6 +145,11 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
         // Option flags after sudo/time/env (`sudo -E pip`, `time -p pip`).
         // Known false positive: `command -v pip` treats `pip` as command position.
         if is_option_flag(token) {
+            rest = &rest[..prefix_start];
+            continue;
+        }
+        // End-of-options marker: `dbus-run-session -- pip`, `systemd-run -- pip`.
+        if token == "--" {
             rest = &rest[..prefix_start];
             continue;
         }
@@ -596,57 +633,197 @@ mod tests {
     fn isolation_wrappers_allow_command() {
         // unshare boolean flags then command.
         assert_eq!(
-            replace_command_position("unshare -n pip install\n", "pip", "uv").0,
-            "unshare -n uv install\n"
-        );
-        assert_eq!(
-            replace_command_position("unshare -m -u pip install\n", "pip", "uv").0,
-            "unshare -m -u uv install\n"
-        );
-        // nsenter target PID + boolean namespaces.
-        assert_eq!(
-            replace_command_position("nsenter -t 1 -m pip install\n", "pip", "uv").0,
-            "nsenter -t 1 -m uv install\n"
-        );
-        assert_eq!(
-            replace_command_position("nsenter --target=1 -n pip install\n", "pip", "uv").0,
-            "nsenter --target=1 -n uv install\n"
-        );
-        // taskset CPU affinity.
-        assert_eq!(
-            replace_command_position("taskset -c 0 pip install\n", "pip", "uv").0,
-            "taskset -c 0 uv install\n"
-        );
-        assert_eq!(
-            replace_command_position("taskset --cpu-list 0,1 pip install\n", "pip", "uv").0,
-            "taskset --cpu-list 0,1 uv install\n"
-        );
-        // prlimit / numactl equals-attached resource limits.
-        assert_eq!(
-            replace_command_position("prlimit --as=1000000 pip install\n", "pip", "uv").0,
-            "prlimit --as=1000000 uv install\n"
-        );
-        assert_eq!(
-            replace_command_position("numactl --cpunodebind=0 pip install\n", "pip", "uv").0,
-            "numactl --cpunodebind=0 uv install\n"
-        );
-        // Priority / privilege wrappers.
-        assert_eq!(
-            replace_command_position("chrt -f 10 pip install\n", "pip", "uv").0,
-            "chrt -f 10 uv install\n"
-        );
-        assert_eq!(
             replace_command_position(
-                "setpriv --reuid=1000 --regid=1000 --clear-groups pip install\n",
+                "unshare -n pip install
+",
                 "pip",
                 "uv"
             )
             .0,
-            "setpriv --reuid=1000 --regid=1000 --clear-groups uv install\n"
+            "unshare -n uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "unshare -m -u pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "unshare -m -u uv install
+"
+        );
+        // nsenter target PID + boolean namespaces.
+        assert_eq!(
+            replace_command_position(
+                "nsenter -t 1 -m pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "nsenter -t 1 -m uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "nsenter --target=1 -n pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "nsenter --target=1 -n uv install
+"
+        );
+        // taskset CPU affinity.
+        assert_eq!(
+            replace_command_position(
+                "taskset -c 0 pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "taskset -c 0 uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "taskset --cpu-list 0,1 pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "taskset --cpu-list 0,1 uv install
+"
+        );
+        // prlimit / numactl equals-attached resource limits.
+        assert_eq!(
+            replace_command_position(
+                "prlimit --as=1000000 pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "prlimit --as=1000000 uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "numactl --cpunodebind=0 pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "numactl --cpunodebind=0 uv install
+"
+        );
+        // Priority / privilege wrappers.
+        assert_eq!(
+            replace_command_position(
+                "chrt -f 10 pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "chrt -f 10 uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "setpriv --reuid=1000 --regid=1000 --clear-groups pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "setpriv --reuid=1000 --regid=1000 --clear-groups uv install
+"
         );
         // Argument-position stays non-command.
         assert_eq!(
-            replace_command_position("echo unshare -n pip\n", "pip", "uv").1,
+            replace_command_position(
+                "echo unshare -n pip
+",
+                "pip",
+                "uv"
+            )
+            .1,
+            0
+        );
+    }
+
+    #[test]
+    fn systemd_firejail_dbus_chronic_allow_command() {
+        assert_eq!(
+            replace_command_position(
+                "systemd-run --scope pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "systemd-run --scope uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "systemd-run -p MemoryMax=1G --wait --collect pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "systemd-run -p MemoryMax=1G --wait --collect uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "firejail --net=none pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "firejail --net=none uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "dbus-run-session -- pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "dbus-run-session -- uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "chronic pip install
+",
+                "pip",
+                "uv"
+            )
+            .0,
+            "chronic uv install
+"
+        );
+        assert_eq!(
+            replace_command_position(
+                "echo firejail --net=none pip
+",
+                "pip",
+                "uv"
+            )
+            .1,
             0
         );
     }
@@ -788,6 +965,22 @@ mod tests {
         );
         assert_eq!(
             replace_command_position("echo runuser pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn run0_allows_command() {
+        assert_eq!(
+            replace_command_position("run0 pip install\n", "pip", "uv").0,
+            "run0 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("run0 -u root pip install\n", "pip", "uv").0,
+            "run0 -u root uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("echo run0 pip\n", "pip", "uv").1,
             0
         );
     }
