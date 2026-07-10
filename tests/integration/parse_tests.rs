@@ -176,6 +176,14 @@ fn test_parse_usage_error_with_json_emits_envelope() {
         err.contains("invalid value") || err.contains("bogus"),
         "error should mention the bad value: {json}"
     );
+    assert!(
+        !err.starts_with("error: "),
+        "JSON error should strip clap 'error: ' prefix: {json}"
+    );
+    assert!(
+        !err.contains("For more information"),
+        "JSON error should omit help footer: {json}"
+    );
 }
 
 #[test]
