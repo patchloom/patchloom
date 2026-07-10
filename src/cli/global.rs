@@ -348,10 +348,16 @@ impl GlobalFlags {
         if let Some(ref cwd) = self.cwd {
             let path = std::path::PathBuf::from(cwd);
             if !path.exists() {
-                anyhow::bail!("--cwd directory does not exist: {cwd}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("--cwd directory does not exist: {cwd}"),
+                }
+                .into());
             }
             if !path.is_dir() {
-                anyhow::bail!("--cwd is not a directory: {cwd}");
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("--cwd is not a directory: {cwd}"),
+                }
+                .into());
             }
             Ok(path)
         } else {

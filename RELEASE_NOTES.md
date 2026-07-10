@@ -74,6 +74,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Tx AST extract/rewrite kinds.** `ast.extract_to_file` into an existing target without `force` sets `already_exists` (exit 1). `ast.rewrite_signature` without signature fields sets `invalid_input` (exit 1).
 - **Tx mid-plan delete then use is `not_found`.** Append/prepend/rename after `file.delete` in the same plan set `error_kind: "not_found"` (exit 1). Workspace-guard escapes set `invalid_input`.
 - **Tx search assert_count mismatch.** Plan `search` with `assert_count` when the actual match count differs exits **2** with `error_kind: "changes_detected"` (was `operation_failed` / 9), matching CLI `search --assert-count`.
+- **CLI `--cwd` missing/non-dir `invalid_input`.** Bad `--cwd` paths exit **1** with `error_kind: "invalid_input"` under `--json` (typed `InvalidInputError`).
 
 ## Agent and library notes
 
