@@ -395,17 +395,28 @@ fn try_preserve_yaml_array(
 
 pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {
     match format {
-        FileFormat::Json => Ok(serde_json::from_str(content)?),
+        FileFormat::Json => serde_json::from_str(content)
+            .map_err(|e| anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })),
         FileFormat::Yaml => {
             if is_multi_document_yaml(content) {
-                parse_multi_document_yaml(content)
+                parse_multi_document_yaml(content).map_err(|e| {
+                    // Multi-doc path may already be typed; re-wrap plain anyhow.
+                    if crate::exit::is_parse_error(&e) {
+                        e
+                    } else {
+                        anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
+                    }
+                })
             } else {
-                let mut val: serde_json::Value = serde_yaml_ng::from_str(content)?;
+                let mut val: serde_json::Value = serde_yaml_ng::from_str(content).map_err(|e| {
+                    anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
+                })?;
                 resolve_yaml_merge_keys(&mut val);
                 Ok(val)
             }
         }
-        FileFormat::Toml => Ok(toml_edit::de::from_str(content)?),
+        FileFormat::Toml => toml_edit::de::from_str(content)
+            .map_err(|e| anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })),
     }
 }
 
