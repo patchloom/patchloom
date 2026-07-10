@@ -313,6 +313,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 27 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
 - **Quoting:** Double-quoted tokens allow only `\"` and `\\`. Sequences like `\n` are **literal** (not newlines). Prefer `tx` / MCP JSON for multi-line content, or put real newlines outside one-line quoted strings.
+- **Failure behavior:** Line parse failures (unknown op, bad arity, bad quotes) exit `4` (`PARSE_ERROR`) with `error_kind: "parse_error"` under `--json`/`--jsonl`. Too many operations (over the hard cap) exits `1` with `invalid_input`. Runtime op failures use the shared tx exit codes.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, multi-line content, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 
@@ -321,6 +322,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Prints the contents of one or more files, optionally restricted to a line range. Multiple files get `==> path <==` separators in text mode, a JSON array in `--json` mode, and one object per line in `--jsonl` mode. If at least one requested file is read successfully, the command still exits successfully and reports errors only for the missing files.
 - **Use when:** An agent needs to inspect one or several files before deciding on an edit. For AI agents, native read_file tools are typically faster for single-file reads.
+- **Failure behavior:** Invalid `--lines` exits `1` with `error_kind: "invalid_input"`. When every path fails, exit `1` with `error_kind: "not_found"`. Partial success still exits `1` after emitting successful reads.
 - **Prefer instead:** Use `search` when you need pattern matching, or `doc get` when the file is structured and you want a single value.
 
 ## Library API
@@ -335,6 +337,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **What it does:** Shows which files have uncommitted changes compared to git HEAD. This command is git-backed, so it must run inside a git repository.
 - **Internal paths:** Entries under `.patchloom/` (backup sessions from `--apply`) are omitted so status reflects user project files, not Patchloom's undo store.
 - **Use when:** An agent needs a quick summary of the working tree before committing, staging, or choosing which files to process. For AI agents, native git status or terminal commands are typically equivalent.
+- **Failure behavior:** Outside a git repository (or if `git status` fails) exits `1` with `error_kind: "invalid_input"` under `--json`/`--jsonl`, and prints a `git init` hint in text mode.
 - **Prefer instead:** Use `git status` directly when you need full git porcelain output or staging details (including untracked `.patchloom/` if you care about it).
 - **Related:** `search`, `read`, `undo`
 
