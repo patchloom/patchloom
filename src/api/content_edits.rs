@@ -283,7 +283,27 @@ mod tests {
         let r = apply_content_edits("same\n", &[]).unwrap();
         assert!(!r.changed);
         assert_eq!(r.ops_applied, 0);
+        assert_eq!(r.match_count, 0);
         assert_eq!(r.modified, "same\n");
+    }
+
+    #[test]
+    fn match_count_sums_multiple_replaces() {
+        let edits = [
+            ContentEdit::Replace {
+                old: "a".into(),
+                new: "A".into(),
+                options: ReplaceOptions::default(),
+            },
+            ContentEdit::Replace {
+                old: "b".into(),
+                new: "B".into(),
+                options: ReplaceOptions::default(),
+            },
+        ];
+        let r = apply_content_edits("a a b\n", &edits).unwrap();
+        assert_eq!(r.match_count, 3, "two a's + one b: {r:?}");
+        assert_eq!(r.modified, "A A B\n");
     }
 
     #[test]

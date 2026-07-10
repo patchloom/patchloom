@@ -260,9 +260,9 @@ pub struct ReplaceOptions {
     pub require_change: bool,
     /// When true, only replace tokens in **shell command position** (start of
     /// line / after `&&` `|` `;`, after transparent prefixes like `sudo` /
-    /// `env KEY=val`). Does not match inside longer tokens (`pip` vs `pipenv`)
-    /// or as arguments (`uv pip`). Opt-in; not the same as `word_boundary`.
-    /// See #1494.
+    /// `env KEY=val`, and option flags like `-E` / `-p`). Does not match inside
+    /// longer tokens (`pip` vs `pipenv`) or as arguments (`uv pip`). Opt-in;
+    /// not the same as `word_boundary`. See #1494.
     pub command_position: bool,
 }
 
