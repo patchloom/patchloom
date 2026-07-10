@@ -249,6 +249,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines in text files. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You need repo text normalization, or a CI guard for basic text tidiness.
+- **Failure behavior:** `tidy fix` with both `--dedent` and `--indent` exits `1` with `error_kind: "invalid_input"` under `--json`/`--jsonl`.
 - **Prefer instead:** Use write policy flags when the cleanup should only apply to files already being touched by another command.
 - **Related:** `tidy check`, `tidy fix`, `tx tidy.fix`
 
@@ -257,6 +258,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Appends content to the end of an existing file. If the file does not end with a newline, one is inserted before the appended content. Exactly one of `--content` or `--stdin` is required. Fails if the file does not exist (unlike `create`).
 - **Use when:** Adding tests, changelog entries, rules, or any content to the end of a file without reading the entire file to find a unique anchor.
+- **Failure behavior:** Missing file exits `1` with `error_kind: "not_found"`; bad flags or directory targets use `invalid_input` (JSON envelopes).
 - **Prefer instead:** Use `replace` when the insertion point is not the end of the file.
 - **Related:** `create`, `prepend`, `tx file.append`
 
@@ -265,6 +267,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Prepends content to the beginning of an existing file. Exactly one of `--content` or `--stdin` is required. Fails if the file does not exist or if the target is a directory.
 - **Use when:** Adding headers, copyright notices, shebang lines, or any content to the beginning of a file without reading the entire file to find a unique anchor.
+- **Failure behavior:** Same as `append`: `not_found` / `invalid_input` under `--json`/`--jsonl`.
 - **Prefer instead:** Use `replace` when the insertion point is not the beginning of the file.
 - **Related:** `append`, `create`, `tx file.prepend`
 
@@ -273,6 +276,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Creates a file from literal content or stdin. Exactly one of `--content` or `--stdin` is required. Passing both is rejected with `--content and --stdin cannot be combined`, and passing neither is rejected with `either --content or --stdin must be provided`. Directory targets are rejected in all modes. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** Generating a new tracked file is the whole task, or one step in a larger transaction. For AI agents creating a single file, native file creation tools are typically faster; use `file.create` inside `tx` plans when bundling with other edits.
+- **Failure behavior:** Existing file without `--force` exits `1` with `error_kind: "already_exists"`; bad flags/non-file targets use `invalid_input`.
 - **Prefer instead:** Use `doc`, `md`, or `replace` when the file already exists and only needs edits.
 - **Related:** `delete`, `tx file.create`
 
@@ -281,6 +285,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Removes a file. Directory targets are rejected in all modes. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** A file should disappear outright and no other atomic edits are needed. For AI agents deleting a single file, native delete tools are typically faster; use `file.delete` inside `tx` plans when bundling with other edits.
+- **Failure behavior:** Missing file exits `1` with `error_kind: "not_found"`; directory targets use `invalid_input`.
 - **Prefer instead:** Use `tx file.delete` when the removal must be bundled atomically with other changes.
 - **Related:** `create`, `tx file.delete`
 
@@ -289,6 +294,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Moves (renames) a file from one path to another. Source and destination must both be file paths, not directories. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** A file needs to be relocated and no other atomic edits are needed. Use `file.rename` inside `tx` plans when bundling with other edits.
+- **Failure behavior:** Missing source exits `1` with `error_kind: "not_found"`; destination exists without `--force` uses `already_exists`; non-file paths use `invalid_input`.
 - **Prefer instead:** Use `tx file.rename` when the rename must be bundled atomically with other changes.
 - **Related:** `create`, `delete`, `tx file.rename`
 
