@@ -45,6 +45,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "su-exec",
     "tini",
     "dumb-init",
+    // s6 / packaging wrappers common in CI and container entrypoints.
+    "eatmydata",
     // Namespace / CPU affinity / resource-limit wrappers (CI and sandbox scripts).
     "unshare",
     "nsenter",
@@ -73,8 +75,15 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
 
 /// Wrappers whose next non-option argument is a path or user (not the command):
 /// `flock /tmp/l pip`, `flock -n /var/lock/x pip`, `chroot /jail pip`,
-/// `gosu app pip`, `su-exec nobody pip`.
-const PATH_TAKING_PREFIXES: &[&str] = &["flock", "chroot", "gosu", "su-exec"];
+/// `gosu app pip`, `su-exec nobody pip`, `s6-setuidgid app pip`.
+const PATH_TAKING_PREFIXES: &[&str] = &[
+    "flock",
+    "chroot",
+    "gosu",
+    "su-exec",
+    "s6-setuidgid",
+    "setuidgid",
+];
 
 /// Return true if `token` at byte range `[start, end)` is in shell command position.
 pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
@@ -1012,6 +1021,18 @@ mod tests {
         assert_eq!(
             replace_command_position("dumb-init -- pip install\n", "pip", "uv").0,
             "dumb-init -- uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("eatmydata apt-get install -y foo\n", "apt-get", "apt").0,
+            "eatmydata apt install -y foo\n"
+        );
+        assert_eq!(
+            replace_command_position("s6-setuidgid app pip install\n", "pip", "uv").0,
+            "s6-setuidgid app uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("setuidgid app pip install\n", "pip", "uv").0,
+            "setuidgid app uv install\n"
         );
         assert_eq!(
             replace_command_position("echo gosu pip\n", "pip", "uv").1,
