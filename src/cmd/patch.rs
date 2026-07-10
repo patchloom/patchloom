@@ -379,7 +379,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Ok(s) => s,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
                 Err(e) => {
-                    anyhow::bail!("patch check: cannot read {}: {e}", pf.path);
+                    let msg = format!("patch check: cannot read {}: {e}", pf.path);
+                    global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+                    return Ok(exit::FAILURE);
                 }
             };
             match apply_patch_file(&original, &pf.hunks, check_options) {
@@ -567,12 +569,12 @@ mod tests {
             },
             &global,
         );
-        // Should surface the I/O error, not silently treat as empty.
-        assert!(result.is_err(), "expected I/O error for unreadable file");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("cannot read") || err_msg.contains("Permission denied"),
-            "expected permission error, got: {err_msg}"
+        // Should surface the I/O error as exit FAILURE, not silently treat as empty.
+        let code = result.unwrap();
+        assert_eq!(
+            code,
+            exit::FAILURE,
+            "expected I/O error for unreadable file"
         );
         // Cleanup: restore permissions so TempDir can clean up
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
