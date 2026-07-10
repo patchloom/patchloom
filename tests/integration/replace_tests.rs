@@ -139,10 +139,46 @@ fn test_replace_empty_from_rejected() {
         .arg("--apply")
         .arg(file.to_str().unwrap())
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("search pattern must not be empty"));
+        .code(1)
+        .stderr(predicate::str::contains(
+            "replace pattern must not be empty",
+        ));
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn test_replace_empty_from_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "",
+            "--new",
+            "X",
+            "--apply",
+            file.to_str().unwrap(),
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("replace pattern must not be empty"),
+        "error should name replace, not search: {json}"
+    );
 }
 
 #[test]

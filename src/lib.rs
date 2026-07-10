@@ -288,14 +288,33 @@ pub fn run() -> anyhow::Result<u8> {
         Err(e) => {
             // Help/version print to stdout and are success; everything else
             // (usage, invalid value, missing arg) is a general failure.
-            let code = if e.use_stderr() {
-                exit::FAILURE
+            if !e.use_stderr() {
+                let _ = e.print();
+                return Ok(exit::SUCCESS);
+            }
+            // Peek argv: parse failed before GlobalFlags is available, but
+            // agents often pass --json/--jsonl globally and need a structured
+            // envelope instead of clap's human usage text.
+            let wants_json = std::env::args().any(|a| a == "--json");
+            let wants_jsonl = std::env::args().any(|a| a == "--jsonl");
+            if wants_json || wants_jsonl {
+                let msg = e.to_string();
+                let payload = serde_json::json!({
+                    "ok": false,
+                    "error": msg,
+                    "error_kind": "invalid_input",
+                });
+                let rendered = if wants_jsonl {
+                    serde_json::to_string(&payload)
+                } else {
+                    serde_json::to_string_pretty(&payload)
+                };
+                println!("{}", rendered.unwrap_or_default());
             } else {
-                exit::SUCCESS
-            };
-            // Swallow broken-pipe on print (same as clap::Error::exit).
-            let _ = e.print();
-            return Ok(code);
+                // Swallow broken-pipe on print (same as clap::Error::exit).
+                let _ = e.print();
+            }
+            return Ok(exit::FAILURE);
         }
     };
 

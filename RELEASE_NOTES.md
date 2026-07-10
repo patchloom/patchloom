@@ -50,6 +50,8 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **CLI search JSON `invalid_input`.** Empty pattern and `--invert-match` + `--multiline` together exit 1 with `error_kind: "invalid_input"` under `--json`.
 - **CLI top-level JSON typed errors.** When a command returns a typed `NoMatchError` / `AmbiguousError` through the global error path under `--json`/`--jsonl`, the envelope includes `error_kind` and exits 3/5 (was generic exit 1 without kind).
 - **CLI usage errors exit 1.** Invalid flags, enum values, missing required args, and unknown subcommands exit **1** (`FAILURE`), not clap's default **2**. Exit 2 remains only `CHANGES_DETECTED` (`--check` / write preview). `--help` / `--version` still exit 0.
+- **CLI usage + `--json`/`--jsonl` envelope.** When parse fails after a global `--json`/`--jsonl`, stdout gets `ok: false`, `error_kind: "invalid_input"`, and the clap message (agents no longer scrape colored stderr).
+- **Replace empty-pattern wording.** Empty replace `old`/`pattern` reports `replace pattern must not be empty` (was `search pattern…`), with `error_kind: "invalid_input"` under `--json`.
 - **More shell wrappers.** `command_position` peels `eatmydata` and s6-style `s6-setuidgid` / `setuidgid` user wrappers.
 - **Tx unique multi-match exit code.** Plan/tx `replace` with `unique: true` and multiple matches now exits **5** (`ambiguous`), matching CLI `replace --unique`, instead of generic exit 9 (`operation_failed`).
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.

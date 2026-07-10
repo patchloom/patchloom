@@ -156,6 +156,48 @@ fn test_parse_help_and_version_still_exit_success() {
         .code(0);
 }
 
+#[test]
+fn test_parse_usage_error_with_json_emits_envelope() {
+    // Agents pass --json before a bad flag/value; clap fails before dispatch,
+    // but the envelope must still be machine-readable on stdout.
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "schema", "--tier", "bogus"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "invalid_input");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("invalid value") || err.contains("bogus"),
+        "error should mention the bad value: {json}"
+    );
+}
+
+#[test]
+fn test_parse_usage_error_with_jsonl_emits_compact_envelope() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--jsonl", "not-a-command"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let line = String::from_utf8_lossy(&output);
+    assert!(
+        !line.trim().contains('\n') || line.lines().count() == 1,
+        "jsonl should be a single line: {line:?}"
+    );
+    let json: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "invalid_input");
+}
+
 // ---------------------------------------------------------------------------
 // doc: delete, merge, prepend, select, ensure, move, update
 // ---------------------------------------------------------------------------
