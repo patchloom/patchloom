@@ -68,7 +68,8 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Tx require_change zero-match exit code.** Plan/tx `replace` with `require_change: true` and zero matches now exits **3** (`no_matches`), matching CLI, instead of generic exit 9.
 - **Tx patch.apply merge conflicts.** Plan `patch.apply` with `on_stale: "merge"` without `allow_conflicts` exits **8** with `error_kind: "conflicts"` (was generic `operation_failed` / 9), matching CLI `patch merge`.
 - **Tx op flag conflicts `invalid_input`.** Plan-level option conflicts (replace whole_line+multiline, range without whole_line, tidy dedent+indent, md.move_section before/after, search invert+multiline) exit **1** with `error_kind: "invalid_input"` (was `parse_error` / 4), matching standalone CLI flags.
-- **Doc unsupported extension `invalid_input`.** `doc` on non-JSON/YAML/TOML paths (and plan doc ops on those paths) set `error_kind: "invalid_input"` (exit 1). CLI write path no longer mislabels them as `type_error`.
+- **Doc unsupported extension `invalid_input`.**
+- **Tx AST empty directory `no_matches`.** Plan `ast.rename` on a directory with no source files exits **3** with `error_kind: "no_matches"` (was `operation_failed` / 9), matching CLI `ast rename`. `doc` on non-JSON/YAML/TOML paths (and plan doc ops on those paths) set `error_kind: "invalid_input"` (exit 1). CLI write path no longer mislabels them as `type_error`.
 
 ## Agent and library notes
 

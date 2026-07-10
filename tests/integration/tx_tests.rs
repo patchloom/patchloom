@@ -7567,12 +7567,19 @@ fn test_tx_ast_rename_empty_directory_fails() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    patchloom_in(dir.path())
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(3); // NO_MATCHES (CLI empty-dir parity), not OPERATION_FAILED (9)
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "no_matches",
+        "empty dir ast.rename should be no_matches: {stdout}"
+    );
 }
 
 // ---------------------------------------------------------------------------
