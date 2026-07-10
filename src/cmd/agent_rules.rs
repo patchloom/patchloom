@@ -675,7 +675,10 @@ mod tests {
             "CLI flags must appear in agent-rules examples"
         );
         assert!(
-            out.contains("flock") && out.contains("runuser") && out.contains("setsid") && out.contains("busybox"),
+            out.contains("flock")
+                && out.contains("runuser")
+                && out.contains("setsid")
+                && out.contains("busybox"),
             "agent-rules should name isolation wrappers for command_position"
         );
         let mcp = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
