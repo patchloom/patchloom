@@ -185,6 +185,16 @@ fn assert_patch_apply_error_object(
             .unwrap()
             .contains(expected_error_substring)
     );
+    let expected_kind = match expected_exit_code {
+        4 => "parse_error",
+        5 => "ambiguous",
+        8 => "conflicts",
+        _ => return,
+    };
+    assert_eq!(
+        json["error_kind"], expected_kind,
+        "patch --json should set error_kind for exit {expected_exit_code}: {json}"
+    );
 }
 
 fn git_ok(dir: &Path, args: &[&str]) {

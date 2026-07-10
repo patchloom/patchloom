@@ -170,8 +170,18 @@ fn inject_stale_label(msg: &str, label: &str) -> String {
     }
 }
 
-fn emit_error(global: &GlobalFlags, error: &str) -> anyhow::Result<()> {
-    global.emit_error_json(error)
+fn emit_error(global: &GlobalFlags, error: &str, error_kind: &str) -> anyhow::Result<()> {
+    // Include error_kind so agents can branch (ambiguous=stale, conflicts=merge
+    // conflicts) without scraping the English STALE/MERGE FAILED label.
+    if !global.emit_json(&serde_json::json!({
+        "ok": false,
+        "error": error,
+        "error_kind": error_kind,
+    }))? && !global.quiet
+    {
+        eprintln!("{error}");
+    }
+    Ok(())
 }
 
 fn emit_patch_files_output(
@@ -253,15 +263,27 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let diff_text = match read_diff_input(&file, stdin_flag, global) {
         Ok(text) => text,
         Err(DiffReadError::NoSource) => {
-            emit_error(global, "patch: must specify --file <path> or --stdin")?;
+            emit_error(
+                global,
+                "patch: must specify --file <path> or --stdin",
+                "parse_error",
+            )?;
             return Ok(exit::PARSE_ERROR);
         }
         Err(DiffReadError::IoError(path, e)) => {
-            emit_error(global, &format!("patch: failed to read '{path}': {e}"))?;
+            emit_error(
+                global,
+                &format!("patch: failed to read '{path}': {e}"),
+                "parse_error",
+            )?;
             return Ok(exit::PARSE_ERROR);
         }
         Err(DiffReadError::StdinError(e)) => {
-            emit_error(global, &format!("patch: failed to read stdin: {e}"))?;
+            emit_error(
+                global,
+                &format!("patch: failed to read stdin: {e}"),
+                "parse_error",
+            )?;
             return Ok(exit::PARSE_ERROR);
         }
     };
@@ -270,7 +292,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let patch_files = match parse_patch(&diff_text) {
         Ok(pf) => pf,
         Err(msg) => {
-            emit_error(global, &format!("patch: parse error: {msg}"))?;
+            emit_error(global, &format!("patch: parse error: {msg}"), "parse_error")?;
             return Ok(exit::PARSE_ERROR);
         }
     };
@@ -407,15 +429,15 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // The engine error from apply_patch_with_loader already includes
                 // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
                 // FAILED label to match the original CLI format.
-                let exit_code = if msg.contains("conflict(s)") {
-                    exit::CONFLICTS
+                let (exit_code, kind) = if msg.contains("conflict(s)") {
+                    (exit::CONFLICTS, "conflicts")
                 } else {
-                    exit::AMBIGUOUS
+                    (exit::AMBIGUOUS, "ambiguous")
                 };
                 // Inject the STALE/MERGE FAILED label between path and error detail.
                 let label = if merge_mode { "MERGE FAILED" } else { "STALE" };
                 let err = inject_stale_label(&msg, label);
-                emit_error(global, &err)?;
+                emit_error(global, &err, kind)?;
                 return Ok(exit_code);
             }
         };
