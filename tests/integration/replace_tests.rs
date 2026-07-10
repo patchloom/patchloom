@@ -489,9 +489,10 @@ fn test_replace_no_match_quiet_suppresses_stderr() {
 
 #[test]
 fn test_replace_no_match_files_from_mentions_files_from_not_dot() {
+    // Existing file, pattern miss: soft no_matches. Missing list entries are not_found.
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
-    fs::write(dir.path().join("list.txt"), "missing.txt\n").unwrap();
+    fs::write(dir.path().join("list.txt"), "a.txt\n").unwrap();
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -500,7 +501,7 @@ fn test_replace_no_match_files_from_mentions_files_from_not_dot() {
         .arg("--files-from")
         .arg("list.txt")
         .arg("replace")
-        .arg("hello")
+        .arg("zzz_no_match_zzz")
         .arg("--new")
         .arg("bye")
         .output()

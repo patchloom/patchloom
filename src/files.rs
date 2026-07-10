@@ -86,6 +86,26 @@ pub(crate) fn all_explicit_paths_missing(paths: &[String], root: Option<&Path>) 
     })
 }
 
+/// Like [`all_explicit_paths_missing`], but prefers `--files-from` entries when
+/// set. Does not re-read stdin (`--files-from -`); those lists skip this check.
+#[cfg(feature = "cli")]
+pub(crate) fn all_scan_targets_missing(
+    global: &GlobalFlags,
+    paths: &[String],
+    root: Option<&Path>,
+) -> anyhow::Result<bool> {
+    if global.files_from.as_deref() == Some("-") {
+        return Ok(false);
+    }
+    if global.files_from.is_some() {
+        let Some(files) = global.read_files_from()? else {
+            return Ok(false);
+        };
+        return Ok(all_explicit_paths_missing(&files, root));
+    }
+    Ok(all_explicit_paths_missing(paths, root))
+}
+
 /// Collect file paths from either `--files-from`, or by walking `paths` with
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
 /// paths are joined with it before walking.  Tidy commands set
