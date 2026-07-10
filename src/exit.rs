@@ -116,6 +116,27 @@ pub fn is_already_exists(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<AlreadyExistsError>().is_some())
 }
 
+/// Typed error for doc type mismatches that map to exit [`FAILURE`] (1)
+/// with JSON `error_kind: "type_error"`.
+#[derive(Debug)]
+pub struct TypeErrorError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for TypeErrorError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for TypeErrorError {}
+
+/// Check whether an `anyhow::Error` chain contains a [`TypeErrorError`].
+pub fn is_type_error(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<TypeErrorError>().is_some())
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.

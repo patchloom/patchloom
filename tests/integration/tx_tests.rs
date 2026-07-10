@@ -5484,7 +5484,7 @@ fn test_tx_doc_prepend_on_non_array_rolls_back() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(9); // OPERATION_FAILED
+        .code(1); // type_error
 
     // Original content unchanged.
     assert_eq!(

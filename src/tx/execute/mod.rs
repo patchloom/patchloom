@@ -395,9 +395,10 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             }
             Ok(())
         }
-        MutationResult::TypeError(msg) => {
-            anyhow::bail!("{path}: {msg}");
+        MutationResult::TypeError(msg) => Err(crate::exit::TypeErrorError {
+            msg: format!("{path}: {msg}"),
         }
+        .into()),
     }
 }
 
@@ -617,6 +618,9 @@ pub(crate) fn execute_and_collect(
                 }
                 if crate::exit::is_invalid_input(&e) {
                     return Err(crate::exit::InvalidInputError { msg }.into());
+                }
+                if crate::exit::is_type_error(&e) {
+                    return Err(crate::exit::TypeErrorError { msg }.into());
                 }
                 anyhow::bail!("{msg}");
             }

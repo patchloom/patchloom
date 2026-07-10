@@ -1207,7 +1207,7 @@ mod integrity {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::OPERATION_FAILED,
+            exit::FAILURE, // type_error
             "doc.append to non-array should fail before commit"
         );
     }
@@ -1243,7 +1243,7 @@ mod integrity {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::OPERATION_FAILED,
+            exit::FAILURE, // type_error
             "doc.prepend to non-array should fail before commit"
         );
     }

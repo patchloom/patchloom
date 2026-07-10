@@ -403,6 +403,8 @@ fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
         (Some("not_found"), exit::FAILURE)
     } else if exit::is_already_exists(err) {
         (Some("already_exists"), exit::FAILURE)
+    } else if exit::is_type_error(err) {
+        (Some("type_error"), exit::FAILURE)
     } else {
         (None, exit::FAILURE)
     };
