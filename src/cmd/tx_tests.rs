@@ -1279,7 +1279,7 @@ mod integrity {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::OPERATION_FAILED,
+            exit::FAILURE, // type_error
             "doc.delete_where on non-array should fail before commit"
         );
     }
