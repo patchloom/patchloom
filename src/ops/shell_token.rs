@@ -40,6 +40,11 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "runuser",
     // systemd-run0 alternative to sudo (flags like -u / --user peel as arg-taking).
     "run0",
+    // Container entrypoint / drop-privilege wrappers (Docker/K8s agent scripts).
+    "gosu",
+    "su-exec",
+    "tini",
+    "dumb-init",
     // Namespace / CPU affinity / resource-limit wrappers (CI and sandbox scripts).
     "unshare",
     "nsenter",
@@ -66,9 +71,10 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     ".",
 ];
 
-/// Wrappers whose next non-option argument is a path (not the command):
-/// `flock /tmp/l pip`, `flock -n /var/lock/x pip`, `chroot /jail pip`.
-const PATH_TAKING_PREFIXES: &[&str] = &["flock", "chroot"];
+/// Wrappers whose next non-option argument is a path or user (not the command):
+/// `flock /tmp/l pip`, `flock -n /var/lock/x pip`, `chroot /jail pip`,
+/// `gosu app pip`, `su-exec nobody pip`.
+const PATH_TAKING_PREFIXES: &[&str] = &["flock", "chroot", "gosu", "su-exec"];
 
 /// Return true if `token` at byte range `[start, end)` is in shell command position.
 pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
@@ -981,6 +987,30 @@ mod tests {
         );
         assert_eq!(
             replace_command_position("echo run0 pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn container_entrypoint_wrappers_allow_command() {
+        assert_eq!(
+            replace_command_position("gosu app pip install\n", "pip", "uv").0,
+            "gosu app uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("su-exec nobody pip install\n", "pip", "uv").0,
+            "su-exec nobody uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("tini -- pip install\n", "pip", "uv").0,
+            "tini -- uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("dumb-init -- pip install\n", "pip", "uv").0,
+            "dumb-init -- uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("echo gosu pip\n", "pip", "uv").1,
             0
         );
     }
