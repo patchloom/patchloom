@@ -1,3 +1,10 @@
+//! File walking, binary detection, and text-read helpers shared by CLI commands.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). One module owns
+//! ignore-aware walks, glob/exclude filtering, binary/UTF-8 guards, and
+//! path-missing helpers used by search/replace/tidy; co-located unit tests push
+//! the file over 1000 lines. Do not split for LOC alone.
+
 #[cfg(feature = "cli")]
 use crate::cli::global::GlobalFlags;
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -60,6 +67,25 @@ pub(crate) fn is_binary_file(path: &Path) -> bool {
     is_binary(&buf[..n])
 }
 
+/// True when the user supplied explicit path roots and none of them exist.
+///
+/// Empty `paths` means the caller will default to `.` and is never "all
+/// missing" here. Used so search/replace/tidy can distinguish path typos
+/// (`not_found`) from pattern/whitespace soft success (`no_matches` / clean).
+#[cfg(feature = "cli")]
+pub(crate) fn all_explicit_paths_missing(paths: &[String], root: Option<&Path>) -> bool {
+    if paths.is_empty() {
+        return false;
+    }
+    paths.iter().all(|p| {
+        let resolved = match root {
+            Some(r) if !std::path::Path::new(p).is_absolute() => r.join(p),
+            _ => std::path::PathBuf::from(p),
+        };
+        !resolved.exists()
+    })
+}
+
 /// Collect file paths from either `--files-from`, or by walking `paths` with
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
 /// paths are joined with it before walking.  Tidy commands set
@@ -104,7 +130,9 @@ pub(crate) fn collect_file_paths_opts(
         global.check_paths_contained(r, effective)?;
     }
     // Warn about nonexistent user-supplied paths so typos are visible
-    // instead of silently producing an empty result set (exit 3).
+    // instead of silently producing an empty result set (exit 3 / soft success).
+    // Callers that want a hard not_found should also check
+    // [`all_explicit_paths_missing`].
     for p in effective {
         let resolved = resolve(p);
         if !resolved.exists() {
@@ -629,6 +657,18 @@ mod tests {
         std::fs::write(&p, b"hello world\n").unwrap();
         assert!(!is_binary_file(&p));
         assert!(!is_binary_file(&dir.path().join("nope.bin"))); // open fails -> false
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn all_explicit_paths_missing_detects_typos() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing = vec!["nope.txt".to_string()];
+        assert!(all_explicit_paths_missing(&missing, Some(dir.path())));
+        assert!(!all_explicit_paths_missing(&[], Some(dir.path())));
+        std::fs::write(dir.path().join("exists.txt"), b"x\n").unwrap();
+        let mixed = vec!["exists.txt".to_string(), "nope.txt".to_string()];
+        assert!(!all_explicit_paths_missing(&mixed, Some(dir.path())));
     }
 
     // ── matches_glob ──────────────────────────────────────────────────

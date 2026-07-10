@@ -215,6 +215,15 @@ pub(super) fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) {
 pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Result<u8> {
     use crate::exit;
     crate::verbose!("tidy: checking {} path(s)", paths.len());
+    let cwd = global.resolve_cwd()?;
+    if crate::files::all_explicit_paths_missing(paths, Some(&cwd)) {
+        let msg = format!(
+            "no such file or directory: {}",
+            global.path_scope_description(paths)
+        );
+        global.emit_error_json_kind(Some("not_found"), &msg)?;
+        return Ok(exit::FAILURE);
+    }
     let issues = collect_issues(paths, global)?;
     if !global.quiet || global.json || global.jsonl {
         render_issues(&issues, global);

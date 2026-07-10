@@ -589,3 +589,35 @@ fn test_tidy_fix_contain_rejects_parent_escape() {
     );
     let _ = fs::remove_file(&outside);
 }
+
+#[test]
+fn test_tidy_check_missing_path_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nope.txt");
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tidy", "check"])
+        .arg(&missing)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error_kind"], "not_found");
+}
+
+#[test]
+fn test_tidy_fix_missing_path_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nope.txt");
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tidy", "fix"])
+        .arg(&missing)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error_kind"], "not_found");
+}
