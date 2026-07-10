@@ -16,9 +16,9 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "sudo", "doas", "env", "command", "builtin", "exec", "time", "nice", "nohup",
     // Agent scripts often wrap installs: `timeout 30 pip install`, `stdbuf -oL …`.
     "timeout", "stdbuf", "ionice",
-    // Detach from controlling TTY (common in agent/CI isolation wrappers).
-    "setsid", // Drop privileges then run a command (`runuser -u app pip install`).
-    "runuser", // Invokers that take a command as their first non-option arg.
+    // Isolation / privilege wrappers used by agent and CI scripts.
+    "setsid", "runuser",
+    // Invokers that take a command as their first non-option arg.
     "xargs", "watch", "strace",
     // Shell builtins that re-parse a command string / file.
     "eval", "source", ".",
