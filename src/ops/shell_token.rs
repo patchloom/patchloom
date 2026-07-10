@@ -69,6 +69,15 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
             rest = &rest[..prefix_start];
             continue;
         }
+        // Value for an arg-taking flag: `sudo -u root pip` → peel `root` when
+        // the token before it is `-u` / `--user` / `-g` / `--group`.
+        let left = rest[..prefix_start].trim_end();
+        if let Some((flag_start, flag)) = last_shell_token(left)
+            && is_arg_taking_flag(flag)
+        {
+            rest = &left[..flag_start];
+            continue;
+        }
         // Preceded by a real word → argument position (e.g. `uv pip`, `python -m pip`).
         return false;
     }
@@ -135,6 +144,14 @@ fn is_option_flag(token: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
         && body.chars().any(|c| c.is_ascii_alphabetic())
+}
+
+/// Flags whose next token is an argument (`sudo -u root`, `sudo --user root`).
+fn is_arg_taking_flag(token: &str) -> bool {
+    matches!(
+        token,
+        "-u" | "--user" | "-g" | "--group" | "-C" | "--close-from" | "-p" | "--prompt"
+    )
 }
 
 /// Last shell token in `s` (no leading/trailing ws). Returns (byte start, token).
@@ -215,6 +232,24 @@ mod tests {
         assert_eq!(
             replace_command_position("time -p pip install\n", "pip", "uv").0,
             "time -p uv install\n"
+        );
+    }
+
+    #[test]
+    fn sudo_user_flag_allows_command() {
+        assert_eq!(
+            replace_command_position("sudo -u root pip install\n", "pip", "uv").0,
+            "sudo -u root uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("sudo --user alice pip install\n", "pip", "uv").0,
+            "sudo --user alice uv install\n"
+        );
+        // Still do not rewrite argument-position pip.
+        assert_eq!(
+            replace_command_position("echo -u pip\n", "pip", "uv").1,
+            0,
+            "echo -u pip is not command-position for pip"
         );
     }
 

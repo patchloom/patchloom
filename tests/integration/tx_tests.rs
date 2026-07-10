@@ -7509,6 +7509,14 @@ fn test_tx_ast_rewrite_signature_apply() {
         on_disk.contains("u64"),
         "signature should be rewritten: {on_disk}"
     );
+    assert!(
+        on_disk.contains("-> u64 {"),
+        "tx rewrite_signature must preserve body gap (#1503): {on_disk}"
+    );
+    assert!(
+        !on_disk.contains("u64{"),
+        "must not glue type to brace: {on_disk}"
+    );
 }
 
 #[cfg(feature = "ast")]
