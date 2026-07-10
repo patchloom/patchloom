@@ -219,9 +219,11 @@ pub fn delete_where(
     let pred_val = raw_val.trim();
 
     let target = navigate_mut(root, segments, false)?;
-    let arr = target
-        .as_array_mut()
-        .ok_or_else(|| anyhow::anyhow!("selector does not point to an array"))?;
+    let arr = target.as_array_mut().ok_or_else(|| {
+        anyhow::Error::new(crate::exit::TypeErrorError {
+            msg: "selector does not point to an array".into(),
+        })
+    })?;
 
     let before_len = arr.len();
     if pred_key == "_" || pred_key == "." {
