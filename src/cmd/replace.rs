@@ -245,21 +245,23 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.paths
     );
     if args.command_position
-        && (args.regex
-            || args.case_insensitive
-            || args.word_boundary
-            || args.whole_line
-            || args.multiline
-            || args.nth.is_some()
-            || args.insert_before.is_some()
-            || args.insert_after.is_some()
-            || args.before_context.is_some()
-            || args.after_context.is_some())
+        && let Some(msg) = crate::ops::shell_token::command_position_combo_error(
+            crate::ops::shell_token::CommandPositionIncompat {
+                regex: args.regex,
+                case_insensitive: args.case_insensitive,
+                word_boundary: args.word_boundary,
+                whole_line: args.whole_line,
+                multiline: args.multiline,
+                nth: args.nth.is_some(),
+                insert_before: args.insert_before.is_some(),
+                insert_after: args.insert_after.is_some(),
+                before_context: args.before_context.is_some(),
+                after_context: args.after_context.is_some(),
+                fuzzy: false,
+            },
+        )
     {
-        anyhow::bail!(
-            "command_position cannot be combined with regex, whole_line, multiline, nth, \
-             case_insensitive, word_boundary, insert_before/after, or context anchors"
-        );
+        anyhow::bail!("{msg}");
     }
     use crate::ops::replace::{ReplaceValidationParams, validate_replace_args};
     validate_replace_args(&ReplaceValidationParams {

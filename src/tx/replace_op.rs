@@ -67,20 +67,23 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         }
     );
     if *command_position
-        && (regex_mode
-            || *case_insensitive
-            || word_boundary
-            || *whole_line
-            || *multiline
-            || nth.is_some()
-            || insert_before.is_some()
-            || insert_after.is_some()
-            || before_context.is_some()
-            || after_context.is_some())
+        && let Some(msg) = crate::ops::shell_token::command_position_combo_error(
+            crate::ops::shell_token::CommandPositionIncompat {
+                regex: regex_mode,
+                case_insensitive: *case_insensitive,
+                word_boundary,
+                whole_line: *whole_line,
+                multiline: *multiline,
+                nth: nth.is_some(),
+                insert_before: insert_before.is_some(),
+                insert_after: insert_after.is_some(),
+                before_context: before_context.is_some(),
+                after_context: after_context.is_some(),
+                fuzzy: false,
+            },
+        )
     {
-        anyhow::bail!(
-            "command_position cannot be combined with regex, whole_line, multiline, nth,              case_insensitive, word_boundary, insert_before/after, or context anchors"
-        );
+        anyhow::bail!("{msg}");
     }
     let use_regex = regex_mode || *case_insensitive || word_boundary;
     let replacement = replacement_text(

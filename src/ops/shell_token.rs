@@ -142,6 +142,58 @@ pub fn replace_command_position(content: &str, from: &str, to: &str) -> (String,
     (out, matches.len())
 }
 
+/// Flags that cannot be combined with `command_position` matching.
+///
+/// Shared by the library API, CLI, and tx paths so conflict messages stay
+/// consistent (avoids the prior three-copy drift, including the tx message
+/// that had a broken `"nth,              case_insensitive"` spacing).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandPositionIncompat {
+    pub regex: bool,
+    pub case_insensitive: bool,
+    pub word_boundary: bool,
+    pub whole_line: bool,
+    pub multiline: bool,
+    pub nth: bool,
+    pub insert_before: bool,
+    pub insert_after: bool,
+    pub before_context: bool,
+    pub after_context: bool,
+    pub fuzzy: bool,
+}
+
+impl CommandPositionIncompat {
+    /// True when any incompatible flag is set.
+    pub fn any(self) -> bool {
+        self.regex
+            || self.case_insensitive
+            || self.word_boundary
+            || self.whole_line
+            || self.multiline
+            || self.nth
+            || self.insert_before
+            || self.insert_after
+            || self.before_context
+            || self.after_context
+            || self.fuzzy
+    }
+}
+
+/// Canonical error text when `command_position` is combined with other modes.
+pub const COMMAND_POSITION_COMBO_MSG: &str = "command_position cannot be combined with regex, whole_line, multiline, nth, \
+     case_insensitive, word_boundary, fuzzy, insert_before/after, or context anchors";
+
+/// Return [`COMMAND_POSITION_COMBO_MSG`] when any incompatible option is set.
+///
+/// Call only when the caller has already decided `command_position` is true.
+pub fn command_position_combo_error(c: CommandPositionIncompat) -> Option<&'static str> {
+    if c.any() {
+        Some(COMMAND_POSITION_COMBO_MSG)
+    } else {
+        None
+    }
+}
+
 fn is_token_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.' || b == b'/'
 }
@@ -490,5 +542,38 @@ mod tests {
             replace_command_position("echo eval pip\n", "pip", "uv").1,
             0
         );
+    }
+
+    #[test]
+    fn command_position_combo_clean_is_ok() {
+        assert!(command_position_combo_error(CommandPositionIncompat::default()).is_none());
+    }
+
+    #[test]
+    fn command_position_combo_rejects_any_flag() {
+        let cases = [
+            CommandPositionIncompat {
+                regex: true,
+                ..Default::default()
+            },
+            CommandPositionIncompat {
+                fuzzy: true,
+                ..Default::default()
+            },
+            CommandPositionIncompat {
+                insert_before: true,
+                ..Default::default()
+            },
+            CommandPositionIncompat {
+                nth: true,
+                before_context: true,
+                ..Default::default()
+            },
+        ];
+        for c in cases {
+            let msg = command_position_combo_error(c).expect("should reject");
+            assert_eq!(msg, COMMAND_POSITION_COMBO_MSG);
+            assert!(msg.contains("command_position cannot be combined"));
+        }
     }
 }
