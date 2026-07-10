@@ -205,6 +205,8 @@ if fs::read_to_string(&file).is_ok() {
 }
 ```
 
+- **Confirm / TTY-gated unit tests must not depend on ambient stdin.** Docker, devcontainers, and eval harnesses often allocate a pseudo-TTY on stdin. Unit tests that set `confirm = true` and assume non-TTY auto-decline hang, print `Apply? [Y/n]`, default to yes, and return exit 0 instead of decline. Prefer inject (`confirm_prompt_interactive(false, reader)`) or force decline with `ConfirmAnswerGuard::force(false)` (thread-local, same RAII pattern as `RestoreFailGuard`). If you must call production confirm on real stdin, skip when `IsTerminal::is_terminal(&stdin)`. `assert_cmd` subprocesses (piped stdin) and `tests/pty.rs` (intentional TTY) are separate paths. After adding confirm unit tests, grep for `confirm = true` without a guard or inject nearby. See #579, #1556.
+
 ### Writes
 
 All file mutations go through `write::atomic_write()`, which uses `tempfile::NamedTempFile` + rename for crash safety. The `WritePolicy` struct controls transformations applied before writing.
