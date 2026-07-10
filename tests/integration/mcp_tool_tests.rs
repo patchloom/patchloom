@@ -1822,6 +1822,50 @@ async fn test_mcp_batch_replace_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_batch_replace_command_position() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("a.sh"),
+        "sudo pip install x\nuv pip install\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("b.sh"),
+        "timeout 30 pip install y\necho pip\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "batch_replace",
+        serde_json::json!({
+            "files": ["a.sh", "b.sh"],
+            "old": "pip",
+            "new": "uv",
+            "command_position": true,
+            "require_change": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_replace command_position should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_replace command_position ok: {val}");
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.sh")).unwrap(),
+        "sudo uv install x\nuv pip install\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.sh")).unwrap(),
+        "timeout 30 uv install y\necho pip\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_batch_replace_accepts_file_alias() {
     if !has_mcp_support() {
         return;
