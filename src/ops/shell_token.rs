@@ -25,6 +25,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "setsid", "runuser",
     // Namespace / CPU affinity / resource-limit wrappers (CI and sandbox scripts).
     "unshare", "nsenter", "taskset", "prlimit", "numactl",
+    // Priority / privilege wrappers: `chrt -f 10 cmd`, `setpriv --reuid=… cmd`.
+    "chrt", "setpriv",
     // Multicall binary: next token is the applet (busybox wget / busybox sh).
     "busybox", // Invokers that take a command as their first non-option arg.
     "xargs", "watch", "strace",
@@ -627,6 +629,20 @@ mod tests {
         assert_eq!(
             replace_command_position("numactl --cpunodebind=0 pip install\n", "pip", "uv").0,
             "numactl --cpunodebind=0 uv install\n"
+        );
+        // Priority / privilege wrappers.
+        assert_eq!(
+            replace_command_position("chrt -f 10 pip install\n", "pip", "uv").0,
+            "chrt -f 10 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position(
+                "setpriv --reuid=1000 --regid=1000 --clear-groups pip install\n",
+                "pip",
+                "uv"
+            )
+            .0,
+            "setpriv --reuid=1000 --regid=1000 --clear-groups uv install\n"
         );
         // Argument-position stays non-command.
         assert_eq!(
