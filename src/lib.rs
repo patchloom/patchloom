@@ -289,25 +289,86 @@ pub fn run() -> anyhow::Result<u8> {
     match cmd::dispatch(cli) {
         Ok(code) => Ok(code),
         Err(e) if structured => {
-            let output = serde_json::json!({
-                "ok": false,
-                "error": format!("{e:#}")
-            });
+            let (output, code) = structured_dispatch_error(&e);
             let serialized = if compact {
                 serde_json::to_string(&output)
             } else {
                 serde_json::to_string_pretty(&output)
             };
             println!("{}", serialized.unwrap_or_default());
-            Ok(exit::FAILURE)
+            Ok(code)
         }
         Err(e) => Err(e),
     }
 }
 
+/// Build the JSON error envelope and exit code for a dispatch `Err` under
+/// `--json` / `--jsonl`. Typed [`exit::NoMatchError`] / [`exit::AmbiguousError`]
+/// chains get `error_kind` and their dedicated exit codes.
+#[cfg(feature = "cli")]
+fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
+    let (kind, code) = if exit::is_no_match(err) {
+        (Some("no_matches"), exit::NO_MATCHES)
+    } else if exit::is_ambiguous(err) {
+        (Some("ambiguous"), exit::AMBIGUOUS)
+    } else {
+        (None, exit::FAILURE)
+    };
+    let mut output = serde_json::json!({
+        "ok": false,
+        "error": format!("{err:#}")
+    });
+    if let Some(k) = kind {
+        output["error_kind"] = serde_json::Value::String(k.to_string());
+    }
+    (output, code)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn structured_dispatch_error_maps_no_match() {
+        let err: anyhow::Error = exit::NoMatchError {
+            msg: "missing target".into(),
+        }
+        .into();
+        let (payload, code) = structured_dispatch_error(&err);
+        assert_eq!(code, exit::NO_MATCHES);
+        assert_eq!(payload["ok"], false);
+        assert_eq!(payload["error_kind"], "no_matches");
+        assert!(
+            payload["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("missing target"),
+            "payload={payload}"
+        );
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn structured_dispatch_error_maps_ambiguous() {
+        let err: anyhow::Error = exit::AmbiguousError {
+            msg: "two hits".into(),
+        }
+        .into();
+        let (payload, code) = structured_dispatch_error(&err);
+        assert_eq!(code, exit::AMBIGUOUS);
+        assert_eq!(payload["error_kind"], "ambiguous");
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn structured_dispatch_error_generic_stays_failure() {
+        let err = anyhow::anyhow!("file already exists");
+        let (payload, code) = structured_dispatch_error(&err);
+        assert_eq!(code, exit::FAILURE);
+        assert!(payload.get("error_kind").is_none());
+        assert_eq!(payload["ok"], false);
+    }
 
     #[test]
     fn bounded_regex_builder_compiles_valid_pattern() {
