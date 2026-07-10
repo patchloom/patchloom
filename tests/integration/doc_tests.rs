@@ -2262,6 +2262,36 @@ fn test_doc_get_no_match_text_mode_emits_stderr() {
 }
 
 #[test]
+fn test_doc_get_no_match_json_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"a": 1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("nonexistent")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(
+        v["error_kind"], "no_matches",
+        "doc get --json no-match should set error_kind: {v}"
+    );
+    assert!(
+        v["error"].as_str().unwrap_or("").contains("no match"),
+        "error message should remain human-readable: {v}"
+    );
+}
+
+#[test]
 fn test_doc_keys_no_match_text_mode_emits_stderr() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
