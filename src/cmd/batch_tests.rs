@@ -640,10 +640,7 @@ mod security {
             write: Default::default(),
         };
         let global = GlobalFlags::test_with_cwd(dir.path());
-        let err = run(args, &global).unwrap_err();
-        assert!(
-            err.to_string().contains("too many operations"),
-            "expected limit error: {err}"
-        );
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE, "expected limit error exit");
     }
 }

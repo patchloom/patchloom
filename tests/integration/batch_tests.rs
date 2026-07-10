@@ -188,7 +188,7 @@ fn test_batch_malformed_line_fails() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(1)
+        .code(4) // PARSE_ERROR
         .stderr(predicates::str::contains("unknown operation"));
 }
 
@@ -201,7 +201,7 @@ fn test_batch_bare_create_suggests_file_create() {
         .arg("--apply")
         .write_stdin("create new.txt \"hi\"\n")
         .assert()
-        .code(1)
+        .code(4) // PARSE_ERROR
         .stderr(predicates::str::contains("did you mean: file.create?"));
 }
 
@@ -214,7 +214,7 @@ fn test_batch_typo_file_create_suggests_neighbors() {
         .arg("--apply")
         .write_stdin("file.creat new.txt \"hi\"\n")
         .assert()
-        .code(1)
+        .code(4) // PARSE_ERROR
         .stderr(
             predicates::str::contains("did you mean").and(predicates::str::contains("file.create")),
         );
@@ -229,7 +229,7 @@ fn test_batch_cli_only_read_redirects_to_standalone() {
         .arg("--apply")
         .write_stdin("read file.txt\n")
         .assert()
-        .code(1)
+        .code(4) // PARSE_ERROR
         .stderr(
             predicates::str::contains("not supported in batch")
                 .and(predicates::str::contains("patchloom read")),
@@ -247,7 +247,7 @@ fn test_batch_extra_args_fail() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(1)
+        .code(4) // PARSE_ERROR
         .stderr(predicates::str::contains("requires exactly 1 argument"));
 }
 
@@ -745,7 +745,7 @@ fn test_batch_unterminated_quote_fails() {
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(1)
+        .code(4) // PARSE_ERROR
         .stderr(predicates::str::contains("unterminated"));
 }
 
@@ -800,5 +800,24 @@ fn test_batch_contain_allows_in_workspace() {
     assert_eq!(
         fs::read_to_string(dir.path().join("inside-batch.txt")).unwrap(),
         "ok"
+    );
+}
+
+#[test]
+fn test_batch_json_unknown_op_sets_parse_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("bad.txt");
+    fs::write(&ops, "unknown.op foo bar\n").unwrap();
+    let output = patchloom_in(dir.path())
+        .args(["--json", "batch"])
+        .arg(&ops)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(4));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "parse_error",
+        "batch parse failure should set error_kind: {json}"
     );
 }
