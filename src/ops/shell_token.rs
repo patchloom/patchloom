@@ -17,7 +17,8 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     // Agent scripts often wrap installs: `timeout 30 pip install`, `stdbuf -oL …`.
     "timeout", "stdbuf", "ionice",
     // Detach from controlling TTY (common in agent/CI isolation wrappers).
-    "setsid", // Invokers that take a command as their first non-option arg.
+    "setsid", // Drop privileges then run a command (`runuser -u app pip install`).
+    "runuser", // Invokers that take a command as their first non-option arg.
     "xargs", "watch", "strace",
     // Shell builtins that re-parse a command string / file.
     "eval", "source", ".",
@@ -567,6 +568,22 @@ mod tests {
         // Argument form stays non-command.
         assert_eq!(
             replace_command_position("echo flock /tmp/l pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn runuser_allows_command() {
+        assert_eq!(
+            replace_command_position("runuser -u app pip install\n", "pip", "uv").0,
+            "runuser -u app uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("runuser --user app pip install\n", "pip", "uv").0,
+            "runuser --user app uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("echo runuser pip\n", "pip", "uv").1,
             0
         );
     }
