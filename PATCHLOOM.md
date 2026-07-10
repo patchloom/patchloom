@@ -35,7 +35,7 @@
 
 **`replace_text` / plan replace flags (default false):**
 - `require_change`: error when the pattern matches zero times (fail closed).
-- `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid` wrappers yes; `uv pip` no).
+- `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`busybox` wrappers yes; `uv pip` no).
 Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
 Use patchloom when:
@@ -248,7 +248,7 @@ All operations succeed atomically or roll back together.
 
 Plan/MCP `replace` accepts library flags (default false):
 - `require_change`: fail when the pattern matches zero times (agent fail-closed).
-- `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid` wrappers yes; `uv pip` no).
+- `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`busybox` wrappers yes; `uv pip` no).
 Example: `{"op":"replace","path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
 ## AST-aware operations
