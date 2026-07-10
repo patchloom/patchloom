@@ -317,7 +317,7 @@ dependencies[name=react].version # predicate filter
 
 ## Operations (from schema registry)
 
-- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only).
+- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser wrappers, not uv pip).
 - `file.append`: Append content to an existing file.
 - `file.prepend`: Prepend content to an existing file.
 - `file.create`: Create a new file with specified content.
