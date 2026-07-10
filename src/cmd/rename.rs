@@ -171,10 +171,12 @@ fn run_binary_rename(
         || global.ensure_final_newline
         || global.normalize_eol.is_some()
     {
-        anyhow::bail!(
+        let msg = format!(
             "cannot apply write policy to binary file: {}",
             src.display()
         );
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(exit::FAILURE);
     }
 
     let check_msg = format!("would rename {} -> {} (binary)", args.from, args.to);
