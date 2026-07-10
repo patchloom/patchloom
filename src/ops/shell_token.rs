@@ -245,6 +245,11 @@ mod tests {
             replace_command_position("sudo --user alice pip install\n", "pip", "uv").0,
             "sudo --user alice uv install\n"
         );
+        // Combined: user flag value then no-arg flags.
+        assert_eq!(
+            replace_command_position("sudo -u root -E pip install\n", "pip", "uv").0,
+            "sudo -u root -E uv install\n"
+        );
         // Still do not rewrite argument-position pip.
         assert_eq!(
             replace_command_position("echo -u pip\n", "pip", "uv").1,
