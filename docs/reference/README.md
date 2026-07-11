@@ -408,6 +408,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
   - `--host <addr>` (default: `127.0.0.1`): Bind address (requires `--http`).
   - `--port <port>` (default: `8080`): Bind port (requires `--http`).
   - `--tls-cert <path>` / `--tls-key <path>`: TLS certificate and key PEM files for HTTPS (requires `--http`; both must be provided together).
+- **Failure behavior:** Invalid bind address or TLS config fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`
 
@@ -1182,6 +1183,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Performs a scoped text replacement within a single symbol's body. Only the text inside the named symbol is searched and modified; the rest of the file is untouched.
 - **Use when:** You need to change a value, string, or expression inside a specific function or struct without affecting identically-named text in other symbols.
+- **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`.
 - **Related:** `replace` (file-level), `ast.rename` (identifier rename)
 
 <!-- ref:tx-op:ast.rewrite_signature -->
@@ -1229,6 +1231,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Moves one or more symbols into a new or existing module block within the same file. Supports a preamble (e.g., `use super::*;`) and configurable placement (first-symbol position, end of file, or after a specific symbol).
 - **Use when:** You want to organize related symbols into a `mod tests { ... }` block or group utility functions into a sub-module without extracting to a separate file.
+- **Failure behavior:** Missing symbols exit **3** (`no_matches`) with `error_kind: "no_matches"`.
 - **Related:** `ast.extract_to_file`, `ast.move`, `ast.reorder`
 
 <!-- ref:tx-op:ast.move -->
