@@ -29,6 +29,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Format unit locks.** Explicit `--format` failure and format-timeout map to `FormatFailedError` in unit tests (not only integration).
 - **Crate docs: edit_error_kind peels exit types.** Library rustdoc shows `InvalidInput` for empty patterns and notes that CLI/tx typed errors map through `edit_error_kind`.
 - **Replace `--format` JSON lock.** Standalone `replace --apply --format false --json` sets `error_kind: format_failed` (exit 1); file still written (same recovery model as tx).
+- **Create/append `--format` JSON locks.** Same `format_failed` envelope on create and append write paths after apply.
 - **`apply_content_edits_to_file` diff headers.** File path appears in `--- a/` / `+++ b/` instead of `<buffer>`. Absolute paths still avoid `a//`. (#1500, #1502)
 - **Signature rewrite body gap.** Full-string and structured rewrites no longer produce `-> i32{` when the new signature has no trailing space. Original space or newline before `{` is preserved; glued originals get a conventional space; `;` decls do not. (#1503, #1504)
 - **`continue_on_no_match: false`.** Batch rename actually stops after the first `NoMatch` (was a no-op). (#1499)

@@ -152,6 +152,39 @@ fn test_append_format_flag_runs_after_apply() {
     );
 }
 
+#[test]
+fn test_append_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "line\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "append",
+            "f.txt",
+            "--content",
+            "extra\n",
+            "--apply",
+            "--format",
+            "false",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "append --format failure should set error_kind: {parsed}"
+    );
+    assert!(
+        fs::read_to_string(&file).unwrap().contains("extra"),
+        "append must still write before format failure"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // prepend CLI (direct subcommand, not via tx/doc)
 // ---------------------------------------------------------------------------
