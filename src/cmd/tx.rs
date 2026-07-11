@@ -20,8 +20,11 @@ fn emit_output_json(output: &TxOutput, compact: bool) {
     } else {
         serde_json::to_string_pretty(output)
     };
-    if let Ok(json) = result {
-        println!("{json}");
+    match result {
+        Ok(json) => println!("{json}"),
+        // TxOutput is always serializable in practice; log if that ever fails
+        // so structured mode never looks like a silent empty success.
+        Err(err) => eprintln!("tx: failed to serialize structured output: {err}"),
     }
 }
 
