@@ -431,16 +431,30 @@ pub(crate) enum OutputMode {
 
 fn format_value(value: &serde_json::Value, mode: OutputMode) -> String {
     match mode {
-        OutputMode::Json => serde_json::to_string_pretty(value).unwrap_or_default(),
-        OutputMode::Jsonl => serde_json::to_string(value).unwrap_or_default(),
+        OutputMode::Json => format_json_value(value, false),
+        OutputMode::Jsonl => format_json_value(value, true),
         OutputMode::Text => match value {
             serde_json::Value::String(s) => s.clone(),
             serde_json::Value::Number(n) => n.to_string(),
             serde_json::Value::Bool(b) => b.to_string(),
             serde_json::Value::Null => "null".to_string(),
             // Compound values (arrays, objects) always render as JSON.
-            _ => serde_json::to_string_pretty(value).unwrap_or_default(),
+            _ => format_json_value(value, false),
         },
+    }
+}
+
+/// Serialize a [`serde_json::Value`] for stdout. Fail-closed: never return an
+/// empty string on serialize error (same class as #1651 / `json_emit`).
+fn format_json_value(value: &serde_json::Value, compact: bool) -> String {
+    let result = if compact {
+        serde_json::to_string(value)
+    } else {
+        serde_json::to_string_pretty(value)
+    };
+    match result {
+        Ok(s) => s,
+        Err(e) => crate::json_emit::fallback_envelope(&e.to_string(), compact),
     }
 }
 

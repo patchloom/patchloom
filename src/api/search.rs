@@ -430,9 +430,24 @@ pub fn format_search_results(results: &[SearchResult], as_json: bool) -> String 
                 })
             })
             .collect();
-        if let Ok(s) = serde_json::to_string_pretty(&payload) {
-            out = s;
-            out.push('\n');
+        // Fail-closed for agent hosts (#1651 class): never empty JSON body.
+        match serde_json::to_string_pretty(&payload) {
+            Ok(s) => {
+                out = s;
+                out.push('\n');
+            }
+            Err(e) => {
+                let fallback = serde_json::json!({
+                    "ok": false,
+                    "error": format!("failed to serialize search results: {e}"),
+                    "error_kind": "operation_failed",
+                });
+                out = serde_json::to_string_pretty(&fallback).unwrap_or_else(|_| {
+                    r#"{"ok":false,"error":"failed to serialize search results","error_kind":"operation_failed"}"#
+                        .to_string()
+                });
+                out.push('\n');
+            }
         }
     } else {
         for r in results {

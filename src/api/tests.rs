@@ -2051,9 +2051,27 @@ fn search_format_results_human_and_json() {
 
     // formatter (human + json)
     let txt = format_search_results(&res, false);
-    assert!(txt.contains("foo") || txt.contains("x.rs") || !txt.trim().is_empty());
+    assert!(
+        txt.contains("foo") && txt.contains("x.rs"),
+        "human format must include path and match text: {txt:?}"
+    );
     let js = format_search_results(&res, true);
-    assert!(js.contains("\"column\"") || js.contains("column"));
+    assert!(!js.trim().is_empty(), "json format must not be empty");
+    let parsed: serde_json::Value =
+        serde_json::from_str(js.trim()).expect("json format must be valid JSON");
+    let arr = parsed
+        .as_array()
+        .expect("json format must be a top-level array");
+    assert!(!arr.is_empty(), "json format must include matches");
+    assert!(
+        arr[0].get("column").is_some(),
+        "each match must have column: {arr:?}"
+    );
+    assert_eq!(
+        arr[0].get("text").and_then(|v| v.as_str()),
+        Some("fn foo() {}"),
+        "first match text: {arr:?}"
+    );
 }
 
 /// Regression: format_search_results must print context_before lines
