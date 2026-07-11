@@ -44,7 +44,9 @@ fn file_write(
         Operation::FileCreate { content, force, .. } => {
             let path_str = path.to_string_lossy();
             if path.exists() && !path.is_file() {
-                bail!("target is not a file: {}", path.display());
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {}", path.display()),
+                }));
             }
             let original = if path.exists() {
                 std::fs::read_to_string(path)
@@ -54,7 +56,9 @@ fn file_write(
             };
             let force = force.unwrap_or(false);
             if !force && path.exists() && mode != ApplyMode::Preview {
-                bail!("file already exists: {}", path.display());
+                return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                    msg: format!("file already exists: {}", path.display()),
+                }));
             }
             let policy = crate::write::WritePolicy::default();
             let applied = super::write_if_apply(path, &content, mode, &policy, guard)?;
@@ -65,7 +69,11 @@ fn file_write(
         Operation::FileDelete { .. } => {
             let path_str = path.to_string_lossy();
             if !path.exists() {
-                bail!("file not found: {}", path.display());
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file not found: {}", path.display()),
+                )
+                .into());
             }
             let original = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
@@ -91,10 +99,16 @@ fn file_write(
             let content = content.clone();
             let path_str = path.to_string_lossy();
             if path.exists() && !path.is_file() {
-                bail!("target is not a file: {}", path.display());
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {}", path.display()),
+                }));
             }
             if !path.exists() {
-                bail!("file does not exist: {}", path.display());
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file does not exist: {}", path.display()),
+                )
+                .into());
             }
             let original = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
@@ -139,10 +153,12 @@ fn file_write_cross(
     if let Operation::FileRename { to, force, .. } = _op {
         let dst = Path::new(&to);
         if !force && dst.exists() {
-            bail!(
-                "destination already exists: {} (use force to overwrite)",
-                dst.display()
-            );
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: format!(
+                    "destination already exists: {} (use force to overwrite)",
+                    dst.display()
+                ),
+            }));
         }
         let original = std::fs::read_to_string(src)
             .with_context(|| format!("failed to read {}", src.display()))?;

@@ -161,7 +161,9 @@ fn replace_write(
 
         let is_regex = regex_mode;
         if old.is_empty() && !is_regex {
-            bail!("empty search pattern");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "empty search pattern".into(),
+            }));
         }
 
         let compiled_re = ops::replace::compile_replace_regex(
@@ -251,11 +253,11 @@ fn replace_write(
         // engine (which bails on unique before context), but is intentional:
         // context-resolved results are unambiguous by definition.
         if unique && count > 1 {
-            bail!(
-                "ambiguous match: pattern {:?} matches {} times; use --nth or add context to disambiguate",
-                old,
-                count
-            );
+            return Err(anyhow::Error::new(crate::exit::AmbiguousError {
+                msg: format!(
+                    "ambiguous match: pattern {old:?} matches {count} times; use --nth or add context to disambiguate"
+                ),
+            }));
         }
 
         // Fuzzy/context fallback: when exact match fails and fuzzy or context
@@ -304,14 +306,14 @@ fn replace_write(
                         ));
                     }
                     let similar = fallback::find_similar_targets(&original, &old, 3);
-                    let mut msg = format!("no matches for {:?}", old);
+                    let mut msg = format!("no matches for {old:?}");
                     if let Some(suggestion) = &edit_error.suggestion {
-                        msg.push_str(&format!(" (suggestion: {})", suggestion));
+                        msg.push_str(&format!(" (suggestion: {suggestion})"));
                     }
                     if !similar.is_empty() {
                         msg.push_str(&format!(" (did you mean: {}?)", similar.join(", ")));
                     }
-                    bail!("{msg}");
+                    return Err(anyhow::Error::new(crate::exit::NoMatchError { msg }));
                 }
             }
         }
@@ -352,17 +354,24 @@ pub fn replace_in_content(
     opts: &ReplaceOptions,
 ) -> anyhow::Result<ContentEditResult> {
     use crate::ops;
-    use anyhow::bail;
 
     let is_regex = opts.regex;
+    // Match replace_text: typed InvalidInputError so edit_error_kind peels
+    // invalid_input without scraping English.
     if from.is_empty() && !is_regex {
-        bail!("empty search pattern");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "empty search pattern".into(),
+        }));
     }
     if opts.range.is_some() && !opts.whole_line {
-        bail!("range requires whole_line to be true");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "range requires whole_line to be true".into(),
+        }));
     }
     if opts.whole_line && opts.multiline {
-        bail!("whole_line and multiline cannot be combined");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "whole_line and multiline cannot be combined".into(),
+        }));
     }
 
     // Shell command-position path (#1494): only rewrite invocable command tokens.

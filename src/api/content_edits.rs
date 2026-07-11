@@ -341,6 +341,10 @@ mod tests {
             before_msg.contains("empty"),
             "insert_before empty anchor: {before_msg}"
         );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&before),
+            Some(EditErrorKind::InvalidInput)
+        );
         let after = apply_content_edits(
             "body\n",
             &[ContentEdit::InsertAfter {
@@ -353,6 +357,10 @@ mod tests {
         assert!(
             after_msg.contains("empty"),
             "insert_after empty anchor: {after_msg}"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&after),
+            Some(EditErrorKind::InvalidInput)
         );
     }
 
