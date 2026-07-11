@@ -437,15 +437,7 @@ pub fn format_search_results(results: &[SearchResult], as_json: bool) -> String 
                 out.push('\n');
             }
             Err(e) => {
-                let fallback = serde_json::json!({
-                    "ok": false,
-                    "error": format!("failed to serialize search results: {e}"),
-                    "error_kind": "operation_failed",
-                });
-                out = serde_json::to_string_pretty(&fallback).unwrap_or_else(|_| {
-                    r#"{"ok":false,"error":"failed to serialize search results","error_kind":"operation_failed"}"#
-                        .to_string()
-                });
+                out = crate::json_emit::fallback_envelope(&format!("search results: {e}"), false);
                 out.push('\n');
             }
         }

@@ -205,7 +205,8 @@ pub mod exec;
 pub(crate) mod exit;
 pub mod fallback;
 pub mod files;
-#[cfg(feature = "cli")]
+// Fail-closed structured stdout helper (CLI + library agent hosts). Not CLI-only:
+// used by `GlobalFlags`, `cmd/doc`, and `api::format_search_results` (#1651 class).
 pub(crate) mod json_emit;
 pub mod ops;
 pub mod plan;
