@@ -122,7 +122,11 @@ impl PatchloomService {
             cwd.clone(),
             crate::containment::AbsolutePathPolicy::Reject,
         )
-        .map_err(|e| anyhow::anyhow!("failed to initialize path guard: {e}"))?;
+        .map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("failed to initialize path guard: {e}"),
+            })
+        })?;
         // --log flag takes precedence over PATCHLOOM_MCP_LOG env var.
         let call_log = log_flag
             .map(PathBuf::from)

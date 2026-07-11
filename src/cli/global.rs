@@ -436,7 +436,11 @@ impl GlobalFlags {
             crate::containment::AbsolutePathPolicy::AllowIfContained,
         )
         .map(Some)
-        .map_err(|e| anyhow::anyhow!("failed to initialize --contain path guard: {e}"))
+        .map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("failed to initialize --contain path guard: {e}"),
+            })
+        })
     }
 
     /// Validate user path args and, when `--contain` is set, reject escapes.

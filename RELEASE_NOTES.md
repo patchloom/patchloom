@@ -82,6 +82,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **AST symbol-not-found is `no_matches`.** extract/insert/reorder/wrap/move paths set `error_kind: "no_matches"` (exit 3) when a named symbol is missing; create race `already_exists` and unknown undo session are typed the same way.
 - **Patch apply/parse typed for tx.** Plan/engine patch parse failures set `parse_error`; stale context sets `ambiguous`; other apply failures set `invalid_input` (CLI path already emitted kinds via string maps).
 - **files-from / batch input / MCP bind typed.** Missing `--files-from` or batch input files set `not_found`; unreadable lists and invalid MCP bind/TLS config set `invalid_input`; AST validate parse failure sets `parse_error`.
+- **Agent-rules `error_kind` catalogue expanded.** Exit 3/4 rows and exit-1 kind list cover AST symbol misses, normalize_eol, table-append, patch/plan/files-from kinds so agents match runtime envelopes.
 
 ## Agent and library notes
 
