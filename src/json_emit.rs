@@ -212,8 +212,9 @@ mod tests {
         assert!(v["error"].as_str().unwrap().contains("boom"));
     }
 
-    // TxOutput is always available via the internal `tx` module.
+    // TxOutput lives under cli|files (same gate as the `tx` module).
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn force_fail_on_tx_output_still_produces_agent_envelope() {
         use crate::tx::TxOutput;
         let _g = ForceSerializeFailGuard::engage();
