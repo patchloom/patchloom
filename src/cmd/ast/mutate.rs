@@ -7,7 +7,6 @@ use crate::cmd::write_mode::{RenderPolicy, WriteMessages, finalize_execution_res
 use crate::exit;
 use crate::plan::Operation;
 use crate::tx::engine::WriteSource;
-use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 
@@ -42,42 +41,60 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     );
     crate::verbose!("ast rename: scanning {} files", paths.len());
 
-    // Pre-filter to files that have matches, then execute as a batch through
-    // the tx engine. This gives us backup, rollback, and format lifecycle.
-    let mut operations = Vec::new();
+    // Pre-filter to files that have matches (parallel read+probe), then execute
+    // as a batch through the tx engine. This gives backup, rollback, and format.
     let lang_hint = args.lang.as_deref();
-    for path in &paths {
+    let old = args.old.as_str();
+    let new = args.new.as_str();
+    let lang_cli = args.lang.clone();
+    // Surface the first IO error (same as sequential pre-scan); do not hide
+    // unreadable files as soft no-matches.
+    let read_errors = std::sync::Mutex::new(Vec::<anyhow::Error>::new());
+    let operations: Vec<Operation> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = resolve_lang(lang_hint, path);
-        let source =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let source = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                if let Ok(mut guard) = read_errors.lock() {
+                    guard.push(anyhow::anyhow!("reading {}: {e}", path.display()));
+                }
+                return None;
+            }
+        };
 
         // Check if this file has any matches (AST or word-boundary fallback).
         let has_match = if lang.has_grammar() {
-            crate::ast::rename::rename_in_source(&source, &args.old, &args.new, lang)
+            crate::ast::rename::rename_in_source(&source, old, new, lang)
                 .is_some_and(|r| r.replacements > 0)
         } else {
             false
         } || {
             // Word-boundary fallback
-            crate::ops::replace::compile_replace_regex(&args.old, false, false, false, true)
+            crate::ops::replace::compile_replace_regex(old, false, false, false, true)
                 .ok()
                 .flatten()
                 .is_some_and(|re| re.is_match(&source))
         };
 
-        if has_match {
-            let rel = path
-                .strip_prefix(&cwd)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .into_owned();
-            operations.push(Operation::AstRename {
-                path: rel,
-                old: args.old.clone(),
-                new: args.new.clone(),
-                lang: args.lang.clone(),
-            });
+        if !has_match {
+            return None;
         }
+        let rel = path
+            .strip_prefix(&cwd)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
+        Some(Operation::AstRename {
+            path: rel,
+            old: old.to_string(),
+            new: new.to_string(),
+            lang: lang_cli.clone(),
+        })
+    });
+    if let Ok(mut errs) = read_errors.into_inner()
+        && let Some(e) = errs.drain(..).next()
+    {
+        return Err(e);
     }
 
     if operations.is_empty() {
