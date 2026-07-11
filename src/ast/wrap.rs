@@ -150,8 +150,11 @@ fn find_symbol_range(
     let mut max_end = 0usize;
 
     for name in symbol_names {
-        let sym = find_symbol(&symbols, name)
-            .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", name))?;
+        let sym = find_symbol(&symbols, name).ok_or_else(|| {
+            anyhow::Error::new(crate::exit::NoMatchError {
+                msg: format!("symbol '{name}' not found"),
+            })
+        })?;
         let (full_start, full_end) = full_symbol_span(source, sym, lang);
         let start = full_start.saturating_sub(1);
         let end = full_end;
@@ -184,9 +187,11 @@ fn parse_line_range_to_indices(spec: &str, total_lines: usize) -> anyhow::Result
         }));
     }
 
-    let start: usize = parts[0]
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid start line: {}", parts[0]))?;
+    let start: usize = parts[0].parse().map_err(|_| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("invalid start line: {}", parts[0]),
+        })
+    })?;
 
     if start == 0 {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
@@ -200,9 +205,11 @@ fn parse_line_range_to_indices(spec: &str, total_lines: usize) -> anyhow::Result
         return Ok((start_idx, total_lines));
     }
 
-    let end: usize = parts[1]
-        .parse()
-        .map_err(|_| anyhow::anyhow!("invalid end line: {}", parts[1]))?;
+    let end: usize = parts[1].parse().map_err(|_| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("invalid end line: {}", parts[1]),
+        })
+    })?;
     if end < start {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: format!("end line {end} is before start line {start}"),

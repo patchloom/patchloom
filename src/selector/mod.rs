@@ -7,7 +7,11 @@ pub use parser::{Segment, Selector, parse};
 /// Parse a selector string, mapping parse errors to `anyhow::Error` with
 /// a "selector error:" prefix for consistent error formatting.
 pub fn parse_anyhow(input: &str) -> anyhow::Result<Selector> {
-    parse(input).map_err(|e| anyhow::anyhow!("selector error: {e}"))
+    parse(input).map_err(|e| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("selector error: {e}"),
+        })
+    })
 }
 
 /// Navigate a dotted path like `"settings.theme"` into a JSON value.

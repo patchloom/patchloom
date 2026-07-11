@@ -473,8 +473,12 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     };
 
     // 1. Collect matching files.
-    let glob_set = crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob))?
-        .ok_or_else(|| anyhow::anyhow!("for_each: invalid glob pattern"))?;
+    let glob_set =
+        crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob))?.ok_or_else(|| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "for_each: invalid glob pattern".into(),
+            })
+        })?;
 
     let all_files = crate::files::collect_file_paths(cwd, false)?;
     let mut matched: Vec<std::path::PathBuf> = all_files

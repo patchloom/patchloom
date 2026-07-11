@@ -42,8 +42,11 @@ pub fn reorder_symbols(
     let lines: Vec<&str> = source.lines().collect();
 
     let (scope_symbols, scope_start_0, scope_end_0) = if let Some(container) = inside {
-        let parent = find_symbol(&all_symbols, container)
-            .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", container))?;
+        let parent = find_symbol(&all_symbols, container).ok_or_else(|| {
+            anyhow::Error::new(crate::exit::NoMatchError {
+                msg: format!("symbol '{container}' not found"),
+            })
+        })?;
         // Find the opening brace line of the container
         let open_line_0 = find_opening_line(&lines, parent.start_line.saturating_sub(1));
         let close_line_0 = parent.end_line.min(lines.len()).saturating_sub(1);
@@ -268,9 +271,11 @@ pub fn parse_strategy(value: &serde_json::Value) -> anyhow::Result<ReorderStrate
             let names: Result<Vec<String>, _> = arr
                 .iter()
                 .map(|v| {
-                    v.as_str()
-                        .map(String::from)
-                        .ok_or_else(|| anyhow::anyhow!("custom order items must be strings"))
+                    v.as_str().map(String::from).ok_or_else(|| {
+                        anyhow::Error::new(crate::exit::InvalidInputError {
+                            msg: "custom order items must be strings".into(),
+                        })
+                    })
                 })
                 .collect();
             Ok(ReorderStrategy::Custom(names?))

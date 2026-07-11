@@ -896,6 +896,10 @@ mod error_handling {
             err.to_string().contains("already exists"),
             "error should mention 'already exists': {err}"
         );
+        assert!(
+            crate::exit::is_already_exists(&err),
+            "create race must be typed AlreadyExistsError for JSON error_kind"
+        );
     }
 
     #[test]

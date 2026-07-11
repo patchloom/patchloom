@@ -33,8 +33,11 @@ pub fn extract_to_file(
 ) -> anyhow::Result<ExtractResult> {
     let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols(source, lang);
-    let sym = find_symbol(&symbols, symbol)
-        .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", symbol))?;
+    let sym = find_symbol(&symbols, symbol).ok_or_else(|| {
+        anyhow::Error::new(crate::exit::NoMatchError {
+            msg: format!("symbol '{symbol}' not found"),
+        })
+    })?;
 
     let (full_start, full_end) = full_symbol_span(source, sym, lang);
     let lines: Vec<&str> = source.lines().collect();

@@ -654,7 +654,9 @@ pub(crate) fn atomic_create_new(
 
     tmp.persist_noclobber(path).map_err(|e| {
         if e.error.kind() == std::io::ErrorKind::AlreadyExists {
-            anyhow::anyhow!("file already exists: {}", path.display())
+            anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: format!("file already exists: {}", path.display()),
+            })
         } else {
             anyhow::Error::from(e.error)
                 .context(format!("failed to persist tempfile to {}", path.display()))

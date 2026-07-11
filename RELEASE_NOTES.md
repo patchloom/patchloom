@@ -79,6 +79,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Doc navigate selector mistakes typed.** Empty selectors, unsupported wildcards on write paths, bad predicates, and out-of-bounds indexes set `invalid_input`; expected-object type mismatches set `type_error`.
 - **AST split/search/symbols and plan verify typed.** Duplicate or unaccounted split symbols and overlapping symbol spans set `invalid_input`; invalid AST search patterns set `parse_error`; malformed plan `verify` specs set `invalid_input` (was unstructured exit 1).
 - **More agent JSON kinds.** Invalid `normalize_eol` values, md `table-append` row/table failures, and library doc type mismatches set `invalid_input` / `type_error`; missing git-blob paths for AST set `not_found` (was unstructured exit 1 / operation_failed).
+- **AST symbol-not-found is `no_matches`.** extract/insert/reorder/wrap/move paths set `error_kind: "no_matches"` (exit 3) when a named symbol is missing; create race `already_exists` and unknown undo session are typed the same way.
 
 ## Agent and library notes
 
