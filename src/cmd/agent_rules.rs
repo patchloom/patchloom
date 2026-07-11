@@ -461,6 +461,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              md table-append row/table failures, bad selector/for_each templates, MCP bind/TLS config, \
              CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, \
              all-explicit-paths-missing for search/replace/tidy, \
+             invalid search/replace regex patterns (unclosed groups, etc.), \
              and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, \
              md.move_section before/after, search invert_match+multiline). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type, library doc mutation type errors). \
@@ -724,8 +725,9 @@ mod tests {
             out.contains("already_exists")
                 && out.contains("not_found")
                 && out.contains("type_error")
-                && out.contains("parse_error"),
-            "error_kind catalogue must document file-op, doc, and batch kinds"
+                && out.contains("parse_error")
+                && out.contains("invalid search/replace regex"),
+            "error_kind catalogue must document file-op, doc, batch, and invalid regex kinds"
         );
     }
 
