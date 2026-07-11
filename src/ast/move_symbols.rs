@@ -177,8 +177,11 @@ fn insert_into_target(
         }
         MovePosition::After(sym_name) => {
             let symbols = extract_symbols(target, lang);
-            let sym = find_symbol(&symbols, sym_name)
-                .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found in target", sym_name))?;
+            let sym = find_symbol(&symbols, sym_name).ok_or_else(|| {
+                anyhow::Error::new(crate::exit::NoMatchError {
+                    msg: format!("symbol '{sym_name}' not found in target"),
+                })
+            })?;
             let end_0 = sym.end_line.min(lines.len());
             let mut result = String::new();
             for line in &lines[..end_0] {
@@ -198,8 +201,11 @@ fn insert_into_target(
         }
         MovePosition::Before(sym_name) => {
             let symbols = extract_symbols(target, lang);
-            let sym = find_symbol(&symbols, sym_name)
-                .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found in target", sym_name))?;
+            let sym = find_symbol(&symbols, sym_name).ok_or_else(|| {
+                anyhow::Error::new(crate::exit::NoMatchError {
+                    msg: format!("symbol '{sym_name}' not found in target"),
+                })
+            })?;
             let (full_start, _) = full_symbol_span(target, sym, lang);
             let start_0 = full_start.saturating_sub(1);
             let mut result = String::new();

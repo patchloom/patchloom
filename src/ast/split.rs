@@ -47,12 +47,12 @@ pub fn split_file(
     for (idx, target) in targets.iter().enumerate() {
         for name in &target.symbols {
             if let Some(prev_idx) = sym_to_target.insert(name.as_str(), idx) {
-                anyhow::bail!(
-                    "symbol '{}' assigned to multiple targets: '{}' and '{}'",
-                    name,
-                    targets[prev_idx].path,
-                    target.path
-                );
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!(
+                        "symbol '{}' assigned to multiple targets: '{}' and '{}'",
+                        name, targets[prev_idx].path, target.path
+                    ),
+                }));
             }
         }
     }
@@ -68,10 +68,12 @@ pub fn split_file(
             }
         }
         if !unaccounted.is_empty() {
-            anyhow::bail!(
-                "unaccounted symbols (use keep_in_source or add to a target): {}",
-                unaccounted.join(", ")
-            );
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!(
+                    "unaccounted symbols (use keep_in_source or add to a target): {}",
+                    unaccounted.join(", ")
+                ),
+            }));
         }
     }
 

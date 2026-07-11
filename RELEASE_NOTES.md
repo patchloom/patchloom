@@ -77,6 +77,11 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **CLI `--cwd` missing/non-dir `invalid_input`.** Bad `--cwd` paths exit **1** with `error_kind: "invalid_input"` under `--json` (typed `InvalidInputError`).
 - **Empty path strings `invalid_input`.** `resolve_user_path` rejects empty paths with typed `InvalidInputError` (same as `check_paths_contained`).
 - **Doc navigate selector mistakes typed.** Empty selectors, unsupported wildcards on write paths, bad predicates, and out-of-bounds indexes set `invalid_input`; expected-object type mismatches set `type_error`.
+- **AST split/search/symbols and plan verify typed.** Duplicate or unaccounted split symbols and overlapping symbol spans set `invalid_input`; invalid AST search patterns set `parse_error`; malformed plan `verify` specs set `invalid_input` (was unstructured exit 1).
+- **More agent JSON kinds.** Invalid `normalize_eol` values, md `table-append` row/table failures, and library doc type mismatches set `invalid_input` / `type_error`; missing git-blob paths for AST set `not_found` (was unstructured exit 1 / operation_failed).
+- **AST symbol-not-found is `no_matches`.** extract/insert/reorder/wrap/move paths set `error_kind: "no_matches"` (exit 3) when a named symbol is missing; create race `already_exists` and unknown undo session are typed the same way.
+- **Patch apply/parse typed for tx.** Plan/engine patch parse failures set `parse_error`; stale context sets `ambiguous`; other apply failures set `invalid_input` (CLI path already emitted kinds via string maps).
+- **files-from / batch input / MCP bind typed.** Missing `--files-from` or batch input files set `not_found`; unreadable lists and invalid MCP bind/TLS config set `invalid_input`; AST validate parse failure sets `parse_error`.
 
 ## Agent and library notes
 

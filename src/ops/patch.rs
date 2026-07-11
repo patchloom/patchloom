@@ -707,8 +707,11 @@ pub(crate) fn apply_patch_with_loader<F>(
 where
     F: FnMut(&str) -> anyhow::Result<String>,
 {
-    let patch_files =
-        parse_patch(diff_text).map_err(|msg| anyhow::anyhow!("patch parse error: {msg}"))?;
+    let patch_files = parse_patch(diff_text).map_err(|msg| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("patch parse error: {msg}"),
+        })
+    })?;
     let mut results = Vec::new();
     for pf in &patch_files {
         // New file creation: original is empty, don't try to load from disk.
@@ -739,8 +742,16 @@ where
                 }
                 .into());
             }
+            Err(msg) if msg.contains("stale context") => {
+                return Err(crate::exit::AmbiguousError {
+                    msg: format!("patch apply: {} -- {msg}", pf.path),
+                }
+                .into());
+            }
             Err(msg) => {
-                return Err(anyhow::anyhow!("patch apply: {} -- {msg}", pf.path));
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("patch apply: {} -- {msg}", pf.path),
+                }));
             }
         };
         results.push(PatchApplyFileResult {

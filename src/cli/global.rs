@@ -555,7 +555,17 @@ impl GlobalFlags {
         } else {
             let list_path = self.resolve_user_path(source)?;
             let content = std::fs::read_to_string(&list_path).map_err(|e| {
-                anyhow::anyhow!("failed to read --files-from '{}': {e}", list_path.display())
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("failed to read --files-from '{}': {e}", list_path.display()),
+                    )
+                    .into()
+                } else {
+                    anyhow::Error::new(crate::exit::InvalidInputError {
+                        msg: format!("failed to read --files-from '{}': {e}", list_path.display()),
+                    })
+                }
             })?;
             let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
             content
@@ -578,8 +588,11 @@ fn collect_files_from_line_results(
 ) -> anyhow::Result<Vec<String>> {
     let mut out = Vec::new();
     for (i, line_res) in lines.into_iter().enumerate() {
-        let mut l =
-            line_res.map_err(|e| anyhow::anyhow!("failed to read --files-from from stdin: {e}"))?;
+        let mut l = line_res.map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("failed to read --files-from from stdin: {e}"),
+            })
+        })?;
         // BOM is not Unicode whitespace: strip it before trim on the first line.
         if i == 0
             && let Some(stripped) = l.strip_prefix('\u{FEFF}')

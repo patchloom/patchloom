@@ -64,8 +64,12 @@ fn md_write(
             heading, bullet, ..
         } => ops::md::upsert_bullet_in(&original, &heading, &bullet),
         Operation::MdTableAppend { heading, row, .. } => {
-            let (body_start, body_end) = ops::md::find_section(&original, &heading)
-                .ok_or_else(|| anyhow::anyhow!("heading not found in {path_str}"))?;
+            let (body_start, body_end) =
+                ops::md::find_section(&original, &heading).ok_or_else(|| {
+                    anyhow::Error::new(crate::exit::NoMatchError {
+                        msg: format!("heading not found in {path_str}"),
+                    })
+                })?;
             return match ops::md::table_append_in(&original, body_start, body_end, &row) {
                 Ok(new_content) => {
                     let policy = WritePolicy::default();
@@ -79,14 +83,18 @@ fn md_write(
                         None,
                     ))
                 }
-                Err(e) => Err(anyhow::anyhow!(
-                    "{e} under heading {heading:?} in {path_str}"
-                )),
+                Err(e) => Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("{e} under heading {heading:?} in {path_str}"),
+                })),
             };
         }
         _ => None,
     }
-    .ok_or_else(|| anyhow::anyhow!("heading not found in {path_str}"))?;
+    .ok_or_else(|| {
+        anyhow::Error::new(crate::exit::NoMatchError {
+            msg: format!("heading not found in {path_str}"),
+        })
+    })?;
 
     let policy = WritePolicy::default();
     let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
@@ -197,7 +205,11 @@ pub fn md_move_section(
 
     let (new_source, new_dest) =
         ops::md::move_section_in(&original, heading, &dest_content, position, to.is_none())
-            .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
+            .ok_or_else(|| {
+                anyhow::Error::new(crate::exit::NoMatchError {
+                    msg: format!("heading '{heading}' not found"),
+                })
+            })?;
 
     let policy = crate::write::WritePolicy::default();
     // Write the destination file for cross-file moves.

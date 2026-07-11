@@ -133,9 +133,9 @@ impl VerifyCheck {
         if let Some(kind) = kind {
             Ok(VerifyCheck::SymbolCount { kind, attr })
         } else {
-            anyhow::bail!(
-                "verify spec must contain 'kind=<type>' or a named check (unique_names, no_orphans)"
-            )
+            Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "verify spec must contain 'kind=<type>' or a named check (unique_names, no_orphans)".into(),
+            }))
         }
     }
 }
@@ -473,8 +473,12 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     };
 
     // 1. Collect matching files.
-    let glob_set = crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob))?
-        .ok_or_else(|| anyhow::anyhow!("for_each: invalid glob pattern"))?;
+    let glob_set =
+        crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob))?.ok_or_else(|| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "for_each: invalid glob pattern".into(),
+            })
+        })?;
 
     let all_files = crate::files::collect_file_paths(cwd, false)?;
     let mut matched: Vec<std::path::PathBuf> = all_files
@@ -588,8 +592,11 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
             .replace("\x00LBRACE\x00", "{")
             .replace("\x00RBRACE\x00", "}");
 
-        let file_ops: Vec<Operation> = serde_json::from_str(&substituted)
-            .map_err(|e| anyhow::anyhow!("for_each: template expansion failed: {e}"))?;
+        let file_ops: Vec<Operation> = serde_json::from_str(&substituted).map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("for_each: template expansion failed: {e}"),
+            })
+        })?;
         expanded.extend(file_ops);
     }
 

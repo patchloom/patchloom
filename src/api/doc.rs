@@ -69,7 +69,7 @@ fn doc_write(
 
     let result = ops::doc::apply_doc_mutation(&mut new_value, mutation)?;
     if let MutationResult::TypeError(msg) = result {
-        anyhow::bail!("{msg}");
+        return Err(anyhow::Error::new(crate::exit::TypeErrorError { msg }));
     }
     let removed = match &result {
         MutationResult::Removed(n) => *n,

@@ -94,7 +94,13 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let session = sessions
             .iter()
             .find(|s| s.timestamp == timestamp)
-            .ok_or_else(|| anyhow::anyhow!("session {timestamp} not in session list (use `patchloom undo --list` to see available sessions)"))?;
+            .ok_or_else(|| {
+                anyhow::Error::new(crate::exit::NoMatchError {
+                    msg: format!(
+                        "session {timestamp} not in session list (use `patchloom undo --list` to see available sessions)"
+                    ),
+                })
+            })?;
 
         let entries: Vec<UndoPreviewEntry> = session
             .entries

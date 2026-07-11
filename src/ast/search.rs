@@ -43,11 +43,17 @@ pub fn search_query(
     lang: Language,
     max_results: Option<usize>,
 ) -> anyhow::Result<Vec<SearchMatch>> {
-    let (tree, ts_lang) =
-        parse_source(source, lang).ok_or_else(|| anyhow::anyhow!("no grammar for {lang}"))?;
+    let (tree, ts_lang) = parse_source(source, lang).ok_or_else(|| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("no grammar for {lang}"),
+        })
+    })?;
 
-    let query = tree_sitter_lib::Query::new(&ts_lang, query_str)
-        .map_err(|e| anyhow::anyhow!("invalid query: {e}"))?;
+    let query = tree_sitter_lib::Query::new(&ts_lang, query_str).map_err(|e| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("invalid query: {e}"),
+        })
+    })?;
 
     let mut cursor = tree_sitter_lib::QueryCursor::new();
     let source_bytes = source.as_bytes();
@@ -150,14 +156,19 @@ pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<St
         sanitized.replace_range(start..end, &placeholder);
     }
 
-    let (tree, _) = parse_source(&sanitized, lang)
-        .ok_or_else(|| anyhow::anyhow!("cannot parse pattern for {lang}"))?;
+    let (tree, _) = parse_source(&sanitized, lang).ok_or_else(|| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("cannot parse pattern for {lang}"),
+        })
+    })?;
 
     let root = tree.root_node();
     if root.has_error() {
-        anyhow::bail!(
-            "pattern is not valid {lang} syntax (after meta-variable substitution): {sanitized}"
-        );
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "pattern is not valid {lang} syntax (after meta-variable substitution): {sanitized}"
+            ),
+        }));
     }
 
     // Walk to the first meaningful child (skip source_file wrapper)

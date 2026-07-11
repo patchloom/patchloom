@@ -399,7 +399,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     if let Err(e) =
                         crate::ops::md::table_append_in(&content, body_start, body_end, &row)
                     {
-                        anyhow::bail!("{e} under heading {:?}", heading);
+                        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                            msg: format!("{e} under heading {:?}", heading),
+                        }));
                     }
                     let op = Operation::MdTableAppend {
                         path: file.clone(),

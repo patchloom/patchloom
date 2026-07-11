@@ -82,8 +82,11 @@ fn insert_inside(
     container_name: &str,
     position: InsertPosition,
 ) -> anyhow::Result<InsertResult> {
-    let sym = find_symbol(ctx.symbols, container_name)
-        .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", container_name))?;
+    let sym = find_symbol(ctx.symbols, container_name).ok_or_else(|| {
+        anyhow::Error::new(crate::exit::NoMatchError {
+            msg: format!("symbol '{container_name}' not found"),
+        })
+    })?;
 
     let start_idx = sym.start_line.saturating_sub(1);
     let end_idx = sym.end_line.min(ctx.lines.len());
@@ -222,8 +225,11 @@ fn insert_adjacent(
     symbol_name: &str,
     after: bool,
 ) -> anyhow::Result<InsertResult> {
-    let sym = find_symbol(ctx.symbols, symbol_name)
-        .ok_or_else(|| anyhow::anyhow!("symbol '{}' not found", symbol_name))?;
+    let sym = find_symbol(ctx.symbols, symbol_name).ok_or_else(|| {
+        anyhow::Error::new(crate::exit::NoMatchError {
+            msg: format!("symbol '{symbol_name}' not found"),
+        })
+    })?;
 
     // Use the symbol's indentation level for the new content
     let sym_start_idx = sym.start_line.saturating_sub(1);

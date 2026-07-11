@@ -50,8 +50,11 @@ fn patch_write(
     use crate::ops;
 
     if let Operation::PatchApply { diff, .. } = _op {
-        let patch_files = ops::patch::parse_patch(&diff)
-            .map_err(|e| anyhow::anyhow!("patch parse error: {e}"))?;
+        let patch_files = ops::patch::parse_patch(&diff).map_err(|e| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("patch parse error: {e}"),
+            })
+        })?;
 
         if patch_files.is_empty() {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
@@ -65,8 +68,17 @@ fn patch_write(
         let original = std::fs::read_to_string(&file_path)
             .with_context(|| format!("failed to read {}", file_path.display()))?;
 
-        let new_content = ops::patch::apply_hunks(&original, &pf.hunks)
-            .map_err(|e| anyhow::anyhow!("patch apply error: {e}"))?;
+        let new_content = ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
+            if e.contains("stale context") {
+                anyhow::Error::new(crate::exit::AmbiguousError {
+                    msg: format!("patch apply error: {e}"),
+                })
+            } else {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("patch apply error: {e}"),
+                })
+            }
+        })?;
 
         let policy = crate::write::WritePolicy::default();
         let applied = super::write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
@@ -94,8 +106,11 @@ pub fn apply_patch_file(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<Vec<EditResult>> {
-    let patch_files = crate::ops::patch::parse_patch(patch_text)
-        .map_err(|e| anyhow::anyhow!("patch parse error: {e}"))?;
+    let patch_files = crate::ops::patch::parse_patch(patch_text).map_err(|e| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("patch parse error: {e}"),
+        })
+    })?;
 
     let mut results = Vec::new();
     for pf in &patch_files {
@@ -103,8 +118,17 @@ pub fn apply_patch_file(
         let original = std::fs::read_to_string(&file_path)
             .with_context(|| format!("failed to read {}", file_path.display()))?;
 
-        let new_content = crate::ops::patch::apply_hunks(&original, &pf.hunks)
-            .map_err(|e| anyhow::anyhow!("patch apply error for {}: {e}", pf.path))?;
+        let new_content = crate::ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
+            if e.contains("stale context") {
+                anyhow::Error::new(crate::exit::AmbiguousError {
+                    msg: format!("patch apply error for {}: {e}", pf.path),
+                })
+            } else {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("patch apply error for {}: {e}", pf.path),
+                })
+            }
+        })?;
 
         let policy = crate::write::WritePolicy::default();
         let applied = super::write_if_apply(&file_path, &new_content, mode, &policy, guard)?;

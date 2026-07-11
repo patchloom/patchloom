@@ -896,6 +896,10 @@ mod error_handling {
             err.to_string().contains("already exists"),
             "error should mention 'already exists': {err}"
         );
+        assert!(
+            crate::exit::is_already_exists(&err),
+            "create race must be typed AlreadyExistsError for JSON error_kind"
+        );
     }
 
     #[test]
@@ -909,6 +913,10 @@ mod error_handling {
         assert!(
             err.to_string().contains("invalid normalize_eol value"),
             "expected invalid eol error, got: {err}"
+        );
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "invalid normalize_eol must be typed InvalidInputError for JSON error_kind"
         );
         // Policy should not have been partially mutated before the error.
         assert!(matches!(policy.normalize_eol, EolMode::Keep));
