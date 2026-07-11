@@ -752,14 +752,21 @@ pub(crate) fn run_format_command_ext(
 
     // Priority 1: explicit --format command (whole-project)
     if let Some(cmd) = global.format.as_deref() {
-        let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
+        let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd).map_err(|e| {
+            crate::exit::FormatFailedError {
+                msg: format!("format command failed ({cmd}): {e}"),
+            }
+        })?;
         if !result.status.success() {
             let stderr = if result.stderr_head.is_empty() {
                 String::new()
             } else {
                 format!(": {}", result.stderr_head)
             };
-            anyhow::bail!("format command failed ({}){stderr}", cmd);
+            return Err(crate::exit::FormatFailedError {
+                msg: format!("format command failed ({cmd}){stderr}"),
+            }
+            .into());
         }
         return Ok(());
     }

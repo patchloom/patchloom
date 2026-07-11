@@ -462,6 +462,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, \
              all-explicit-paths-missing for search/replace/tidy, \
              invalid search/replace regex patterns (unclosed groups, etc.), \
+             post-write `--format` / format-timeout failures (`format_failed`), \
              and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, \
              md.move_section before/after, search invert_match+multiline). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type, library doc mutation type errors). \
@@ -726,8 +727,9 @@ mod tests {
                 && out.contains("not_found")
                 && out.contains("type_error")
                 && out.contains("parse_error")
-                && out.contains("invalid search/replace regex"),
-            "error_kind catalogue must document file-op, doc, batch, and invalid regex kinds"
+                && out.contains("invalid search/replace regex")
+                && out.contains("format_failed"),
+            "error_kind catalogue must document file-op, doc, batch, invalid regex, and format_failed"
         );
     }
 

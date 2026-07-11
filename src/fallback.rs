@@ -207,6 +207,12 @@ pub fn edit_error_kind(err: &anyhow::Error) -> Option<EditErrorKind> {
         {
             return Some(EditErrorKind::OperationFailed);
         }
+        if cause
+            .downcast_ref::<crate::exit::FormatFailedError>()
+            .is_some()
+        {
+            return Some(EditErrorKind::OperationFailed);
+        }
     }
     None
 }
