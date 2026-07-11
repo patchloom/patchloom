@@ -86,7 +86,9 @@
 //!
 //! Fail-closed text edits for agent hosts (#1492): set `ReplaceOptions.require_change = true`
 //! so zero matches become `EditErrorKind::NoMatch` (not `Ok(changed=false)`). Match kinds via
-//! `api::edit_error_kind(&err)` without scraping English. Example:
+//! `api::edit_error_kind(&err)` without scraping English. That helper also peels CLI/tx typed
+//! errors (`InvalidInputError` for empty patterns / bad regex, `NoMatchError`, …) so hosts
+//! need not know which construction path produced the failure. Example:
 //!
 //! ```rust,no_run
 //! use patchloom::api::{self, ReplaceOptions, edit_error_kind, EditErrorKind};
@@ -94,6 +96,10 @@
 //! match api::replace_in_content("a b", "missing", "x", &opts) {
 //!     Ok(r) => assert!(r.changed),
 //!     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::NoMatch)),
+//! }
+//! match api::replace_in_content("a b", "", "x", &ReplaceOptions::default()) {
+//!     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::InvalidInput)),
+//!     Ok(_) => panic!("empty pattern must error"),
 //! }
 //! ```
 //!
