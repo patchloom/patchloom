@@ -265,6 +265,8 @@ fn test_md_dedupe_headings_jsonl_output() {
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
     assert_eq!(lines.len(), 1);
     let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    // JSONL dedupe-headings emits one JSON string per removed heading (not an
+    // object). `.as_str()` is intentional.
     assert_eq!(json.as_str().unwrap(), "## Dup");
 }
 

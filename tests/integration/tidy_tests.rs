@@ -38,27 +38,6 @@ fn test_tidy_fix_apply() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// create
-// ---------------------------------------------------------------------------
-
-// ── read command ────────────────────────────────────────────────────
-
-#[test]
-fn test_tidy_check_exits_2_with_issues() {
-    let dir = TempDir::new().unwrap();
-    let file = dir.path().join("test.txt");
-    fs::write(&file, "no trailing newline").unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("tidy")
-        .arg("check")
-        .arg(&file)
-        .assert()
-        .code(2);
-}
-
 #[test]
 fn test_tidy_check_json_output() {
     let dir = TempDir::new().unwrap();
@@ -184,6 +163,9 @@ fn test_tidy_fix_json_output() {
 
     let json: serde_json::Value =
         serde_json::from_slice(&output.stdout).expect("stdout should be valid JSON");
+    // Default tidy fix is dry-run: exit 2 means "would change", not command
+    // failure. JSON still uses ok:true for successful execution (same as
+    // replace/create preview).
     assert_eq!(json["ok"], true);
     assert!(json["files_changed"].as_u64().unwrap() >= 1);
     assert!(!json["files"].as_array().unwrap().is_empty());

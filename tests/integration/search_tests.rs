@@ -416,7 +416,13 @@ fn test_search_assert_count_jsonl_success_returns_structured_output() {
     assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-    assert_eq!(lines.len(), 1, "JSONL output should be a single line");
+    // assert-count returns early via emit_json (one summary object), even under
+    // --jsonl; it does not stream per-match lines.
+    assert_eq!(
+        lines.len(),
+        1,
+        "JSONL assert-count should be a single summary line"
+    );
     let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["status"], "success");
