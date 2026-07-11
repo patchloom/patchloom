@@ -32,6 +32,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Create/append `--format` JSON locks.** Same `format_failed` envelope on create and append write paths after apply.
 - **Prepend/delete `--format` JSON locks.** Post-apply format failures on prepend and delete also set `error_kind: format_failed` (delete still removes the file first).
 - **Doc write `format_failed`.** `doc set` (and other doc writes that remap engine errors) preserve `error_kind: format_failed` for post-write `--format` failures (was untyped exit 1).
+- **Shared `classify_typed_error`.** One table maps typed errors to JSON `error_kind` + exit code for global dispatch and command remappers, so new kinds cannot be present in one path and dropped in another.
 - **`apply_content_edits_to_file` diff headers.** File path appears in `--- a/` / `+++ b/` instead of `<buffer>`. Absolute paths still avoid `a//`. (#1500, #1502)
 - **Signature rewrite body gap.** Full-string and structured rewrites no longer produce `-> i32{` when the new signature has no trailing space. Original space or newline before `{` is preserved; glued originals get a conventional space; `;` decls do not. (#1503, #1504)
 - **`continue_on_no_match: false`.** Batch rename actually stops after the first `NoMatch` (was a no-op). (#1499)
