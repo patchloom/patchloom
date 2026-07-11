@@ -155,9 +155,11 @@ pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<St
 
     let root = tree.root_node();
     if root.has_error() {
-        anyhow::bail!(
-            "pattern is not valid {lang} syntax (after meta-variable substitution): {sanitized}"
-        );
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "pattern is not valid {lang} syntax (after meta-variable substitution): {sanitized}"
+            ),
+        }));
     }
 
     // Walk to the first meaningful child (skip source_file wrapper)

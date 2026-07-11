@@ -117,11 +117,11 @@ pub fn parse_eol_mode(mode: &str) -> anyhow::Result<EolMode> {
         "crlf" => Ok(EolMode::Crlf),
         "cr" => Ok(EolMode::Cr),
         "keep" => Ok(EolMode::Keep),
-        _ => {
-            anyhow::bail!(
+        _ => Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!(
                 "invalid normalize_eol value '{mode}': expected 'lf', 'crlf', 'cr', or 'keep'"
-            )
-        }
+            ),
+        })),
     }
 }
 

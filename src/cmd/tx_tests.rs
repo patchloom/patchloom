@@ -982,13 +982,15 @@ mod error_handling {
 
     #[test]
     fn parse_eol_mode_invalid_value_returns_error() {
-        let result = crate::write::parse_eol_mode("bogus");
-        let msg = result
-            .expect_err("invalid eol value should fail")
-            .to_string();
+        let err = crate::write::parse_eol_mode("bogus").expect_err("invalid eol value should fail");
+        let msg = err.to_string();
         assert!(
             msg.contains("invalid normalize_eol"),
             "error should name the field: {msg}"
+        );
+        assert!(
+            exit::is_invalid_input(&err),
+            "invalid normalize_eol must be typed InvalidInputError"
         );
     }
 
@@ -1023,8 +1025,8 @@ mod error_handling {
         let code = run(args, &global).unwrap();
         assert_eq!(
             code,
-            exit::OPERATION_FAILED,
-            "invalid normalize_eol should fail before commit"
+            exit::FAILURE,
+            "invalid normalize_eol should fail with invalid_input (exit 1)"
         );
     }
 

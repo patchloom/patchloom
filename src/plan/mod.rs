@@ -133,9 +133,9 @@ impl VerifyCheck {
         if let Some(kind) = kind {
             Ok(VerifyCheck::SymbolCount { kind, attr })
         } else {
-            anyhow::bail!(
-                "verify spec must contain 'kind=<type>' or a named check (unique_names, no_orphans)"
-            )
+            Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "verify spec must contain 'kind=<type>' or a named check (unique_names, no_orphans)".into(),
+            }))
         }
     }
 }

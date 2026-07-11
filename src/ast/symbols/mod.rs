@@ -257,10 +257,12 @@ pub fn check_no_overlapping_spans(spans: &[(usize, usize)], names: &[&str]) -> a
     if overlaps.is_empty() {
         Ok(())
     } else {
-        anyhow::bail!(
-            "overlapping symbol spans would corrupt content: {}",
-            overlaps.join("; ")
-        )
+        Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!(
+                "overlapping symbol spans would corrupt content: {}",
+                overlaps.join("; ")
+            ),
+        }))
     }
 }
 

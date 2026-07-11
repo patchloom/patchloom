@@ -83,7 +83,11 @@ pub(crate) fn get_git_file_content(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git show {git_ref}:{file_path} failed: {}", stderr.trim());
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("git show {git_ref}:{file_path} failed: {}", stderr.trim()),
+        )
+        .into());
     }
 
     Ok(String::from_utf8(output.stdout)?)

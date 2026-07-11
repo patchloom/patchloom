@@ -92,8 +92,13 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
                     msg: format!("heading not found: {heading}"),
                 })?;
             let new_content =
-                crate::ops::md::table_append_in(file_content, body_start, body_end, row)
-                    .map_err(|e| anyhow::anyhow!("{e} under heading {heading:?}"))?;
+                crate::ops::md::table_append_in(file_content, body_start, body_end, row).map_err(
+                    |e| {
+                        anyhow::Error::new(crate::exit::InvalidInputError {
+                            msg: format!("{e} under heading {heading:?}"),
+                        })
+                    },
+                )?;
             update_file_content(
                 tx.pending,
                 tx.deletions,
