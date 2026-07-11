@@ -224,7 +224,17 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("internal error: plan path missing"))?;
         std::fs::read_to_string(plan_path).map_err(|e| {
-            anyhow::anyhow!("failed to read plan file '{}': {e}", plan_path.display())
+            if e.kind() == std::io::ErrorKind::NotFound {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("failed to read plan file '{}': {e}", plan_path.display()),
+                )
+                .into()
+            } else {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("failed to read plan file '{}': {e}", plan_path.display()),
+                })
+            }
         })?
     };
 

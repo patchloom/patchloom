@@ -205,7 +205,11 @@ pub fn md_move_section(
 
     let (new_source, new_dest) =
         ops::md::move_section_in(&original, heading, &dest_content, position, to.is_none())
-            .ok_or_else(|| anyhow::anyhow!("heading '{}' not found", heading))?;
+            .ok_or_else(|| {
+                anyhow::Error::new(crate::exit::NoMatchError {
+                    msg: format!("heading '{heading}' not found"),
+                })
+            })?;
 
     let policy = crate::write::WritePolicy::default();
     // Write the destination file for cross-file moves.

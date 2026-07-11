@@ -592,8 +592,11 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
             .replace("\x00LBRACE\x00", "{")
             .replace("\x00RBRACE\x00", "}");
 
-        let file_ops: Vec<Operation> = serde_json::from_str(&substituted)
-            .map_err(|e| anyhow::anyhow!("for_each: template expansion failed: {e}"))?;
+        let file_ops: Vec<Operation> = serde_json::from_str(&substituted).map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("for_each: template expansion failed: {e}"),
+            })
+        })?;
         expanded.extend(file_ops);
     }
 
