@@ -57,6 +57,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Unit/sandbox wrappers.** `command_position` peels `systemd-run`, `firejail`, `dbus-run-session`, and `chronic`, plus bare `--` end-of-options markers (`dbus-run-session -- pip`).
 - **`run0` privilege wrapper.** `command_position` peels systemd `run0` (modern `sudo` alternative) so `run0 -u root pip` rewrites the command.
 - **Container entrypoint wrappers.** `command_position` peels `gosu`, `su-exec`, `tini`, and `dumb-init` so Docker/K8s install scripts rewrite the invocable command.
+- **runit / daemontools / s6 wrappers.** `command_position` peels `chpst` / `softlimit` / `s6-softlimit` / `with-contenv` (transparent flags) and path-taking `envdir` / `s6-envdir` / `setlock` / `envuidgid` / `s6-envuidgid` so supervised service and s6-overlay install scripts rewrite the invocable command.
 - **CLI undo JSON `error_kind`.** Soft no-session paths (`undo --list` empty, or no sessions to restore) set `error_kind: "no_matches"` (exit 3), matching other CLI exit-3 JSON envelopes.
 - **CLI doc JSON `error_kind: type_error`.** `doc keys` / `doc len` on the wrong value type, and write-path type failures, set `error_kind: "type_error"` (exit 1) so agents can distinguish type mismatches from soft no-matches.
 - **CLI file ops JSON error_kind.** `create`/`rename` conflicts set `already_exists`; missing targets for `delete`/`append`/`prepend`/`rename` set `not_found`; invalid flag combinations and non-file targets set `invalid_input` (all exit 1).
