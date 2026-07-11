@@ -1315,6 +1315,30 @@ fn test_replace_format_flag_skipped_in_diff_mode() {
 }
 
 #[test]
+fn test_replace_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "aaa\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args([
+            "--json", "replace", "aaa", "--new", "bbb", "--apply", "--format", "false",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "standalone replace --format failure should set error_kind: {parsed}"
+    );
+    // Write still applied before format failure.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
+}
+
+#[test]
 fn test_replace_before_context_disambiguates() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("f.txt");
