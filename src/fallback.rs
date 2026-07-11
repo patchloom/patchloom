@@ -160,61 +160,22 @@ pub fn edit_error_kind(err: &anyhow::Error) -> Option<EditErrorKind> {
         if let Some(e) = cause.downcast_ref::<EditError>() {
             return Some(e.kind);
         }
-        // Map exit::* typed errors used by CLI/tx and many api::* paths.
-        // Prefer EditError when both appear (checked first above).
-        if cause.downcast_ref::<crate::exit::NoMatchError>().is_some() {
-            return Some(EditErrorKind::NoMatch);
-        }
-        if cause
-            .downcast_ref::<crate::exit::AmbiguousError>()
-            .is_some()
-        {
-            return Some(EditErrorKind::AmbiguousTarget);
-        }
-        if cause
-            .downcast_ref::<crate::exit::InvalidInputError>()
-            .is_some()
-        {
-            return Some(EditErrorKind::InvalidInput);
-        }
-        if cause
-            .downcast_ref::<crate::exit::ParseErrorError>()
-            .is_some()
-        {
-            return Some(EditErrorKind::ParseError);
-        }
-        if cause
-            .downcast_ref::<crate::exit::AlreadyExistsError>()
-            .is_some()
-            || cause
-                .downcast_ref::<crate::exit::TypeErrorError>()
-                .is_some()
-        {
-            return Some(EditErrorKind::InvalidInput);
-        }
-        if cause
-            .downcast_ref::<crate::exit::ConflictsError>()
-            .is_some()
-        {
-            // Patch merge conflicts are not region batch conflicts, but both
-            // mean "edit could not apply cleanly"; OperationFailed is the
-            // closest shared kind for hosts that only branch on EditErrorKind.
-            return Some(EditErrorKind::OperationFailed);
-        }
-        if cause
-            .downcast_ref::<crate::exit::ChangesDetectedError>()
-            .is_some()
-        {
-            return Some(EditErrorKind::OperationFailed);
-        }
-        if cause
-            .downcast_ref::<crate::exit::FormatFailedError>()
-            .is_some()
-        {
-            return Some(EditErrorKind::OperationFailed);
-        }
     }
-    None
+    // Prefer EditError above; map CLI/tx typed errors via the shared table so
+    // library hosts stay in sync with JSON error_kind classification.
+    match crate::exit::classify_typed_error(err) {
+        Some(("no_matches", _)) => Some(EditErrorKind::NoMatch),
+        Some(("ambiguous", _)) => Some(EditErrorKind::AmbiguousTarget),
+        Some(("invalid_input", _) | ("already_exists", _) | ("type_error", _)) => {
+            Some(EditErrorKind::InvalidInput)
+        }
+        Some(("parse_error", _)) => Some(EditErrorKind::ParseError),
+        // conflicts / changes_detected / format_failed: closest library kind
+        Some(("conflicts", _) | ("changes_detected", _) | ("format_failed", _)) => {
+            Some(EditErrorKind::OperationFailed)
+        }
+        Some(_) | None => None,
+    }
 }
 
 /// Downcast an `anyhow` error chain to [`EditError`] when present.
