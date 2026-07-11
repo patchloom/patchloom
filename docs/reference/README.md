@@ -911,6 +911,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **What it does:** Applies newline, EOL, and whitespace normalization across all pending writes in the plan.
 - **Use when:** Every write in the transaction should share the same normalization policy.
 - **Fields:** Supports `ensure_final_newline` (bool), `normalize_eol` (`keep`, `lf`, `crlf`, or `cr`), `trim_trailing_whitespace` (bool), and `collapse_blanks` (bool).
+- **Failure behavior:** Invalid `normalize_eol` values exit **1** with `error_kind: "invalid_input"` (not `operation_failed` / 9).
 - **Precedence:** Patchloom starts from the invocation's per-file write policy, including CLI flags and any `--respect-editorconfig` values, then overrides only the keys set here.
 - **Prefer instead:** Use CLI write flags when one invocation needs defaults, but the plan itself should stay generic.
 
@@ -1239,6 +1240,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Extracts a single symbol from a source file into a new target file. For module blocks, it can unwrap the module wrapper and un-indent the body. Leaves an optional replacement text (e.g., `mod tests;`) in the source. Supports a prepend for the target (e.g., `use super::*;`).
 - **Use when:** You want to extract a test module, a large struct, or a helper block into its own file while leaving a `mod` declaration behind.
+- **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`. Existing target without force exits **1** with `error_kind: "already_exists"`.
 - **Related:** `ast.split`, `ast.move`, `ast.imports`
 
 <!-- ref:tx-op:ast.split -->
@@ -1246,6 +1248,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Splits a file into multiple target files by distributing symbols. Each target specifies which symbols it receives and an optional prepend. Symbols not assigned to any target stay in the source (controlled by `keep_in_source`). Supports `source_suffix` and `source_prefix` for adding `mod` declarations. Enforces exhaustive accounting by default.
 - **Use when:** A file has grown too large and you want to distribute its symbols across several new files in one atomic operation, with `mod` re-exports generated automatically.
+- **Failure behavior:** Duplicate or unaccounted symbols exit **1** with `error_kind: "invalid_input"`.
 - **Related:** `ast.extract_to_file`, `ast.move`, `ast.group`
 
 ## Library API
