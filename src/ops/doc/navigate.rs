@@ -27,18 +27,19 @@ pub fn navigate_mut<'a>(
                     if let Ok(idx) = k.parse::<usize>() {
                         let len = current.as_array().map_or(0, |a| a.len());
                         current.get_mut(idx).ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "array index {idx} out of bounds (length {len}) at '{k}'"
-                            )
+                            anyhow::Error::new(crate::exit::InvalidInputError {
+                                msg: format!(
+                                    "array index {idx} out of bounds (length {len}) at '{k}'"
+                                ),
+                            })
                         })?
                     } else {
-                        return Err(crate::exit::TypeErrorError {
+                        return Err(anyhow::Error::new(crate::exit::TypeErrorError {
                             msg: format!(
                                 "expected object at key '{k}', found {}",
                                 value_type_name(current)
                             ),
-                        }
-                        .into());
+                        }));
                     }
                 } else {
                     if create {
@@ -70,19 +71,22 @@ pub fn navigate_mut<'a>(
                                 );
                         }
                     }
-                    current
-                        .get_mut(k.as_str())
-                        .ok_or_else(|| anyhow::anyhow!("key not found: {k}"))?
+                    current.get_mut(k.as_str()).ok_or_else(|| {
+                        anyhow::Error::new(crate::exit::NoMatchError {
+                            msg: format!("key not found: {k}"),
+                        })
+                    })?
                 }
             }
-            selector::Segment::Index(i) => current
-                .get_mut(*i)
-                .ok_or_else(|| anyhow::anyhow!("index out of bounds: {i}"))?,
+            selector::Segment::Index(i) => current.get_mut(*i).ok_or_else(|| {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("index out of bounds: {i}"),
+                })
+            })?,
             _ => {
-                return Err(crate::exit::InvalidInputError {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                     msg: "wildcard/predicate not supported in write navigation".into(),
-                }
-                .into());
+                }));
             }
         };
     }
@@ -104,10 +108,9 @@ pub fn set_at_path(
     value: serde_json::Value,
 ) -> anyhow::Result<()> {
     if segments.is_empty() {
-        return Err(crate::exit::InvalidInputError {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "empty selector".into(),
-        }
-        .into());
+        }));
     }
     let (parent_path, last) = split_last(segments);
     let parent = navigate_mut(root, parent_path, true)?;
@@ -128,15 +131,14 @@ pub fn set_at_path(
                 if idx < arr.len() {
                     arr[idx] = value;
                 } else {
-                    return Err(crate::exit::InvalidInputError {
+                    return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                         msg: format!(
                             "array index {} out of bounds (length {}) at '{}'",
                             idx,
                             arr.len(),
                             k
                         ),
-                    }
-                    .into());
+                    }));
                 }
                 return Ok(());
             }
@@ -158,17 +160,15 @@ pub fn set_at_path(
             if *i < arr.len() {
                 arr[*i] = value;
             } else {
-                return Err(crate::exit::InvalidInputError {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                     msg: format!("index {} out of bounds (len {})", i, arr.len()),
-                }
-                .into());
+                }));
             }
         }
         _ => {
-            return Err(crate::exit::InvalidInputError {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: "cannot set at wildcard/predicate".into(),
-            }
-            .into());
+            }));
         }
     }
     Ok(())
@@ -220,10 +220,9 @@ pub fn delete_at_selector(
                 Ok(false)
             }
         }
-        _ => Err(crate::exit::InvalidInputError {
+        _ => Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "cannot delete at wildcard/predicate".into(),
-        }
-        .into()),
+        })),
     }
 }
 
@@ -240,22 +239,22 @@ pub fn delete_where(
     segments: &[selector::Segment],
     predicate: &str,
 ) -> anyhow::Result<usize> {
-    let eq_pos = predicate
-        .find('=')
-        .ok_or_else(|| anyhow::anyhow!("predicate must be in key=value format"))?;
+    let eq_pos = predicate.find('=').ok_or_else(|| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "predicate must be in key=value format".into(),
+        })
+    })?;
     let pred_key = predicate[..eq_pos].trim();
     if pred_key.is_empty() {
-        return Err(crate::exit::InvalidInputError {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "predicate key is empty; expected key=value format".into(),
-        }
-        .into());
+        }));
     }
     let raw_val = &predicate[eq_pos + 1..];
     if raw_val.starts_with('=') {
-        return Err(crate::exit::InvalidInputError {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "predicate uses '==' but only '=' is supported; use key=value format".into(),
-        }
-        .into());
+        }));
     }
     let pred_val = raw_val.trim();
 
@@ -300,16 +299,14 @@ pub fn move_at_path(
     to_segments: &[selector::Segment],
 ) -> anyhow::Result<()> {
     if from_segments.is_empty() {
-        return Err(crate::exit::InvalidInputError {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "empty from selector".into(),
-        }
-        .into());
+        }));
     }
     if to_segments.is_empty() {
-        return Err(crate::exit::InvalidInputError {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "empty to selector".into(),
-        }
-        .into());
+        }));
     }
 
     // Same path: no-op.
@@ -319,10 +316,9 @@ pub fn move_at_path(
 
     // Reject moving a path into its own descendant (would silently destroy data).
     if to_segments.len() > from_segments.len() && to_segments.starts_with(from_segments) {
-        return Err(crate::exit::InvalidInputError {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "cannot move a path into its own descendant: destination is under source".into(),
-        }
-        .into());
+        }));
     }
 
     let (from_parent, from_last) = split_last(from_segments);
@@ -340,16 +336,14 @@ pub fn move_at_path(
             })
         })?;
         if *fi >= arr.len() {
-            return Err(crate::exit::InvalidInputError {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: format!("source index {fi} out of bounds"),
-            }
-            .into());
+            }));
         }
         if *ti >= arr.len() {
-            return Err(crate::exit::InvalidInputError {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: format!("target index {ti} out of bounds"),
-            }
-            .into());
+            }));
         }
         let val = arr.remove(*fi);
         let insert_at = (*ti).min(arr.len());
@@ -374,22 +368,24 @@ pub fn move_at_path(
                         if idx < arr.len() {
                             arr[idx].clone()
                         } else {
-                            return Err(crate::exit::InvalidInputError {
+                            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                                 msg: format!("source index {idx} out of bounds"),
-                            }
-                            .into());
+                            }));
                         }
                     } else {
-                        return Err(crate::exit::InvalidInputError {
+                        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                             msg: format!("source key '{k}' not found (parent is array)"),
-                        }
-                        .into());
+                        }));
                     }
                 } else {
                     parent
                         .as_object()
                         .and_then(|obj| obj.get(k.as_str()))
-                        .ok_or_else(|| anyhow::anyhow!("source key '{k}' not found"))?
+                        .ok_or_else(|| {
+                            anyhow::Error::new(crate::exit::NoMatchError {
+                                msg: format!("source key '{k}' not found"),
+                            })
+                        })?
                         .clone()
                 }
             }
@@ -402,17 +398,15 @@ pub fn move_at_path(
                 if *i < arr.len() {
                     arr[*i].clone()
                 } else {
-                    return Err(crate::exit::InvalidInputError {
+                    return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                         msg: format!("source index {i} out of bounds"),
-                    }
-                    .into());
+                    }));
                 }
             }
             _ => {
-                return Err(crate::exit::InvalidInputError {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                     msg: "cannot move from wildcard/predicate".into(),
-                }
-                .into());
+                }));
             }
         }
     };
@@ -425,48 +419,52 @@ pub fn move_at_path(
                 // Numeric dot-notation on arrays (#1288).
                 if parent.is_array() {
                     if let Ok(idx) = k.parse::<usize>() {
-                        let arr = parent
-                            .as_array_mut()
-                            .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
+                        let arr = parent.as_array_mut().ok_or_else(|| {
+                            anyhow::Error::new(crate::exit::TypeErrorError {
+                                msg: "target parent is not an array".into(),
+                            })
+                        })?;
                         if idx <= arr.len() {
                             arr.insert(idx, cloned);
                         } else {
-                            return Err(crate::exit::InvalidInputError {
+                            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                                 msg: format!("target index {idx} out of bounds"),
-                            }
-                            .into());
+                            }));
                         }
                     } else {
-                        return Err(crate::exit::InvalidInputError {
+                        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                             msg: format!("target key '{k}' not valid (parent is array)"),
-                        }
-                        .into());
+                        }));
                     }
                 } else {
                     parent
                         .as_object_mut()
-                        .ok_or_else(|| anyhow::anyhow!("target parent is not an object"))?
+                        .ok_or_else(|| {
+                            anyhow::Error::new(crate::exit::TypeErrorError {
+                                msg: "target parent is not an object".into(),
+                            })
+                        })?
                         .insert(k.clone(), cloned);
                 }
             }
             selector::Segment::Index(i) => {
-                let arr = parent
-                    .as_array_mut()
-                    .ok_or_else(|| anyhow::anyhow!("target parent is not an array"))?;
+                let arr = parent.as_array_mut().ok_or_else(|| {
+                    anyhow::Error::new(crate::exit::TypeErrorError {
+                        msg: "target parent is not an array".into(),
+                    })
+                })?;
                 if *i <= arr.len() {
                     arr.insert(*i, cloned);
                 } else {
-                    return Err(crate::exit::InvalidInputError {
+                    return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                         msg: format!("target index {i} out of bounds"),
-                    }
-                    .into());
+                    }));
                 }
             }
             _ => {
-                return Err(crate::exit::InvalidInputError {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                     msg: "cannot move to wildcard/predicate".into(),
-                }
-                .into());
+                }));
             }
         }
     }
@@ -499,10 +497,9 @@ pub fn move_at_path(
                 arr.remove(*i);
             }
             _ => {
-                return Err(crate::exit::InvalidInputError {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                     msg: "cannot remove from wildcard/predicate selector".into(),
-                }
-                .into());
+                }));
             }
         }
     }
