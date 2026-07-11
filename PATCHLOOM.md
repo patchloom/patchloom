@@ -305,17 +305,17 @@ dependencies[name=react].version # predicate filter
 | 0 | Success (operation completed, or no changes needed) |
 | 1 | Failure (error during execution, CLI usage/invalid args/unknown flags/subcommands), or tx `rollback_failed` when mid-commit rollback could not fully restore files |
 | 2 | Changes detected (`--check` / write preview, or plan/tx `search` `assert_count` mismatch; `error_kind: changes_detected` for assert_count) |
-| 3 | No matches (search/replace pattern miss, undo with no sessions, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |
-| 4 | Parse error (malformed input file or plan) |
+| 3 | No matches (search/replace pattern miss, undo with no sessions, missing AST symbol for extract/insert/reorder/wrap/move, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |
+| 4 | Parse error (malformed input file or plan, invalid AST search pattern/query, or AST validate parse failure; `error_kind: parse_error`) |
 | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |
 | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |
 | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |
 | 8 | Patch merge conflicts (CLI `patch merge` or plan/tx `patch.apply` with `on_stale: merge` without `allow_conflicts`; `error_kind: conflicts`) |
 | 9 | Tx operation staging failure (`operation_failed`) |
 
-**JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set `already_exists` (create/rename without force), `not_found` (delete/append/prepend/rename missing source, or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, `status` outside a git repo, AST map non-dir, doc merge flag conflicts, CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, all-explicit-paths-missing for search/replace/tidy, and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, md.move_section before/after, search invert_match+multiline). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type). Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.
+**JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set `already_exists` (create/rename without force, create race), `not_found` (delete/append/prepend/rename missing source, missing `--files-from`/batch input, missing plan file, missing git blob for AST, or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, `status` outside a git repo, AST map non-dir, doc merge flag conflicts, invalid `normalize_eol`, md table-append row/table failures, bad selector/for_each templates, MCP bind/TLS config, CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, all-explicit-paths-missing for search/replace/tidy, and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, md.move_section before/after, search invert_match+multiline). Doc type mismatches set `type_error` (`doc keys`/`len` on wrong type, library doc mutation type errors). Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.
 
-**JSON `error_kind` (exit 4):** Batch line parse failures, `explain` plan parse failures, and malformed JSON/YAML/TOML document content set `parse_error` so agents can distinguish syntax mistakes from runtime failures.
+**JSON `error_kind` (exit 4):** Batch line parse failures, `explain` plan parse failures, invalid AST search patterns/queries, AST validate parse failures, and malformed JSON/YAML/TOML document content set `parse_error` so agents can distinguish syntax mistakes from runtime failures.
 
 **Doc write JSON tip:** With `--json` (CLI) or MCP write tools / `execute_plan`, doc delete success includes `changed` (bool) and `removed` (usize). Multi-op plans also list per-op rows under `mutations`. Exit 0 / `ok: true` with `removed: 0` means idempotent cleanup (nothing matched); do not assume data was deleted from exit status alone.
 
