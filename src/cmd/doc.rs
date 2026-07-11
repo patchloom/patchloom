@@ -320,14 +320,18 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             if *stdin && value.is_some() {
                 // Surface as plain anyhow; run() maps merge validation via
                 // emit_error_json_kind before staging when possible.
-                anyhow::bail!("merge: --stdin and --value are mutually exclusive");
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: "merge: --stdin and --value are mutually exclusive".into(),
+                }));
             }
             let merge_str = if *stdin {
                 std::io::read_to_string(std::io::stdin())?
             } else if let Some(v) = value {
                 v.clone()
             } else {
-                anyhow::bail!("merge requires --stdin or --value");
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: "merge requires --stdin or --value".into(),
+                }));
             };
             Ok(Operation::DocMerge {
                 path: file.clone(),

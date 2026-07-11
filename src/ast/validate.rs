@@ -50,7 +50,9 @@ pub fn validate_source(source: &str, lang: Language) -> Option<ValidationResult>
 pub fn validate_file(path: &Path, lang_hint: Option<Language>) -> anyhow::Result<ValidationResult> {
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
     if !lang.has_grammar() {
-        anyhow::bail!("no grammar available for {lang}");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("no grammar available for {lang}"),
+        }));
     }
     let source =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
