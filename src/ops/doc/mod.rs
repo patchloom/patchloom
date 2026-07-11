@@ -52,8 +52,11 @@ pub fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow
         }
         FileFormat::Yaml => Ok(serde_yaml_ng::to_string(value)?),
         FileFormat::Toml => {
-            let s = toml_edit::ser::to_string_pretty(value)
-                .map_err(|e| anyhow::anyhow!("TOML serialization error: {e}"))?;
+            let s = toml_edit::ser::to_string_pretty(value).map_err(|e| {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("TOML serialization error: {e}"),
+                })
+            })?;
             Ok(s)
         }
     }
@@ -80,9 +83,11 @@ pub fn serialize_value_preserving(
 ) -> anyhow::Result<String> {
     match format {
         FileFormat::Toml => {
-            let mut doc: toml_edit::DocumentMut = original_content
-                .parse()
-                .map_err(|e| anyhow::anyhow!("TOML re-parse for comment preservation: {e}"))?;
+            let mut doc: toml_edit::DocumentMut = original_content.parse().map_err(|e| {
+                anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!("TOML re-parse for comment preservation: {e}"),
+                })
+            })?;
             apply_value_diff(doc.as_item_mut(), old_value, new_value);
             Ok(doc.to_string())
         }
@@ -299,8 +304,11 @@ fn try_preserve_yaml(
 ) -> anyhow::Result<Option<String>> {
     use std::str::FromStr;
 
-    let file = yaml_edit::YamlFile::from_str(original_content)
-        .map_err(|e| anyhow::anyhow!("YAML re-parse for comment preservation: {e}"))?;
+    let file = yaml_edit::YamlFile::from_str(original_content).map_err(|e| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("YAML re-parse for comment preservation: {e}"),
+        })
+    })?;
 
     if let Some(doc) = file.document() {
         if let Some(mapping) = doc.as_mapping() {
