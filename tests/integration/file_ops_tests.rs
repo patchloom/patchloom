@@ -185,6 +185,63 @@ fn test_append_format_failure_json_error_kind() {
     );
 }
 
+#[test]
+fn test_prepend_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "line\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "prepend",
+            "f.txt",
+            "--content",
+            "head\n",
+            "--apply",
+            "--format",
+            "false",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "prepend --format failure should set error_kind: {parsed}"
+    );
+    assert!(
+        fs::read_to_string(&file).unwrap().starts_with("head"),
+        "prepend must still write before format failure"
+    );
+}
+
+#[test]
+fn test_delete_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "line\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "delete", "f.txt", "--apply", "--format", "false"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "delete --format failure should set error_kind: {parsed}"
+    );
+    assert!(
+        !file.exists(),
+        "delete must still remove the file before format failure"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // prepend CLI (direct subcommand, not via tx/doc)
 // ---------------------------------------------------------------------------
