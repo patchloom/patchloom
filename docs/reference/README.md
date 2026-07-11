@@ -307,6 +307,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Runs multiple operations atomically, then optional format and validate steps.
 - **Use when:** Editing 3 or more files in one task. Batches N operations into 1 tool call, eliminating agent round-trips. Also provides atomicity, rollback, and format/validate lifecycle. For AI agents, this is the primary speed advantage: one call instead of N.
+- **JSON status:** Preview (default), `--diff`, and `--check` with pending changes report `status: "changes_detected"` and exit `2`. Applied success reports `status: "success"` and exit `0`. Do not treat `ok: true` alone as "applied."
 - **Prefer instead:** Use standalone commands when one direct operation is enough.
 - **Related:** [examples](https://github.com/patchloom/patchloom/tree/main/examples), `tx` fields, `tx` operations
 
@@ -317,7 +318,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 27 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
 - **Quoting:** Double-quoted tokens allow only `\"` and `\\`. Sequences like `\n` are **literal** (not newlines). Prefer `tx` / MCP JSON for multi-line content, or put real newlines outside one-line quoted strings.
-- **Failure behavior:** Line parse failures (unknown op, bad arity, bad quotes) exit `4` (`PARSE_ERROR`) with `error_kind: "parse_error"` under `--json`/`--jsonl`. Too many operations (over the hard cap) exits `1` with `invalid_input`. Runtime op failures use the shared tx exit codes.
+- **Failure behavior:** Line parse failures (unknown op, bad arity, bad quotes) exit `4` (`PARSE_ERROR`) with `error_kind: "parse_error"` under `--json`/`--jsonl`. Too many operations (over the hard cap) exits `1` with `invalid_input`. Runtime op failures use the shared tx exit codes. Preview with changes uses the same `status: "changes_detected"` / exit `2` contract as `tx`.
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, multi-line content, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 
