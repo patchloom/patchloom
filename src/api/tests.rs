@@ -1203,6 +1203,20 @@ fn search_invalid_regex_is_invalid_input() {
 }
 
 #[test]
+fn replace_in_content_invalid_regex_is_invalid_input() {
+    let opts = ReplaceOptions {
+        regex: true,
+        ..Default::default()
+    };
+    let err = replace::replace_in_content("hello\n", "(unclosed", "x", &opts).unwrap_err();
+    assert!(err.to_string().contains("regex parse error"));
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[test]
 fn search_case_insensitive() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
