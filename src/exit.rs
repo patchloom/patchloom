@@ -288,6 +288,78 @@ mod tests {
     }
 
     #[test]
+    fn classify_typed_error_maps_all_kinds() {
+        let cases: Vec<(anyhow::Error, &str, u8)> = vec![
+            (
+                NoMatchError { msg: "none".into() }.into(),
+                "no_matches",
+                NO_MATCHES,
+            ),
+            (
+                AmbiguousError { msg: "many".into() }.into(),
+                "ambiguous",
+                AMBIGUOUS,
+            ),
+            (
+                InvalidInputError { msg: "bad".into() }.into(),
+                "invalid_input",
+                FAILURE,
+            ),
+            (
+                std::io::Error::new(std::io::ErrorKind::NotFound, "gone").into(),
+                "not_found",
+                FAILURE,
+            ),
+            (
+                AlreadyExistsError {
+                    msg: "exists".into(),
+                }
+                .into(),
+                "already_exists",
+                FAILURE,
+            ),
+            (
+                TypeErrorError { msg: "type".into() }.into(),
+                "type_error",
+                FAILURE,
+            ),
+            (
+                ConflictsError {
+                    msg: "conflict".into(),
+                }
+                .into(),
+                "conflicts",
+                CONFLICTS,
+            ),
+            (
+                ParseErrorError {
+                    msg: "parse".into(),
+                }
+                .into(),
+                "parse_error",
+                PARSE_ERROR,
+            ),
+            (
+                ChangesDetectedError { msg: "diff".into() }.into(),
+                "changes_detected",
+                CHANGES_DETECTED,
+            ),
+            (
+                FormatFailedError { msg: "fmt".into() }.into(),
+                "format_failed",
+                FAILURE,
+            ),
+        ];
+        for (err, kind, code) in cases {
+            assert_eq!(
+                classify_typed_error(&err),
+                Some((kind, code)),
+                "kind={kind}"
+            );
+        }
+    }
+
+    #[test]
     fn classify_typed_error_none_for_plain() {
         let err = anyhow::anyhow!("plain");
         assert_eq!(classify_typed_error(&err), None);
