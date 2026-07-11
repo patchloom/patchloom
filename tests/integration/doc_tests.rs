@@ -1920,8 +1920,9 @@ fn test_doc_move_missing_source_fails() {
     let file = dir.path().join("test.json");
     fs::write(&file, r#"{"a":1}"#).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let assert = Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--json")
         .arg("doc")
         .arg("move")
         .arg(&file)
@@ -1929,8 +1930,14 @@ fn test_doc_move_missing_source_fails() {
         .arg("target")
         .arg("--apply")
         .assert()
-        .code(1)
-        .stderr(predicate::str::contains("not found"));
+        .code(3); // no_matches (missing source key), not generic failure
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["error_kind"], "no_matches");
+    assert!(
+        v["error"].as_str().unwrap_or("").contains("not found"),
+        "error should mention not found: {stdout}"
+    );
 }
 
 #[test]
