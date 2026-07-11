@@ -86,6 +86,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Faster multi-file `ast rename` pre-scan.** Match detection across many files uses the same adaptive parallel walker as search/replace/tidy (was sequential full-file reads).
 - **Faster reverse `ast deps`.** Project-wide importer scan uses the parallel walker (forward deps already did).
 - **Faster MCP multi-file `ast_rename` pre-scan.** Same parallel match probe as CLI `ast rename`.
+- **Reference docs for typed extract/split/write_policy failures.** `docs/reference` documents `no_matches` / `already_exists` / `invalid_input` for extract, split, and invalid `normalize_eol`.
 
 ## Agent and library notes
 
