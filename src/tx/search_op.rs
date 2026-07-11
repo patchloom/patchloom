@@ -77,7 +77,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         builder.case_insensitive(*case_insensitive);
         builder.multi_line(true);
         builder.dot_matches_new_line(*multiline);
-        builder.build()?
+        crate::bounded_regex_build(&mut builder)?
     };
 
     let ctx_before = before_context.or(*context).unwrap_or(0);
