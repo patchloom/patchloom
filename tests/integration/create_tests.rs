@@ -582,6 +582,38 @@ fn test_create_format_flag_runs_after_apply() {
     );
 }
 
+#[test]
+fn test_create_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("new.txt");
+
+    let output = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "create",
+            "new.txt",
+            "--content",
+            "hello\n",
+            "--apply",
+            "--format",
+            "false",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "create --format failure should set error_kind: {parsed}"
+    );
+    assert!(
+        file.exists() && fs::read_to_string(&file).unwrap().contains("hello"),
+        "create must still write before format failure"
+    );
+}
+
 // Regression: default (preview) mode must return exit code 2 (CHANGES_DETECTED)
 // when the operation would produce changes, not 0 (SUCCESS).
 #[test]
