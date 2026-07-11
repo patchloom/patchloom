@@ -727,6 +727,15 @@ mod tests {
         .into();
         assert_eq!(edit_error_kind(&exists), Some(EditErrorKind::InvalidInput));
 
+        let format_failed: anyhow::Error = crate::exit::FormatFailedError {
+            msg: "format command failed".into(),
+        }
+        .into();
+        assert_eq!(
+            edit_error_kind(&format_failed),
+            Some(EditErrorKind::OperationFailed)
+        );
+
         // Intermediate .context() must not hide the typed kind.
         let wrapped = invalid.context("operation 1 (replace) failed");
         assert_eq!(edit_error_kind(&wrapped), Some(EditErrorKind::InvalidInput));
