@@ -450,19 +450,25 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
         let target_name = target
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .to_string();
 
         // Scan from the project root (cwd), not just the target's parent
         // directory, to find importers anywhere in the project.
         let all_files = collect_source_files(&cwd, global)?;
 
-        for path in &all_files {
+        struct ReverseHit {
+            display: String,
+            matching: Vec<crate::ast::deps::Import>,
+        }
+
+        let hits: Vec<ReverseHit> = crate::par_process_files(&all_files, None, &[], |path| {
             let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
             // Use segment-boundary matching to avoid substring false positives.
             // Split import paths on common separators (::, /, .) and check if
             // any segment exactly equals the target file stem.
             let matching: Vec<_> = imports
-                .iter()
+                .into_iter()
                 .filter(|i| {
                     i.path
                         .split(['/', '.'])
@@ -471,23 +477,28 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
                 })
                 .collect();
             if matching.is_empty() {
-                continue;
+                return None;
             }
-            any_output = true;
-            let display = display_path(path, &cwd);
+            Some(ReverseHit {
+                display: display_path(path, &cwd),
+                matching,
+            })
+        });
 
+        for hit in &hits {
+            any_output = true;
             if global.json || global.jsonl {
-                for imp in &matching {
+                for imp in &hit.matching {
                     global.emit_json(&serde_json::json!({
-                        "file": display,
+                        "file": hit.display,
                         "imports": imp.path,
                         "line": imp.line,
                         "raw": imp.raw,
                     }))?;
                 }
             } else {
-                for imp in &matching {
-                    println!("{}:{}: {}", display, imp.line, imp.raw);
+                for imp in &hit.matching {
+                    println!("{}:{}: {}", hit.display, imp.line, imp.raw);
                 }
             }
         }
