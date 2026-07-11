@@ -14,25 +14,27 @@ use std::path::{Path, PathBuf};
 // Diff output helper
 // ---------------------------------------------------------------------------
 
-fn emit_output_json(output: &TxOutput, compact: bool) {
-    let result = if compact {
-        serde_json::to_string(output)
-    } else {
-        serde_json::to_string_pretty(output)
-    };
-    match result {
-        Ok(json) => println!("{json}"),
-        // TxOutput is always serializable in practice; log if that ever fails
-        // so structured mode never looks like a silent empty success.
-        Err(err) => eprintln!("tx: failed to serialize structured output: {err}"),
-    }
+/// Print tx structured output. Returns whether primary serialization
+/// succeeded. On failure, prints a non-empty fallback envelope and callers
+/// must map exit to [`exit::FAILURE`] (#1651).
+fn emit_output_json(output: &TxOutput, compact: bool) -> bool {
+    crate::json_emit::print_structured(output, compact)
 }
 
-fn emit_error_json(error_kind: &str, error: &str, backup_session: Option<&str>, compact: bool) {
+fn emit_error_json(
+    error_kind: &str,
+    error: &str,
+    backup_session: Option<&str>,
+    compact: bool,
+) -> bool {
     emit_output_json(
         &build_error_output(error_kind, error, backup_session),
         compact,
-    );
+    )
+}
+
+fn exit_after_emit(primary_ok: bool, planned: u8) -> u8 {
+    crate::json_emit::exit_after_emit(primary_ok, planned)
 }
 
 fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
@@ -66,11 +68,11 @@ fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> any
     };
     let backup_session = err.backup_session.as_deref();
     if structured {
-        emit_error_json(error_kind, &err.message, backup_session, compact);
-    } else {
-        let msg = format_error_with_backup_hint(&err.message, backup_session);
-        eprintln!("tx: {msg}");
+        let ok = emit_error_json(error_kind, &err.message, backup_session, compact);
+        return Ok(exit_after_emit(ok, exit_code));
     }
+    let msg = format_error_with_backup_hint(&err.message, backup_session);
+    eprintln!("tx: {msg}");
     Ok(exit_code)
 }
 
@@ -166,14 +168,15 @@ fn commit_and_finalize(
                 err.message
             );
             if ctx.structured {
-                emit_error_json(err.kind, &rollback_msg, None, ctx.compact);
-            } else {
-                eprintln!("tx: {rollback_msg}");
+                let ok = emit_error_json(err.kind, &rollback_msg, None, ctx.compact);
+                return Ok(exit_after_emit(ok, exit::ROLLBACK));
             }
+            eprintln!("tx: {rollback_msg}");
             return Ok(exit::ROLLBACK);
         }
         if ctx.structured {
-            emit_error_json(err.kind, &err.message, None, ctx.compact);
+            let ok = emit_error_json(err.kind, &err.message, None, ctx.compact);
+            return Ok(exit_after_emit(ok, exit::VALIDATION_FAILED));
         }
         return Ok(exit::VALIDATION_FAILED);
     }
@@ -181,13 +184,15 @@ fn commit_and_finalize(
     if result.replace_no_matches {
         if ctx.structured {
             let output = build_full_tx_output("no_matches", result, ctx.cwd);
-            emit_output_json(&output, ctx.compact);
+            let ok = emit_output_json(&output, ctx.compact);
+            return Ok(exit_after_emit(ok, exit::NO_MATCHES));
         }
         return Ok(exit::NO_MATCHES);
     }
     if ctx.structured {
         let output = build_full_tx_output("success", result, ctx.cwd);
-        emit_output_json(&output, ctx.compact);
+        let ok = emit_output_json(&output, ctx.compact);
+        return Ok(exit_after_emit(ok, exit::SUCCESS));
     } else if global.show_status() {
         let extra_deletions = result
             .deletions
@@ -254,10 +259,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Ok(p) => p,
         Err(e) => {
             if structured {
-                emit_error_json("parse_error", &e.to_string(), None, compact);
-            } else {
-                eprintln!("tx: plan parse error: {e}");
+                let ok = emit_error_json("parse_error", &e.to_string(), None, compact);
+                return Ok(exit_after_emit(ok, exit::PARSE_ERROR));
             }
+            eprintln!("tx: plan parse error: {e}");
             return Ok(exit::PARSE_ERROR);
         }
     };
@@ -287,10 +292,10 @@ pub(crate) fn run_parsed_plan(
     {
         let msg = e.to_string();
         if structured {
-            emit_error_json("parse_error", &msg, None, compact);
-        } else {
-            eprintln!("tx: {msg}");
+            let ok = emit_error_json("parse_error", &msg, None, compact);
+            return Ok(exit_after_emit(ok, exit::PARSE_ERROR));
         }
+        eprintln!("tx: {msg}");
         return Ok(exit::PARSE_ERROR);
     }
 
@@ -317,10 +322,10 @@ pub(crate) fn run_parsed_plan(
                 let msg = output.error.as_deref().unwrap_or("plan validation failed");
                 let bs = output.backup_session.as_deref();
                 if structured {
-                    emit_error_json(&kind, msg, bs, compact);
-                } else {
-                    eprintln!("tx: {msg}");
+                    let ok = emit_error_json(&kind, msg, bs, compact);
+                    return Ok(exit_after_emit(ok, code));
                 }
+                eprintln!("tx: {msg}");
                 return Ok(code);
             }
         };
@@ -331,10 +336,10 @@ pub(crate) fn run_parsed_plan(
             plan.cwd.as_deref().expect("plan.cwd checked above")
         );
         if structured {
-            emit_error_json("parse_error", &msg, None, compact);
-        } else {
-            eprintln!("tx: {msg}");
+            let ok = emit_error_json("parse_error", &msg, None, compact);
+            return Ok(exit_after_emit(ok, exit::PARSE_ERROR));
         }
+        eprintln!("tx: {msg}");
         return Ok(exit::PARSE_ERROR);
     }
 
@@ -349,10 +354,10 @@ pub(crate) fn run_parsed_plan(
                 Err(e) => {
                     let msg = format!("invalid --verify spec '{raw}': {e}");
                     if structured {
-                        emit_error_json("parse_error", &msg, None, compact);
-                    } else {
-                        eprintln!("tx: {msg}");
+                        let ok = emit_error_json("parse_error", &msg, None, compact);
+                        return Ok(exit_after_emit(ok, exit::PARSE_ERROR));
                     }
+                    eprintln!("tx: {msg}");
                     return Ok(exit::PARSE_ERROR);
                 }
             }
@@ -397,10 +402,10 @@ pub(crate) fn run_parsed_plan(
                 None => ("operation_failed", exit::OPERATION_FAILED),
             };
             if structured {
-                emit_error_json(kind, &msg, None, compact);
-            } else {
-                eprintln!("tx: {msg}");
+                let ok = emit_error_json(kind, &msg, None, compact);
+                return Ok(exit_after_emit(ok, code));
             }
+            eprintln!("tx: {msg}");
             return Ok(code);
         }
     };
@@ -424,10 +429,10 @@ pub(crate) fn run_parsed_plan(
         if any_failed {
             let msg = format!("verification failed, changes not applied:\n{summary}");
             if structured {
-                emit_error_json("verification_failed", &msg, None, compact);
-            } else {
-                eprintln!("tx: {msg}");
+                let ok = emit_error_json("verification_failed", &msg, None, compact);
+                return Ok(exit_after_emit(ok, exit::VALIDATION_FAILED));
             }
+            eprintln!("tx: {msg}");
             return Ok(exit::VALIDATION_FAILED);
         }
         if !global.quiet {
@@ -451,19 +456,22 @@ pub(crate) fn run_parsed_plan(
             if result.replace_no_matches {
                 if structured {
                     let output = build_full_tx_output("no_matches", &mut result, &cwd);
-                    emit_output_json(&output, compact);
+                    let ok = emit_output_json(&output, compact);
+                    return Ok(exit_after_emit(ok, exit::NO_MATCHES));
                 }
                 return Ok(exit::NO_MATCHES);
             }
             if structured {
                 let output = build_full_tx_output("success", &mut result, &cwd);
-                emit_output_json(&output, compact);
+                let ok = emit_output_json(&output, compact);
+                return Ok(exit_after_emit(ok, exit::SUCCESS));
             }
             return Ok(exit::SUCCESS);
         }
         if structured {
             let output = build_full_tx_output("changes_detected", &mut result, &cwd);
-            emit_output_json(&output, compact);
+            let ok = emit_output_json(&output, compact);
+            return Ok(exit_after_emit(ok, exit::CHANGES_DETECTED));
         } else if !global.quiet {
             println!(
                 "{} file(s) would change",
@@ -489,7 +497,8 @@ pub(crate) fn run_parsed_plan(
     if result.replace_no_matches {
         if structured {
             let output = build_full_tx_output("no_matches", &mut result, &cwd);
-            emit_output_json(&output, compact);
+            let ok = emit_output_json(&output, compact);
+            return Ok(exit_after_emit(ok, exit::NO_MATCHES));
         }
         return Ok(exit::NO_MATCHES);
     }
@@ -504,7 +513,23 @@ pub(crate) fn run_parsed_plan(
     };
     if structured {
         let output = build_full_tx_output(preview_status, &mut result, &cwd);
-        emit_output_json(&output, compact);
+        let ok = emit_output_json(&output, compact);
+        let planned = if result.no_effective_changes {
+            exit::SUCCESS
+        } else {
+            exit::CHANGES_DETECTED
+        };
+        // Continue into confirm path only when primary emit succeeded and
+        // should_apply; otherwise return planned/failure exit now.
+        if !ok {
+            return Ok(exit::FAILURE);
+        }
+        // Structured preview already printed; handle apply/confirm below
+        // without re-emitting. Fall through with code via planned if no apply.
+        if !result.no_effective_changes && global.should_apply() {
+            return commit_and_finalize(&ctx, &mut result, global, false);
+        }
+        return Ok(planned);
     } else if !result.changes.is_empty() {
         print_diffs(&result.changes, &cwd, global.should_color());
     }
