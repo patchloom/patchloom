@@ -12,17 +12,24 @@ pub fn compile_replace_regex(
     multiline: bool,
     word_boundary: bool,
 ) -> anyhow::Result<Option<Regex>> {
+    // Map compile failures to InvalidInputError so CLI JSON and library
+    // edit_error_kind peel invalid_input instead of a bare regex crate error.
+    let finish = |builder: &mut regex::RegexBuilder| -> anyhow::Result<Regex> {
+        builder.build().map_err(|e| {
+            // Regex crate Display already starts with "regex parse error:".
+            anyhow::Error::new(crate::exit::InvalidInputError { msg: e.to_string() })
+        })
+    };
     if word_boundary && !regex_mode {
         // Escape the literal pattern and wrap with \b anchors.
         let escaped = regex::escape(pattern);
         let wb_pattern = format!("\\b{escaped}\\b");
-        return Ok(Some(
+        return Ok(Some(finish(
             crate::bounded_regex_builder(&wb_pattern)
                 .case_insensitive(case_insensitive)
                 .multi_line(true)
-                .dot_matches_new_line(multiline)
-                .build()?,
-        ));
+                .dot_matches_new_line(multiline),
+        )?));
     }
     if regex_mode {
         let effective = if word_boundary {
@@ -30,20 +37,18 @@ pub fn compile_replace_regex(
         } else {
             pattern.to_string()
         };
-        Ok(Some(
+        Ok(Some(finish(
             crate::bounded_regex_builder(&effective)
                 .case_insensitive(case_insensitive)
                 .multi_line(true)
-                .dot_matches_new_line(multiline)
-                .build()?,
-        ))
+                .dot_matches_new_line(multiline),
+        )?))
     } else if case_insensitive {
-        Ok(Some(
+        Ok(Some(finish(
             crate::bounded_regex_builder(&regex::escape(pattern))
                 .case_insensitive(true)
-                .multi_line(true)
-                .build()?,
-        ))
+                .multi_line(true),
+        )?))
     } else {
         Ok(None)
     }

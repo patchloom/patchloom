@@ -1187,6 +1187,22 @@ fn search_empty_pattern_returns_error() {
 }
 
 #[test]
+fn search_invalid_regex_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+    let err = search(&file, "(unclosed", true, false).unwrap_err();
+    assert!(
+        err.to_string().contains("regex parse error"),
+        "expected regex parse error, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[test]
 fn search_case_insensitive() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
