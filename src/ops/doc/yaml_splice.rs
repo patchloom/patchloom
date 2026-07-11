@@ -397,7 +397,9 @@ fn serialize_block_entries(
                 // line breaks into spaces, corrupting the data.
                 if s.contains('\n') {
                     let escaped = serde_json::to_string(s).map_err(|e| {
-                        anyhow::anyhow!("JSON-escape YAML string with newlines: {e}")
+                        anyhow::Error::new(crate::exit::InvalidInputError {
+                            msg: format!("JSON-escape YAML string with newlines: {e}"),
+                        })
                     })?;
                     out.push_str(&escaped);
                 } else if needs_yaml_quoting(s) {
