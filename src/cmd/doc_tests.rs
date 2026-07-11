@@ -877,6 +877,57 @@ mod security {
     }
 }
 
+// -- format_value / format_json_value fail-closed (#1651 class) ------------
+
+mod format_value_tests {
+    use super::*;
+
+    #[test]
+    fn json_mode_never_empty_for_object() {
+        let v = serde_json::json!({"a": 1, "b": [true, null]});
+        let out = format_value(&v, OutputMode::Json);
+        assert!(!out.is_empty());
+        let parsed: serde_json::Value = serde_json::from_str(&out).expect("valid json");
+        assert_eq!(parsed["a"], 1);
+        assert_eq!(parsed["b"][0], true);
+    }
+
+    #[test]
+    fn jsonl_mode_is_single_line() {
+        let v = serde_json::json!({"x": "y"});
+        let out = format_value(&v, OutputMode::Jsonl);
+        assert!(!out.is_empty());
+        assert!(!out.contains('\n'), "jsonl must be compact: {out:?}");
+        let parsed: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(parsed["x"], "y");
+    }
+
+    #[test]
+    fn text_mode_scalars_are_plain() {
+        assert_eq!(
+            format_value(&serde_json::json!("hi"), OutputMode::Text),
+            "hi"
+        );
+        assert_eq!(format_value(&serde_json::json!(42), OutputMode::Text), "42");
+        assert_eq!(
+            format_value(&serde_json::json!(true), OutputMode::Text),
+            "true"
+        );
+        assert_eq!(
+            format_value(&serde_json::Value::Null, OutputMode::Text),
+            "null"
+        );
+    }
+
+    #[test]
+    fn text_mode_compound_renders_json_not_empty() {
+        let v = serde_json::json!({"nested": true});
+        let out = format_value(&v, OutputMode::Text);
+        assert!(!out.is_empty());
+        assert!(out.contains("nested"), "compound text uses JSON: {out}");
+    }
+}
+
 // -- format_no_match helper tests ------------------------------------------
 
 mod format_no_match_tests {

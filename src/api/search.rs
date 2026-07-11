@@ -430,9 +430,16 @@ pub fn format_search_results(results: &[SearchResult], as_json: bool) -> String 
                 })
             })
             .collect();
-        if let Ok(s) = serde_json::to_string_pretty(&payload) {
-            out = s;
-            out.push('\n');
+        // Fail-closed for agent hosts (#1651 class): never empty JSON body.
+        match serde_json::to_string_pretty(&payload) {
+            Ok(s) => {
+                out = s;
+                out.push('\n');
+            }
+            Err(e) => {
+                out = crate::json_emit::fallback_envelope(&format!("search results: {e}"), false);
+                out.push('\n');
+            }
         }
     } else {
         for r in results {

@@ -4,6 +4,12 @@
 //! not, callers still print a minimal `ok: false` envelope and treat the emit
 //! as a hard failure (exit 1) so agents never see empty stdout with a soft
 //! plan exit code. See issue #1651.
+//!
+//! Always compiled (library + CLI). Print/exit helpers are mainly used from
+//! the CLI entry path; without `cli`, only [`fallback_envelope`] is typically
+//! needed (e.g. `api::format_search_results`).
+
+#![cfg_attr(not(feature = "cli"), allow(dead_code))]
 
 use serde::Serialize;
 use std::cell::Cell;
@@ -206,8 +212,9 @@ mod tests {
         assert!(v["error"].as_str().unwrap().contains("boom"));
     }
 
-    // TxOutput lives under cli|files; this module is cli-only so ok here.
+    // TxOutput lives under cli|files (same gate as the `tx` module).
     #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
     fn force_fail_on_tx_output_still_produces_agent_envelope() {
         use crate::tx::TxOutput;
         let _g = ForceSerializeFailGuard::engage();

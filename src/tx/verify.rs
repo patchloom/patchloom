@@ -143,7 +143,13 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
         if !lang.has_grammar() {
             continue;
         }
-        let all_symbols = symbols::extract_symbols_from_file(path, Some(lang));
+        // Single read: extract + attr filter share the same source so a failed
+        // second open cannot zero out attrs while symbols still appear (TOCTOU /
+        // unwrap_or_default soft-fail). Matches snapshot_symbols_from_pending.
+        let Ok(source) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let all_symbols = symbols::extract_symbols(&source, lang);
         let flat = flatten_symbols(&all_symbols);
         let filtered: Vec<&symbols::SymbolDef> = if kind_filter.is_empty() {
             flat
@@ -153,9 +159,7 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
                 .collect()
         };
 
-        // If attr filter is set, further filter by checking the source for the attribute
         let matched: Vec<SnappedSymbol> = if let Some(ref attr) = attr_filter {
-            let source = std::fs::read_to_string(path).unwrap_or_default();
             filtered
                 .into_iter()
                 .filter(|sym| symbol_has_attr(&source, sym, attr))
@@ -261,28 +265,39 @@ pub(crate) fn snapshot_symbols_from_pending(
 }
 
 /// Check if a symbol has a specific attribute (e.g., `#[test]` for Rust).
+///
+/// Only contiguous annotation / doc lines **immediately** above the symbol
+/// count. A fixed N-line lookback is wrong: a prior item's `#[test]` would
+/// falsely attach to the next function when they sit within 10 lines.
 #[cfg(feature = "ast")]
 fn symbol_has_attr(source: &str, sym: &symbols::SymbolDef, attr: &str) -> bool {
-    // Look at lines before the symbol's start line for the attribute
     let lines: Vec<&str> = source.lines().collect();
     if sym.start_line == 0 || sym.start_line > lines.len() {
         return false;
     }
-    // Search up to 10 lines before the symbol for the attribute
-    let start = sym.start_line.saturating_sub(11); // 0-indexed, start_line is 1-based
-    let end = sym.start_line - 1; // line just before the symbol definition
-    for i in start..end {
-        if i < lines.len() {
-            let line = lines[i].trim();
-            // Match #[test], #[cfg(test)], #[tokio::test], @test, @Test, etc.
-            if line.contains(&format!("#[{attr}]"))
-                || line.contains(&format!("#[{attr}("))
-                || line.contains(&format!("#[tokio::{attr}]"))
-                || line.contains(&format!("@{attr}"))
-                || line.contains(&format!("@{}", capitalize(attr)))
-            {
-                return true;
-            }
+    // Walk backward from the line above the definition (start_line is 1-based).
+    let mut idx = sym.start_line; // 1-based cursor; first decrement lands on line above
+    while idx > 1 {
+        idx -= 1;
+        let trimmed = lines[idx - 1].trim();
+        if trimmed.is_empty() {
+            break;
+        }
+        let is_rust_attr = trimmed.starts_with("#[") || trimmed.ends_with(']');
+        let is_doc = trimmed.starts_with("///") || trimmed.starts_with("//!");
+        let is_decorator = trimmed.starts_with('@');
+        if !(is_rust_attr || is_doc || is_decorator) {
+            // Hit real code (previous item body / signature): stop.
+            break;
+        }
+        // Match #[test], #[test(...)], #[tokio::test], @test, @Test, etc.
+        if trimmed.contains(&format!("#[{attr}]"))
+            || trimmed.contains(&format!("#[{attr}("))
+            || trimmed.contains(&format!("#[tokio::{attr}]"))
+            || trimmed.contains(&format!("@{attr}"))
+            || trimmed.contains(&format!("@{}", capitalize(attr)))
+        {
+            return true;
         }
     }
     false
@@ -621,6 +636,75 @@ fn my_test() {
         let syms = symbols::extract_symbols(source, Language::Rust);
         assert!(!syms.is_empty());
         assert!(!symbol_has_attr(source, &syms[0], "test"));
+    }
+
+    /// Regression: a fixed lookback used to attribute a prior item's
+    /// `#[test]` to the next function within 10 lines.
+    #[test]
+    #[cfg(feature = "ast")]
+    fn symbol_has_attr_does_not_steal_neighbor() {
+        let source = r#"
+#[test]
+fn my_test() {
+    assert!(true);
+}
+
+fn not_a_test() {}
+"#;
+        let syms = symbols::extract_symbols(source, Language::Rust);
+        let my_test = syms.iter().find(|s| s.name == "my_test").expect("my_test");
+        let not_a_test = syms
+            .iter()
+            .find(|s| s.name == "not_a_test")
+            .expect("not_a_test");
+        assert!(symbol_has_attr(source, my_test, "test"));
+        assert!(
+            !symbol_has_attr(source, not_a_test, "test"),
+            "neighbor must not inherit #[test] from my_test"
+        );
+    }
+
+    /// Disk snapshot must count attr-filtered symbols from one read (not a
+    /// second `read_to_string` that can soft-fail to empty).
+    #[test]
+    #[cfg(feature = "ast")]
+    fn snapshot_symbols_attr_filter_from_disk() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(
+            &path,
+            r#"
+#[test]
+fn my_test() {
+    assert!(true);
+}
+
+fn not_a_test() {}
+"#,
+        )
+        .unwrap();
+        let check = VerifyCheck::SymbolCount {
+            kind: "function".into(),
+            attr: Some("test".into()),
+        };
+        let snap = snapshot_symbols(&[path], &check);
+        assert_eq!(
+            snap.total, 1,
+            "exactly one #[test] function expected, got {snap:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn snapshot_symbols_skips_unreadable_path() {
+        let missing = PathBuf::from("/nonexistent/patchloom_verify_missing.rs");
+        let check = VerifyCheck::SymbolCount {
+            kind: "function".into(),
+            attr: Some("test".into()),
+        };
+        let snap = snapshot_symbols(&[missing], &check);
+        assert_eq!(snap.total, 0);
+        assert!(snap.files.is_empty());
     }
 
     #[test]
