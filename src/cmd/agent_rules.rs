@@ -445,7 +445,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              |------|---------|\n\
              | 0 | Success (operation completed, or no changes needed) |\n\
              | 1 | Failure (error during execution, CLI usage/invalid args/unknown flags/subcommands), or tx `rollback_failed` when mid-commit rollback could not fully restore files |\n\
-             | 2 | Changes detected (`--check` / write preview, or plan/tx `search` `assert_count` mismatch; `error_kind: changes_detected` for assert_count) |\n\
+             | 2 | Changes detected (`--check` / write preview, or CLI/MCP/plan/tx `search` `assert_count` mismatch; `error_kind: changes_detected` for assert_count) |\n\
              | 3 | No matches (search/replace pattern miss, undo with no sessions, missing AST symbol for extract/insert/reorder/wrap/move, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |\n\
              | 4 | Parse error (malformed input file or plan, invalid AST search pattern/query, or AST validate parse failure; `error_kind: parse_error`) |\n\
              | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |\n\

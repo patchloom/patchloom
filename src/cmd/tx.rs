@@ -492,8 +492,15 @@ pub(crate) fn run_parsed_plan(
     }
 
     // Default / --diff mode: show unified diffs.
+    // When changes would apply (exit 2), JSON status must be changes_detected
+    // (same as --check), not success. Agents branch on status as well as exit.
+    let preview_status = if result.no_effective_changes {
+        "success"
+    } else {
+        "changes_detected"
+    };
     if structured {
-        let output = build_full_tx_output("success", &mut result, &cwd);
+        let output = build_full_tx_output(preview_status, &mut result, &cwd);
         emit_output_json(&output, compact);
     } else if !result.changes.is_empty() {
         print_diffs(&result.changes, &cwd, global.should_color());

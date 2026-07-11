@@ -4571,7 +4571,11 @@ fn test_tx_json_output_on_diff() {
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
-    assert_eq!(json["status"], "success");
+    // Preview with changes must not claim status success (agents branch on it).
+    assert_eq!(
+        json["status"], "changes_detected",
+        "tx default/--diff JSON status must match exit 2: {json}"
+    );
     assert_eq!(json["files_changed"], 1);
     // File should NOT be modified in diff mode.
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
