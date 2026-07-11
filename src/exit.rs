@@ -201,6 +201,31 @@ pub fn is_changes_detected(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<ChangesDetectedError>().is_some())
 }
 
+/// Typed error for post-write `--format` / format-step failures that map to
+/// exit [`FAILURE`] (1) with JSON `error_kind: "format_failed"`.
+///
+/// Matches plan/tx lifecycle `format_failed` kind so agents can branch without
+/// scraping "format command failed" English. Exit stays 1 (not 9): files may
+/// already be written; recovery is `undo` or re-run the formatter.
+#[derive(Debug)]
+pub struct FormatFailedError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for FormatFailedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for FormatFailedError {}
+
+/// Check whether an `anyhow::Error` chain contains a [`FormatFailedError`].
+pub fn is_format_failed(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<FormatFailedError>().is_some())
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.

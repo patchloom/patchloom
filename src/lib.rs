@@ -422,6 +422,8 @@ fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
         (Some("parse_error"), exit::PARSE_ERROR)
     } else if exit::is_changes_detected(err) {
         (Some("changes_detected"), exit::CHANGES_DETECTED)
+    } else if exit::is_format_failed(err) {
+        (Some("format_failed"), exit::FAILURE)
     } else {
         (None, exit::FAILURE)
     };
@@ -508,6 +510,19 @@ mod tests {
         let (payload, code) = structured_dispatch_error(&err);
         assert_eq!(code, exit::FAILURE);
         assert_eq!(payload["error_kind"], "not_found");
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn structured_dispatch_error_maps_format_failed() {
+        let err: anyhow::Error = exit::FormatFailedError {
+            msg: "format command failed (false)".into(),
+        }
+        .into();
+        let err = err.context("files were written but formatting failed");
+        let (payload, code) = structured_dispatch_error(&err);
+        assert_eq!(code, exit::FAILURE);
+        assert_eq!(payload["error_kind"], "format_failed");
     }
 
     #[test]
