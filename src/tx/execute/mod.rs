@@ -634,6 +634,9 @@ pub(crate) fn execute_and_collect(
                 if crate::exit::is_changes_detected(&e) {
                     return Err(crate::exit::ChangesDetectedError { msg }.into());
                 }
+                if crate::exit::is_format_failed(&e) {
+                    return Err(crate::exit::FormatFailedError { msg }.into());
+                }
                 anyhow::bail!("{msg}");
             }
         }
