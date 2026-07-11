@@ -124,16 +124,22 @@ pub(crate) fn run_mcp_http_server(
     );
 
     let app = axum::Router::new().nest_service("/mcp", service);
-    let addr: std::net::SocketAddr = format!("{host}:{port}")
-        .parse()
-        .map_err(|e| anyhow::anyhow!("invalid bind address: {e}"))?;
+    let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("invalid bind address: {e}"),
+        })
+    })?;
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
         if let (Some(cert), Some(key)) = (tls_cert, tls_key) {
             let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key)
                 .await
-                .map_err(|e| anyhow::anyhow!("TLS config error: {e}"))?;
+                .map_err(|e| {
+                    anyhow::Error::new(crate::exit::InvalidInputError {
+                        msg: format!("TLS config error: {e}"),
+                    })
+                })?;
 
             let handle = axum_server::Handle::new();
             let h = handle.clone();

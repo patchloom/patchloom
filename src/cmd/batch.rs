@@ -520,8 +520,19 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         std::io::read_to_string(std::io::stdin())?
     } else {
         let input_path = global.resolve_user_path(&args.input)?;
-        std::fs::read_to_string(&input_path)
-            .map_err(|e| anyhow::anyhow!("failed to read '{}': {e}", input_path.display()))?
+        std::fs::read_to_string(&input_path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("failed to read '{}': {e}", input_path.display()),
+                )
+                .into()
+            } else {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("failed to read '{}': {e}", input_path.display()),
+                })
+            }
+        })?
     };
 
     // Parse lines into operations.

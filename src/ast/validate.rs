@@ -56,8 +56,11 @@ pub fn validate_file(path: &Path, lang_hint: Option<Language>) -> anyhow::Result
     }
     let source =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    validate_source(&source, lang)
-        .ok_or_else(|| anyhow::anyhow!("failed to parse {}", path.display()))
+    validate_source(&source, lang).ok_or_else(|| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("failed to parse {}", path.display()),
+        })
+    })
 }
 
 fn collect_errors(node: tree_sitter_lib::Node, source: &str, errors: &mut Vec<SyntaxError>) {
