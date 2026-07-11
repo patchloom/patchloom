@@ -57,7 +57,11 @@ pub(crate) fn resolve_target_paths(
     } else if target.is_dir() {
         collect_source_files(target, global)
     } else {
-        anyhow::bail!("path not found: {}", path_arg)
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("path not found: {path_arg}"),
+        )
+        .into())
     }
 }
 
@@ -67,7 +71,10 @@ pub(crate) fn get_git_file_content(
     git_ref: &str,
 ) -> anyhow::Result<String> {
     if git_ref.starts_with('-') {
-        anyhow::bail!("invalid git ref: must not start with '-'");
+        return Err(crate::exit::InvalidInputError {
+            msg: "invalid git ref: must not start with '-'".into(),
+        }
+        .into());
     }
     let output = std::process::Command::new("git")
         .args(["show", &format!("{git_ref}:{file_path}")])
@@ -241,6 +248,10 @@ mod tests {
         assert!(
             msg.contains("path not found") && msg.contains("no_such_file.rs"),
             "error should mention path not found and the argument: {msg}"
+        );
+        assert!(
+            crate::exit::is_io_not_found(&err),
+            "missing path should preserve NotFound: {err}"
         );
     }
 
