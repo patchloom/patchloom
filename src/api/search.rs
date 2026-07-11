@@ -190,6 +190,11 @@ pub fn search_directory(
             msg: "search pattern must not be empty".into(),
         }));
     }
+    // Fail closed on invalid regex before scanning: search_one_file soft-skips
+    // bad patterns (returns empty) so a directory walk would look like "no
+    // matches" (agent-hostile). Preflight matches CLI/search() erroring on
+    // compile failure.
+    validate_search_pattern(pattern, opts)?;
 
     #[cfg(any(feature = "cli", feature = "files"))]
     {
@@ -273,7 +278,31 @@ pub fn search_directory(
     }
 }
 
-#[cfg(any(feature = "cli", feature = "files"))]
+/// Compile the pattern the same way [`search_one_file`] does, or error.
+///
+/// Used by high-level APIs so invalid regex is not mistaken for zero matches.
+fn validate_search_pattern(pattern: &str, opts: &SearchOptions) -> anyhow::Result<()> {
+    if !(opts.regex || opts.case_insensitive || opts.multiline) {
+        return Ok(());
+    }
+    let pat = if opts.literal || (opts.multiline && !opts.regex) {
+        regex::escape(pattern)
+    } else {
+        pattern.to_string()
+    };
+    crate::bounded_regex_builder(&pat)
+        .case_insensitive(opts.case_insensitive)
+        .multi_line(true)
+        .dot_matches_new_line(opts.multiline)
+        .build()
+        .map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("regex parse error: {e}"),
+            })
+        })?;
+    Ok(())
+}
+
 /// Low-level single-file matcher for callers that already selected the files.
 ///
 /// Returns rich [`SearchResult`]s (including `column` and context when requested
@@ -283,6 +312,13 @@ pub fn search_directory(
 ///
 /// Prefer [`search_file`] for simple per-file use and [`search_directory`] for
 /// full directory walking with built-in ignore support.
+///
+/// **Invalid regex:** this low-level helper returns an empty `Vec` when the
+/// pattern fails to compile (so walkers can keep going). High-level
+/// [`search_directory`] / [`search_file`] preflight and return
+/// `InvalidInputError` instead — prefer those when agents must not treat a
+/// bad pattern as "no matches."
+#[cfg(any(feature = "cli", feature = "files"))]
 pub fn search_one_file(
     path: &Path,
     pattern: &str,

@@ -18,6 +18,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 ## Bug fixes
 
 - **Library `edit_error_kind` peels exit typed errors.** `InvalidInputError`, `NoMatchError`, `AmbiguousError`, `ParseErrorError`, `AlreadyExistsError`, and related kinds from CLI/tx paths now map to `EditErrorKind` (including through `.context()` wrappers). Empty replace/search patterns on `replace_in_content` / `search` / `search_directory` emit typed `InvalidInputError` so hosts can branch without scraping English.
+- **`search_directory` / `search_file` invalid regex.** Bad patterns (e.g. unclosed groups) now return `InvalidInputError` / `edit_error_kind` `InvalidInput` instead of `Ok([])`, which looked like a soft no-match. Low-level `search_one_file` still returns empty on compile failure for custom walkers; high-level APIs preflight.
 - **`apply_content_edits_to_file` diff headers.** File path appears in `--- a/` / `+++ b/` instead of `<buffer>`. Absolute paths still avoid `a//`. (#1500, #1502)
 - **Signature rewrite body gap.** Full-string and structured rewrites no longer produce `-> i32{` when the new signature has no trailing space. Original space or newline before `{` is preserved; glued originals get a conventional space; `;` decls do not. (#1503, #1504)
 - **`continue_on_no_match: false`.** Batch rename actually stops after the first `NoMatch` (was a no-op). (#1499)
