@@ -85,6 +85,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Agent-rules `error_kind` catalogue expanded.** Exit 3/4 rows and exit-1 kind list cover AST symbol misses, normalize_eol, table-append, patch/plan/files-from kinds so agents match runtime envelopes.
 - **Faster multi-file `ast rename` pre-scan.** Match detection across many files uses the same adaptive parallel walker as search/replace/tidy (was sequential full-file reads).
 - **Faster reverse `ast deps`.** Project-wide importer scan uses the parallel walker (forward deps already did).
+- **Faster MCP multi-file `ast_rename` pre-scan.** Same parallel match probe as CLI `ast rename`.
 
 ## Agent and library notes
 
