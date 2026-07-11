@@ -36,33 +36,49 @@ pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
         && let Some((start_str, end_str)) = spec.split_once(sep)
     {
         if start_str.is_empty() {
-            anyhow::bail!("missing start line in range '{spec}' (expected START:END)");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("missing start line in range '{spec}' (expected START:END)"),
+            }));
         }
-        let start: usize = start_str
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid start line: {start_str}"))?;
+        let start: usize = start_str.parse().map_err(|_| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("invalid start line: {start_str}"),
+            })
+        })?;
         if start == 0 {
-            anyhow::bail!("line numbers are 1-based, got 0");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "line numbers are 1-based, got 0".into(),
+            }));
         }
         if end_str.is_empty() {
             return Ok((start, None));
         }
-        let end: usize = end_str
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid end line: {end_str}"))?;
+        let end: usize = end_str.parse().map_err(|_| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("invalid end line: {end_str}"),
+            })
+        })?;
         if end == 0 {
-            anyhow::bail!("line numbers are 1-based, got 0");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "line numbers are 1-based, got 0".into(),
+            }));
         }
         if end < start {
-            anyhow::bail!("end line {end} is before start line {start}");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("end line {end} is before start line {start}"),
+            }));
         }
         Ok((start, Some(end)))
     } else {
-        let start: usize = spec
-            .parse()
-            .map_err(|_| anyhow::anyhow!("invalid line number: {spec}"))?;
+        let start: usize = spec.parse().map_err(|_| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("invalid line number: {spec}"),
+            })
+        })?;
         if start == 0 {
-            anyhow::bail!("line numbers are 1-based, got 0");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "line numbers are 1-based, got 0".into(),
+            }));
         }
         Ok((start, Some(start)))
     }
@@ -131,10 +147,15 @@ mod tests {
 
     #[test]
     fn parse_zero_start_errors() {
-        let err = parse_line_range("0").unwrap_err().to_string();
-        assert!(err.contains("1-based"), "got: {err}");
-        let err = parse_line_range("0:5").unwrap_err().to_string();
-        assert!(err.contains("1-based"), "got: {err}");
+        let err = parse_line_range("0").unwrap_err();
+        assert!(err.to_string().contains("1-based"), "got: {err}");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "zero line should be invalid_input: {err}"
+        );
+        let err = parse_line_range("0:5").unwrap_err();
+        assert!(err.to_string().contains("1-based"), "got: {err}");
+        assert!(crate::exit::is_invalid_input(&err));
     }
 
     #[test]
