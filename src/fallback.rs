@@ -170,10 +170,11 @@ pub fn edit_error_kind(err: &anyhow::Error) -> Option<EditErrorKind> {
             Some(EditErrorKind::InvalidInput)
         }
         Some(("parse_error", _)) => Some(EditErrorKind::ParseError),
-        // conflicts / changes_detected / format_failed: closest library kind
-        Some(("conflicts", _) | ("changes_detected", _) | ("format_failed", _)) => {
-            Some(EditErrorKind::OperationFailed)
-        }
+        // not_found / conflicts / changes_detected / format_failed: closest
+        // library kind for hosts that only branch on EditErrorKind.
+        Some(
+            ("not_found", _) | ("conflicts", _) | ("changes_detected", _) | ("format_failed", _),
+        ) => Some(EditErrorKind::OperationFailed),
         Some(_) | None => None,
     }
 }
@@ -734,6 +735,15 @@ mod tests {
         assert_eq!(
             edit_error_kind(&format_failed),
             Some(EditErrorKind::OperationFailed)
+        );
+
+        let not_found: anyhow::Error =
+            std::io::Error::new(std::io::ErrorKind::NotFound, "missing").into();
+        let not_found = not_found.context("failed to read path");
+        assert_eq!(
+            edit_error_kind(&not_found),
+            Some(EditErrorKind::OperationFailed),
+            "IO NotFound should peel via classify not_found"
         );
 
         // Intermediate .context() must not hide the typed kind.
