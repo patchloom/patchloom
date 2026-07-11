@@ -84,6 +84,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **files-from / batch input / MCP bind typed.** Missing `--files-from` or batch input files set `not_found`; unreadable lists and invalid MCP bind/TLS config set `invalid_input`; AST validate parse failure sets `parse_error`.
 - **Agent-rules `error_kind` catalogue expanded.** Exit 3/4 rows and exit-1 kind list cover AST symbol misses, normalize_eol, table-append, patch/plan/files-from kinds so agents match runtime envelopes.
 - **Faster multi-file `ast rename` pre-scan.** Match detection across many files uses the same adaptive parallel walker as search/replace/tidy (was sequential full-file reads).
+- **Faster reverse `ast deps`.** Project-wide importer scan uses the parallel walker (forward deps already did).
 
 ## Agent and library notes
 
