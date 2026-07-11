@@ -78,6 +78,9 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "s6-softlimit",
     // s6-overlay: inject container env then run command.
     "with-contenv",
+    // s6 helpers used in service run scripts.
+    "s6-sudo",
+    "s6-applyuidgid",
 ];
 
 /// Wrappers whose next non-option argument is a path or user (not the command):
@@ -1097,6 +1100,14 @@ mod tests {
         assert_eq!(
             replace_command_position("envuidgid app pip install\n", "pip", "uv").0,
             "envuidgid app uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("s6-sudo -u app pip install\n", "pip", "uv").0,
+            "s6-sudo -u app uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("s6-applyuidgid -u 1000 -g 1000 pip install\n", "pip", "uv").0,
+            "s6-applyuidgid -u 1000 -g 1000 uv install\n"
         );
         // Still argument-position when after a real word.
         assert_eq!(
