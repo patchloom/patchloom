@@ -1184,3 +1184,40 @@ fn test_md_missing_file_json_not_found() {
         "md missing file should set not_found: {parsed}"
     );
 }
+
+#[test]
+fn test_md_replace_section_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("d.md");
+    fs::write(&file, "# H\n\nold\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "md",
+            "replace-section",
+            "d.md",
+            "--heading",
+            "H",
+            "--content",
+            "new",
+            "--apply",
+            "--format",
+            "false",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "md write --format failure should set error_kind: {parsed}"
+    );
+    assert!(
+        fs::read_to_string(&file).unwrap().contains("new"),
+        "md replace must still write before format failure"
+    );
+}

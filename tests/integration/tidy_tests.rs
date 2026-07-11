@@ -621,3 +621,39 @@ fn test_tidy_fix_missing_path_is_not_found() {
     assert_eq!(parsed["ok"], false);
     assert_eq!(parsed["error_kind"], "not_found");
 }
+
+#[test]
+fn test_tidy_fix_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    // Needs tidy so apply path runs (trailing spaces + missing final newline).
+    fs::write(&file, "x  ").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "tidy",
+            "fix",
+            "f.txt",
+            "--trim-trailing-whitespace",
+            "--ensure-final-newline",
+            "--apply",
+            "--format",
+            "false",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "tidy fix --format failure should set error_kind: {parsed}"
+    );
+    // Tidy write still applied before format failure.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "x\n");
+}

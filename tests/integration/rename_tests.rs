@@ -882,3 +882,30 @@ fn test_rename_json_already_exists_sets_error_kind() {
         "rename --json existing dest should set error_kind: {parsed}"
     );
 }
+
+#[test]
+fn test_rename_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "content\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json", "rename", "a.txt", "b.txt", "--apply", "--format", "false", "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "rename --format failure should set error_kind: {parsed}"
+    );
+    // Rename still applied before format failure.
+    assert!(!dir.path().join("a.txt").exists());
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "content\n"
+    );
+}

@@ -96,9 +96,9 @@ pub struct ReplaceArgs {
     pub require_change: bool,
     // ref:replace-mode:command-position
     /// Only replace tokens in shell command position (invocable names after
-    /// `sudo`/`timeout`/etc.; not arguments like `uv pip` or longer words
-    /// like `pipenv`). Literal only; cannot combine with regex/word-boundary/
-    /// multiline/nth/insert/context.
+    /// `sudo`/`timeout`/`chpst`/`envdir`/etc.; not arguments like `uv pip` or
+    /// longer words like `pipenv`). Literal only; cannot combine with
+    /// regex/word-boundary/multiline/nth/insert/context.
     #[arg(long)]
     pub command_position: bool,
     #[command(flatten)]
