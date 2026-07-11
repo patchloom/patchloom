@@ -838,6 +838,9 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     "not_found"
                 } else if exit::is_already_exists(&e) {
                     "already_exists"
+                } else if exit::is_format_failed(&e) {
+                    // Post-write --format / timeout (FormatFailedError).
+                    "format_failed"
                 } else {
                     // Unknown engine failures stay generic failure without a
                     // misleading type_error label.

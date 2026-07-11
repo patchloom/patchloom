@@ -2646,3 +2646,38 @@ fn test_doc_merge_json_stdin_and_value_sets_error_kind() {
         "doc merge dual inputs: {json}"
     );
 }
+
+#[test]
+fn test_doc_set_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("c.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "doc",
+            "set",
+            file.to_str().unwrap(),
+            "a",
+            "2",
+            "--apply",
+            "--format",
+            "false",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "format_failed",
+        "doc write path must not drop FormatFailedError: {json}"
+    );
+    assert!(
+        fs::read_to_string(&file).unwrap().contains('2'),
+        "doc set must still write before format failure"
+    );
+}
