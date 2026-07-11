@@ -119,7 +119,11 @@ impl VerifyCheck {
                 match k.trim() {
                     "kind" => kind = Some(v.trim().to_string()),
                     "attr" => attr = Some(v.trim().to_string()),
-                    other => anyhow::bail!("unknown verify key: {other}"),
+                    other => {
+                        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                            msg: format!("unknown verify key: {other}"),
+                        }));
+                    }
                 }
             } else {
                 // Bare word like "function" treated as kind
@@ -511,10 +515,14 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
             #[cfg(not(feature = "ast"))]
             {
                 let _ = sym_name;
-                anyhow::bail!("for_each filter `has_symbol(...)` requires the `ast` feature");
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: "for_each filter `has_symbol(...)` requires the `ast` feature".into(),
+                }));
             }
         } else {
-            anyhow::bail!("for_each: unsupported filter expression: {filter}");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("for_each: unsupported filter expression: {filter}"),
+            }));
         }
     }
 

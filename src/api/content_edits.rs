@@ -147,7 +147,9 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize
             content: insert,
         } => {
             if anchor.is_empty() {
-                anyhow::bail!("insert_before anchor must not be empty");
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: "insert_before anchor must not be empty".into(),
+                }));
             }
             // First-match only (same as String::find). Callers that need
             // unique anchors should use Replace with unique:true or a longer
@@ -172,7 +174,9 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize
             content: insert,
         } => {
             if anchor.is_empty() {
-                anyhow::bail!("insert_after anchor must not be empty");
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: "insert_after anchor must not be empty".into(),
+                }));
             }
             // First-match only (see InsertBefore).
             match content.find(anchor.as_str()) {
