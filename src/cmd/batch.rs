@@ -106,9 +106,15 @@ macro_rules! md_phc {
 }
 
 fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
-    let tokens = tokenize(line).map_err(|e| anyhow::anyhow!("line {line_num}: {e}"))?;
+    let tokens = tokenize(line).map_err(|e| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: {e}"),
+        })
+    })?;
     if tokens.is_empty() {
-        anyhow::bail!("line {line_num}: empty operation");
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: empty operation"),
+        }));
     }
     let op = tokens[0].as_str();
     let args = &tokens[1..];
@@ -244,9 +250,11 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                     after: after.map(|_| args[4].clone()),
                 })
             } else {
-                anyhow::bail!(
-                    "line {line_num}: md.move_section requires 4 args (same-file) or 5 args (cross-file)"
-                )
+                Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!(
+                        "line {line_num}: md.move_section requires 4 args (same-file) or 5 args (cross-file)"
+                    ),
+                }))
             }
         }
         "md.dedupe_headings" => {
@@ -304,11 +312,13 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "ast.rewrite_signature" => {
             // path old parameters [return_type]
             if args.len() < 3 || args.len() > 4 {
-                anyhow::bail!(
-                    "line {line_num}: 'ast.rewrite_signature' requires 3 or 4 arguments \
-                     (path old parameters [return_type]), got {}",
-                    args.len()
-                );
+                return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!(
+                        "line {line_num}: 'ast.rewrite_signature' requires 3 or 4 arguments \
+                         (path old parameters [return_type]), got {}",
+                        args.len()
+                    ),
+                }));
             }
             op!(AstRewriteSignature {
                 path: args[0].clone(),
@@ -321,7 +331,9 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
 
-        _ => anyhow::bail!("{}", unknown_batch_op_msg(line_num, op)),
+        _ => Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: unknown_batch_op_msg(line_num, op),
+        })),
     }
 }
 
@@ -417,17 +429,21 @@ fn parse_position_keyword(
     match keyword {
         "before" => Ok((Some(()), None)),
         "after" => Ok((None, Some(()))),
-        _ => anyhow::bail!("line {line_num}: expected 'before' or 'after', got '{keyword}'"),
+        _ => Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: expected 'before' or 'after', got '{keyword}'"),
+        })),
     }
 }
 
 fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> anyhow::Result<()> {
     if args.len() != expected {
         let s = if expected == 1 { "" } else { "s" };
-        anyhow::bail!(
-            "line {line_num}: '{op}' requires exactly {expected} argument{s}, got {}",
-            args.len()
-        );
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: '{op}' requires exactly {expected} argument{s}, got {}",
+                args.len()
+            ),
+        }));
     }
     Ok(())
 }
@@ -470,11 +486,19 @@ pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
                             current.push('\\');
                             current.push(other);
                         }
-                        None => anyhow::bail!("unexpected end of line after backslash"),
+                        None => {
+                            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                                msg: "unexpected end of line after backslash".into(),
+                            }));
+                        }
                     },
                     Some('"') => break,
                     Some(c) => current.push(c),
-                    None => anyhow::bail!("unterminated double quote"),
+                    None => {
+                        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                            msg: "unterminated double quote".into(),
+                        }));
+                    }
                 }
             }
         } else {
