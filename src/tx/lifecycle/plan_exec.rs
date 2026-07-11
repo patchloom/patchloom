@@ -47,11 +47,11 @@ pub(crate) fn validate_and_prepare_plan(
         crate::verbose!("tx: plan operation validation failed: {e}");
         // Flag/option conflicts match CLI invalid_input (exit 1), not plan
         // parse_error (exit 4). Version mismatches stay parse_error above.
-        let kind = if crate::exit::is_invalid_input(&e) {
-            "invalid_input"
-        } else {
-            "parse_error"
-        };
+        // Prefer shared classifier; default remaining validation failures to
+        // parse_error (structural plan issues).
+        let kind = crate::exit::classify_typed_error(&e)
+            .map(|(k, _)| k)
+            .unwrap_or("parse_error");
         return Err(Box::new(build_error_output(kind, &e.to_string(), None)));
     }
 
