@@ -205,6 +205,8 @@ pub mod exec;
 pub(crate) mod exit;
 pub mod fallback;
 pub mod files;
+#[cfg(feature = "cli")]
+pub(crate) mod json_emit;
 pub mod ops;
 pub mod plan;
 pub mod schema;
@@ -322,12 +324,8 @@ pub fn run() -> anyhow::Result<u8> {
                     "error": msg,
                     "error_kind": "invalid_input",
                 });
-                let rendered = if wants_jsonl {
-                    serde_json::to_string(&payload)
-                } else {
-                    serde_json::to_string_pretty(&payload)
-                };
-                println!("{}", rendered.unwrap_or_default());
+                // Fail-closed: never empty stdout (#1651).
+                let _ = json_emit::print_structured(&payload, wants_jsonl);
             } else {
                 // Swallow broken-pipe on print (same as clap::Error::exit).
                 let _ = e.print();
@@ -347,13 +345,9 @@ pub fn run() -> anyhow::Result<u8> {
         Ok(code) => Ok(code),
         Err(e) if structured => {
             let (output, code) = structured_dispatch_error(&e);
-            let serialized = if compact {
-                serde_json::to_string(&output)
-            } else {
-                serde_json::to_string_pretty(&output)
-            };
-            println!("{}", serialized.unwrap_or_default());
-            Ok(code)
+            // Fail-closed: empty stdout is never valid for agents (#1651).
+            let primary_ok = json_emit::print_structured(&output, compact);
+            Ok(json_emit::exit_after_emit(primary_ok, code))
         }
         Err(e) => Err(e),
     }
