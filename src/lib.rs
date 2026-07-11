@@ -270,6 +270,17 @@ pub fn bounded_regex_builder(pattern: &str) -> regex::RegexBuilder {
     b
 }
 
+/// Finish a [`bounded_regex_builder`] with typed [`exit::InvalidInputError`].
+///
+/// Use this instead of `.build()?` so CLI JSON and library `edit_error_kind`
+/// peel `invalid_input` for bad patterns without scraping the regex crate.
+pub fn bounded_regex_build(builder: &mut regex::RegexBuilder) -> anyhow::Result<regex::Regex> {
+    builder.build().map_err(|e| {
+        // Regex crate Display already starts with "regex parse error:".
+        anyhow::Error::new(exit::InvalidInputError { msg: e.to_string() })
+    })
+}
+
 /// Run the patchloom CLI. Returns the exit code as a u8.
 ///
 /// Requires the `cli` feature (enabled by default).
@@ -510,6 +521,18 @@ mod tests {
         bounded_regex_builder(r"(unclosed")
             .build()
             .expect_err("expected error");
+    }
+
+    #[test]
+    fn bounded_regex_build_maps_invalid_input() {
+        let mut b = bounded_regex_builder(r"(unclosed");
+        let err = bounded_regex_build(&mut b).expect_err("expected error");
+        assert!(err.to_string().contains("regex parse error"));
+        assert!(crate::exit::is_invalid_input(&err));
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::InvalidInput)
+        );
     }
 
     #[test]

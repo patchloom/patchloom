@@ -290,16 +290,12 @@ fn validate_search_pattern(pattern: &str, opts: &SearchOptions) -> anyhow::Resul
     } else {
         pattern.to_string()
     };
-    crate::bounded_regex_builder(&pat)
-        .case_insensitive(opts.case_insensitive)
-        .multi_line(true)
-        .dot_matches_new_line(opts.multiline)
-        .build()
-        .map_err(|e| {
-            anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: format!("regex parse error: {e}"),
-            })
-        })?;
+    crate::bounded_regex_build(
+        crate::bounded_regex_builder(&pat)
+            .case_insensitive(opts.case_insensitive)
+            .multi_line(true)
+            .dot_matches_new_line(opts.multiline),
+    )?;
     Ok(())
 }
 

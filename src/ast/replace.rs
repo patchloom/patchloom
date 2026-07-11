@@ -48,9 +48,7 @@ pub fn replace_in_symbol(
 
     // Perform replacement within the body
     let (new_body, count) = if regex {
-        let re = crate::bounded_regex_builder(from)
-            .multi_line(true)
-            .build()?;
+        let re = crate::bounded_regex_build(crate::bounded_regex_builder(from).multi_line(true))?;
         let body_len = body.len();
         // Filter out phantom zero-length matches at EOF (same as replace_content).
         let count = re
