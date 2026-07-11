@@ -209,13 +209,23 @@ pub(super) fn try_remove_subsequence(
 fn json_to_yaml_node(val: &serde_json::Value) -> anyhow::Result<yaml_edit::YamlNode> {
     use std::str::FromStr;
     let wrapper = serde_json::json!({ "__v__": val });
-    let yaml_text = serde_yaml_ng::to_string(&wrapper)
-        .map_err(|e| anyhow::anyhow!("YAML serialization failed: {e}"))?;
-    let doc = yaml_edit::Document::from_str(&yaml_text)
-        .map_err(|e| anyhow::anyhow!("YAML CST re-parse failed: {e}"))?;
+    let yaml_text = serde_yaml_ng::to_string(&wrapper).map_err(|e| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("YAML serialization failed: {e}"),
+        })
+    })?;
+    let doc = yaml_edit::Document::from_str(&yaml_text).map_err(|e| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("YAML CST re-parse failed: {e}"),
+        })
+    })?;
     doc.as_mapping()
         .and_then(|m| m.get("__v__"))
-        .ok_or_else(|| anyhow::anyhow!("YAML CST wrapper key missing"))
+        .ok_or_else(|| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "YAML CST wrapper key missing".into(),
+            })
+        })
 }
 
 /// Convert a JSON object to a `yaml_edit::Mapping`.

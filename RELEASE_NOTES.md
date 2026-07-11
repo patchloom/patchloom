@@ -89,6 +89,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Reference docs for typed extract/split/write_policy failures.** `docs/reference` documents `no_matches` / `already_exists` / `invalid_input` for extract, split, and invalid `normalize_eol`.
 - **Reference docs for insert/wrap/reorder/move failure kinds.** Missing symbols and bad wrap/reorder inputs document `no_matches` / `invalid_input`.
 - **Reference docs for replace/group/MCP bind failures.** `ast.replace` / `ast.group` missing symbols and MCP bind/TLS `invalid_input` documented.
+- **YAML/TOML preserve-path typed errors.** Comment-preserving re-parse failures set `parse_error`; serialization failures set `invalid_input` (was unstructured exit 1).
 
 ## Agent and library notes
 
