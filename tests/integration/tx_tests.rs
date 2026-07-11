@@ -7427,6 +7427,52 @@ fn test_tx_global_format_failure_includes_undo_hint() {
     );
 }
 
+/// Same as undo-hint test, but `--json` must set `error_kind: format_failed`.
+#[test]
+fn test_tx_global_format_failure_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("target.txt");
+    fs::write(&file, "old\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": portable_path_str(&file),
+            "old": "old",
+            "new": "new"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "tx",
+            plan_file.to_str().unwrap(),
+            "--apply",
+            "--format",
+            "false",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "format_failed",
+        "post-write --format failure should set error_kind: {parsed}"
+    );
+    let err = parsed["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("format command failed") || err.contains("formatting failed"),
+        "error text should mention format failure: {parsed}"
+    );
+}
+
 /// TX engine should resolve lang hint via lang_from_str (language names),
 /// not just from_extension (#1170).
 #[test]
