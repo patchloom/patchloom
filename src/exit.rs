@@ -226,6 +226,37 @@ pub fn is_format_failed(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<FormatFailedError>().is_some())
 }
 
+/// Classify a typed error for JSON `error_kind` + exit code.
+///
+/// Shared by global `--json` dispatch and command remappers (e.g. doc write)
+/// so new kinds cannot be dropped in one path and present in another.
+/// Returns `None` when the chain has no recognized typed kind.
+pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
+    if is_no_match(err) {
+        Some(("no_matches", NO_MATCHES))
+    } else if is_ambiguous(err) {
+        Some(("ambiguous", AMBIGUOUS))
+    } else if is_invalid_input(err) {
+        Some(("invalid_input", FAILURE))
+    } else if is_io_not_found(err) {
+        Some(("not_found", FAILURE))
+    } else if is_already_exists(err) {
+        Some(("already_exists", FAILURE))
+    } else if is_type_error(err) {
+        Some(("type_error", FAILURE))
+    } else if is_conflicts(err) {
+        Some(("conflicts", CONFLICTS))
+    } else if is_parse_error(err) {
+        Some(("parse_error", PARSE_ERROR))
+    } else if is_changes_detected(err) {
+        Some(("changes_detected", CHANGES_DETECTED))
+    } else if is_format_failed(err) {
+        Some(("format_failed", FAILURE))
+    } else {
+        None
+    }
+}
+
 /// Plan, patch, or structured document could not be parsed.
 pub const PARSE_ERROR: u8 = 4;
 /// Multiple candidates matched and the command could not pick one.
@@ -242,6 +273,25 @@ pub const OPERATION_FAILED: u8 = 9;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_typed_error_maps_format_failed() {
+        let err: anyhow::Error = FormatFailedError {
+            msg: "format command failed".into(),
+        }
+        .into();
+        let wrapped = err.context("files were written but formatting failed");
+        assert_eq!(
+            classify_typed_error(&wrapped),
+            Some(("format_failed", FAILURE))
+        );
+    }
+
+    #[test]
+    fn classify_typed_error_none_for_plain() {
+        let err = anyhow::anyhow!("plain");
+        assert_eq!(classify_typed_error(&err), None);
+    }
 
     #[test]
     fn exit_code_values() {

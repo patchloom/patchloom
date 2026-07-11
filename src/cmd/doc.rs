@@ -818,37 +818,21 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         })() {
             Ok(code) => return Ok(code),
             Err(e) => {
-                if exit::is_no_match(&e) {
-                    global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
-                    return Ok(exit::NO_MATCHES);
+                // Prefer shared classification so new typed kinds (e.g.
+                // format_failed) cannot be dropped here while present in
+                // global --json dispatch.
+                match exit::classify_typed_error(&e) {
+                    Some((kind, code)) => {
+                        global.emit_error_json_kind(Some(kind), &e.to_string())?;
+                        return Ok(code);
+                    }
+                    None => {
+                        // Unknown engine failures stay generic failure without
+                        // a misleading type_error label.
+                        global.emit_error_json_kind(None, &e.to_string())?;
+                        return Ok(exit::FAILURE);
+                    }
                 }
-                // Prefer typed kinds so agents can branch without scraping English.
-                // Unsupported extension / flag mistakes are invalid_input; value
-                // shape mismatches are type_error. Do not default everything to
-                // type_error (that hid .txt extension failures as type_error).
-                if exit::is_parse_error(&e) {
-                    global.emit_error_json_kind(Some("parse_error"), &e.to_string())?;
-                    return Ok(exit::PARSE_ERROR);
-                }
-                let kind = if exit::is_type_error(&e) {
-                    "type_error"
-                } else if exit::is_invalid_input(&e) {
-                    "invalid_input"
-                } else if exit::is_io_not_found(&e) {
-                    "not_found"
-                } else if exit::is_already_exists(&e) {
-                    "already_exists"
-                } else if exit::is_format_failed(&e) {
-                    // Post-write --format / timeout (FormatFailedError).
-                    "format_failed"
-                } else {
-                    // Unknown engine failures stay generic failure without a
-                    // misleading type_error label.
-                    global.emit_error_json_kind(None, &e.to_string())?;
-                    return Ok(exit::FAILURE);
-                };
-                global.emit_error_json_kind(Some(kind), &e.to_string())?;
-                return Ok(exit::FAILURE);
             }
         }
     }

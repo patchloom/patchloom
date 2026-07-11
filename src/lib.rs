@@ -410,28 +410,9 @@ fn clap_usage_error_message(err: &clap::Error) -> String {
 /// `InvalidInputError`, `ParseErrorError`, …) get `error_kind` and exit codes.
 #[cfg(feature = "cli")]
 fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
-    let (kind, code) = if exit::is_no_match(err) {
-        (Some("no_matches"), exit::NO_MATCHES)
-    } else if exit::is_ambiguous(err) {
-        (Some("ambiguous"), exit::AMBIGUOUS)
-    } else if exit::is_invalid_input(err) {
-        (Some("invalid_input"), exit::FAILURE)
-    } else if exit::is_io_not_found(err) {
-        (Some("not_found"), exit::FAILURE)
-    } else if exit::is_already_exists(err) {
-        (Some("already_exists"), exit::FAILURE)
-    } else if exit::is_type_error(err) {
-        (Some("type_error"), exit::FAILURE)
-    } else if exit::is_conflicts(err) {
-        (Some("conflicts"), exit::CONFLICTS)
-    } else if exit::is_parse_error(err) {
-        (Some("parse_error"), exit::PARSE_ERROR)
-    } else if exit::is_changes_detected(err) {
-        (Some("changes_detected"), exit::CHANGES_DETECTED)
-    } else if exit::is_format_failed(err) {
-        (Some("format_failed"), exit::FAILURE)
-    } else {
-        (None, exit::FAILURE)
+    let (kind, code) = match exit::classify_typed_error(err) {
+        Some((k, c)) => (Some(k), c),
+        None => (None, exit::FAILURE),
     };
     let mut output = serde_json::json!({
         "ok": false,
