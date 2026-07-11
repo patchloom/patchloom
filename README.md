@@ -291,6 +291,11 @@ match api::replace_in_content("body", "missing", "x", &opts) {
     Ok(r) => println!("changed={}", r.changed),
     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::NoMatch)),
 }
+// Invalid options and bad regex peel InvalidInput (CLI/tx typed errors included)
+match api::replace_in_content("body", "", "x", &ReplaceOptions::default()) {
+    Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::InvalidInput)),
+    Ok(_) => panic!("empty pattern must error"),
+}
 
 // Set a value in a JSON file
 api::doc_set(

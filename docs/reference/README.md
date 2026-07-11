@@ -89,6 +89,7 @@ These flags shape how written content is normalized before it reaches disk.
 - **What it does:** Runs a shell command after every successful `--apply` write. Intended for formatters (e.g. `prettier --write .`, `cargo fmt`).
 - **Use when:** The repo has an autoformatter and you want Patchloom to invoke it after each mutation so files stay formatted.
 - **Prefer instead:** Omit when the formatter is already run separately, or when using `--diff`/`--check` modes (the command only fires on `--apply`).
+- **Failure behavior:** Non-zero exit or timeout exits **1** with `error_kind: "format_failed"` under `--json`/`--jsonl`. The write may already be on disk; use `undo` or re-run the formatter.
 
 <!-- ref:write-flag:format-timeout -->
 ### `--format-timeout`
@@ -96,6 +97,7 @@ These flags shape how written content is normalized before it reaches disk.
 - **What it does:** Sets the maximum time in seconds the `--format` command is allowed to run before being killed. Defaults to 30 seconds.
 - **Use when:** The formatter is slow (e.g. large monorepo) and the default 30 second timeout is insufficient.
 - **Prefer instead:** Keep the default unless the formatter demonstrably needs more time.
+- **Failure behavior:** Exceeding the timeout kills the formatter process tree and exits **1** with `error_kind: "format_failed"` (same envelope as a failing `--format` command).
 
 <!-- ref:write-flag:no-format -->
 ### `--no-format`
