@@ -1198,6 +1198,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Inserts new source code at a position relative to an existing symbol (before, after, inside-start, inside-end). Handles indentation matching and blank-line separation.
 - **Use when:** You need to add a new function, field, or statement adjacent to or inside an existing symbol without manually computing line numbers.
+- **Failure behavior:** Missing container/adjacent symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`.
 - **Related:** `ast.wrap`, `ast.group`
 
 <!-- ref:tx-op:ast.wrap -->
@@ -1205,6 +1206,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Wraps an existing symbol with a prefix and suffix, re-indenting the original body. Commonly used for wrapping a function in an `impl` block, a `mod` block, or an `if` guard.
 - **Use when:** You need to add structural nesting around an existing symbol (e.g., wrapping free functions in an `impl`, adding `#[cfg(test)]` module wrappers).
+- **Failure behavior:** Missing symbol or empty symbols list exits **3** / **1** (`no_matches` / `invalid_input`). Bad line-range numbers use `invalid_input`.
 - **Related:** `ast.insert`, `ast.group`
 
 <!-- ref:tx-op:ast.imports -->
@@ -1219,6 +1221,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Reorders top-level symbols (or symbols inside a scope) according to a strategy: `alphabetical`, `reverse`, `kind-first` (types before functions), or a custom ordered list of names. Preserves attached doc comments and attributes.
 - **Use when:** You want to enforce a consistent declaration order (e.g., alphabetical functions, types-first convention) or manually arrange symbols to match a specification.
+- **Failure behavior:** Missing container symbol exits **3** (`no_matches`). Malformed custom order items exit **1** with `invalid_input`.
 - **Related:** `ast.group`, `ast.move`
 
 <!-- ref:tx-op:ast.group -->
@@ -1233,6 +1236,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Moves symbols from one file to another, removing them from the source and inserting at a specified position in the target. Supports creating the target file with an optional prepend. Preserves attached doc comments and attributes.
 - **Use when:** You need to relocate functions, structs, or constants between files during a refactoring (e.g., moving helpers from `lib.rs` to `utils.rs`).
+- **Failure behavior:** Missing source or target anchor symbols exit **3** (`no_matches`) with `error_kind: "no_matches"`.
 - **Related:** `ast.extract_to_file`, `ast.group`, `ast.imports`
 
 <!-- ref:tx-op:ast.extract_to_file -->
