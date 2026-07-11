@@ -2,6 +2,10 @@
 //!
 //! Each `pub(super)` function contains the logic for one AST MCP tool.
 //! The `#[tool]` stubs in `mod.rs` delegate directly to these functions.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). One module owns
+//! all AST MCP tool handlers (list/read/rename/validate/…) so custom-tool
+//! surface inventory stays co-located; do not split for LOC alone.
 
 use rmcp::model::{CallToolResult, ContentBlock, ErrorData as McpError};
 
@@ -148,9 +152,8 @@ pub(super) fn handle_ast_rename(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    // Pre-filter to files with matches, build one AstRename op per file,
-    // then execute as a batch through the tx engine for backup/rollback (#1100).
-    let mut operations = Vec::new();
+    // Pre-filter to files with matches (parallel, same as CLI ast rename),
+    // build one AstRename op per file, then tx engine for backup/rollback (#1100).
     for path in &paths {
         let rel = path
             .strip_prefix(&cwd)
@@ -158,31 +161,56 @@ pub(super) fn handle_ast_rename(
             .to_string_lossy()
             .into_owned();
         svc.check_path(&rel)?;
+    }
 
-        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
-        let source = std::fs::read_to_string(path)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    let old = p.old.as_str();
+    let new = p.new.as_str();
+    let lang_cli = p.lang.clone();
+    let read_errors = std::sync::Mutex::new(Vec::<String>::new());
+    let operations: Vec<crate::plan::Operation> =
+        crate::par_process_files(&paths, None, &[], |path| {
+            let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
+            let source = match std::fs::read_to_string(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    if let Ok(mut guard) = read_errors.lock() {
+                        guard.push(format!("reading {}: {e}", path.display()));
+                    }
+                    return None;
+                }
+            };
 
-        let has_match = if lang.has_grammar() {
-            crate::ast::rename::rename_in_source(&source, &p.old, &p.new, lang)
-                .is_some_and(|r| r.replacements > 0)
-        } else {
-            false
-        } || {
-            crate::ops::replace::compile_replace_regex(&p.old, false, false, false, true)
-                .ok()
-                .flatten()
-                .is_some_and(|re| re.is_match(&source))
-        };
+            let has_match = if lang.has_grammar() {
+                crate::ast::rename::rename_in_source(&source, old, new, lang)
+                    .is_some_and(|r| r.replacements > 0)
+            } else {
+                false
+            } || {
+                crate::ops::replace::compile_replace_regex(old, false, false, false, true)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|re| re.is_match(&source))
+            };
 
-        if has_match {
-            operations.push(crate::plan::Operation::AstRename {
+            if !has_match {
+                return None;
+            }
+            let rel = path
+                .strip_prefix(&cwd)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .into_owned();
+            Some(crate::plan::Operation::AstRename {
                 path: rel,
-                old: p.old.clone(),
-                new: p.new.clone(),
-                lang: p.lang.clone(),
-            });
-        }
+                old: old.to_string(),
+                new: new.to_string(),
+                lang: lang_cli.clone(),
+            })
+        });
+    if let Ok(mut errs) = read_errors.into_inner()
+        && let Some(msg) = errs.drain(..).next()
+    {
+        return Err(McpError::internal_error(msg, None));
     }
 
     if operations.is_empty() {
