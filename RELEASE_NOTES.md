@@ -22,6 +22,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Shared replace/search regex compile typing.** `compile_replace_regex` and CLI `build_matcher` map parse failures to `InvalidInputError`, so library `search()` / `replace_in_content`, tx replace, and CLI `search --json` set `error_kind: invalid_input` without scraping the regex crate message.
 - **`bounded_regex_build` helper.** Finishes a `bounded_regex_builder` as `InvalidInputError`. Used by replace/search compile, tx plan search, and AST in-symbol regex replace so all paths share one kind.
 - **Agent-rules / reference docs.** Document invalid search/replace regex as `error_kind: invalid_input` (exit 1) so agents do not treat compile failures as soft no-match.
+- **Replace invalid-regex JSON lock.** CLI `replace --json` with a bad pattern sets `error_kind: invalid_input` (integration coverage next to the existing text-mode regex parse test).
 - **`apply_content_edits_to_file` diff headers.** File path appears in `--- a/` / `+++ b/` instead of `<buffer>`. Absolute paths still avoid `a//`. (#1500, #1502)
 - **Signature rewrite body gap.** Full-string and structured rewrites no longer produce `-> i32{` when the new signature has no trailing space. Original space or newline before `{` is preserved; glued originals get a conventional space; `;` decls do not. (#1503, #1504)
 - **`continue_on_no_match: false`.** Batch rename actually stops after the first `NoMatch` (was a no-op). (#1499)

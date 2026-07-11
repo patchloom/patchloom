@@ -198,6 +198,28 @@ fn test_replace_invalid_regex_fails() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("regex parse error"));
+
+    // --json must set error_kind so agents do not scrape English.
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "--regex",
+            "[invalid(regex",
+            "--new",
+            "x",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "invalid replace regex should set error_kind: {parsed}"
+    );
 }
 
 // ---------------------------------------------------------------------------
