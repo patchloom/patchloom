@@ -7590,6 +7590,70 @@ fn test_tx_ast_rename_empty_directory_fails() {
 }
 
 #[test]
+fn test_tx_json_invalid_normalize_eol_sets_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("file.txt"), "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "tidy.fix",
+            "path": "file.txt",
+            "normalize_eol": "bogus"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "invalid normalize_eol should be invalid_input: {stdout}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_missing_symbol_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn keep() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "missing_fn",
+            "target": "dest.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(3); // no_matches, not operation_failed (9)
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "no_matches",
+        "extract missing symbol should be no_matches: {stdout}"
+    );
+}
+
+#[test]
 #[cfg(feature = "ast")]
 fn test_tx_ast_extract_to_file_existing_target_already_exists() {
     let dir = TempDir::new().unwrap();
