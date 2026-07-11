@@ -260,7 +260,9 @@ pub fn parse_strategy(value: &serde_json::Value) -> anyhow::Result<ReorderStrate
             "alphabetical" => Ok(ReorderStrategy::Alphabetical),
             "reverse" => Ok(ReorderStrategy::Reverse),
             "kind-first" | "kind_first" => Ok(ReorderStrategy::KindFirst),
-            other => anyhow::bail!("unknown reorder strategy: '{other}'"),
+            other => Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("unknown reorder strategy: '{other}'"),
+            })),
         },
         serde_json::Value::Array(arr) => {
             let names: Result<Vec<String>, _> = arr
@@ -273,7 +275,9 @@ pub fn parse_strategy(value: &serde_json::Value) -> anyhow::Result<ReorderStrate
                 .collect();
             Ok(ReorderStrategy::Custom(names?))
         }
-        _ => anyhow::bail!("'order' must be a string or array of strings"),
+        _ => Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "'order' must be a string or array of strings".into(),
+        })),
     }
 }
 

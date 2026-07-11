@@ -28,7 +28,9 @@ pub fn wrap_code(
 ) -> anyhow::Result<WrapResult> {
     let mode_count = symbols_arg.is_some() as u8 + lines_arg.is_some() as u8;
     if mode_count != 1 {
-        anyhow::bail!("exactly one of 'symbols' or 'lines' must be specified");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "exactly one of 'symbols' or 'lines' must be specified".into(),
+        }));
     }
 
     let eol = crate::write::detect_eol(source);

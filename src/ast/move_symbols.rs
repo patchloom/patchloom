@@ -70,7 +70,9 @@ pub fn move_symbols(
     }
 
     if !missing.is_empty() {
-        anyhow::bail!("symbol(s) not found in source: {}", missing.join(", "));
+        return Err(anyhow::Error::new(crate::exit::NoMatchError {
+            msg: format!("symbol(s) not found in source: {}", missing.join(", ")),
+        }));
     }
 
     if to_move.is_empty() {

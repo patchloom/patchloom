@@ -400,7 +400,9 @@ fn validate_restore_path(entry_path: &str) -> anyhow::Result<()> {
             std::path::Component::ParentDir => {
                 depth -= 1;
                 if depth < 0 {
-                    anyhow::bail!("restore path escapes project root: {entry_path}");
+                    return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                        msg: format!("restore path escapes project root: {entry_path}"),
+                    }));
                 }
             }
             std::path::Component::Normal(_) => {
@@ -408,7 +410,9 @@ fn validate_restore_path(entry_path: &str) -> anyhow::Result<()> {
             }
             std::path::Component::CurDir => {}
             _ => {
-                anyhow::bail!("unexpected path component in restore path: {entry_path}");
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("unexpected path component in restore path: {entry_path}"),
+                }));
             }
         }
     }

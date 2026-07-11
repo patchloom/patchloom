@@ -48,7 +48,9 @@ pub fn insert_code(
 ) -> anyhow::Result<InsertResult> {
     let mode_count = inside.is_some() as u8 + after.is_some() as u8 + before.is_some() as u8;
     if mode_count != 1 {
-        anyhow::bail!("exactly one of 'inside', 'after', or 'before' must be specified");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "exactly one of 'inside', 'after', or 'before' must be specified".into(),
+        }));
     }
 
     let eol = crate::write::detect_eol(source);
