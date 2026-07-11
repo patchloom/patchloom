@@ -979,6 +979,36 @@ mod format_command_tests {
     }
 
     #[test]
+    fn explicit_format_failure_is_format_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut global = test_global_flags();
+        global.format = Some("false".into());
+        let err = run_format_command(&global, dir.path()).unwrap_err();
+        assert!(
+            crate::exit::is_format_failed(&err),
+            "explicit --format failure must be FormatFailedError: {err}"
+        );
+        assert!(err.to_string().contains("format command failed"));
+    }
+
+    #[test]
+    fn explicit_format_timeout_is_format_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut global = test_global_flags();
+        global.format = Some("sleep 60".into());
+        global.format_timeout = Some(1);
+        let err = run_format_command(&global, dir.path()).unwrap_err();
+        assert!(
+            crate::exit::is_format_failed(&err),
+            "format timeout must be FormatFailedError: {err}"
+        );
+        assert!(
+            err.to_string().contains("timed out") || err.to_string().contains("format command"),
+            "msg={err}"
+        );
+    }
+
+    #[test]
     fn run_format_command_ext_no_format_skips() {
         let dir = tempfile::tempdir().unwrap();
         let mut global = test_global_flags();

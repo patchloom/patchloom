@@ -26,6 +26,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Post-write format failures typed.** Explicit `--format` / format-timeout failures set `error_kind: format_failed` (exit 1) so agents can branch without scraping English (files may already be written; use `undo` or re-run the formatter).
 - **Docs: format failure kinds + library InvalidInput example.** Reference documents `--format` / `--format-timeout` `format_failed` envelopes; README library sample shows `edit_error_kind` peeling `InvalidInput` for empty patterns.
 - **Tx `--format` JSON lock.** `tx --apply --format false --json` sets `error_kind: format_failed` (exit 1) after commit, matching standalone write commands.
+- **Format unit locks.** Explicit `--format` failure and format-timeout map to `FormatFailedError` in unit tests (not only integration).
 - **`apply_content_edits_to_file` diff headers.** File path appears in `--- a/` / `+++ b/` instead of `<buffer>`. Absolute paths still avoid `a//`. (#1500, #1502)
 - **Signature rewrite body gap.** Full-string and structured rewrites no longer produce `-> i32{` when the new signature has no trailing space. Original space or newline before `{` is preserved; glued originals get a conventional space; `;` decls do not. (#1503, #1504)
 - **`continue_on_no_match: false`.** Batch rename actually stops after the first `NoMatch` (was a no-op). (#1499)
