@@ -387,95 +387,18 @@ pub(crate) fn run_parsed_plan(
         Ok(r) => r,
         Err(e) => {
             let msg = e.to_string();
-            // AST/md no-match must surface as no_matches (exit 3), not
-            // operation_failed (exit 9), with the concrete detail message.
-            if exit::is_no_match(&e) {
-                if structured {
-                    emit_error_json("no_matches", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::NO_MATCHES);
-            }
-            // replace unique multi-match → AMBIGUOUS (5), matching CLI.
-            if exit::is_ambiguous(&e) {
-                if structured {
-                    emit_error_json("ambiguous", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::AMBIGUOUS);
-            }
-            if exit::is_io_not_found(&e) {
-                if structured {
-                    emit_error_json("not_found", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::FAILURE);
-            }
-            if exit::is_already_exists(&e) {
-                if structured {
-                    emit_error_json("already_exists", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::FAILURE);
-            }
-            if exit::is_invalid_input(&e) {
-                if structured {
-                    emit_error_json("invalid_input", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::FAILURE);
-            }
-            if exit::is_type_error(&e) {
-                if structured {
-                    emit_error_json("type_error", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::FAILURE);
-            }
-            if exit::is_conflicts(&e) {
-                if structured {
-                    emit_error_json("conflicts", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::CONFLICTS);
-            }
-            if exit::is_parse_error(&e) {
-                if structured {
-                    emit_error_json("parse_error", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::PARSE_ERROR);
-            }
-            if exit::is_changes_detected(&e) {
-                if structured {
-                    emit_error_json("changes_detected", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::CHANGES_DETECTED);
-            }
-            if exit::is_format_failed(&e) {
-                if structured {
-                    emit_error_json("format_failed", &msg, None, compact);
-                } else {
-                    eprintln!("tx: {msg}");
-                }
-                return Ok(exit::FAILURE);
-            }
+            // Shared typed-kind table (no_matches, ambiguous, format_failed, …).
+            // Unknown engine failures stay operation_failed (exit 9) for tx.
+            let (kind, code) = match exit::classify_typed_error(&e) {
+                Some((k, c)) => (k, c),
+                None => ("operation_failed", exit::OPERATION_FAILED),
+            };
             if structured {
-                emit_error_json("operation_failed", &msg, None, compact);
+                emit_error_json(kind, &msg, None, compact);
             } else {
                 eprintln!("tx: {msg}");
             }
-            return Ok(exit::OPERATION_FAILED);
+            return Ok(code);
         }
     };
 
