@@ -48,10 +48,12 @@ pub fn navigate_mut<'a>(
                         if current.is_null() {
                             *current = serde_json::Value::Object(serde_json::Map::new());
                         } else if !current.is_object() {
-                            anyhow::bail!(
-                                "expected object at key '{k}', found {}",
-                                value_type_name(current)
-                            );
+                            return Err(anyhow::Error::new(crate::exit::TypeErrorError {
+                                msg: format!(
+                                    "expected object at key '{k}', found {}",
+                                    value_type_name(current)
+                                ),
+                            }));
                         }
                         let needs_create = match current.as_object() {
                             Some(obj) => !obj.contains_key(k.as_str()),

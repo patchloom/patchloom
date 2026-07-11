@@ -141,7 +141,9 @@ fn find_symbol_range(
     lang: Language,
 ) -> anyhow::Result<(usize, usize)> {
     if symbol_names.is_empty() {
-        anyhow::bail!("symbols list must not be empty");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "symbols list must not be empty".into(),
+        }));
     }
     let symbols = extract_symbols(source, lang);
     let mut min_start = usize::MAX;
@@ -171,11 +173,15 @@ fn parse_line_range_to_indices(spec: &str, total_lines: usize) -> anyhow::Result
     } else if spec.contains('-') && !spec.starts_with('-') {
         spec.splitn(2, '-').collect()
     } else {
-        anyhow::bail!("invalid line range format: '{spec}' (expected START:END)");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("invalid line range format: '{spec}' (expected START:END)"),
+        }));
     };
 
     if parts.len() != 2 {
-        anyhow::bail!("invalid line range: '{spec}'");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("invalid line range: '{spec}'"),
+        }));
     }
 
     let start: usize = parts[0]
@@ -183,7 +189,9 @@ fn parse_line_range_to_indices(spec: &str, total_lines: usize) -> anyhow::Result
         .map_err(|_| anyhow::anyhow!("invalid start line: {}", parts[0]))?;
 
     if start == 0 {
-        anyhow::bail!("line numbers are 1-based, got 0");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "line numbers are 1-based, got 0".into(),
+        }));
     }
 
     let start_idx = start - 1;
@@ -196,7 +204,9 @@ fn parse_line_range_to_indices(spec: &str, total_lines: usize) -> anyhow::Result
         .parse()
         .map_err(|_| anyhow::anyhow!("invalid end line: {}", parts[1]))?;
     if end < start {
-        anyhow::bail!("end line {end} is before start line {start}");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("end line {end} is before start line {start}"),
+        }));
     }
 
     let end_idx = end.min(total_lines);
