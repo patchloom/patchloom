@@ -7,8 +7,8 @@
 //! A token is in **command position** when it is the invocable command of a
 //! simple shell fragment: start of line (after whitespace), after `&&` `|` `;`,
 //! or after transparent prefixes (`sudo`, `env KEY=val`…, `timeout`, `nice`, `setsid`,
-//! `unshare` / `nsenter` / `taskset`, `flock` / `chroot` + path, `xargs`, `eval`, and
-//! common option flags like `-E` / `-p`).
+//! `unshare` / `nsenter` / `taskset`, `chpst` / `softlimit`, `flock` / `chroot` /
+//! `envdir` / `setlock` + path, `xargs`, `eval`, and common option flags like `-E` / `-p`).
 //! It is **not** command position when it is an argument (`uv pip`) or inside a longer
 //! word (`pipenv`).
 //!
@@ -71,11 +71,19 @@ const TRANSPARENT_PREFIXES: &[&str] = &[
     "eval",
     "source",
     ".",
+    // runit / daemontools process supervisors (flags peel; path-taking below).
+    // `chpst -u app pip`, `softlimit -m 1000000 pip`, `s6-softlimit -m N pip`.
+    "chpst",
+    "softlimit",
+    "s6-softlimit",
+    // s6-overlay: inject container env then run command.
+    "with-contenv",
 ];
 
 /// Wrappers whose next non-option argument is a path or user (not the command):
 /// `flock /tmp/l pip`, `flock -n /var/lock/x pip`, `chroot /jail pip`,
-/// `gosu app pip`, `su-exec nobody pip`, `s6-setuidgid app pip`.
+/// `gosu app pip`, `su-exec nobody pip`, `s6-setuidgid app pip`,
+/// `envdir /env pip`, `setlock /tmp/l pip`, `envuidgid app pip`.
 const PATH_TAKING_PREFIXES: &[&str] = &[
     "flock",
     "chroot",
@@ -83,6 +91,13 @@ const PATH_TAKING_PREFIXES: &[&str] = &[
     "su-exec",
     "s6-setuidgid",
     "setuidgid",
+    // daemontools / s6: env dir then command; setlock like flock.
+    "envdir",
+    "s6-envdir",
+    "setlock",
+    // user then command (daemontools / s6).
+    "envuidgid",
+    "s6-envuidgid",
 ];
 
 /// Return true if `token` at byte range `[start, end)` is in shell command position.
@@ -1036,6 +1051,56 @@ mod tests {
         );
         assert_eq!(
             replace_command_position("echo gosu pip\n", "pip", "uv").1,
+            0
+        );
+    }
+
+    #[test]
+    fn runit_daemontools_wrappers_allow_command() {
+        // runit process supervisor: flags then invocable command.
+        assert_eq!(
+            replace_command_position("chpst -u app pip install\n", "pip", "uv").0,
+            "chpst -u app uv install\n"
+        );
+        // daemontools resource limits: flag + number then command.
+        assert_eq!(
+            replace_command_position("softlimit -m 1000000 pip install\n", "pip", "uv").0,
+            "softlimit -m 1000000 uv install\n"
+        );
+        // envdir / s6-envdir: path then command.
+        assert_eq!(
+            replace_command_position("envdir /env pip install\n", "pip", "uv").0,
+            "envdir /env uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("s6-envdir /env pip install\n", "pip", "uv").0,
+            "s6-envdir /env uv install\n"
+        );
+        // setlock like flock: path then command.
+        assert_eq!(
+            replace_command_position("setlock /tmp/l pip install\n", "pip", "uv").0,
+            "setlock /tmp/l uv install\n"
+        );
+        // s6-overlay / s6 resource limit + envuidgid.
+        assert_eq!(
+            replace_command_position("with-contenv pip install\n", "pip", "uv").0,
+            "with-contenv uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("s6-softlimit -m 1000 pip install\n", "pip", "uv").0,
+            "s6-softlimit -m 1000 uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("s6-envuidgid app pip install\n", "pip", "uv").0,
+            "s6-envuidgid app uv install\n"
+        );
+        assert_eq!(
+            replace_command_position("envuidgid app pip install\n", "pip", "uv").0,
+            "envuidgid app uv install\n"
+        );
+        // Still argument-position when after a real word.
+        assert_eq!(
+            replace_command_position("echo chpst pip\n", "pip", "uv").1,
             0
         );
     }

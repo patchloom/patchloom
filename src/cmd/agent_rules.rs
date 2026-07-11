@@ -112,7 +112,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Get server version and working directory | `server_info` |\n\n\
              **`replace_text` / plan replace flags (default false):**\n\
              - `require_change`: error when the pattern matches zero times (fail closed).\n\
-             - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox` wrappers yes; `uv pip` no).\n\
+             - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n",
         );
@@ -386,7 +386,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  All operations succeed atomically or roll back together.\n\n\
                  Plan/MCP `replace` accepts library flags (default false):\n\
                  - `require_change`: fail when the pattern matches zero times (agent fail-closed).\n\
-                 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox` wrappers yes; `uv pip` no).\n\
+                 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).\n\
                  Example: `{\"op\":\"replace\",\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
                  \"command_position\":true,\"require_change\":true}`\n\n");
         }
@@ -704,8 +704,12 @@ mod tests {
                 && out.contains("taskset")
                 && out.contains("systemd-run")
                 && out.contains("firejail")
-                && out.contains("busybox"),
-            "agent-rules should name isolation/container wrappers for command_position"
+                && out.contains("busybox")
+                && out.contains("chpst")
+                && out.contains("softlimit")
+                && out.contains("envdir")
+                && out.contains("setlock"),
+            "agent-rules should name isolation/container/runit wrappers for command_position"
         );
         let mcp = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(
