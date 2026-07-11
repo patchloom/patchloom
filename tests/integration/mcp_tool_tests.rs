@@ -251,6 +251,10 @@ async fn test_mcp_search_assert_count_mismatch() {
     assert_eq!(val["assert_count"]["expected"], 5);
     assert_eq!(val["assert_count"]["actual"], 2);
     assert_eq!(val["assert_count"]["matched"], false);
+    assert_eq!(
+        val["error_kind"], "changes_detected",
+        "MCP assert_count mismatch must set error_kind: {val}"
+    );
     client.cancel().await.unwrap();
 }
 

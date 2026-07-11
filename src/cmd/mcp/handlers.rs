@@ -269,7 +269,7 @@ impl PatchloomService {
                 } else {
                     exit::CHANGES_DETECTED
                 };
-                let output = serde_json::json!({
+                let mut output = serde_json::json!({
                     "ok": matched,
                     "status": status,
                     "assert_count": {
@@ -278,6 +278,10 @@ impl PatchloomService {
                         "matched": matched,
                     }
                 });
+                // Match CLI search --assert-count and tx: agents branch on kind.
+                if !matched {
+                    output["error_kind"] = serde_json::json!("changes_detected");
+                }
                 return exit_code_to_result(code, &output.to_string(), "");
             }
 

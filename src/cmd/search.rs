@@ -96,6 +96,9 @@ struct SearchAssertCountOutput {
     ok: bool,
     status: &'static str,
     assert_count: SearchAssertCount,
+    /// Set on mismatch so agents can branch like tx (`error_kind: changes_detected`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
 }
 
 pub(crate) fn collect_matches(
@@ -328,6 +331,8 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let results = collect_matches(&args, global)?;
 
     // --assert-count mode: succeed only if total count equals N.
+    // JSON matches MCP search_files: ok == matched; mismatch sets
+    // error_kind: changes_detected (agent-rules / tx parity, exit 2).
     if let Some(expected) = args.assert_count {
         let actual: usize = results.file_match_counts.values().sum();
         let matches = actual == expected;
@@ -342,12 +347,17 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             exit::CHANGES_DETECTED
         };
         if global.emit_json(&SearchAssertCountOutput {
-            ok: true,
+            ok: matches,
             status,
             assert_count: SearchAssertCount {
                 expected,
                 actual,
                 matched: matches,
+            },
+            error_kind: if matches {
+                None
+            } else {
+                Some("changes_detected")
             },
         })? {
             return Ok(code);

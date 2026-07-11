@@ -378,11 +378,20 @@ fn test_search_assert_count_json_mismatch_returns_structured_output() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["ok"], true);
+    // ok tracks matched (MCP parity); error_kind matches agent-rules / tx.
+    assert_eq!(json["ok"], false);
     assert_eq!(json["status"], "changes_detected");
+    assert_eq!(
+        json["error_kind"], "changes_detected",
+        "assert-count mismatch must set error_kind: {json}"
+    );
     assert_eq!(json["assert_count"]["expected"], 5);
     assert_eq!(json["assert_count"]["actual"], 2);
     assert_eq!(json["assert_count"]["matched"], false);
+    assert!(
+        json.get("error_kind").is_some(),
+        "agents branch on error_kind without scraping status"
+    );
 }
 
 #[test]
@@ -439,8 +448,12 @@ fn test_search_assert_count_jsonl_mismatch_returns_structured_output() {
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
     assert_eq!(lines.len(), 1, "JSONL output should be a single line");
     let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-    assert_eq!(json["ok"], true);
+    assert_eq!(json["ok"], false);
     assert_eq!(json["status"], "changes_detected");
+    assert_eq!(
+        json["error_kind"], "changes_detected",
+        "assert-count mismatch must set error_kind: {json}"
+    );
     assert_eq!(json["assert_count"]["expected"], 5);
     assert_eq!(json["assert_count"]["actual"], 2);
     assert_eq!(json["assert_count"]["matched"], false);
