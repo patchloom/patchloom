@@ -54,7 +54,9 @@ fn patch_write(
             .map_err(|e| anyhow::anyhow!("patch parse error: {e}"))?;
 
         if patch_files.is_empty() {
-            anyhow::bail!("no files in patch");
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: "no files in patch".into(),
+            }));
         }
 
         // Apply to the first file in the patch.

@@ -23,13 +23,19 @@ pub fn replace_text(
 ) -> anyhow::Result<EditResult> {
     // Pre-validate before building the Operation.
     if from.is_empty() && !opts.regex {
-        anyhow::bail!("empty search pattern");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "empty search pattern".into(),
+        }));
     }
     if opts.range.is_some() && !opts.whole_line {
-        anyhow::bail!("range requires whole_line to be true");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "range requires whole_line to be true".into(),
+        }));
     }
     if opts.whole_line && opts.multiline {
-        anyhow::bail!("whole_line and multiline cannot be combined");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "whole_line and multiline cannot be combined".into(),
+        }));
     }
 
     let range_str = opts.range.map(|(start, end)| {
