@@ -120,16 +120,23 @@ pub fn build_matcher(
     } else {
         pattern.to_string()
     };
+    // Typed InvalidInputError so CLI --json and edit_error_kind peel
+    // invalid_input for bad patterns (not a bare regex crate error).
+    let finish = |builder: &mut regex::RegexBuilder| -> anyhow::Result<Regex> {
+        builder.build().map_err(|e| {
+            // Regex crate Display already starts with "regex parse error:".
+            anyhow::Error::new(crate::exit::InvalidInputError { msg: e.to_string() })
+        })
+    };
     let re = if multiline || case_insensitive {
-        crate::bounded_regex_builder(&escaped)
-            .multi_line(true)
-            .dot_matches_new_line(multiline)
-            .case_insensitive(case_insensitive)
-            .build()?
+        finish(
+            crate::bounded_regex_builder(&escaped)
+                .multi_line(true)
+                .dot_matches_new_line(multiline)
+                .case_insensitive(case_insensitive),
+        )?
     } else {
-        crate::bounded_regex_builder(&escaped)
-            .multi_line(true)
-            .build()?
+        finish(crate::bounded_regex_builder(&escaped).multi_line(true))?
     };
     Ok(Matcher::Regex(re))
 }

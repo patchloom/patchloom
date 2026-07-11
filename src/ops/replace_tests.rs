@@ -709,8 +709,13 @@ mod replace_tests {
 
         #[test]
         fn compile_invalid_regex_returns_error() {
-            let result = compile_replace_regex("(unclosed", true, false, false, false);
-            result.expect_err("expected error");
+            let err = compile_replace_regex("(unclosed", true, false, false, false)
+                .expect_err("expected error");
+            assert!(err.to_string().contains("regex parse error"), "msg={err}");
+            assert_eq!(
+                crate::fallback::edit_error_kind(&err),
+                Some(crate::fallback::EditErrorKind::InvalidInput)
+            );
         }
 
         // Regression: --whole-line + --insert-before/after silently drops

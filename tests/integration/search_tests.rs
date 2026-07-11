@@ -650,6 +650,36 @@ fn test_search_json_empty_pattern_sets_error_kind() {
 }
 
 #[test]
+fn test_search_json_invalid_regex_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "search",
+            "(unclosed",
+            dir.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "invalid regex should set error_kind: {parsed}"
+    );
+    assert!(
+        parsed["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("regex parse error"),
+        "error text should mention regex parse: {parsed}"
+    );
+}
+
+#[test]
 fn test_search_count_and_files_with_matches_are_rejected_together() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("test.txt"), "hello\nhello\n").unwrap();
