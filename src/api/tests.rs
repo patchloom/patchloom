@@ -1656,6 +1656,45 @@ fn search_directory_empty_pattern_errors() {
 
 #[test]
 #[cfg(any(feature = "cli", feature = "files"))]
+fn search_directory_invalid_regex_errors() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+    let opts = SearchOptions {
+        regex: true,
+        ..Default::default()
+    };
+    // Must not soft-succeed with empty hits (agent-hostile "no matches").
+    let err = search_directory(dir.path(), "(unclosed", &opts).unwrap_err();
+    assert!(
+        err.to_string().contains("regex parse error"),
+        "expected regex parse error, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn search_file_invalid_regex_errors() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+    let opts = SearchOptions {
+        regex: true,
+        ..Default::default()
+    };
+    let err = search_file(&file, "(unclosed", &opts).unwrap_err();
+    assert!(err.to_string().contains("regex parse error"));
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
 fn search_directory_invalid_glob_errors() {
     let dir = TempDir::new().unwrap();
     std::fs::write(
