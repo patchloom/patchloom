@@ -486,7 +486,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:search-mode:assert-count -->
 ### `search --assert-count`
 
-- **What it does:** Succeeds (exit 0) only if the total match count equals the given number. Exits 2 otherwise.
+- **What it does:** Succeeds (exit 0) only if the total match count equals the given number. Exits 2 otherwise. Under `--json`/`--jsonl`, mismatch sets `ok: false`, `status: "changes_detected"`, and `error_kind: "changes_detected"` (same kind as plan/tx `search` assert_count and MCP `search_files`).
 - **Use when:** An agent or CI pipeline needs to verify an invariant (e.g. "exactly 18 markers exist") in one call instead of searching and then comparing the count manually.
 - **Prefer instead:** Use plain `search --count` when you want to see counts without a pass/fail assertion.
 
