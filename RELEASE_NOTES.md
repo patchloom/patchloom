@@ -35,6 +35,7 @@ Embedders can set `ReplaceOptions.require_change` so zero matches become structu
 - **Shared `classify_typed_error`.** One table maps typed errors to JSON `error_kind` + exit code for global dispatch and command remappers, so new kinds cannot be present in one path and dropped in another.
 - **Tx engine error remapper.** Plan execute failures use `classify_typed_error` (unknown → `operation_failed` / 9), matching the shared kind table.
 - **Library `edit_error_kind` uses `classify_typed_error`.** Exit typed errors map through the same table as CLI JSON kinds (no dual switch to drift).
+- **MCP/plan_exec error remapper.** In-process plan execute uses `classify_typed_error` for JSON error envelopes (unknown → `operation_failed`).
 - **`apply_content_edits_to_file` diff headers.** File path appears in `--- a/` / `+++ b/` instead of `<buffer>`. Absolute paths still avoid `a//`. (#1500, #1502)
 - **Signature rewrite body gap.** Full-string and structured rewrites no longer produce `-> i32{` when the new signature has no trailing space. Original space or newline before `{` is preserved; glued originals get a conventional space; `;` decls do not. (#1503, #1504)
 - **`continue_on_no_match: false`.** Batch rename actually stops after the first `NoMatch` (was a no-op). (#1499)

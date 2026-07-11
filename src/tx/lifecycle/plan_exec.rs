@@ -149,34 +149,10 @@ pub fn execute_plan_direct(
     let mut result = match execute_and_collect(&plan, &engine_ctx, true, true, guard) {
         Ok(r) => r,
         Err(e) => {
-            // AST/md no-match must surface as no_matches (exit 3), not
-            // operation_failed (exit 9), with the concrete detail message.
-            if crate::exit::is_no_match(&e) {
-                return Ok(build_error_output("no_matches", &e.to_string(), None));
-            }
-            if crate::exit::is_ambiguous(&e) {
-                return Ok(build_error_output("ambiguous", &e.to_string(), None));
-            }
-            if crate::exit::is_io_not_found(&e) {
-                return Ok(build_error_output("not_found", &e.to_string(), None));
-            }
-            if crate::exit::is_already_exists(&e) {
-                return Ok(build_error_output("already_exists", &e.to_string(), None));
-            }
-            if crate::exit::is_invalid_input(&e) {
-                return Ok(build_error_output("invalid_input", &e.to_string(), None));
-            }
-            if crate::exit::is_type_error(&e) {
-                return Ok(build_error_output("type_error", &e.to_string(), None));
-            }
-            if crate::exit::is_conflicts(&e) {
-                return Ok(build_error_output("conflicts", &e.to_string(), None));
-            }
-            if crate::exit::is_parse_error(&e) {
-                return Ok(build_error_output("parse_error", &e.to_string(), None));
-            }
-            if crate::exit::is_changes_detected(&e) {
-                return Ok(build_error_output("changes_detected", &e.to_string(), None));
+            // Shared typed-kind table (no_matches, ambiguous, …); unknown →
+            // operation_failed (tx default, exit 9).
+            if let Some((kind, _)) = crate::exit::classify_typed_error(&e) {
+                return Ok(build_error_output(kind, &e.to_string(), None));
             }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
