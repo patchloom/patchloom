@@ -151,10 +151,61 @@ impl EditError {
 }
 
 /// Downcast an `anyhow` error chain to [`EditErrorKind`] when present.
+///
+/// Peels both [`EditError`] and the CLI/tx typed errors in [`crate::exit`]
+/// (`InvalidInputError`, `NoMatchError`, …) so library hosts can branch on
+/// kind without caring which construction path produced the failure.
 pub fn edit_error_kind(err: &anyhow::Error) -> Option<EditErrorKind> {
     for cause in err.chain() {
         if let Some(e) = cause.downcast_ref::<EditError>() {
             return Some(e.kind);
+        }
+        // Map exit::* typed errors used by CLI/tx and many api::* paths.
+        // Prefer EditError when both appear (checked first above).
+        if cause.downcast_ref::<crate::exit::NoMatchError>().is_some() {
+            return Some(EditErrorKind::NoMatch);
+        }
+        if cause
+            .downcast_ref::<crate::exit::AmbiguousError>()
+            .is_some()
+        {
+            return Some(EditErrorKind::AmbiguousTarget);
+        }
+        if cause
+            .downcast_ref::<crate::exit::InvalidInputError>()
+            .is_some()
+        {
+            return Some(EditErrorKind::InvalidInput);
+        }
+        if cause
+            .downcast_ref::<crate::exit::ParseErrorError>()
+            .is_some()
+        {
+            return Some(EditErrorKind::ParseError);
+        }
+        if cause
+            .downcast_ref::<crate::exit::AlreadyExistsError>()
+            .is_some()
+            || cause
+                .downcast_ref::<crate::exit::TypeErrorError>()
+                .is_some()
+        {
+            return Some(EditErrorKind::InvalidInput);
+        }
+        if cause
+            .downcast_ref::<crate::exit::ConflictsError>()
+            .is_some()
+        {
+            // Patch merge conflicts are not region batch conflicts, but both
+            // mean "edit could not apply cleanly"; OperationFailed is the
+            // closest shared kind for hosts that only branch on EditErrorKind.
+            return Some(EditErrorKind::OperationFailed);
+        }
+        if cause
+            .downcast_ref::<crate::exit::ChangesDetectedError>()
+            .is_some()
+        {
+            return Some(EditErrorKind::OperationFailed);
         }
     }
     None
@@ -672,6 +723,49 @@ mod tests {
             "conflicting_edit"
         );
         assert_eq!(EditErrorKind::ParseError.to_string(), "parse_error");
+    }
+
+    #[test]
+    fn edit_error_kind_maps_exit_typed_errors() {
+        let invalid: anyhow::Error = crate::exit::InvalidInputError {
+            msg: "empty search pattern".into(),
+        }
+        .into();
+        assert_eq!(edit_error_kind(&invalid), Some(EditErrorKind::InvalidInput));
+
+        let no_match: anyhow::Error = crate::exit::NoMatchError {
+            msg: "no matches".into(),
+        }
+        .into();
+        assert_eq!(edit_error_kind(&no_match), Some(EditErrorKind::NoMatch));
+
+        let ambiguous: anyhow::Error = crate::exit::AmbiguousError {
+            msg: "multiple matches".into(),
+        }
+        .into();
+        assert_eq!(
+            edit_error_kind(&ambiguous),
+            Some(EditErrorKind::AmbiguousTarget)
+        );
+
+        let parse: anyhow::Error = crate::exit::ParseErrorError {
+            msg: "bad yaml".into(),
+        }
+        .into();
+        assert_eq!(edit_error_kind(&parse), Some(EditErrorKind::ParseError));
+
+        let exists: anyhow::Error = crate::exit::AlreadyExistsError {
+            msg: "file already exists".into(),
+        }
+        .into();
+        assert_eq!(edit_error_kind(&exists), Some(EditErrorKind::InvalidInput));
+
+        // Intermediate .context() must not hide the typed kind.
+        let wrapped = invalid.context("operation 1 (replace) failed");
+        assert_eq!(edit_error_kind(&wrapped), Some(EditErrorKind::InvalidInput));
+
+        let plain = anyhow::anyhow!("plain error");
+        assert_eq!(edit_error_kind(&plain), None);
     }
 
     #[test]

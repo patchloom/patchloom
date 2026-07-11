@@ -161,7 +161,9 @@ fn replace_write(
 
         let is_regex = regex_mode;
         if old.is_empty() && !is_regex {
-            bail!("empty search pattern");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "empty search pattern".into(),
+            }));
         }
 
         let compiled_re = ops::replace::compile_replace_regex(
@@ -352,17 +354,24 @@ pub fn replace_in_content(
     opts: &ReplaceOptions,
 ) -> anyhow::Result<ContentEditResult> {
     use crate::ops;
-    use anyhow::bail;
 
     let is_regex = opts.regex;
+    // Match replace_text: typed InvalidInputError so edit_error_kind peels
+    // invalid_input without scraping English.
     if from.is_empty() && !is_regex {
-        bail!("empty search pattern");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "empty search pattern".into(),
+        }));
     }
     if opts.range.is_some() && !opts.whole_line {
-        bail!("range requires whole_line to be true");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "range requires whole_line to be true".into(),
+        }));
     }
     if opts.whole_line && opts.multiline {
-        bail!("whole_line and multiline cannot be combined");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "whole_line and multiline cannot be combined".into(),
+        }));
     }
 
     // Shell command-position path (#1494): only rewrite invocable command tokens.

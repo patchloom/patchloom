@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 
 use crate::ops;
 
@@ -33,7 +33,9 @@ pub fn search(
         .with_context(|| format!("failed to read {}", path.display()))?;
 
     if pattern.is_empty() {
-        bail!("search pattern must not be empty");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "search pattern must not be empty".into(),
+        }));
     }
 
     let compiled_re = if regex || case_insensitive {
@@ -184,7 +186,9 @@ pub fn search_directory(
     opts: &SearchOptions,
 ) -> anyhow::Result<Vec<SearchResult>> {
     if pattern.is_empty() {
-        bail!("search pattern must not be empty");
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "search pattern must not be empty".into(),
+        }));
     }
 
     #[cfg(any(feature = "cli", feature = "files"))]
@@ -223,10 +227,14 @@ pub fn search_directory(
     #[cfg(not(any(feature = "cli", feature = "files")))]
     {
         if opts.multiline {
-            bail!("multiline search requires the 'cli' or 'files' feature");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "multiline search requires the 'cli' or 'files' feature".into(),
+            }));
         }
         if opts.invert_match {
-            bail!("invert_match search requires the 'cli' or 'files' feature");
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "invert_match search requires the 'cli' or 'files' feature".into(),
+            }));
         }
         // fallback to single file search (multi-match supported via basic search)
         if root.is_file() {
@@ -258,9 +266,9 @@ pub fn search_directory(
                 .collect();
             Ok(results)
         } else {
-            bail!(
-                "search_directory requires the 'files' feature to be enabled (for pure-library recursive search with ignores/parallelism)"
-            );
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "search_directory requires the 'files' feature to be enabled (for pure-library recursive search with ignores/parallelism)".into(),
+            }));
         }
     }
 }

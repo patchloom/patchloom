@@ -450,6 +450,11 @@ fn replace_text_empty_pattern_rejected() {
     )
     .unwrap_err();
     assert!(err.to_string().contains("empty search pattern"));
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "library hosts must peel invalid_input without scraping English"
+    );
 }
 
 #[test]
@@ -1175,6 +1180,10 @@ fn search_empty_pattern_returns_error() {
         err.to_string().contains("empty"),
         "expected empty pattern error, got: {err}"
     );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
 }
 
 #[test]
@@ -1639,6 +1648,10 @@ fn search_directory_empty_pattern_errors() {
     let opts = SearchOptions::default();
     let err = search_directory(dir.path(), "", &opts).unwrap_err();
     assert!(err.to_string().contains("must not be empty"));
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
 }
 
 #[test]
@@ -2538,6 +2551,12 @@ fn replace_in_content_case_insensitive() {
 fn replace_in_content_empty_pattern_errors() {
     let result = replace::replace_in_content("content", "", "x", &ReplaceOptions::default());
     assert!(result.is_err(), "expected error, got Ok: {result:?}");
+    let err = result.unwrap_err();
+    assert!(err.to_string().contains("empty search pattern"));
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
 }
 
 #[test]
@@ -2559,11 +2578,11 @@ fn replace_in_content_range_requires_whole_line() {
     };
     let result = replace::replace_in_content("aaa\nbbb\n", "aaa", "xxx", &opts);
     assert!(result.is_err(), "expected error, got Ok: {result:?}");
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("range requires whole_line")
+    let err = result.unwrap_err();
+    assert!(err.to_string().contains("range requires whole_line"));
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
     );
 }
 
