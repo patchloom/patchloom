@@ -95,6 +95,10 @@ pub(super) fn tidy_fix_output(
 }
 
 /// Emit structured JSON/JSONL output for tidy fix.
+///
+/// Propagates serialize failures (`?`) so agents never see empty stdout under
+/// `--json`/`--jsonl` while the command still returns a soft success code
+/// (same fail-closed class as #1651 / `json_emit`).
 fn emit_tidy_fix_output(
     global: &GlobalFlags,
     fix_files: &[TidyFixFileResult],
@@ -107,9 +111,9 @@ fn emit_tidy_fix_output(
             files: fix_files.to_vec(),
             diff: diff_text,
         };
-        let _ = global.emit_json(&output);
+        global.emit_json(&output)?;
     } else if global.jsonl {
-        let _ = global.emit_json_items(fix_files);
+        global.emit_json_items(fix_files)?;
     }
     Ok(())
 }
