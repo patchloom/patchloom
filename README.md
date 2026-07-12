@@ -468,7 +468,7 @@ at your option.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-For local verification before opening a pull request, run `make check`. It matches the main Linux CI gate: formatting, clippy, unit tests, integration tests, and generated-doc freshness checks. While iterating locally, `make check-fast` runs the Rust formatting, lint, and test path without the generated-doc freshness checks.
+For local verification before opening a pull request, run `make check`. It matches the main Linux CI gate: formatting, clippy, unit tests (including feature-matrix jobs), integration tests, PTY tests, release-notes structure, test hygiene, and generated-doc freshness (`check-patchloom-md`, `check-readme`). While iterating locally, `make check-fast` is the same except it skips only `check-patchloom-md` (it still runs `check-readme` so a drifted test-count badge fails before CI).
 
 All commits must be signed off with `git commit -s`.
 
