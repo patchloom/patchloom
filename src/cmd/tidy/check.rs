@@ -190,16 +190,20 @@ struct TidyCheckOutput {
 }
 
 /// Render issues to stdout.
-pub(super) fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) {
+///
+/// Structured modes propagate serialize errors (`?`) instead of discarding
+/// them (`let _ =` / `if let Ok`), so `--json`/`--jsonl` never looks empty
+/// while the exit code still reports issues (#1651 class).
+pub(super) fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) -> anyhow::Result<()> {
     if global.json {
         let output = TidyCheckOutput {
             ok: issues.is_empty(),
             issue_count: issues.len(),
             issues: issues.to_vec(),
         };
-        let _ = global.emit_json(&output);
-    } else if let Ok(true) = global.emit_json_items(issues) {
-        // emitted per-item JSONL
+        global.emit_json(&output)?;
+    } else if global.jsonl {
+        global.emit_json_items(issues)?;
     } else {
         for issue in issues {
             if let Some(line) = issue.line {
@@ -209,6 +213,7 @@ pub(super) fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) {
             }
         }
     }
+    Ok(())
 }
 
 /// Run `tidy check` for the given paths.
@@ -226,7 +231,7 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
     }
     let issues = collect_issues(paths, global)?;
     if !global.quiet || global.json || global.jsonl {
-        render_issues(&issues, global);
+        render_issues(&issues, global)?;
     }
     if issues.is_empty() {
         Ok(exit::SUCCESS)

@@ -1,6 +1,6 @@
 //! Unit tests for tidy check/fix.
 
-use super::check::{check_file, collect_issues};
+use super::check::{check_file, collect_issues, render_issues};
 use super::fix::eol_mode_to_str;
 use super::*;
 use crate::cli::global::GlobalFlags;
@@ -456,6 +456,37 @@ fn eol_mode_conversion_round_trips() {
     assert_eq!(eol_mode_to_str(EolMode::Crlf), "crlf");
     assert_eq!(eol_mode_to_str(EolMode::Cr), "cr");
     assert_eq!(eol_mode_to_str(EolMode::Keep), "keep");
+}
+
+/// Regression: structured emit must not discard serialize errors (`let _ =`).
+/// `render_issues` returns `Result` and uses `emit_json`/`emit_json_items` with
+/// `?` so agent `--json`/`--jsonl` paths stay fail-closed (#1651 class).
+#[test]
+fn check_render_issues_json_ok() {
+    let issues = vec![TidyIssue {
+        path: "f.txt".into(),
+        line: Some(1),
+        issue: "trailing whitespace",
+    }];
+    let global = GlobalFlags {
+        json: true,
+        ..GlobalFlags::default()
+    };
+    render_issues(&issues, &global).expect("json emit must succeed for TidyIssue");
+}
+
+#[test]
+fn check_render_issues_jsonl_ok() {
+    let issues = vec![TidyIssue {
+        path: "f.txt".into(),
+        line: None,
+        issue: "missing final newline",
+    }];
+    let global = GlobalFlags {
+        jsonl: true,
+        ..GlobalFlags::default()
+    };
+    render_issues(&issues, &global).expect("jsonl emit must succeed for TidyIssue");
 }
 
 /// Regression: `tidy check --quiet --json` must still emit JSON output.
