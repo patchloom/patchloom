@@ -109,6 +109,10 @@ pub enum EditErrorKind {
     InvalidInput,
     /// I/O or other operational failure.
     OperationFailed,
+    /// Post-write format/lint hook failed (`format_failed` / #1663).
+    /// Distinct from generic [`Self::OperationFailed`] so hosts can branch
+    /// without scraping English.
+    FormatFailed,
 }
 
 impl std::fmt::Display for EditErrorKind {
@@ -122,6 +126,7 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::GuardRejected => write!(f, "guard_rejected"),
             EditErrorKind::InvalidInput => write!(f, "invalid_input"),
             EditErrorKind::OperationFailed => write!(f, "operation_failed"),
+            EditErrorKind::FormatFailed => write!(f, "format_failed"),
         }
     }
 }
@@ -214,9 +219,11 @@ pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErr
         if e.downcast_ref::<crate::exit::ParseErrorError>().is_some() {
             return Some(EditErrorKind::ParseError);
         }
+        if e.downcast_ref::<crate::exit::FormatFailedError>().is_some() {
+            return Some(EditErrorKind::FormatFailed);
+        }
         // Closest library kind for hosts that only branch on EditErrorKind.
-        if e.downcast_ref::<crate::exit::FormatFailedError>().is_some()
-            || e.downcast_ref::<crate::exit::ConflictsError>().is_some()
+        if e.downcast_ref::<crate::exit::ConflictsError>().is_some()
             || e.downcast_ref::<crate::exit::ChangesDetectedError>()
                 .is_some()
         {
@@ -773,7 +780,7 @@ mod tests {
         let e = crate::exit::FormatFailedError { msg: "fmt".into() };
         assert_eq!(
             classify_error(&e as &(dyn Error + 'static)),
-            Some(EditErrorKind::OperationFailed)
+            Some(EditErrorKind::FormatFailed)
         );
     }
 
@@ -818,7 +825,7 @@ mod tests {
         .into();
         assert_eq!(
             edit_error_kind(&format_failed),
-            Some(EditErrorKind::OperationFailed)
+            Some(EditErrorKind::FormatFailed)
         );
 
         let not_found: anyhow::Error =

@@ -36,7 +36,7 @@ pub struct PostWriteHooks {
 ///
 /// Failures map to [`FormatFailedError`] (JSON `error_kind: format_failed`) so
 /// they peel via [`crate::api::edit_error_kind`] / [`crate::api::classify_error`]
-/// as [`EditErrorKind::OperationFailed`]. With [`PostWriteOnFailure::Revert`],
+/// as [`EditErrorKind::FormatFailed`]. With [`PostWriteOnFailure::Revert`],
 /// restores only `path` from the latest backup that contains it (see
 /// [`restore_path_from_latest_backup`]).
 ///
@@ -194,7 +194,7 @@ mod tests {
             crate::exit::is_format_failed(&err),
             "expected format_failed, got {err}"
         );
-        assert_eq!(edit_error_kind(&err), Some(EditErrorKind::OperationFailed));
+        assert_eq!(edit_error_kind(&err), Some(EditErrorKind::FormatFailed));
     }
 
     #[test]
