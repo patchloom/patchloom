@@ -155,36 +155,94 @@ impl EditError {
 /// Peels both [`EditError`] and the CLI/tx typed errors in [`crate::exit`]
 /// (`InvalidInputError`, `NoMatchError`, …) so library hosts can branch on
 /// kind without caring which construction path produced the failure.
+///
+/// Hosts that do **not** depend on `anyhow` should use [`classify_error`]
+/// on a `dyn Error` instead (#1659).
 pub fn edit_error_kind(err: &anyhow::Error) -> Option<EditErrorKind> {
     for cause in err.chain() {
-        if let Some(e) = cause.downcast_ref::<EditError>() {
-            return Some(e.kind);
+        if let Some(kind) = classify_error(cause) {
+            return Some(kind);
         }
     }
-    // Prefer EditError above; map CLI/tx typed errors via the shared table so
-    // library hosts stay in sync with JSON error_kind classification.
-    match crate::exit::classify_typed_error(err) {
-        Some(("no_matches", _)) => Some(EditErrorKind::NoMatch),
-        Some(("ambiguous", _)) => Some(EditErrorKind::AmbiguousTarget),
-        Some(("invalid_input", _) | ("already_exists", _) | ("type_error", _)) => {
-            Some(EditErrorKind::InvalidInput)
-        }
-        Some(("parse_error", _)) => Some(EditErrorKind::ParseError),
-        // not_found / conflicts / changes_detected / format_failed: closest
-        // library kind for hosts that only branch on EditErrorKind.
-        Some(
-            ("not_found", _) | ("conflicts", _) | ("changes_detected", _) | ("format_failed", _),
-        ) => Some(EditErrorKind::OperationFailed),
-        Some(_) | None => None,
-    }
+    None
 }
 
 /// Downcast an `anyhow` error chain to [`EditError`] when present.
 pub fn edit_error_ref(err: &anyhow::Error) -> Option<&EditError> {
     for cause in err.chain() {
-        if let Some(e) = cause.downcast_ref::<EditError>() {
+        if let Some(e) = classify_error_ref(cause) {
             return Some(e);
         }
+    }
+    None
+}
+
+/// Classify a bare `dyn Error` (no `anyhow` required) into [`EditErrorKind`].
+///
+/// Walks `source()` and peels [`EditError`] plus the CLI/tx typed errors
+/// (`NoMatchError`, `InvalidInputError`, `AmbiguousError`, …). Use this from
+/// non-anyhow agent hosts that store `Box<dyn Error>` or `Arc<dyn Error>`.
+///
+/// ```rust
+/// use patchloom::fallback::{classify_error, EditError, EditErrorKind};
+///
+/// let err: Box<dyn std::error::Error + Send + Sync> =
+///     Box::new(EditError::new(EditErrorKind::NoMatch, "no matches for \"x\""));
+/// assert_eq!(classify_error(err.as_ref()), Some(EditErrorKind::NoMatch));
+/// ```
+///
+/// See #1659.
+pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErrorKind> {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = current {
+        if let Some(edit) = e.downcast_ref::<EditError>() {
+            return Some(edit.kind);
+        }
+        if e.downcast_ref::<crate::exit::NoMatchError>().is_some() {
+            return Some(EditErrorKind::NoMatch);
+        }
+        if e.downcast_ref::<crate::exit::AmbiguousError>().is_some() {
+            return Some(EditErrorKind::AmbiguousTarget);
+        }
+        if e.downcast_ref::<crate::exit::InvalidInputError>().is_some()
+            || e.downcast_ref::<crate::exit::AlreadyExistsError>()
+                .is_some()
+            || e.downcast_ref::<crate::exit::TypeErrorError>().is_some()
+        {
+            return Some(EditErrorKind::InvalidInput);
+        }
+        if e.downcast_ref::<crate::exit::ParseErrorError>().is_some() {
+            return Some(EditErrorKind::ParseError);
+        }
+        // Closest library kind for hosts that only branch on EditErrorKind.
+        if e.downcast_ref::<crate::exit::FormatFailedError>().is_some()
+            || e.downcast_ref::<crate::exit::ConflictsError>().is_some()
+            || e.downcast_ref::<crate::exit::ChangesDetectedError>()
+                .is_some()
+        {
+            return Some(EditErrorKind::OperationFailed);
+        }
+        if e.downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
+        {
+            return Some(EditErrorKind::OperationFailed);
+        }
+        current = e.source();
+    }
+    None
+}
+
+/// Downcast a bare `dyn Error` chain to [`EditError`] when present (#1659).
+///
+/// Prefer this when you need `similar_targets` / `suggestion` without
+/// depending on `anyhow`.
+pub fn classify_error_ref<'a>(err: &'a (dyn std::error::Error + 'static)) -> Option<&'a EditError> {
+    let mut current: Option<&'a (dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = current {
+        if let Some(edit) = e.downcast_ref::<EditError>() {
+            return Some(edit);
+        }
+        current = e.source();
     }
     None
 }
@@ -403,6 +461,7 @@ pub fn anchor_match(
             matched_text: target.to_string(),
             start_offset: pos,
             strategy: MatchStrategy::Exact,
+            score: None,
         });
     }
 
@@ -508,6 +567,7 @@ pub fn anchor_match(
             matched_text,
             start_offset,
             strategy: MatchStrategy::Anchor,
+            score: None,
         });
     }
 
@@ -523,6 +583,8 @@ pub struct AnchorMatchResult {
     pub start_offset: usize,
     /// Which matching strategy succeeded.
     pub strategy: MatchStrategy,
+    /// Similarity score when [`MatchStrategy::Similarity`] succeeded (#1662).
+    pub score: Option<f64>,
 }
 
 /// Which matching strategy found the result.
@@ -562,6 +624,7 @@ pub fn resolve_with_fallback(
             matched_text: target.to_string(),
             start_offset: pos,
             strategy: MatchStrategy::Exact,
+            score: None,
         });
     }
 
@@ -600,6 +663,7 @@ pub fn resolve_with_fallback(
                 matched_text: best_match,
                 start_offset: best_offset,
                 strategy: MatchStrategy::Similarity,
+                score: Some(best_score),
             });
         }
     }
@@ -691,6 +755,26 @@ mod tests {
             "conflicting_edit"
         );
         assert_eq!(EditErrorKind::ParseError.to_string(), "parse_error");
+    }
+
+    #[test]
+    fn classify_error_peels_edit_error_and_typed() {
+        use std::error::Error;
+        let e = EditError::new(EditErrorKind::AmbiguousTarget, "many");
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::AmbiguousTarget)
+        );
+        let e = crate::exit::NoMatchError { msg: "none".into() };
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::NoMatch)
+        );
+        let e = crate::exit::FormatFailedError { msg: "fmt".into() };
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::OperationFailed)
+        );
     }
 
     #[test]

@@ -1267,3 +1267,36 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** Embedding in agents (e.g. bline), custom tools, or tests without CLI spawn overhead. See `cargo doc --no-default-features --features ast --open`.
 - **Notable:** `search_directory(root, pattern, opts)` for parallel content search with globs/context (library equivalent of CLI search). Error paths and guards documented in api.rs.
 - **Related:** README "As a library", `src/api.rs`, `src/lib.rs` docs, examples/README.md entry for search_directory.
+
+### Embedder surfaces (Bline-oriented)
+
+| Need | API |
+|------|-----|
+| Fail-closed text replace | `ReplaceOptions.require_change` + `edit_error_kind` / `classify_error` |
+| Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659) |
+| Shell token rename | `ReplaceOptions.command_position` / `ContentEdit::Replace` (#1666) |
+| Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |
+| Project symbol discovery + multi-file rename | `find_files_with_symbol` then `ast_rename_batch` (#1664) |
+| Match honesty (fuzzy confidence) | `EditResult.match_mode` / `match_score` (#1662) |
+| In-memory multi-op with real diff headers | `apply_content_edits_with_label` (#1665) |
+| Surgical undo one path | `backup::restore_path_from_session(root, ts, path)` (#1660) |
+| Post-Apply format/lint + optional revert | `run_post_write_validation` / `PostWriteHooks` (#1663) |
+| Signature rewrite complete in one write | `ast_rewrite_signature` body-gap invariant (#1661) |
+
+### Shell command-position for embedders
+
+When rewriting package managers or CLI tools in scripts (`pip` → `uv`, `wget` → `curl`), set `command_position: true` so only invocable tokens change:
+
+```text
+# before
+sudo pip install foo
+uv pip list
+pipenv run test
+
+# after (command_position)
+sudo uv install foo
+uv pip list          # argument pip kept
+pipenv run test      # longer token kept
+```
+
+Cannot combine with `regex`, `whole_line`, `multiline`, `nth`, insert-before/after, `fuzzy`, or context anchors (typed `InvalidInput`). Prefer this over `word_boundary` for shell files.

@@ -5,6 +5,20 @@
 //! [`rewrite_function_signature`] with [`FunctionSigEdit`] for structured
 //! multi-language edits (visibility, parameters, return type).
 //!
+//! # Body-gap invariant (#1503 / #1661)
+//!
+//! Full-string and structured rewrites **never** glue a type or `)` to the body
+//! brace for Rust (and other brace languages). A single Apply write is
+//! sufficient; hosts must not run a second spacing post-pass or rewrite.
+//!
+//! Guarantees enforced by [`splice_function_signature`]:
+//!
+//! - Logical signatures without trailing space produce `-> T {` / `) {`, never
+//!   `T{` / `){`
+//! - Original newline-before-brace style is preserved when present
+//! - Missing gaps on already-glued sources get a conventional space
+//! - Semicolon-terminated decls do not get a spurious space before `;`
+//!
 //! size-waiver: accepted single-domain bulk (policy #1408). Multi-language function signature rewrite; tests co-located; do not split for LOC alone.
 
 use super::symbol_extract::innermost_qualified_name;

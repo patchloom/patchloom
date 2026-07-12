@@ -4265,8 +4265,16 @@ fn ast_replace_in_symbol_api() {
         "fn outer() {\n    let target = 1;\n}\nfn other() {\n    let target = 2;\n}\n",
     )
     .unwrap();
-    let result =
-        ast_replace_in_symbol(&file, "outer", "target", "value", ApplyMode::Apply, None).unwrap();
+    let result = ast_replace_in_symbol(
+        &file,
+        "outer",
+        "target",
+        "value",
+        &AstReplaceInSymbolOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
     assert!(result.changed);
     assert!(result.applied);
     let on_disk = fs::read_to_string(&file).unwrap();
@@ -4574,4 +4582,349 @@ fn restore_path_from_latest_backup_after_apply() {
     let restored = restore_path_from_latest_backup(dir.path(), &file).unwrap();
     assert!(restored, "should find backup session for path");
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+}
+
+// ── #1658–#1666 Bline embedder API batch ──────────────────────────────────
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_replace_in_symbol_regex_mode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(
+        &file,
+        "fn parse_config() {\n    let foo_x_bar = 1;\n    let keep = 2;\n}\nfn other() {\n    let foo_x_bar = 9;\n}\n",
+    )
+    .unwrap();
+    let opts = AstReplaceInSymbolOptions { regex: true };
+    let result = ast_replace_in_symbol(
+        &file,
+        "parse_config",
+        r"foo_.*_bar",
+        "baz",
+        &opts,
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(result.changed && result.applied);
+    assert!(result.match_count >= 1);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("let baz = 1"), "got: {on_disk}");
+    assert!(
+        on_disk.contains("let foo_x_bar = 9"),
+        "other symbol must stay: {on_disk}"
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_replace_in_symbol_missing_symbol_vs_pattern() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn real() {\n    let target = 1;\n}\n").unwrap();
+    let opts = AstReplaceInSymbolOptions::default();
+
+    let err = ast_replace_in_symbol(
+        &file,
+        "missing",
+        "target",
+        "x",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("symbol") && msg.contains("missing"),
+        "symbol miss should name symbol: {msg}"
+    );
+
+    let err = ast_replace_in_symbol(
+        &file,
+        "real",
+        "no_such_pattern",
+        "x",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no matches") && msg.contains("no_such_pattern"),
+        "pattern miss should name pattern: {msg}"
+    );
+}
+
+#[test]
+fn classify_error_without_anyhow() {
+    use crate::fallback::{classify_error, classify_error_ref};
+    use std::error::Error;
+
+    let edit = EditError::new(EditErrorKind::NoMatch, "no matches for \"x\"")
+        .with_similar(vec!["y".into()]);
+    let boxed: Box<dyn Error + Send + Sync> = Box::new(edit.clone());
+    assert_eq!(classify_error(boxed.as_ref()), Some(EditErrorKind::NoMatch));
+    let got = classify_error_ref(boxed.as_ref()).expect("EditError");
+    assert_eq!(got.similar_targets, vec!["y".to_string()]);
+
+    let invalid: Box<dyn Error + Send + Sync> =
+        Box::new(crate::exit::InvalidInputError { msg: "bad".into() });
+    assert_eq!(
+        classify_error(invalid.as_ref()),
+        Some(EditErrorKind::InvalidInput)
+    );
+
+    let ambiguous: Box<dyn Error + Send + Sync> =
+        Box::new(crate::exit::AmbiguousError { msg: "many".into() });
+    assert_eq!(
+        classify_error(ambiguous.as_ref()),
+        Some(EditErrorKind::AmbiguousTarget)
+    );
+
+    // Bare EditError round-trips through classify without anyhow.
+    let e = EditError::new(EditErrorKind::GuardRejected, "nope");
+    assert_eq!(
+        classify_error(&e as &(dyn Error + 'static)),
+        Some(EditErrorKind::GuardRejected)
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn restore_path_from_session_single_file_only() {
+    use crate::backup::{list_sessions, restore_path_from_session};
+
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "A0").unwrap();
+    fs::write(&b, "B0").unwrap();
+
+    // One session backs up both files, then both are mutated.
+    let mut session = crate::backup::BackupSession::new(dir.path()).unwrap();
+    session.save_before_write(&a).unwrap();
+    session.save_before_write(&b).unwrap();
+    session.finalize().unwrap();
+    fs::write(&a, "A1").unwrap();
+    fs::write(&b, "B1").unwrap();
+
+    let sessions = list_sessions(dir.path()).unwrap();
+    assert!(!sessions.is_empty());
+    let ts = sessions[0].timestamp.clone();
+
+    let ok = restore_path_from_session(dir.path(), &ts, &a).unwrap();
+    assert!(ok);
+    assert_eq!(fs::read_to_string(&a).unwrap(), "A0");
+    assert_eq!(
+        fs::read_to_string(&b).unwrap(),
+        "B1",
+        "sibling path must remain edited"
+    );
+
+    // Path absent from session → Ok(false).
+    let missing = dir.path().join("c.txt");
+    fs::write(&missing, "C").unwrap();
+    let ok = restore_path_from_session(dir.path(), &ts, &missing).unwrap();
+    assert!(!ok);
+
+    // Missing session → error.
+    let err = restore_path_from_session(dir.path(), "no-such-session", &a).unwrap_err();
+    assert!(
+        err.to_string().contains("no backup session") || err.to_string().contains("no-such"),
+        "got: {err}"
+    );
+}
+
+#[test]
+fn match_mode_exact_fuzzy_and_anchored() {
+    // Exact
+    let r = replace_in_content(
+        "hello world\n",
+        "world",
+        "there",
+        &ReplaceOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(r.match_mode, Some(MatchMode::Exact));
+    assert!(r.match_score.is_none());
+
+    // Fuzzy similarity
+    let r = replace_in_content(
+        "fn process_data() {}\n",
+        "fn proccess_data() {}",
+        "fn process_data() {}",
+        &ReplaceOptions {
+            fuzzy: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(r.changed, "fuzzy should land");
+    assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+    assert!(
+        r.match_score.is_some_and(|s| s > 0.85),
+        "fuzzy score expected, got {:?}",
+        r.match_score
+    );
+
+    // Anchored multi-match disambiguation
+    let content = "alpha\nTODO: fix\nbeta\nTODO: fix\n";
+    let r = replace_in_content(
+        content,
+        "TODO: fix",
+        "TODO: done",
+        &ReplaceOptions {
+            before_context: Some("beta".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(r.changed);
+    assert_eq!(r.match_mode, Some(MatchMode::Anchored));
+    assert_eq!(r.match_count, 1);
+    assert!(r.new_content.contains("beta\nTODO: done"));
+    assert!(r.new_content.contains("alpha\nTODO: fix"));
+}
+
+#[test]
+fn apply_content_edits_path_label() {
+    let edits = [ContentEdit::Replace {
+        old: "a".into(),
+        new: "b".into(),
+        options: ReplaceOptions::default(),
+    }];
+    let unlabeled = apply_content_edits("a\n", &edits).unwrap();
+    assert!(
+        unlabeled.diff.contains("<buffer>") || unlabeled.diff.contains("a/<buffer>"),
+        "default label: {}",
+        unlabeled.diff
+    );
+
+    let labeled = apply_content_edits_with_label("a\n", &edits, Some("src/lib.rs")).unwrap();
+    assert!(
+        labeled.diff.contains("src/lib.rs"),
+        "path label in headers: {}",
+        labeled.diff
+    );
+    assert!(
+        !labeled.diff.contains("<buffer>"),
+        "must not keep buffer placeholder when labeled: {}",
+        labeled.diff
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn find_files_with_symbol_and_batch_compose() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.rs");
+    let b = dir.path().join("b.rs");
+    let c = dir.path().join("c.rs");
+    fs::write(&a, "struct OldType {}\n").unwrap();
+    fs::write(&b, "fn use_it(x: OldType) {}\n").unwrap();
+    fs::write(&c, "struct Other {}\n").unwrap();
+
+    let paths =
+        find_files_with_symbol(dir.path(), "OldType", &SymbolSearchOptions::default()).unwrap();
+    assert!(paths.iter().any(|p| p.ends_with("a.rs")), "a.rs: {paths:?}");
+    assert!(paths.iter().any(|p| p.ends_with("b.rs")), "b.rs: {paths:?}");
+    assert!(
+        !paths.iter().any(|p| p.ends_with("c.rs")),
+        "c.rs must not match: {paths:?}"
+    );
+
+    let path_refs: Vec<&std::path::Path> = paths.iter().map(|p| p.as_path()).collect();
+    let results = ast_rename_batch(
+        &path_refs,
+        "OldType",
+        "NewType",
+        &AstRenameBatchOptions {
+            mode: ApplyMode::Apply,
+            ..Default::default()
+        },
+        None,
+    )
+    .unwrap();
+    assert!(results.iter().all(|r| r.result.is_ok()));
+    assert!(fs::read_to_string(&a).unwrap().contains("NewType"));
+    assert!(fs::read_to_string(&b).unwrap().contains("NewType"));
+    assert!(fs::read_to_string(&c).unwrap().contains("Other"));
+}
+
+#[test]
+fn content_edit_command_position_honored() {
+    // #1666: ContentEdit::Replace path must honor command_position end-to-end.
+    let edits = [ContentEdit::Replace {
+        old: "pip".into(),
+        new: "uv".into(),
+        options: ReplaceOptions {
+            command_position: true,
+            require_change: true,
+            ..Default::default()
+        },
+    }];
+    let r = apply_content_edits("sudo pip install\nuv pip list\npipenv run\n", &edits).unwrap();
+    assert!(r.changed);
+    assert!(r.modified.contains("sudo uv install"));
+    assert!(
+        r.modified.contains("uv pip list"),
+        "argument pip must stay: {}",
+        r.modified
+    );
+    assert!(
+        r.modified.contains("pipenv"),
+        "longer token must stay: {}",
+        r.modified
+    );
+
+    // Incompatible combo → InvalidInput
+    let bad = [ContentEdit::Replace {
+        old: "pip".into(),
+        new: "uv".into(),
+        options: ReplaceOptions {
+            command_position: true,
+            regex: true,
+            ..Default::default()
+        },
+    }];
+    let err = apply_content_edits("pip install\n", &bad).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn signature_rewrite_params_and_return_no_host_post_pass() {
+    // #1661: structured field rewrite alone is complete (no second write).
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("sig.rs");
+    fs::write(&file, "pub fn process(a: i32) -> i32 {\n    a\n}\n").unwrap();
+    let edit = crate::ast::rewrite::FunctionSigEdit {
+        parameters: Some("(a: i32, b: i32)".into()),
+        return_type: Some("-> i64".into()),
+        ..Default::default()
+    };
+    let result = ast_rewrite_signature(&file, "process", &edit, None, ApplyMode::Apply, None)
+        .expect("structured rewrite");
+    assert!(result.applied && result.changed);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.contains("-> i64 {"),
+        "must keep space before brace without host post-pass: {on_disk}"
+    );
+    assert!(!on_disk.contains("i64{") && !on_disk.contains("){"));
+    assert!(on_disk.contains("b: i32"), "params updated: {on_disk}");
 }

@@ -290,6 +290,10 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
 /// edit, run a host validator, and on failure call this helper to put the file
 /// back without re-implementing backup layout.
 ///
+/// Restores **only** the requested path (exact match), not sibling entries in
+/// the same session. Prefer [`restore_path_from_session`] when the host already
+/// knows the session timestamp.
+///
 /// Returns `true` if a backup entry was found and restored, `false` if no
 /// session had the path.
 pub fn restore_path_from_latest_backup(project_root: &Path, path: &Path) -> anyhow::Result<bool> {
@@ -307,14 +311,89 @@ pub fn restore_path_from_latest_backup(project_root: &Path, path: &Path) -> anyh
             .iter()
             .any(|e| e.path == rel_str || e.path == abs_str);
         if hit {
-            // Restore the whole session (entries are per-session atomic unit).
-            // Hosts that need single-file-only restore can filter; sessions from
-            // single-file API Apply typically contain one entry.
-            restore_session(project_root, &manifest.timestamp)?;
-            return Ok(true);
+            return restore_path_from_session(project_root, &manifest.timestamp, path);
         }
     }
     Ok(false)
+}
+
+/// Restore one path from a specific backup session (exact path match only).
+///
+/// Unlike [`restore_session`], sibling files in the same session are left
+/// untouched. Missing session is an error; session present but path absent
+/// returns `Ok(false)`.
+///
+/// See #1660.
+pub fn restore_path_from_session(
+    project_root: &Path,
+    session_timestamp: &str,
+    path: &Path,
+) -> anyhow::Result<bool> {
+    let session_dir = project_root.join(BACKUP_DIR).join(session_timestamp);
+    let manifest_path = session_dir.join("manifest.json");
+
+    let content = std::fs::read_to_string(&manifest_path).with_context(|| {
+        format!(
+            "no backup session found for {session_timestamp} (use `patchloom undo --list` to see available sessions)"
+        )
+    })?;
+    let manifest: Manifest = serde_json::from_str(&content)
+        .with_context(|| format!("parsing backup manifest for session {session_timestamp}"))?;
+
+    let rel = sanitize_rel_path(path, project_root);
+    let rel_str = rel.to_string_lossy();
+    let abs_str = path.to_string_lossy();
+
+    let Some(entry) = manifest
+        .entries
+        .iter()
+        .find(|e| e.path == rel_str || e.path == abs_str)
+    else {
+        return Ok(false);
+    };
+
+    validate_restore_path(&entry.path)?;
+    let target = resolve_restore_path(project_root, &entry.path);
+
+    match entry.action {
+        FileAction::Modified => {
+            let backup = session_dir.join(&entry.path);
+            if !backup.exists() {
+                return Ok(false);
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).with_context(|| {
+                    format!("creating parent dir for restore target {}", entry.path)
+                })?;
+            }
+            std::fs::copy(&backup, &target)
+                .with_context(|| format!("restoring modified file {}", entry.path))?;
+            Ok(true)
+        }
+        FileAction::Created => {
+            if target.exists() {
+                std::fs::remove_file(&target)
+                    .with_context(|| format!("removing created file {} during undo", entry.path))?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        FileAction::Deleted => {
+            let backup = session_dir.join(&entry.path);
+            if !backup.exists() {
+                return Ok(false);
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).with_context(|| {
+                    format!("creating parent dir for restore target {}", entry.path)
+                })?;
+            }
+            std::fs::copy(&backup, &target)
+                .with_context(|| format!("restoring deleted file {}", entry.path))?;
+            Ok(true)
+        }
+    }
 }
 
 /// Restore a specific backup session, returning the number of files restored.
@@ -983,6 +1062,28 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         let ok = restore_path_from_latest_backup(dir.path(), &file).unwrap();
         assert!(!ok);
+    }
+
+    #[test]
+    fn restore_path_from_session_only_one_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        std::fs::write(&a, "A").unwrap();
+        std::fs::write(&b, "B").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&a).unwrap();
+        session.save_before_write(&b).unwrap();
+        session.finalize().unwrap();
+        std::fs::write(&a, "A2").unwrap();
+        std::fs::write(&b, "B2").unwrap();
+
+        let sessions = list_sessions(dir.path()).unwrap();
+        let ts = &sessions[0].timestamp;
+        assert!(restore_path_from_session(dir.path(), ts, &a).unwrap());
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "A");
+        assert_eq!(std::fs::read_to_string(&b).unwrap(), "B2");
     }
 
     #[test]

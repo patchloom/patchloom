@@ -130,6 +130,24 @@ pub use self::ast_write::*;
 mod content_edits;
 pub use self::content_edits::*;
 
+mod post_write;
+pub use self::post_write::*;
+
+/// How a replace operation resolved its match site (#1662).
+///
+/// Embedders use this for agent honesty ("applied via fuzzy — verify") and
+/// optional policy (reject low-score fuzzy under `unique`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchMode {
+    /// Literal/regex exact match (default path).
+    Exact,
+    /// Similarity-based fuzzy fallback ([`ReplaceOptions::fuzzy`]).
+    Fuzzy,
+    /// Disambiguated via before/after context anchors.
+    Anchored,
+}
+
 /// The result of an editing operation.
 #[derive(Debug, Clone)]
 pub struct EditResult {
@@ -164,6 +182,10 @@ pub struct EditResult {
     /// mutation summaries so embedders can report delete outcomes without
     /// re-reading the file or parsing diffs (#1459 / #1439).
     pub removed: usize,
+    /// Match strategy used for replace ops (`None` for non-replace ops). See #1662.
+    pub match_mode: Option<MatchMode>,
+    /// Similarity score when [`MatchMode::Fuzzy`] was used; otherwise `None`.
+    pub match_score: Option<f64>,
 }
 
 /// Result of an in-memory content edit (no file path, no applied flag).
@@ -187,6 +209,10 @@ pub struct ContentEditResult {
     /// limits which match is replaced). Embedders can use this to enforce
     /// their own ambiguity policies without pre-scanning the content.
     pub match_count: usize,
+    /// Match strategy for this replace (`None` when unchanged/no-match soft path).
+    pub match_mode: Option<MatchMode>,
+    /// Similarity score when fuzzy matching was used.
+    pub match_score: Option<f64>,
 }
 
 /// Controls whether an operation writes to disk.
@@ -269,9 +295,10 @@ pub struct ReplaceOptions {
     pub command_position: bool,
 }
 
-// Re-export structured edit errors for embedders (#1492).
+// Re-export structured edit errors for embedders (#1492, #1659).
 pub use crate::fallback::{
-    EditError, EditErrorKind, edit_error_kind, edit_error_ref, find_similar_targets,
+    EditError, EditErrorKind, classify_error, classify_error_ref, edit_error_kind, edit_error_ref,
+    find_similar_targets,
 };
 
 /// Write policy options for controlling file write transformations.
@@ -462,6 +489,20 @@ pub(crate) fn build_edit_result(
         dest_path,
         match_count: 0,
         removed: 0,
+        match_mode: None,
+        match_score: None,
+    }
+}
+
+/// Map fallback match strategy to public [`MatchMode`] (#1662).
+pub(crate) fn match_mode_from_strategy(
+    strategy: crate::fallback::MatchStrategy,
+) -> (MatchMode, Option<f64>) {
+    use crate::fallback::MatchStrategy;
+    match strategy {
+        MatchStrategy::Exact => (MatchMode::Exact, None),
+        MatchStrategy::Anchor => (MatchMode::Anchored, None),
+        MatchStrategy::Similarity => (MatchMode::Fuzzy, None),
     }
 }
 
