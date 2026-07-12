@@ -4886,6 +4886,31 @@ fn find_files_with_symbol_and_batch_compose() {
         "c.rs must not match: {paths:?}"
     );
 
+    let zero = find_files_with_symbol(
+        dir.path(),
+        "OldType",
+        &SymbolSearchOptions {
+            max_files: Some(0),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        zero.is_empty(),
+        "max_files=0 must not return hits (got {zero:?})"
+    );
+
+    let capped = find_files_with_symbol(
+        dir.path(),
+        "OldType",
+        &SymbolSearchOptions {
+            max_files: Some(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(capped.len(), 1, "max_files=1: {capped:?}");
+
     let path_refs: Vec<&std::path::Path> = paths.iter().map(|p| p.as_path()).collect();
     let results = ast_rename_batch(
         &path_refs,
@@ -4898,7 +4923,17 @@ fn find_files_with_symbol_and_batch_compose() {
         None,
     )
     .unwrap();
-    assert!(results.iter().all(|r| r.result.is_ok()));
+    assert!(
+        results.iter().all(|r| r.result.is_ok()),
+        "batch rename failed: {:?}",
+        results
+            .iter()
+            .map(|r| match &r.result {
+                Ok(e) => format!("{}:ok({})", r.path.display(), e.match_count),
+                Err(e) => format!("{}:{:?}", r.path.display(), e.kind),
+            })
+            .collect::<Vec<_>>()
+    );
     assert!(fs::read_to_string(&a).unwrap().contains("NewType"));
     assert!(fs::read_to_string(&b).unwrap().contains("NewType"));
     assert!(fs::read_to_string(&c).unwrap().contains("Other"));
