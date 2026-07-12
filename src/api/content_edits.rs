@@ -67,11 +67,24 @@ pub struct ContentEditsResult {
 /// partial buffer. On success, every op has been applied in order; each op
 /// sees the result of the previous one.
 ///
+/// Diff headers use `<buffer>`. Prefer [`apply_content_edits_with_label`] when
+/// the host knows a real path (#1665).
+///
 /// Available with default features off as long as the replace path is
 /// compiled (always; no `ast` required).
 pub fn apply_content_edits(
     content: &str,
     edits: &[ContentEdit],
+) -> anyhow::Result<ContentEditsResult> {
+    apply_content_edits_with_label(content, edits, None)
+}
+
+/// Like [`apply_content_edits`], but labels unified-diff headers with
+/// `path_label` when set (e.g. `src/lib.rs`). `None` keeps `<buffer>` (#1665).
+pub fn apply_content_edits_with_label(
+    content: &str,
+    edits: &[ContentEdit],
+    path_label: Option<&str>,
 ) -> anyhow::Result<ContentEditsResult> {
     let original = content.to_string();
     let mut current = content.to_string();
@@ -87,7 +100,8 @@ pub fn apply_content_edits(
     }
 
     let changed = current != original;
-    let diff = make_diff("<buffer>", &original, &current);
+    let label = path_label.unwrap_or("<buffer>");
+    let diff = make_diff(label, &original, &current);
     Ok(ContentEditsResult {
         original,
         modified: current,
@@ -119,7 +133,8 @@ pub fn apply_content_edits_to_file(
     let path_str = path.to_string_lossy().into_owned();
     let original =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
-    let batch = apply_content_edits(&original, edits)?;
+    // Prefer real path labels in multi-op preview (#1665 / #1500).
+    let batch = apply_content_edits_with_label(&original, edits, Some(path_str.as_str()))?;
     let policy = WritePolicy::default();
     let applied = write_if_apply(path, &batch.modified, mode, &policy, guard)?;
     // build_edit_result uses path for headers (#1500) and stays field-complete.

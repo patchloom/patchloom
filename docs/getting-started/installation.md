@@ -79,9 +79,12 @@ patchloom = { default-features = false, features = ["ast", "files"] }
 ```
 
 See the [crate documentation](https://docs.rs/patchloom) for the full API
-surface (`require_change`, `command_position`, `ast_rename_batch`, backup
-restore helper) and the [introduction](../introduction.md#as-a-rust-library)
-for a quick overview.
+surface (`require_change`, `command_position`, `ast_rename_batch`,
+`find_files_with_symbol`, `classify_error`, `restore_path_from_session`,
+`run_post_write_validation`, `match_mode`) and the
+[introduction](../introduction.md#as-a-rust-library) for a quick overview.
+Embedder tables live under [Library API](../reference/README.md#library-api)
+in the reference.
 
 ## Shell completions
 

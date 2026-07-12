@@ -103,16 +103,30 @@
 //! }
 //! ```
 //!
-//! Shell command-position matching (#1494): opt-in `ReplaceOptions.command_position`
-//! rewrites invocable tokens (`pip install`, `sudo -E pip`, `timeout 30 pip`,
-//! `nice -n 10 pip`, `setsid pip`, `busybox wget`, `flock /tmp/l pip`,
-//! `runuser -u app pip`, `chpst -u app pip`, `with-contenv pip`, `envdir /env pip`)
-//! without touching arguments (`uv pip`) or longer words (`pipenv`). Not the same as
-//! `word_boundary`. Post-Apply validate/revert: host runs a validator, then
-//! `backup::restore_path_from_latest_backup(project_root, path)`.
+//! Shell command-position matching (#1494 / #1666): opt-in
+//! `ReplaceOptions.command_position` rewrites invocable tokens
+//! (`pip install`, `sudo -E pip`, `timeout 30 pip`, `nice -n 10 pip`, `setsid pip`,
+//! `busybox wget`, `flock /tmp/l pip`, `runuser -u app pip`, `chpst -u app pip`,
+//! `with-contenv pip`, `envdir /env pip`) without touching arguments (`uv pip`) or
+//! longer words (`pipenv`). Not the same as `word_boundary`. Incompatible with
+//! `regex`, `whole_line`, `multiline`, `nth`, insert before/after, fuzzy, and
+//! context anchors (typed `InvalidInput`). Works on `replace_text`,
+//! `replace_in_content`, `ContentEdit::Replace`, plan/MCP `command_position`, and
+//! CLI `--command-position`. Post-Apply validate/revert: use
+//! `api::run_post_write_validation` (#1663) or
+//! `backup::restore_path_from_session` / `restore_path_from_latest_backup` (#1660).
+//!
+//! Match honesty for agents (#1662): `EditResult` / `ContentEditResult` expose
+//! `match_mode` (`Exact` / `Fuzzy` / `Anchored`) and optional `match_score` so hosts
+//! can warn on low-confidence fuzzy sites without re-running the matcher.
+//!
+//! Non-anyhow hosts (#1659): branch with `api::classify_error(&*err as &dyn Error)`
+//! or `classify_error_ref` for `similar_targets`; `edit_error_kind` remains for
+//! `anyhow::Error` chains.
 //!
 //! For several ordered text edits on **one buffer** then a single write (agent intent engines):
-//! use `api::apply_content_edits` / `api::apply_content_edits_to_file` with
+//! use `api::apply_content_edits` / `apply_content_edits_with_label` /
+//! `api::apply_content_edits_to_file` with
 //! `ContentEdit::{Replace, InsertBefore, InsertAfter, Append, Prepend}` (all-or-nothing).
 //! Results expose rolled-up `match_count` across replace ops. Multi-file multi-op remains
 //! `execute_plan`.
@@ -221,9 +235,11 @@ pub use api::apply_content_edits_to_file;
 pub use api::search_one_file;
 pub use api::{
     ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult, EditError, EditErrorKind,
-    EditResult, Hunk, PatchFile, PatchLine, ReplaceOptions, SearchOptions, SearchResult,
-    WritePolicyOptions, apply_content_edits, build_context_lines, edit_error_kind, edit_error_ref,
-    format_search_results, parse_unified_diff, search_file, text_diff,
+    EditResult, Hunk, MatchMode, PatchFile, PatchLine, PostWriteHooks, PostWriteOnFailure,
+    ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
+    apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
+    classify_error, classify_error_ref, edit_error_kind, edit_error_ref, format_search_results,
+    parse_unified_diff, run_post_write_validation, search_file, text_diff,
 };
 pub use plan::Plan;
 

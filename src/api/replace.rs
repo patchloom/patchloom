@@ -7,7 +7,7 @@ use std::path::Path;
 use crate::containment::PathGuard;
 use crate::plan::Operation;
 
-use super::{ApplyMode, ContentEditResult, EditResult, ReplaceOptions};
+use super::{ApplyMode, ContentEditResult, EditResult, MatchMode, ReplaceOptions};
 
 /// Replace text in a file using literal or regex matching.
 ///
@@ -68,6 +68,8 @@ pub fn replace_text(
             None,
         );
         result.match_count = content_result.match_count;
+        result.match_mode = content_result.match_mode;
+        result.match_score = content_result.match_score;
         return Ok(result);
     }
 
@@ -93,7 +95,7 @@ pub fn replace_text(
         require_change: false,
         command_position: opts.command_position,
     };
-    let result = replace_write(op, path, mode, guard, opts.fuzzy)?;
+    let mut result = replace_write(op, path, mode, guard, opts.fuzzy)?;
     // if_exists intentionally softens zero-match (Ok unchanged). require_change
     // must not override that: both true means if_exists wins (#1492 docs).
     if opts.require_change && !opts.if_exists && !result.changed && result.match_count == 0 {
@@ -107,6 +109,10 @@ pub fn replace_text(
                 .with_similar(similar)
                 .into(),
         );
+    }
+    // Tx path does not yet thread MatchMode; default Exact when matches landed (#1662).
+    if result.match_mode.is_none() && result.match_count > 0 {
+        result.match_mode = Some(MatchMode::Exact);
     }
     Ok(result)
 }
@@ -242,6 +248,7 @@ fn replace_write(
                     None,
                 );
                 result.match_count = 1;
+                result.match_mode = Some(MatchMode::Anchored);
                 return Ok(result);
             }
         }
@@ -292,6 +299,9 @@ fn replace_write(
                         &path_str, original, fb_content, applied, "replace", None,
                     );
                     result.match_count = 1;
+                    let (mode, default_score) = super::match_mode_from_strategy(anchor.strategy);
+                    result.match_mode = Some(mode);
+                    result.match_score = anchor.score.or(default_score);
                     return Ok(result);
                 }
                 Err(edit_error) => {
@@ -334,6 +344,9 @@ fn replace_write(
         let mut result =
             super::build_edit_result(&path_str, original, new_content, applied, "replace", None);
         result.match_count = count;
+        if count > 0 {
+            result.match_mode = Some(MatchMode::Exact);
+        }
         Ok(result)
     } else {
         bail!("expected Replace operation")
@@ -467,6 +480,8 @@ pub fn replace_in_content(
             diff,
             changed: true,
             match_count: 1,
+            match_mode: Some(MatchMode::Anchored),
+            match_score: None,
         });
     }
 
@@ -503,12 +518,15 @@ pub fn replace_in_content(
                     &content[anchor.start_offset + anchor.matched_text.len()..]
                 );
                 let diff = super::make_diff("<content>", content, &fuzzy_content);
+                let (mode, default_score) = super::match_mode_from_strategy(anchor.strategy);
                 return Ok(ContentEditResult {
                     original: content.to_string(),
                     new_content: fuzzy_content,
                     diff,
                     changed: true,
                     match_count: 1,
+                    match_mode: Some(mode),
+                    match_score: anchor.score.or(default_score),
                 });
             }
             Err(edit_error) => {
@@ -519,6 +537,8 @@ pub fn replace_in_content(
                         diff: String::new(),
                         changed: false,
                         match_count: 0,
+                        match_mode: None,
+                        match_score: None,
                     });
                 }
                 let similar = fallback::find_similar_targets(content, from, 3);
@@ -569,6 +589,8 @@ fn finalize_content_replace(
             diff: String::new(),
             changed: false,
             match_count: 0,
+            match_mode: None,
+            match_score: None,
         });
     }
 
@@ -598,5 +620,11 @@ fn finalize_content_replace(
         diff,
         changed,
         match_count: count,
+        match_mode: if count > 0 {
+            Some(MatchMode::Exact)
+        } else {
+            None
+        },
+        match_score: None,
     })
 }

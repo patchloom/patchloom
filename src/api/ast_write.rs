@@ -102,6 +102,8 @@ pub fn ast_rewrite_signature_in_content(
         diff,
         changed,
         match_count: if changed { 1 } else { 0 },
+        match_mode: None,
+        match_score: None,
     })
 }
 
@@ -158,15 +160,27 @@ pub fn ast_rename(
     Ok(result)
 }
 
+/// Options for [`ast_replace_in_symbol`] (#1658).
+#[derive(Debug, Clone, Default)]
+pub struct AstReplaceInSymbolOptions {
+    /// Use regex mode for `old` (default `false`).
+    pub regex: bool,
+}
+
 /// Replace text inside a named symbol body on disk.
 ///
-/// Zero replacements → `NoMatch`. See #1493.
+/// Supports literal and regex modes via [`AstReplaceInSymbolOptions`].
+/// - Missing symbol → `NoMatch` (message names the symbol)
+/// - Symbol found, zero pattern matches → `NoMatch` (message names the pattern)
+///
+/// Zero replacements → `NoMatch`. See #1493, #1658.
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
 pub fn ast_replace_in_symbol(
     path: &Path,
     symbol: &str,
     old: &str,
     new: &str,
+    opts: &AstReplaceInSymbolOptions,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
@@ -175,19 +189,20 @@ pub fn ast_replace_in_symbol(
     let original =
         std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
     let lang = Language::from_path(path);
-    let replaced = match ast_replace::replace_in_symbol(&original, symbol, old, new, false, lang) {
-        Ok(Some(r)) => r,
-        Ok(None) => {
-            return Err(EditError::new(
-                EditErrorKind::NoMatch,
-                format!("symbol `{symbol}` not found in {path_str}"),
-            )
-            .into());
-        }
-        Err(e) => {
-            return Err(EditError::new(EditErrorKind::OperationFailed, e.to_string()).into());
-        }
-    };
+    let replaced =
+        match ast_replace::replace_in_symbol(&original, symbol, old, new, opts.regex, lang) {
+            Ok(Some(r)) => r,
+            Ok(None) => {
+                return Err(EditError::new(
+                    EditErrorKind::NoMatch,
+                    format!("symbol `{symbol}` not found in {path_str}"),
+                )
+                .into());
+            }
+            Err(e) => {
+                return Err(EditError::new(EditErrorKind::OperationFailed, e.to_string()).into());
+            }
+        };
     if replaced.replacements == 0 {
         return Err(EditError::new(
             EditErrorKind::NoMatch,
@@ -206,7 +221,124 @@ pub fn ast_replace_in_symbol(
         None,
     );
     result.match_count = replaced.replacements;
+    result.match_mode = Some(super::MatchMode::Exact);
     Ok(result)
+}
+
+/// Options for [`find_files_with_symbol`] (#1664).
+#[derive(Debug, Clone, Default)]
+pub struct SymbolSearchOptions {
+    /// Cap on returned paths (`None` = no limit).
+    pub max_files: Option<usize>,
+    /// Restrict to these languages (`None` = any language with a known extension).
+    pub languages: Option<Vec<Language>>,
+    /// Include hidden files/dirs (default false; same as search).
+    pub include_hidden: bool,
+}
+
+/// Paths under `root` that likely contain identifier `name` (#1664).
+///
+/// Uses the same ignore / binary skip rules as library file collection, then
+/// a word-boundary heuristic on source files with a known language extension.
+/// Compose with [`ast_rename_batch`]:
+///
+/// ```rust,no_run
+/// # #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+/// # {
+/// use patchloom::api::{
+///     ApplyMode, AstRenameBatchOptions, SymbolSearchOptions, ast_rename_batch,
+///     find_files_with_symbol,
+/// };
+/// use std::path::Path;
+///
+/// let root = Path::new(".");
+/// let paths = find_files_with_symbol(root, "OldType", &SymbolSearchOptions::default())?;
+/// let path_refs: Vec<&Path> = paths.iter().map(Path::new).collect();
+/// let _ = ast_rename_batch(
+///     &path_refs,
+///     "OldType",
+///     "NewType",
+///     &AstRenameBatchOptions {
+///         mode: ApplyMode::Preview,
+///         ..Default::default()
+///     },
+///     None,
+/// )?;
+/// # }
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+pub fn find_files_with_symbol(
+    root: &Path,
+    name: &str,
+    opts: &SymbolSearchOptions,
+) -> anyhow::Result<Vec<PathBuf>> {
+    if name.is_empty() {
+        return Err(EditError::new(
+            EditErrorKind::InvalidInput,
+            "find_files_with_symbol name must not be empty",
+        )
+        .into());
+    }
+    let all = crate::files::collect_file_paths(root, opts.include_hidden)?;
+    let mut out = Vec::new();
+    for path in all {
+        let lang = Language::from_path(&path);
+        if lang == Language::Unknown {
+            continue;
+        }
+        if let Some(ref allowed) = opts.languages
+            && !allowed.contains(&lang)
+        {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        if crate::files::is_binary(&bytes) {
+            continue;
+        }
+        let Ok(content) = String::from_utf8(bytes) else {
+            continue;
+        };
+        if content_has_identifier(&content, name) {
+            out.push(path);
+            if opts.max_files.is_some_and(|m| out.len() >= m) {
+                break;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Word-boundary check for an identifier (ASCII-aware; good enough for discovery).
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+fn content_has_identifier(content: &str, name: &str) -> bool {
+    if name.is_empty() || !content.contains(name) {
+        return false;
+    }
+    let bytes = content.as_bytes();
+    let name_bytes = name.as_bytes();
+    let mut start = 0usize;
+    while let Some(rel) = content[start..].find(name) {
+        let i = start + rel;
+        let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+        let after = i + name_bytes.len();
+        let after_ok = after >= bytes.len() || !is_ident_byte(bytes[after]);
+        if before_ok && after_ok {
+            return true;
+        }
+        start = i + 1;
+        if start >= content.len() {
+            break;
+        }
+    }
+    false
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Options for [`ast_rename_batch`] (#1495).
