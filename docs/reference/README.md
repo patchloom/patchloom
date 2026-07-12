@@ -1273,7 +1273,7 @@ The operations below are the building blocks inside `operations`.
 | Need | API |
 |------|-----|
 | Fail-closed text replace | `ReplaceOptions.require_change` + `edit_error_kind` / `classify_error` |
-| Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659) |
+| Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks |
 | Shell token rename | `ReplaceOptions.command_position` / `ContentEdit::Replace` (#1666) |
 | Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |
 | Project symbol discovery + multi-file rename | `find_files_with_symbol` then `ast_rename_batch` (#1664) |
