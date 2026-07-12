@@ -45,9 +45,16 @@ pub fn replace_text(
             format!("{start}:")
         }
     });
-    // Shell command-position is content-path only for now; for files, read +
-    // replace_in_content so require_change / command_position stay consistent.
-    if opts.command_position {
+    // Library-only match options that the plan/tx Operation does not carry
+    // (`fuzzy`) or that need honest `match_mode` (#1662): use the same
+    // content path as command_position so disk and in-memory parity hold.
+    // Pure `fuzzy: true` without context was previously a no-op on the
+    // default files/cli path (tx only falls back when context is set).
+    if opts.command_position
+        || opts.fuzzy
+        || opts.before_context.is_some()
+        || opts.after_context.is_some()
+    {
         let original = std::fs::read_to_string(path).map_err(|e| {
             crate::fallback::EditError::new(
                 crate::fallback::EditErrorKind::OperationFailed,
