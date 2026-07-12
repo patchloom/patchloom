@@ -63,6 +63,10 @@ pub enum Operation {
         /// Literal only; incompatible with regex/case_insensitive/word_boundary/fuzzy.
         #[serde(default)]
         command_position: bool,
+        /// When exact match fails, try fuzzy/similarity fallback (library/plan/MCP).
+        /// Also enabled implicitly when before_context/after_context is set.
+        #[serde(default)]
+        fuzzy: bool,
     },
     #[serde(rename = "doc.set")]
     DocSet {

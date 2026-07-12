@@ -2478,6 +2478,7 @@ fn adapter_unchanged_returns_no_diff() {
         unique: false,
         require_change: false,
         command_position: false,
+        fuzzy: false,
     };
 
     let result =

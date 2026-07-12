@@ -598,6 +598,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** Migrating install tooling in shell scripts or agent-generated commands without breaking package names that embed the same substring.
 - **Prefer instead:** Ordinary replace or `word_boundary` for identifiers. Cannot combine with `regex`, `case_insensitive`, `word_boundary`, `fuzzy`, `nth`, multiline/whole-line, context anchors, or insert-before/after.
 
+<!-- ref:replace-mode:fuzzy -->
+### `replace --fuzzy` / library `ReplaceOptions.fuzzy` / plan `fuzzy`
+
+- **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library and tx paths (#1668).
+- **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` in library results and CLI/MCP JSON (#1669).
+- **Prefer instead:** Exact replace when the target string is known.
+
 <!-- ref:create-mode:stdin -->
 ### `create --stdin`
 

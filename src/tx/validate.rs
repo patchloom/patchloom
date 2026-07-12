@@ -154,6 +154,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         }
     }
 
@@ -211,6 +212,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(

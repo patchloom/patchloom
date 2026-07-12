@@ -23,6 +23,7 @@ fn make_args(old: &str, new: &str, paths: Vec<String>) -> ReplaceArgs {
         unique: false,
         require_change: false,
         command_position: false,
+        fuzzy: false,
         write: Default::default(),
     }
 }
@@ -74,6 +75,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -109,6 +111,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -214,6 +217,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -274,6 +278,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -335,6 +340,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -377,6 +383,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -412,6 +419,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -446,6 +454,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -482,6 +491,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -522,6 +532,7 @@ mod basic {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -565,6 +576,7 @@ mod edge_cases {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -599,6 +611,7 @@ mod edge_cases {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let global = GlobalFlags {
@@ -658,6 +671,7 @@ mod edge_cases {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -737,6 +751,7 @@ mod edge_cases {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -781,6 +796,7 @@ mod edge_cases {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -839,6 +855,7 @@ mod error_handling {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -871,6 +888,7 @@ mod error_handling {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -903,6 +921,7 @@ mod error_handling {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -935,6 +954,7 @@ mod error_handling {
             unique: true,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -975,6 +995,7 @@ mod error_handling {
             unique: true,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1019,6 +1040,7 @@ mod error_handling {
             unique: true,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -1064,6 +1086,7 @@ mod context_replace {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1115,6 +1138,7 @@ mod context_replace {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1160,6 +1184,7 @@ mod context_replace {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
 
@@ -1193,6 +1218,7 @@ mod context_replace {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
 
@@ -1230,6 +1256,7 @@ mod context_replace {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1272,6 +1299,7 @@ mod context_replace {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1315,6 +1343,7 @@ mod context_replace {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1342,4 +1371,45 @@ mod context_replace {
             "sudo uv install x\nuv pip install\n"
         );
     }
+}
+
+#[test]
+fn fuzzy_cli_json_reports_match_mode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn process_data() {}\n").unwrap();
+
+    // Library path honesty (match_mode / match_score).
+    let content = fs::read_to_string(&file).unwrap();
+    let opts = crate::api::ReplaceOptions {
+        fuzzy: true,
+        require_change: true,
+        ..Default::default()
+    };
+    let r = crate::api::replace_in_content(
+        &content,
+        "fn proccess_data() {}",
+        "fn handle_data() {}",
+        &opts,
+    )
+    .unwrap();
+    assert_eq!(r.match_mode, Some(crate::api::MatchMode::Fuzzy));
+    assert!(r.match_score.is_some_and(|s| s > 0.85));
+
+    // CLI/tx path: pure fuzzy without context must rewrite (#1668).
+    let mut args = make_args(
+        "fn proccess_data() {}",
+        "fn handle_data() {}",
+        vec![file.to_string_lossy().into_owned()],
+    );
+    args.fuzzy = true;
+    let global = GlobalFlags {
+        apply: true,
+        cwd: Some(dir.path().to_string_lossy().into_owned()),
+        ..GlobalFlags::test_default()
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("handle_data"), "{on_disk}");
 }

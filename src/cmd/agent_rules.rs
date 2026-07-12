@@ -113,6 +113,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              **`replace_text` / plan replace flags (default false):**\n\
              - `require_change`: error when the pattern matches zero times (fail closed).\n\
              - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).\n\
+             - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n",
         );
@@ -387,6 +388,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  Plan/MCP `replace` accepts library flags (default false):\n\
                  - `require_change`: fail when the pattern matches zero times (agent fail-closed).\n\
                  - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).\n\
+                 - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).\n\
                  Example: `{\"op\":\"replace\",\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
                  \"command_position\":true,\"require_change\":true}`\n\n");
         }

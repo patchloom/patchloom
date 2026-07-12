@@ -367,6 +367,7 @@ mod tests {
                 unique: false,
                 require_change: false,
                 command_position: false,
+                fuzzy: false,
             }],
             write_policy: None,
             strict: None,
