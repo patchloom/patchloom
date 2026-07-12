@@ -280,6 +280,10 @@ pub fn find_files_with_symbol(
         )
         .into());
     }
+    // max_files: 0 means empty result (not "one file" via `len >= 0` after push).
+    if opts.max_files == Some(0) {
+        return Ok(Vec::new());
+    }
     let all = crate::files::collect_file_paths(root, opts.include_hidden)?;
     let mut out = Vec::new();
     for path in all {

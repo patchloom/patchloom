@@ -4797,6 +4797,48 @@ fn match_mode_exact_fuzzy_and_anchored() {
     assert!(r.new_content.contains("alpha\nTODO: fix"));
 }
 
+/// Disk `replace_text` must honor pure `fuzzy: true` (no context).
+///
+/// Regression: the files/cli path used to drop `fuzzy` because plan
+/// `Operation::Replace` has no fuzzy field and tx only fell back on context.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_pure_fuzzy_without_context() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn process_data() {}\n").unwrap();
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        require_change: true,
+        ..Default::default()
+    };
+    let result = replace_text(
+        &file,
+        "fn proccess_data() {}",
+        "fn handle_data() {}",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .expect("pure fuzzy must resolve on disk path");
+    assert!(result.changed, "got: {}", result.new_content);
+    assert!(
+        result.new_content.contains("handle_data"),
+        "got: {}",
+        result.new_content
+    );
+    assert_eq!(
+        result.match_mode,
+        Some(MatchMode::Fuzzy),
+        "disk fuzzy must report Fuzzy, not Exact"
+    );
+    assert!(
+        result.match_score.is_some_and(|s| s > 0.85),
+        "score: {:?}",
+        result.match_score
+    );
+}
+
 #[test]
 fn apply_content_edits_path_label() {
     let edits = [ContentEdit::Replace {
@@ -4844,6 +4886,31 @@ fn find_files_with_symbol_and_batch_compose() {
         "c.rs must not match: {paths:?}"
     );
 
+    let zero = find_files_with_symbol(
+        dir.path(),
+        "OldType",
+        &SymbolSearchOptions {
+            max_files: Some(0),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(
+        zero.is_empty(),
+        "max_files=0 must not return hits (got {zero:?})"
+    );
+
+    let capped = find_files_with_symbol(
+        dir.path(),
+        "OldType",
+        &SymbolSearchOptions {
+            max_files: Some(1),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(capped.len(), 1, "max_files=1: {capped:?}");
+
     let path_refs: Vec<&std::path::Path> = paths.iter().map(|p| p.as_path()).collect();
     let results = ast_rename_batch(
         &path_refs,
@@ -4856,7 +4923,17 @@ fn find_files_with_symbol_and_batch_compose() {
         None,
     )
     .unwrap();
-    assert!(results.iter().all(|r| r.result.is_ok()));
+    assert!(
+        results.iter().all(|r| r.result.is_ok()),
+        "batch rename failed: {:?}",
+        results
+            .iter()
+            .map(|r| match &r.result {
+                Ok(e) => format!("{}:ok({})", r.path.display(), e.match_count),
+                Err(e) => format!("{}:{:?}", r.path.display(), e.kind),
+            })
+            .collect::<Vec<_>>()
+    );
     assert!(fs::read_to_string(&a).unwrap().contains("NewType"));
     assert!(fs::read_to_string(&b).unwrap().contains("NewType"));
     assert!(fs::read_to_string(&c).unwrap().contains("Other"));

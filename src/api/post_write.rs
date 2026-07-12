@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::backup::restore_path_from_latest_backup;
 use crate::exit::FormatFailedError;
-use crate::fallback::EditError;
+use crate::fallback::{EditError, EditErrorKind};
 
 /// What to do when a post-write hook fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -36,7 +36,7 @@ pub struct PostWriteHooks {
 ///
 /// Failures map to [`FormatFailedError`] (JSON `error_kind: format_failed`) so
 /// they peel via [`crate::api::edit_error_kind`] / [`crate::api::classify_error`]
-/// as [`EditErrorKind::OperationFailed`]. With [`PostWriteOnFailure::Revert`],
+/// as [`EditErrorKind::FormatFailed`]. With [`PostWriteOnFailure::Revert`],
 /// restores only `path` from the latest backup that contains it (see
 /// [`restore_path_from_latest_backup`]).
 ///
@@ -56,7 +56,29 @@ pub fn run_post_write_validation(
         };
         if let Err(e) = run_hook_cmd(cmd, timeout, project_root, label) {
             if hooks.on_failure == PostWriteOnFailure::Revert {
-                let _ = restore_path_from_latest_backup(project_root, path);
+                // Surface restore failure: silent Ok(false)/Err left the file
+                // mutated while the host only saw the format error.
+                match restore_path_from_latest_backup(project_root, path) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Err(FormatFailedError {
+                            msg: format!(
+                                "{e}; also failed to revert {}: no backup session for path",
+                                path.display()
+                            ),
+                        }
+                        .into());
+                    }
+                    Err(restore_err) => {
+                        return Err(FormatFailedError {
+                            msg: format!(
+                                "{e}; also failed to revert {}: {restore_err}",
+                                path.display()
+                            ),
+                        }
+                        .into());
+                    }
+                }
             }
             return Err(e);
         }
@@ -108,9 +130,30 @@ pub fn apply_post_write_validator<V: PostWriteValidator + ?Sized>(
         Ok(()) => Ok(()),
         Err(e) => {
             if revert {
-                let _ = restore_path_from_latest_backup(project_root, path);
+                match restore_path_from_latest_backup(project_root, path) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        return Err(EditError::new(
+                            EditErrorKind::OperationFailed,
+                            format!(
+                                "{e}; also failed to revert {}: no backup session for path",
+                                path.display()
+                            ),
+                        )
+                        .into());
+                    }
+                    Err(restore_err) => {
+                        return Err(EditError::new(
+                            EditErrorKind::OperationFailed,
+                            format!(
+                                "{e}; also failed to revert {}: {restore_err}",
+                                path.display()
+                            ),
+                        )
+                        .into());
+                    }
+                }
             }
-            // Preserve EditError when present; otherwise wrap.
             Err(e.into())
         }
     }
@@ -151,7 +194,7 @@ mod tests {
             crate::exit::is_format_failed(&err),
             "expected format_failed, got {err}"
         );
-        assert_eq!(edit_error_kind(&err), Some(EditErrorKind::OperationFailed));
+        assert_eq!(edit_error_kind(&err), Some(EditErrorKind::FormatFailed));
     }
 
     #[test]
