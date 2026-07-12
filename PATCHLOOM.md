@@ -36,6 +36,7 @@
 **`replace_text` / plan replace flags (default false):**
 - `require_change`: error when the pattern matches zero times (fail closed).
 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).
+- `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).
 Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
 Use patchloom when:
@@ -249,6 +250,7 @@ All operations succeed atomically or roll back together.
 Plan/MCP `replace` accepts library flags (default false):
 - `require_change`: fail when the pattern matches zero times (agent fail-closed).
 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).
+- `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).
 Example: `{"op":"replace","path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
 ## AST-aware operations
@@ -321,7 +323,7 @@ dependencies[name=react].version # predicate filter
 
 ## Operations (from schema registry)
 
-- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches) and command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip).
+- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails).
 - `file.append`: Append content to an existing file.
 - `file.prepend`: Prepend content to an existing file.
 - `file.create`: Create a new file with specified content.
