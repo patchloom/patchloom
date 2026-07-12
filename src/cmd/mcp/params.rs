@@ -67,6 +67,9 @@ pub(crate) struct ReplaceParams {
     /// Peels wrappers like sudo, timeout, busybox, flock, runuser, setsid.
     #[serde(default)]
     pub command_position: bool,
+    /// When exact match fails, try fuzzy/similarity fallback (#1668).
+    #[serde(default)]
+    pub fuzzy: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
@@ -258,6 +261,9 @@ pub(crate) struct BatchReplaceParams {
     /// Peels wrappers like sudo, timeout, busybox, flock, runuser, setsid.
     #[serde(default)]
     pub command_position: bool,
+    /// When exact match fails, try fuzzy/similarity fallback (#1668).
+    #[serde(default)]
+    pub fuzzy: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,

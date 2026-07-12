@@ -101,6 +101,11 @@ pub struct ReplaceArgs {
     /// regex/word-boundary/multiline/nth/insert/context.
     #[arg(long)]
     pub command_position: bool,
+    // ref:replace-mode:fuzzy
+    /// When exact match fails, try fuzzy/similarity fallback (and when
+    /// `--before-context` / `--after-context` is set). Literal only.
+    #[arg(long)]
+    pub fuzzy: bool,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -109,6 +114,12 @@ pub struct ReplaceArgs {
 struct ReplaceFileResult {
     path: String,
     match_count: usize,
+    /// How the match was resolved (`exact` / `fuzzy` / `anchored`). #1669
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_mode: Option<&'static str>,
+    /// Similarity score when match_mode is fuzzy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_score: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -126,6 +137,11 @@ struct ReplaceOutput {
     /// aligned with tx JSON `error_kind`. Omitted on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     error_kind: Option<&'static str>,
+    /// Aggregate match strategy when all files share one mode (#1669).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_mode: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_score: Option<f64>,
 }
 
 /// Result of processing a single file.
@@ -136,6 +152,16 @@ struct FileReplacement {
     original: String,
     replaced: String,
     match_count: usize,
+    match_mode: Option<&'static str>,
+    match_score: Option<f64>,
+}
+
+fn match_mode_str(mode: crate::api::MatchMode) -> &'static str {
+    match mode {
+        crate::api::MatchMode::Exact => "exact",
+        crate::api::MatchMode::Fuzzy => "fuzzy",
+        crate::api::MatchMode::Anchored => "anchored",
+    }
 }
 
 /// Parse `--range` argument into (start, optional_end). Reuses the line-range
@@ -222,6 +248,8 @@ fn collect_replacements(
                     original: content,
                     replaced,
                     match_count: count,
+                    match_mode: Some("exact"),
+                    match_score: None,
                 })
             } else {
                 None
@@ -240,8 +268,29 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
         .map(|r| ReplaceFileResult {
             path: r.display_path.clone(),
             match_count: r.match_count,
+            match_mode: r.match_mode,
+            match_score: r.match_score,
         })
         .collect()
+}
+
+/// Prefer a single top-level match_mode when every file agrees (#1669).
+fn aggregate_match_meta(files: &[ReplaceFileResult]) -> (Option<&'static str>, Option<f64>) {
+    let modes: Vec<_> = files.iter().filter_map(|f| f.match_mode).collect();
+    if modes.is_empty() {
+        return (None, None);
+    }
+    let first = modes[0];
+    if modes.iter().all(|m| *m == first) {
+        let score = if first == "fuzzy" {
+            files.iter().find_map(|f| f.match_score)
+        } else {
+            None
+        };
+        (Some(first), score)
+    } else {
+        (None, None)
+    }
 }
 
 pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -264,7 +313,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 insert_after: args.insert_after.is_some(),
                 before_context: args.before_context.is_some(),
                 after_context: args.after_context.is_some(),
-                fuzzy: false,
+                fuzzy: args.fuzzy,
             },
         )
     {
@@ -292,9 +341,9 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // guard remains defense-in-depth).
     global.check_paths_contained(&cwd, &args.paths)?;
 
-    // Context-based replace: route through the tx engine where the
-    // context_filtered_offset and fallback chain live.
-    if args.before_context.is_some() || args.after_context.is_some() {
+    // Context / pure fuzzy: route through the tx engine where the
+    // context_filtered_offset and fallback chain live (#1668).
+    if args.fuzzy || args.before_context.is_some() || args.after_context.is_some() {
         return run_context_replace(args, global, &cwd);
     }
 
@@ -314,10 +363,14 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     files: vec![ReplaceFileResult {
                         path: r.display_path.clone(),
                         match_count: r.match_count,
+                        match_mode: r.match_mode,
+                        match_score: r.match_score,
                     }],
                     diff: None,
                     identity: None,
                     error_kind: Some("ambiguous"),
+                    match_mode: None,
+                    match_score: None,
                 };
                 global.emit_json(&output)?;
                 if !global.quiet {
@@ -350,6 +403,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 diff: None,
                 identity: Some(true),
                 error_kind: None,
+                match_mode: Some("exact"),
+                match_score: None,
             };
             global.emit_json(&output)?;
             if !global.quiet && !global.json && !global.jsonl {
@@ -369,6 +424,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 diff: None,
                 identity: None,
                 error_kind: None,
+                match_mode: None,
+                match_score: None,
             };
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
@@ -389,6 +446,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             diff: None,
             identity: None,
             error_kind: Some("no_matches"),
+            match_mode: None,
+            match_score: None,
         };
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
@@ -443,6 +502,7 @@ fn replace_output(
 ) -> anyhow::Result<u8> {
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
+    let (agg_mode, agg_score) = aggregate_match_meta(files);
     let build_output = |diff: Option<String>| ReplaceOutput {
         ok: true,
         match_count: total_matches,
@@ -451,6 +511,8 @@ fn replace_output(
         diff,
         identity: None,
         error_kind: None,
+        match_mode: agg_mode,
+        match_score: agg_score,
     };
 
     finalize_report(
@@ -552,6 +614,7 @@ fn run_context_replace(
             unique: args.unique,
             require_change: args.require_change,
             command_position: args.command_position,
+            fuzzy: args.fuzzy,
         })
         .collect();
 
@@ -570,6 +633,8 @@ fn run_context_replace(
             } else {
                 Some("no_matches")
             },
+            match_mode: None,
+            match_score: None,
         };
         global.emit_json(&empty)?;
         if args.if_exists {
@@ -581,15 +646,44 @@ fn run_context_replace(
         return Ok(exit::NO_MATCHES);
     }
 
+    // Re-derive match honesty via the library content path (#1669).
+    let lib_opts = crate::api::ReplaceOptions {
+        regex: args.regex,
+        nth: args.nth,
+        case_insensitive: args.case_insensitive,
+        multiline: args.multiline,
+        insert_before: args.insert_before.clone(),
+        insert_after: args.insert_after.clone(),
+        whole_line: args.whole_line,
+        range: None,
+        if_exists: true,
+        word_boundary: args.word_boundary,
+        unique: args.unique,
+        fuzzy: args.fuzzy,
+        before_context: args.before_context.clone(),
+        after_context: args.after_context.clone(),
+        require_change: false,
+        command_position: args.command_position,
+    };
+    let to = args.new.as_deref().unwrap_or("");
     let files: Vec<ReplaceFileResult> = result
         .exec_result
         .changes
         .iter()
-        .map(|(p, _, _)| ReplaceFileResult {
-            path: crate::files::relative_display(p, &cwd)
-                .to_string_lossy()
-                .into_owned(),
-            match_count: 1,
+        .map(|(p, original, _new)| {
+            let (mode, score) =
+                match crate::api::replace_in_content(original, &args.old, to, &lib_opts) {
+                    Ok(r) => (r.match_mode.map(match_mode_str), r.match_score),
+                    Err(_) => (Some("exact"), None),
+                };
+            ReplaceFileResult {
+                path: crate::files::relative_display(p, &cwd)
+                    .to_string_lossy()
+                    .into_owned(),
+                match_count: 1,
+                match_mode: mode,
+                match_score: score,
+            }
         })
         .collect();
     let total_matches = files.len();

@@ -352,6 +352,7 @@ mod basic {
                     unique: false,
                     require_change: false,
                     command_position: false,
+                    fuzzy: false,
                 },
             ),
             (

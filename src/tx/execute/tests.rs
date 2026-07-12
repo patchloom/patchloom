@@ -198,6 +198,7 @@ fn op_needs_doc_flush_for_replace() {
         unique: false,
         require_change: false,
         command_position: false,
+        fuzzy: false,
     };
     assert!(op_needs_doc_flush(&op));
 }

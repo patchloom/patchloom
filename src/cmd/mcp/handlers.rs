@@ -7,6 +7,9 @@
 //! **Every tool in this module must appear in
 //! [`super::surface::custom_mcp_tools`] inventory with a reason.** Prefer the registry
 //! for new 1:1 `Operation` writes. See `surface` module docs for the policy.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Custom MCP tool
+//! handlers and match_mode JSON enrichment co-located; do not split for LOC alone.
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -368,6 +371,35 @@ impl PatchloomService {
                 Vec::new()
             };
 
+            // Capture match honesty before Apply mutates the file (#1669).
+            let match_meta = {
+                let abs = svc.cwd().join(&p.path);
+                std::fs::read_to_string(&abs).ok().and_then(|content| {
+                    let opts = crate::api::ReplaceOptions {
+                        regex: p.regex,
+                        nth: p.nth,
+                        case_insensitive: p.case_insensitive,
+                        multiline: p.multiline,
+                        insert_before: p.insert_before.clone(),
+                        insert_after: p.insert_after.clone(),
+                        whole_line: p.whole_line,
+                        range: None,
+                        if_exists: true,
+                        word_boundary: p.word_boundary,
+                        unique: p.unique,
+                        fuzzy: p.fuzzy,
+                        before_context: p.before_context.clone(),
+                        after_context: p.after_context.clone(),
+                        require_change: false,
+                        command_position: p.command_position,
+                    };
+                    let to = p.new_text.as_deref().unwrap_or("");
+                    crate::api::replace_in_content(&content, &p.old, to, &opts)
+                        .ok()
+                        .map(|r| (r.match_mode, r.match_score, r.match_count))
+                })
+            };
+
             let replace_op = Operation::Replace {
                 glob: None,
                 path: Some(p.path),
@@ -388,8 +420,38 @@ impl PatchloomService {
                 unique: p.unique,
                 require_change: p.require_change,
                 command_position: p.command_position,
+                fuzzy: p.fuzzy,
             };
             let mut tool_result = svc.run_one_op(replace_op, Some(p.strict))?;
+
+            // Inject match_mode / match_score into structured JSON content (#1669).
+            if let Some((mode, score, count)) = match_meta {
+                for block in &mut tool_result.content {
+                    if let ContentBlock::Text(text_content) = block {
+                        let text = &mut text_content.text;
+                        if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(text) {
+                            if let Some(m) = mode {
+                                let s = match m {
+                                    crate::api::MatchMode::Exact => "exact",
+                                    crate::api::MatchMode::Fuzzy => "fuzzy",
+                                    crate::api::MatchMode::Anchored => "anchored",
+                                };
+                                v["match_mode"] = serde_json::json!(s);
+                            }
+                            if let Some(s) = score {
+                                v["match_score"] = serde_json::json!(s);
+                            }
+                            if count > 0 {
+                                v["match_count"] = serde_json::json!(count);
+                            }
+                            if let Ok(s) = serde_json::to_string(&v) {
+                                *text = s;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
 
             // Append validation warnings to the response.
             if !validation_warnings.is_empty() {
@@ -537,6 +599,7 @@ impl PatchloomService {
                     unique: false,
                     require_change: p.require_change,
                     command_position: p.command_position,
+                    fuzzy: p.fuzzy,
                 })
                 .collect();
             svc.run_ops(ops, Some(p.strict))

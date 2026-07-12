@@ -182,6 +182,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 unique: false,
                 require_change: false,
                 command_position: false,
+                fuzzy: false,
             })
         }
 

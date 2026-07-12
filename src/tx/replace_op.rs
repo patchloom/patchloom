@@ -46,6 +46,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         unique,
         require_change,
         command_position,
+        fuzzy,
         ..
     } = op
     else {
@@ -79,7 +80,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 insert_after: insert_after.is_some(),
                 before_context: before_context.is_some(),
                 after_context: after_context.is_some(),
-                fuzzy: false,
+                fuzzy: *fuzzy,
             },
         )
     {
@@ -181,8 +182,8 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 owned,
             );
             Ok(match_count)
-        } else if !regex_mode && (before_context.is_some() || after_context.is_some()) {
-            // Tier 3: Use context-based fallback when exact match fails.
+        } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some()) {
+            // Tier 3: fuzzy and/or context fallback when exact match fails (#1668).
             match crate::fallback::resolve_with_fallback(
                 content,
                 old,
@@ -389,6 +390,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -425,6 +427,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -459,6 +462,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -495,6 +499,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -529,6 +534,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -572,6 +578,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -611,6 +618,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -662,6 +670,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -710,6 +719,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -754,6 +764,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -796,6 +807,7 @@ mod tests {
             unique: false,
             require_change: false,
             command_position: false,
+            fuzzy: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -831,6 +843,7 @@ mod tests {
             unique: false,
             require_change: true,
             command_position: true,
+            fuzzy: false,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -865,10 +878,51 @@ mod tests {
             unique: false,
             require_change: true,
             command_position: false,
+            fuzzy: false,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
         let err = execute_replace_op(&op, &mut tx).unwrap_err();
         assert!(err.to_string().contains("no matches"), "{err}");
+    }
+
+    #[test]
+    fn replace_pure_fuzzy_without_context() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("code.rs");
+        std::fs::write(&file, "fn process_data() {}\n").unwrap();
+
+        let op = Operation::Replace {
+            path: Some("code.rs".into()),
+            glob: None,
+            regex: false,
+            old: "fn proccess_data() {}".into(),
+            new_text: Some("fn handle_data() {}".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
+            require_change: true,
+            command_position: false,
+            fuzzy: true,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1);
+        assert!(
+            f.pending[&file].1.contains("handle_data"),
+            "pure fuzzy plan op must rewrite: {}",
+            f.pending[&file].1
+        );
     }
 }

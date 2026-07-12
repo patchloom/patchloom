@@ -101,6 +101,7 @@ pub fn replace_text(
         // require_change is applied below as structured EditError (not via tx bail).
         require_change: false,
         command_position: opts.command_position,
+        fuzzy: false,
     };
     let mut result = replace_write(op, path, mode, guard, opts.fuzzy)?;
     // if_exists intentionally softens zero-match (Ok unchanged). require_change
