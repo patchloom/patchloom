@@ -1454,3 +1454,72 @@ fn fuzzy_cli_expands_directory_roots() {
         "sibling file outside root must not change"
     );
 }
+
+#[test]
+fn multi_file_fuzzy_cli_json_reports_worst_case_match_mode() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "hello world\n").unwrap();
+    fs::write(&b, "helo world\n").unwrap();
+
+    let mut args = make_args(
+        "hello world",
+        "hi world",
+        vec![
+            a.to_string_lossy().into_owned(),
+            b.to_string_lossy().into_owned(),
+        ],
+    );
+    args.fuzzy = true;
+    let global = GlobalFlags {
+        apply: true,
+        json: true,
+        cwd: Some(dir.path().to_string_lossy().into_owned()),
+        ..GlobalFlags::test_default()
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(fs::read_to_string(&a).unwrap(), "hi world\n");
+    assert_eq!(fs::read_to_string(&b).unwrap(), "hi world\n");
+}
+
+#[test]
+fn multi_file_match_mode_worst_case_rollup() {
+    // Child module of replace can call private aggregate_match_meta.
+    let files = [
+        ReplaceFileResult {
+            path: "a.txt".into(),
+            match_count: 1,
+            match_mode: Some("exact"),
+            match_score: None,
+        },
+        ReplaceFileResult {
+            path: "b.txt".into(),
+            match_count: 1,
+            match_mode: Some("fuzzy"),
+            match_score: Some(0.9),
+        },
+    ];
+    let (mode, score) = aggregate_match_meta(&files);
+    assert_eq!(mode, Some("fuzzy"), "worst-case must be fuzzy");
+    assert_eq!(score, Some(0.9));
+
+    let mixed_anchored = [
+        ReplaceFileResult {
+            path: "a.txt".into(),
+            match_count: 1,
+            match_mode: Some("exact"),
+            match_score: None,
+        },
+        ReplaceFileResult {
+            path: "b.txt".into(),
+            match_count: 1,
+            match_mode: Some("anchored"),
+            match_score: None,
+        },
+    ];
+    let (mode, score) = aggregate_match_meta(&mixed_anchored);
+    assert_eq!(mode, Some("anchored"));
+    assert!(score.is_none());
+}
