@@ -131,7 +131,15 @@ pub(crate) struct TxExecResult {
     /// "Did you mean?" hints when a replace found zero matches.
     pub(crate) replace_hint: Option<String>,
     /// Per-path replace match honesty recorded during plan execution (#1674).
-    pub(crate) replace_match_meta: HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
+    pub(crate) replace_match_meta: HashMap<PathBuf, ReplaceMatchMeta>,
+}
+
+/// Per-path replace match honesty recorded during plan execution.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ReplaceMatchMeta {
+    pub mode: crate::api::MatchMode,
+    pub score: Option<f64>,
+    pub match_count: usize,
 }
 
 /// Apply mutation summaries onto a [`TxOutput`] (aggregates + list).
@@ -173,10 +181,10 @@ pub(crate) fn merge_match_modes(
 
 fn match_meta_for_path(
     path: &Path,
-    meta: &HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
+    meta: &HashMap<PathBuf, ReplaceMatchMeta>,
 ) -> (Option<String>, Option<f64>) {
     match meta.get(path) {
-        Some((mode, score)) => (Some(match_mode_label(*mode).to_string()), *score),
+        Some(m) => (Some(match_mode_label(m.mode).to_string()), m.score),
         None => (None, None),
     }
 }
@@ -188,7 +196,7 @@ pub(crate) fn build_tx_output_with_meta(
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     cwd: &Path,
-    replace_match_meta: &HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
+    replace_match_meta: &HashMap<PathBuf, ReplaceMatchMeta>,
 ) -> TxOutput {
     let mut tx_changes = Vec::new();
     let mut created = 0usize;
@@ -206,10 +214,10 @@ pub(crate) fn build_tx_output_with_meta(
     for (path, _original, _) in changes {
         let path_str = display_path(path);
         let (match_mode, match_score) = match_meta_for_path(path, replace_match_meta);
-        if let Some((mode, score)) = replace_match_meta.get(path) {
-            agg_mode = Some(merge_match_modes(agg_mode, *mode));
-            if matches!(mode, crate::api::MatchMode::Fuzzy) {
-                agg_score = score.or(agg_score);
+        if let Some(m) = replace_match_meta.get(path) {
+            agg_mode = Some(merge_match_modes(agg_mode, m.mode));
+            if matches!(m.mode, crate::api::MatchMode::Fuzzy) {
+                agg_score = m.score.or(agg_score);
             }
         }
         if deletions.contains(path) {
@@ -684,7 +692,14 @@ mod tests {
         let existed = HashSet::from([path.clone()]);
         let changes = vec![(path.clone(), "old".into(), "new".into())];
         let mut meta = HashMap::new();
-        meta.insert(path, (crate::api::MatchMode::Fuzzy, Some(0.91)));
+        meta.insert(
+            path,
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Fuzzy,
+                score: Some(0.91),
+                match_count: 1,
+            },
+        );
         let out = build_tx_output_with_meta(
             "success",
             true,

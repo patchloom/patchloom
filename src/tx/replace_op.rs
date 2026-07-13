@@ -17,21 +17,36 @@ use std::collections::HashSet;
 use std::path::Path;
 
 /// Record replace match honesty for a path (worst-case merge if re-visited) (#1674).
-fn record_replace_match(tx: &mut TxState<'_>, path: &Path, mode: MatchMode, score: Option<f64>) {
+fn record_replace_match(
+    tx: &mut TxState<'_>,
+    path: &Path,
+    mode: MatchMode,
+    score: Option<f64>,
+    match_count: usize,
+) {
+    use crate::tx::output::ReplaceMatchMeta;
     let entry = tx.replace_match_meta.entry(path.to_path_buf());
     match entry {
         std::collections::hash_map::Entry::Vacant(e) => {
-            e.insert((mode, score));
+            e.insert(ReplaceMatchMeta {
+                mode,
+                score,
+                match_count,
+            });
         }
         std::collections::hash_map::Entry::Occupied(mut e) => {
-            let (prev, prev_score) = *e.get();
-            let merged = merge_match_modes(Some(prev), mode);
+            let prev = *e.get();
+            let merged = merge_match_modes(Some(prev.mode), mode);
             let merged_score = if matches!(merged, MatchMode::Fuzzy) {
-                score.or(prev_score)
+                score.or(prev.score)
             } else {
                 None
             };
-            e.insert((merged, merged_score));
+            e.insert(ReplaceMatchMeta {
+                mode: merged,
+                score: merged_score,
+                match_count: prev.match_count.saturating_add(match_count),
+            });
         }
     }
 }
@@ -198,7 +213,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     &file_path,
                     new_content,
                 );
-                record_replace_match(tx, &file_path, MatchMode::Anchored, None);
+                record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1);
                 return Ok(1);
             }
             let owned = replaced.into_owned();
@@ -209,7 +224,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 &file_path,
                 owned,
             );
-            record_replace_match(tx, &file_path, MatchMode::Exact, None);
+            record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count);
             Ok(match_count)
         } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some()) {
             // Tier 3: fuzzy and/or context fallback when exact match fails (#1668).
@@ -242,7 +257,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     );
                     let (mode, default_score) =
                         crate::api::match_mode_from_strategy(anchor.strategy);
-                    record_replace_match(tx, &file_path, mode, anchor.score.or(default_score));
+                    record_replace_match(tx, &file_path, mode, anchor.score.or(default_score), 1);
                     tx.replace_hint = Some(format!(
                         "fallback matched via {:?} strategy in {}",
                         anchor.strategy, p,
@@ -405,7 +420,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         &file_path,
                         new_content,
                     );
-                    record_replace_match(tx, &file_path, MatchMode::Anchored, None);
+                    record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1);
                     total_matches += 1;
                     continue;
                 }
@@ -417,7 +432,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     &file_path,
                     replaced.into_owned(),
                 );
-                record_replace_match(tx, &file_path, MatchMode::Exact, None);
+                record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count);
             } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some())
             {
                 // Fuzzy/context fallback for glob paths (parity with #1668 path arm).
@@ -450,7 +465,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         );
                         let (mode, default_score) =
                             crate::api::match_mode_from_strategy(anchor.strategy);
-                        record_replace_match(tx, &file_path, mode, anchor.score.or(default_score));
+                        record_replace_match(
+                            tx,
+                            &file_path,
+                            mode,
+                            anchor.score.or(default_score),
+                            1,
+                        );
                         total_matches += 1;
                     }
                     Err(_) => {
@@ -1041,9 +1062,10 @@ mod tests {
             "pure fuzzy plan op must rewrite: {}",
             f.pending[&file].1
         );
-        let (mode, score) = f.replace_match_meta.get(&file).expect("fuzzy meta");
-        assert_eq!(*mode, crate::api::MatchMode::Fuzzy);
-        assert!(score.is_some(), "similarity fallback should set score");
+        let meta = f.replace_match_meta.get(&file).expect("fuzzy meta");
+        assert_eq!(meta.mode, crate::api::MatchMode::Fuzzy);
+        assert!(meta.score.is_some(), "similarity fallback should set score");
+        assert_eq!(meta.match_count, 1);
     }
 
     #[test]
@@ -1078,9 +1100,10 @@ mod tests {
         let mut tx = f.state(dir.path());
         assert_eq!(execute_replace_op(&op, &mut tx).unwrap(), 1);
         drop(tx);
-        let (mode, score) = f.replace_match_meta.get(&file).expect("exact meta");
-        assert_eq!(*mode, crate::api::MatchMode::Exact);
-        assert!(score.is_none());
+        let meta = f.replace_match_meta.get(&file).expect("exact meta");
+        assert_eq!(meta.mode, crate::api::MatchMode::Exact);
+        assert!(meta.score.is_none());
+        assert_eq!(meta.match_count, 1);
     }
 
     #[test]

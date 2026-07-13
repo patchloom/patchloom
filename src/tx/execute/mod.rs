@@ -228,7 +228,7 @@ pub(crate) struct TxState<'a> {
     pub(crate) write_targets: &'a mut HashSet<PathBuf>,
     pub(crate) replace_hint: Option<String>,
     /// Per-path replace match honesty (#1674). Accumulated across ops.
-    pub(crate) replace_match_meta: &'a mut HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
+    pub(crate) replace_match_meta: &'a mut HashMap<PathBuf, super::output::ReplaceMatchMeta>,
     pub(crate) cwd: &'a Path,
     pub(crate) quiet: bool,
     pub(crate) structured: bool,
@@ -252,7 +252,7 @@ pub(crate) struct TxStateFixture {
     pub lints: Vec<TxLintResult>,
     pub mutations: Vec<TxDocMutation>,
     pub write_targets: HashSet<PathBuf>,
-    pub replace_match_meta: HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
+    pub replace_match_meta: HashMap<PathBuf, crate::tx::output::ReplaceMatchMeta>,
 }
 
 #[cfg(test)]
@@ -514,8 +514,7 @@ pub(crate) fn execute_and_collect(
     let mut tx_mutations: Vec<TxDocMutation> = Vec::new();
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
     let mut replace_hint: Option<String> = None;
-    let mut replace_match_meta: HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)> =
-        HashMap::new();
+    let mut replace_match_meta: HashMap<PathBuf, super::output::ReplaceMatchMeta> = HashMap::new();
 
     // Upfront PathGuard on declared paths (same contract as execute_plan_inner /
     // execute_plan_direct). CLI `tx` and `batch` call this function directly and
