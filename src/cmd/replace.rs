@@ -715,20 +715,25 @@ fn run_context_replace(
         .changes
         .iter()
         .map(|(p, original, _new)| {
-            let (mode, score) = if let Some((m, s)) = result.exec_result.replace_match_meta.get(p) {
-                (Some(match_mode_str(*m)), *s)
+            let (mode, score, count) = if let Some(m) = result.exec_result.replace_match_meta.get(p)
+            {
+                (Some(match_mode_str(m.mode)), m.score, m.match_count.max(1))
             } else {
                 match crate::api::replace_in_content(original, &args.old, to, &lib_opts) {
-                    Ok(r) => (r.match_mode.map(match_mode_str), r.match_score),
+                    Ok(r) => (
+                        r.match_mode.map(match_mode_str),
+                        r.match_score,
+                        r.match_count.max(1),
+                    ),
                     // Do not invent "exact" when re-derive fails (#1674 honesty).
-                    Err(_) => (None, None),
+                    Err(_) => (None, None, 1),
                 }
             };
             ReplaceFileResult {
                 path: crate::files::relative_display(p, &cwd)
                     .to_string_lossy()
                     .into_owned(),
-                match_count: 1,
+                match_count: count,
                 match_mode: mode,
                 match_score: score,
             }

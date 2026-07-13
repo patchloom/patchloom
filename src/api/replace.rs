@@ -118,9 +118,13 @@ pub fn replace_text(
                 .into(),
         );
     }
-    // Tx path does not yet thread MatchMode; default Exact when matches landed (#1662).
-    if result.match_mode.is_none() && result.match_count > 0 {
+    // execute_as_edit_result now threads match_mode/count from replace_op meta.
+    // Keep a conservative fallback for any path that still omits meta (#1662).
+    if result.match_mode.is_none() && (result.match_count > 0 || result.changed) {
         result.match_mode = Some(MatchMode::Exact);
+        if result.match_count == 0 && result.changed {
+            result.match_count = 1;
+        }
     }
     Ok(result)
 }

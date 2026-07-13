@@ -575,7 +575,12 @@ fn execution_result_to_edit_result(
         .first()
         .map(|m| m.path.clone());
 
-    // Extract path + content from the engine result before potentially consuming it.
+    // Extract path + content + replace meta before potentially consuming `result`.
+    let replace_meta = result
+        .exec_result
+        .changes
+        .first()
+        .and_then(|(abs_path, _, _)| result.exec_result.replace_match_meta.get(abs_path).copied());
     let (path_str, original, new_content) =
         if let Some((abs_path, orig, new)) = result.exec_result.changes.first() {
             let rel = crate::files::relative_display(abs_path, cwd);
@@ -609,6 +614,18 @@ fn execution_result_to_edit_result(
 
     let mut edit = build_edit_result(&path_str, original, new_content, applied, action, dest_path);
     edit.removed = removed;
+    // Thread replace honesty from the engine (#1674 / #1662).
+    if let Some(meta) = replace_meta {
+        edit.match_mode = Some(meta.mode);
+        edit.match_score = meta.score;
+        edit.match_count = meta.match_count;
+    } else if has_changes && action == "replace" {
+        // Legacy fallback if meta was not recorded (should be rare).
+        edit.match_mode = Some(MatchMode::Exact);
+        if edit.match_count == 0 {
+            edit.match_count = 1;
+        }
+    }
     Ok(edit)
 }
 

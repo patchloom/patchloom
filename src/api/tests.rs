@@ -5006,3 +5006,51 @@ fn signature_rewrite_params_and_return_no_host_post_pass() {
     assert!(!on_disk.contains("i64{") && !on_disk.contains("){"));
     assert!(on_disk.contains("b: i32"), "params updated: {on_disk}");
 }
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_exact_disk_match_mode_and_count() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "hello world\n").unwrap();
+    let r = replace_text(
+        &file,
+        "world",
+        "there",
+        &ReplaceOptions::default(),
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(r.changed, "content should change");
+    assert_eq!(
+        r.match_count, 1,
+        "exact disk replace must report match_count"
+    );
+    assert_eq!(
+        r.match_mode,
+        Some(MatchMode::Exact),
+        "exact disk replace must report match_mode Exact, got {:?}",
+        r.match_mode
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_exact_disk_multi_match_count() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "aa aa aa\n").unwrap();
+    let r = replace_text(
+        &file,
+        "aa",
+        "bb",
+        &ReplaceOptions::default(),
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(r.changed);
+    assert_eq!(r.match_count, 3, "multi exact match_count: {:?}", r);
+    assert_eq!(r.match_mode, Some(MatchMode::Exact));
+}
