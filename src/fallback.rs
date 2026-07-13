@@ -675,6 +675,18 @@ pub fn resolve_with_fallback(
     })
 }
 
+/// Whether a fuzzy match should be rejected by `min_fuzzy_score` (#1687).
+///
+/// Fail closed when score is missing: hosts that set a floor must not apply
+/// unscored fuzzy matches (anchor/legacy paths without a score cannot prove
+/// they clear the floor).
+pub(crate) fn fuzzy_fails_min_floor(score: Option<f64>, min: f64) -> bool {
+    match score {
+        Some(s) => s < min,
+        None => true,
+    }
+}
+
 /// True when `target` is a single identifier-like token (no whitespace).
 ///
 /// Multi-word / snippet targets keep whole-line similarity. Token-like targets
@@ -1310,6 +1322,14 @@ mod tests {
         assert!(!is_token_like_target("server.port"));
         assert!(!is_token_like_target(""));
         assert!(!is_token_like_target("   "));
+    }
+
+    #[test]
+    fn fuzzy_fails_min_floor_fail_closed_without_score() {
+        assert!(fuzzy_fails_min_floor(None, 0.8));
+        assert!(fuzzy_fails_min_floor(Some(0.5), 0.8));
+        assert!(!fuzzy_fails_min_floor(Some(0.9), 0.8));
+        assert!(!fuzzy_fails_min_floor(Some(0.8), 0.8));
     }
 
     /// Kebab-case targets use line similarity (not broken token path).
