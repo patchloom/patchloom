@@ -37,13 +37,16 @@
 - `require_change`: error when the pattern matches zero times (fail closed).
 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).
 - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).
+- `min_fuzzy_score`: reject fuzzy matches below this floor (0.0..=1.0); exact/anchored unaffected (#1687).
 Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
 **Library embedder undo / post-write (Rust hosts, not CLI-only):**
-- After `ApplyMode::Apply`, hosts can run validators then restore one path without shelling out to `undo`:
+- After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).
 - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path
 - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)
-- `api::run_post_write_validation(project_root, path, &PostWriteHooks { format_cmd, lint_cmd, on_failure: Revert|KeepWithError, .. })` (#1663) maps to `format_failed` / `EditErrorKind::FormatFailed`
+- `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)
+- `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`
+- Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)
 **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, and replace `match_count` (plan/tx also on each change + sum) so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`). Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674).
 
 Use patchloom when:
