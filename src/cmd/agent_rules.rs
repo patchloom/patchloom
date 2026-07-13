@@ -121,7 +121,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
              - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)\n\
              - `api::run_post_write_validation(project_root, path, &PostWriteHooks { format_cmd, lint_cmd, on_failure: Revert|KeepWithError, .. })` (#1663) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
-             **Match honesty in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`) and optional `match_score` so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) (#1669, #1674).\n\n",
+             **Match honesty in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, and replace `match_count` (plan/tx also on each change + sum) so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) (#1669, #1674).\n\n",
         );
     }
     if show_cli {
@@ -398,7 +398,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).\n\
                  Example: `{\"op\":\"replace\",\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
                  \"command_position\":true,\"require_change\":true}`\n\
-                 Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`) on replace-backed changes plus a worst-case aggregate (`fuzzy` > `anchored` > `exact`) when any replace matched (#1674).\n\n");
+                 Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`) and `match_count` on replace-backed changes plus worst-case aggregate mode and sum of counts when any replace matched (#1674).\n\n");
         }
     }
 
