@@ -692,7 +692,9 @@ fn run_context_replace(
         return Ok(exit::NO_MATCHES);
     }
 
-    // Re-derive match honesty via the library content path (#1669).
+    // Prefer match honesty recorded during tx replace_op (#1674). Fall back to
+    // re-running the library content path only when meta is missing (should not
+    // happen for fuzzy/context ops that changed the file).
     let lib_opts = crate::api::ReplaceOptions {
         regex: args.regex,
         nth: args.nth,
@@ -717,11 +719,15 @@ fn run_context_replace(
         .changes
         .iter()
         .map(|(p, original, _new)| {
-            let (mode, score) =
+            let (mode, score) = if let Some((m, s)) = result.exec_result.replace_match_meta.get(p) {
+                (Some(match_mode_str(*m)), *s)
+            } else {
                 match crate::api::replace_in_content(original, &args.old, to, &lib_opts) {
                     Ok(r) => (r.match_mode.map(match_mode_str), r.match_score),
-                    Err(_) => (Some("exact"), None),
-                };
+                    // Do not invent "exact" when re-derive fails (#1674 honesty).
+                    Err(_) => (None, None),
+                }
+            };
             ReplaceFileResult {
                 path: crate::files::relative_display(p, &cwd)
                     .to_string_lossy()

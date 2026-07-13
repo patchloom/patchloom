@@ -1396,7 +1396,8 @@ fn fuzzy_cli_json_reports_match_mode() {
     assert_eq!(r.match_mode, Some(crate::api::MatchMode::Fuzzy));
     assert!(r.match_score.is_some_and(|s| s > 0.85));
 
-    // CLI/tx path: pure fuzzy without context must rewrite (#1668).
+    // CLI/tx path: pure fuzzy without context must rewrite (#1668) and
+    // report match_mode from tx-recorded meta, not a silent "exact" (#1674).
     let mut args = make_args(
         "fn proccess_data() {}",
         "fn handle_data() {}",
@@ -1405,6 +1406,7 @@ fn fuzzy_cli_json_reports_match_mode() {
     args.fuzzy = true;
     let global = GlobalFlags {
         apply: true,
+        json: true,
         cwd: Some(dir.path().to_string_lossy().into_owned()),
         ..GlobalFlags::test_default()
     };
