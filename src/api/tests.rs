@@ -5440,6 +5440,132 @@ fn fuzzy_identifier_typo_keeps_line_syntax() {
     );
 }
 
+/// Embedder default path: fuzzy + unique + require_change (Bline edit_file shape).
+#[test]
+fn fuzzy_embedder_options_identifier_typo_safe() {
+    let content = "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        unique: true,
+        require_change: true,
+        min_fuzzy_score: Some(0.80),
+        ..Default::default()
+    };
+    let r = replace_in_content(
+        content,
+        "CONFIGURATION_VALUE_PRIMRY",
+        "CONFIGURATION_VALUE_SECONDARY",
+        &opts,
+    )
+    .expect("embedder-style fuzzy typo must succeed");
+    assert!(r.changed);
+    assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+    assert!(r.match_score.is_some_and(|s| s >= 0.80));
+    assert!(
+        r.new_content
+            .contains("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
+        "{}",
+        r.new_content
+    );
+    // Second occurrence still original (single fuzzy site).
+    assert!(
+        r.new_content.contains("CONFIGURATION_VALUE_PRIMARY"),
+        "second site left for single fuzzy replace: {}",
+        r.new_content
+    );
+    assert!(
+        !r.new_content
+            .lines()
+            .any(|l| l == "CONFIGURATION_VALUE_SECONDARY"),
+        "must not replace a whole line with bare new identifier"
+    );
+}
+
+/// Multi-language identifier typos under replace_in_content.
+#[test]
+fn fuzzy_identifier_typo_matrix_replace_in_content() {
+    let cases: &[(&str, &str, &str, &str)] = &[
+        (
+            "def load_configuration_value():\n    return 1\n",
+            "load_configration_value",
+            "load_settings_value",
+            "def load_settings_value():",
+        ),
+        (
+            "const getUserProfile = () => null;\n",
+            "getUserProfle",
+            "getUserAccount",
+            "const getUserAccount = () => null;",
+        ),
+        (
+            "fn process_request(x: i32) {}\n",
+            "process_requets",
+            "handle_request",
+            "fn handle_request(x: i32) {}",
+        ),
+        (
+            "    obj.fetchUserDetails(id);\n",
+            "fetchUserDetials",
+            "fetchUserInfo",
+            "    obj.fetchUserInfo(id);",
+        ),
+    ];
+    for (content, typo, new, must_contain) in cases {
+        let r = replace_in_content(
+            content,
+            typo,
+            new,
+            &ReplaceOptions {
+                fuzzy: true,
+                require_change: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_or_else(|e| panic!("typo {typo:?} failed: {e}"));
+        assert!(
+            r.new_content.contains(must_contain),
+            "typo={typo:?} want {must_contain:?} got {}",
+            r.new_content
+        );
+        assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+    }
+}
+
+/// Disk Apply path used by hosts (replace_text), same safety contract.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn fuzzy_identifier_typo_disk_apply_preserves_syntax() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cfg.rs");
+    fs::write(
+        &file,
+        "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+    )
+    .unwrap();
+    let r = replace_text(
+        &file,
+        "CONFIGURATION_VALUE_PRIMRY",
+        "CONFIGURATION_VALUE_SECONDARY",
+        &ReplaceOptions {
+            fuzzy: true,
+            unique: true,
+            require_change: true,
+            ..Default::default()
+        },
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(r.applied);
+    assert!(r.backup_session.is_some());
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
+        "disk: {on_disk}"
+    );
+    assert!(on_disk.contains("CONFIGURATION_VALUE_PRIMARY"));
+}
+
 /// #1687: out-of-range min_fuzzy_score is InvalidInput.
 #[test]
 fn min_fuzzy_score_rejects_out_of_range() {

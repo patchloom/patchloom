@@ -1162,6 +1162,62 @@ mod tests {
         assert_eq!(meta.match_count, 1);
     }
 
+    /// Plan/tx path: identifier typo must not nuke surrounding syntax (#1694).
+    #[test]
+    fn replace_fuzzy_identifier_typo_preserves_syntax() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("cfg.rs");
+        std::fs::write(
+            &file,
+            "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        )
+        .unwrap();
+
+        let op = Operation::Replace {
+            path: Some("cfg.rs".into()),
+            glob: None,
+            regex: false,
+            old: "CONFIGURATION_VALUE_PRIMRY".into(),
+            new_text: Some("CONFIGURATION_VALUE_SECONDARY".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: true,
+            require_change: true,
+            command_position: false,
+            fuzzy: true,
+            min_fuzzy_score: Some(0.80),
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1);
+        let out = &f.pending[&file].1;
+        assert!(
+            out.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
+            "tx fuzzy must keep syntax: {out}"
+        );
+        assert!(
+            out.contains("CONFIGURATION_VALUE_PRIMARY"),
+            "second occurrence left: {out}"
+        );
+        assert!(
+            !out.lines().any(|l| l == "CONFIGURATION_VALUE_SECONDARY"),
+            "must not bare-line replace: {out}"
+        );
+        let meta = f.replace_match_meta.get(&file).expect("fuzzy meta");
+        assert_eq!(meta.mode, crate::api::MatchMode::Fuzzy);
+    }
+
     #[test]
     fn replace_exact_records_match_mode_exact() {
         let dir = TempDir::new().unwrap();
