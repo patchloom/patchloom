@@ -176,6 +176,7 @@ pub fn apply_content_edits_to_file(
 }
 
 /// Last replace-side post_write wins (agent hosts set hooks once on the batch).
+#[cfg(any(feature = "cli", feature = "files"))]
 fn post_write_from_edits(
     edits: &[ContentEdit],
 ) -> (Option<&PostWriteHooks>, Option<&std::path::Path>) {
