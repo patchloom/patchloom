@@ -5152,22 +5152,29 @@ fn min_fuzzy_score_rejects_weak_fuzzy_allows_exact() {
         natural > 0.85,
         "similarity path requires >0.85, got {natural}"
     );
-
-    let strict = ReplaceOptions {
-        fuzzy: true,
-        min_fuzzy_score: Some(natural + 0.01),
-        ..Default::default()
-    };
-    let err = replace_in_content(content, misspelled, "REPLACED", &strict).unwrap_err();
-    assert_eq!(
-        edit_error_kind(&err),
-        Some(EditErrorKind::NoMatch),
-        "weak fuzzy must be NoMatch: {err}"
-    );
-    assert!(
-        err.to_string().contains("min_fuzzy_score"),
-        "message should name the floor: {err}"
-    );
+    // Strict floor just above natural, clamped to the valid 0.0..=1.0 range.
+    // When natural is already 1.0, any valid floor allows equality (score < min is false).
+    let strict_floor = (natural + 1e-4).clamp(0.0, 1.0);
+    if (strict_floor - natural).abs() < 1e-12 {
+        // Natural is effectively 1.0; only out-of-range floors would reject, which is InvalidInput.
+        // Covered by min_fuzzy_score_rejects_out_of_range.
+    } else {
+        let strict = ReplaceOptions {
+            fuzzy: true,
+            min_fuzzy_score: Some(strict_floor),
+            ..Default::default()
+        };
+        let err = replace_in_content(content, misspelled, "REPLACED", &strict).unwrap_err();
+        assert_eq!(
+            edit_error_kind(&err),
+            Some(EditErrorKind::NoMatch),
+            "weak fuzzy must be NoMatch: {err}"
+        );
+        assert!(
+            err.to_string().contains("min_fuzzy_score"),
+            "message should name the floor: {err}"
+        );
+    }
 
     // Floor at or below natural score allows the same fuzzy match.
     let loose = ReplaceOptions {
