@@ -8113,15 +8113,32 @@ fn test_tx_replace_fuzzy_pure_in_plan() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--json")
         .arg("--cwd")
         .arg(dir.path().to_str().unwrap())
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
-        .assert()
-        .code(0);
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(
+        json["match_mode"], "fuzzy",
+        "tx JSON match_mode (#1674): {json}"
+    );
+    assert_eq!(
+        json["changes"][0]["match_mode"], "fuzzy",
+        "per-change match_mode: {json}"
+    );
 
     let on_disk = fs::read_to_string(&file).unwrap();
     assert!(
