@@ -59,6 +59,7 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Full CI gate (run before every commit) |
 | `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README test count) |
+| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo, plan key alias); not part of `check` |
 | `make audit` | Run `cargo audit` for known vulnerabilities (also in CI) |
 | `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; also in CI) |
 | `make update-readme` | Update README.md rounded test count |

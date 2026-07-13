@@ -35,6 +35,40 @@ async fn test_mcp_doc_set_round_trip() {
 
 /// #1696: registry MCP accepts LLM-prior `key` as alias for `selector`.
 #[tokio::test]
+async fn test_mcp_doc_delete_accepts_key_alias() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"server":{"port":8080,"host":"localhost"}}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_delete",
+        serde_json::json!({
+            "path": "config.json",
+            "key": "server.port"
+        }),
+    )
+    .await;
+    assert!(!is_error, "doc_delete with key alias must succeed: {val}");
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert!(
+        v["server"].get("port").is_none(),
+        "port should be deleted: {content}"
+    );
+    assert_eq!(v["server"]["host"], "localhost");
+    client.cancel().await.unwrap();
+}
+
+/// #1696: registry MCP accepts LLM-prior `key` as alias for `selector`.
+#[tokio::test]
 async fn test_mcp_doc_set_accepts_key_alias() {
     if !has_mcp_support() {
         return;

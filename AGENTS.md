@@ -29,6 +29,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make audit` | Run `cargo audit` for known vulnerabilities (optional locally; also in CI) |
 | `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; required in CI) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
+| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo list, plan `key` alias). Not part of `check`; run before tagging a release |
 | `make fuzz` | Run fuzz tests (11 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
 | `make bench-mcp` | Run MCP benchmarks: per-call latency vs CLI process spawn (not part of `check`) |
@@ -39,6 +40,8 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make clean` | Remove build artifacts and temp files |
 
 Always run `make check` before committing. It is the full CI gate.
+
+Before tagging a release, also run `make embedder-smoke` (host-facing contracts that unit tests historically missed).
 
 ## Git hygiene
 

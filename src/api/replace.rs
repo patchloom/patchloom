@@ -317,11 +317,11 @@ fn replace_write(
                     let score = anchor.score.or(default_score);
                     if match_mode == MatchMode::Fuzzy
                         && let Some(min) = min_fuzzy_score
-                        && score.is_some_and(|s| s < min)
+                        && crate::fallback::fuzzy_fails_min_floor(score, min)
                     {
                         let actual = score
                             .map(|s| format!("{s:.3}"))
-                            .unwrap_or_else(|| "?".into());
+                            .unwrap_or_else(|| "none".into());
                         return Err(anyhow::Error::new(crate::exit::NoMatchError {
                             msg: format!(
                                 "fuzzy match score {actual} below min_fuzzy_score {min} for {old:?}"
@@ -568,11 +568,11 @@ pub fn replace_in_content(
                 let score = anchor.score.or(default_score);
                 if mode == super::MatchMode::Fuzzy
                     && let Some(min) = opts.min_fuzzy_score
-                    && score.is_some_and(|s| s < min)
+                    && crate::fallback::fuzzy_fails_min_floor(score, min)
                 {
                     let actual = score
                         .map(|s| format!("{s:.3}"))
-                        .unwrap_or_else(|| "?".into());
+                        .unwrap_or_else(|| "none".into());
                     return Err(crate::fallback::EditError::new(
                         crate::fallback::EditErrorKind::NoMatch,
                         format!(

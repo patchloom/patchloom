@@ -252,11 +252,11 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     // Reject weak fuzzy matches when host set a floor (#1687).
                     if mode == MatchMode::Fuzzy
                         && let Some(min) = min_fuzzy_score
-                        && score.is_some_and(|s| s < *min)
+                        && crate::fallback::fuzzy_fails_min_floor(score, *min)
                     {
                         let actual = score
                             .map(|s| format!("{s:.3}"))
-                            .unwrap_or_else(|| "?".into());
+                            .unwrap_or_else(|| "none".into());
                         tx.replace_hint = Some(format!(
                             "fuzzy match score {actual} below min_fuzzy_score {min} for {:?}",
                             crate::fallback::truncate_str(old, 60),
@@ -474,7 +474,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         let score = anchor.score.or(default_score);
                         if mode == MatchMode::Fuzzy
                             && let Some(min) = min_fuzzy_score
-                            && score.is_some_and(|s| s < *min)
+                            && crate::fallback::fuzzy_fails_min_floor(score, *min)
                         {
                             // Skip this file; keep scanning (require_change after loop).
                             continue;
