@@ -1809,6 +1809,13 @@ async fn test_mcp_batch_replace_round_trip() {
         val["files_changed"], 2,
         "batch_replace files_changed: {val}"
     );
+    assert_eq!(
+        val["match_mode"], "exact",
+        "batch_replace exact match honesty (#1674): {val}"
+    );
+    for ch in val["changes"].as_array().expect("changes array") {
+        assert_eq!(ch["match_mode"], "exact", "per-file match_mode exact: {ch}");
+    }
 
     let a = fs::read_to_string(dir.path().join("a.txt")).unwrap();
     let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
@@ -1821,6 +1828,54 @@ async fn test_mcp_batch_replace_round_trip() {
     assert!(
         !b.contains("1.0.0"),
         "b.txt should not have old version: {b}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_batch_replace_fuzzy_reports_match_mode() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn process_data() {}\n").unwrap();
+    fs::write(dir.path().join("b.rs"), "fn process_data() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "batch_replace",
+        serde_json::json!({
+            "files": ["a.rs", "b.rs"],
+            "old": "fn proccess_data() {}",
+            "new": "fn handle_data() {}",
+            "fuzzy": true,
+            "require_change": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "batch_replace fuzzy should succeed: {val}");
+    assert_eq!(val["ok"], true, "batch_replace fuzzy ok: {val}");
+    assert_eq!(
+        val["match_mode"], "fuzzy",
+        "aggregate match_mode fuzzy (#1674): {val}"
+    );
+    let changes = val["changes"].as_array().expect("changes");
+    assert_eq!(changes.len(), 2, "two files changed: {val}");
+    for ch in changes {
+        assert_eq!(ch["match_mode"], "fuzzy", "per-file fuzzy match_mode: {ch}");
+    }
+    assert!(
+        fs::read_to_string(dir.path().join("a.rs"))
+            .unwrap()
+            .contains("handle_data"),
+        "a.rs rewritten"
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("b.rs"))
+            .unwrap()
+            .contains("handle_data"),
+        "b.rs rewritten"
     );
     client.cancel().await.unwrap();
 }

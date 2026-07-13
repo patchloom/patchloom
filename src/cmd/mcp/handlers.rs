@@ -431,12 +431,7 @@ impl PatchloomService {
                         let text = &mut text_content.text;
                         if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(text) {
                             if let Some(m) = mode {
-                                let s = match m {
-                                    crate::api::MatchMode::Exact => "exact",
-                                    crate::api::MatchMode::Fuzzy => "fuzzy",
-                                    crate::api::MatchMode::Anchored => "anchored",
-                                };
-                                v["match_mode"] = serde_json::json!(s);
+                                v["match_mode"] = serde_json::json!(crate::tx::match_mode_label(m));
                             }
                             if let Some(s) = score {
                                 v["match_score"] = serde_json::json!(s);

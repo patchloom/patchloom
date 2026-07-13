@@ -37,6 +37,7 @@ pub use output::{
 };
 pub(crate) use output::{
     TxExecResult, build_error_output, build_full_tx_output, format_error_with_backup_hint,
+    match_mode_label,
 };
 
 // validate.rs (test-only re-exports for src/cmd/tx.rs tests)

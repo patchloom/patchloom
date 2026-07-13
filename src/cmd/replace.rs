@@ -157,11 +157,7 @@ struct FileReplacement {
 }
 
 fn match_mode_str(mode: crate::api::MatchMode) -> &'static str {
-    match mode {
-        crate::api::MatchMode::Exact => "exact",
-        crate::api::MatchMode::Fuzzy => "fuzzy",
-        crate::api::MatchMode::Anchored => "anchored",
-    }
+    crate::tx::match_mode_label(mode)
 }
 
 /// Parse `--range` argument into (start, optional_end). Reuses the line-range
