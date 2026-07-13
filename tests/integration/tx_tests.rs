@@ -8092,3 +8092,40 @@ fn test_tx_file_append_missing_json_not_found() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["error_kind"], "not_found");
 }
+
+#[test]
+fn test_tx_replace_fuzzy_pure_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn process_data() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": "code.rs",
+            "old": "fn proccess_data() {}",
+            "new": "fn handle_data() {}",
+            "fuzzy": true,
+            "require_change": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.contains("handle_data"),
+        "plan pure fuzzy must rewrite: {on_disk}"
+    );
+}

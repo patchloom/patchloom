@@ -1413,3 +1413,42 @@ fn fuzzy_cli_json_reports_match_mode() {
     let on_disk = fs::read_to_string(&file).unwrap();
     assert!(on_disk.contains("handle_data"), "{on_disk}");
 }
+
+#[test]
+fn fuzzy_cli_expands_directory_roots() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("src");
+    fs::create_dir_all(&sub).unwrap();
+    let file = sub.join("lib.rs");
+    fs::write(&file, "fn process_data() {}\n").unwrap();
+    fs::write(dir.path().join("notes.txt"), "fn process_data() {}\n").unwrap();
+
+    let mut args = make_args(
+        "fn proccess_data() {}",
+        "fn handle_data() {}",
+        vec![sub.to_string_lossy().into_owned()],
+    );
+    args.fuzzy = true;
+    let global = GlobalFlags {
+        apply: true,
+        cwd: Some(dir.path().to_string_lossy().into_owned()),
+        ..GlobalFlags::test_default()
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(
+        code,
+        exit::SUCCESS,
+        "directory + --fuzzy should expand and apply"
+    );
+    assert!(
+        fs::read_to_string(&file).unwrap().contains("handle_data"),
+        "src/lib.rs should be rewritten"
+    );
+    // notes.txt was outside the path root and must stay unchanged.
+    assert!(
+        fs::read_to_string(dir.path().join("notes.txt"))
+            .unwrap()
+            .contains("process_data"),
+        "sibling file outside root must not change"
+    );
+}
