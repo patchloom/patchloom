@@ -692,4 +692,89 @@ mod tests {
             "small file should be in snapshot"
         );
     }
+
+    /// batch_replace / execute_plan JSON must surface match_mode for fuzzy (#1674).
+    #[test]
+    fn execute_plan_fuzzy_replace_reports_match_mode() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn process_data() {}\n").unwrap();
+        std::fs::write(dir.path().join("b.rs"), "fn process_data() {}\n").unwrap();
+
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![
+                crate::plan::Operation::Replace {
+                    glob: None,
+                    path: Some("a.rs".into()),
+                    regex: false,
+                    old: "fn proccess_data() {}".into(),
+                    new_text: Some("fn handle() {}".into()),
+                    nth: None,
+                    insert_before: None,
+                    insert_after: None,
+                    case_insensitive: false,
+                    multiline: false,
+                    if_exists: false,
+                    whole_line: false,
+                    range: None,
+                    word_boundary: false,
+                    before_context: None,
+                    after_context: None,
+                    unique: false,
+                    require_change: true,
+                    command_position: false,
+                    fuzzy: true,
+                },
+                crate::plan::Operation::Replace {
+                    glob: None,
+                    path: Some("b.rs".into()),
+                    regex: false,
+                    old: "fn process_data() {}".into(),
+                    new_text: Some("fn handle() {}".into()),
+                    nth: None,
+                    insert_before: None,
+                    insert_after: None,
+                    case_insensitive: false,
+                    multiline: false,
+                    if_exists: false,
+                    whole_line: false,
+                    range: None,
+                    word_boundary: false,
+                    before_context: None,
+                    after_context: None,
+                    unique: false,
+                    require_change: true,
+                    command_position: false,
+                    fuzzy: false,
+                },
+            ],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+
+        let report = execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+        assert!(report.ok, "{report:?}");
+        assert_eq!(report.files_changed, 2);
+        // Aggregate is worst-case fuzzy when any file used fuzzy.
+        assert_eq!(report.match_mode.as_deref(), Some("fuzzy"));
+        let a = report
+            .changes
+            .iter()
+            .find(|c| c.path.ends_with("a.rs"))
+            .expect("a.rs change");
+        assert_eq!(a.match_mode.as_deref(), Some("fuzzy"));
+        let b = report
+            .changes
+            .iter()
+            .find(|c| c.path.ends_with("b.rs"))
+            .expect("b.rs change");
+        assert_eq!(b.match_mode.as_deref(), Some("exact"));
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(json.contains("\"match_mode\""), "{json}");
+    }
 }

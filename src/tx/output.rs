@@ -41,6 +41,13 @@ pub struct TxOutput {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backup_session: Option<String>,
+    /// Aggregate replace match honesty when every replace-backed change agrees
+    /// (or worst-case: fuzzy > anchored > exact). See #1674.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_mode: Option<String>,
+    /// Similarity score when aggregate [`Self::match_mode`] is fuzzy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub match_score: Option<f64>,
 }
 
 /// One doc delete / delete-where outcome inside a plan/tx report (#1439).
@@ -58,6 +65,13 @@ pub struct TxDocMutation {
 pub struct TxChange {
     pub path: String,
     pub action: String,
+    /// Replace match honesty for this path (`exact` / `fuzzy` / `anchored`).
+    /// Omitted for non-replace changes. See #1674 / #1669.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_mode: Option<String>,
+    /// Similarity score when [`Self::match_mode`] is fuzzy.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_score: Option<f64>,
 }
 
 /// A search match in the tx output.
@@ -116,6 +130,8 @@ pub(crate) struct TxExecResult {
     pub(crate) replace_no_matches: bool,
     /// "Did you mean?" hints when a replace found zero matches.
     pub(crate) replace_hint: Option<String>,
+    /// Per-path replace match honesty recorded during plan execution (#1674).
+    pub(crate) replace_match_meta: HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
 }
 
 /// Apply mutation summaries onto a [`TxOutput`] (aggregates + list).
@@ -130,18 +146,56 @@ pub(crate) fn attach_mutations(output: &mut TxOutput, mutations: Vec<TxDocMutati
     output.mutations = mutations;
 }
 
-pub(crate) fn build_tx_output(
+/// JSON label for [`crate::api::MatchMode`] (CLI/MCP parity: snake_case strings).
+pub(crate) fn match_mode_label(mode: crate::api::MatchMode) -> &'static str {
+    match mode {
+        crate::api::MatchMode::Exact => "exact",
+        crate::api::MatchMode::Fuzzy => "fuzzy",
+        crate::api::MatchMode::Anchored => "anchored",
+    }
+}
+
+/// Worst-case rollup: fuzzy > anchored > exact (#1674 / #1673).
+pub(crate) fn merge_match_modes(
+    prev: Option<crate::api::MatchMode>,
+    next: crate::api::MatchMode,
+) -> crate::api::MatchMode {
+    match (prev, next) {
+        (Some(crate::api::MatchMode::Fuzzy), _) | (_, crate::api::MatchMode::Fuzzy) => {
+            crate::api::MatchMode::Fuzzy
+        }
+        (Some(crate::api::MatchMode::Anchored), _) | (_, crate::api::MatchMode::Anchored) => {
+            crate::api::MatchMode::Anchored
+        }
+        _ => crate::api::MatchMode::Exact,
+    }
+}
+
+fn match_meta_for_path(
+    path: &Path,
+    meta: &HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
+) -> (Option<String>, Option<f64>) {
+    match meta.get(path) {
+        Some((mode, score)) => (Some(match_mode_label(*mode).to_string()), *score),
+        None => (None, None),
+    }
+}
+
+pub(crate) fn build_tx_output_with_meta(
     status: &'static str,
     ok: bool,
     changes: &[(PathBuf, String, String)],
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     cwd: &Path,
+    replace_match_meta: &HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
 ) -> TxOutput {
     let mut tx_changes = Vec::new();
     let mut created = 0usize;
     let mut deleted_count = 0usize;
     let mut modified = 0usize;
+    let mut agg_mode: Option<crate::api::MatchMode> = None;
+    let mut agg_score: Option<f64> = None;
 
     let display_path = |p: &Path| -> String {
         crate::files::relative_display(p, cwd)
@@ -151,22 +205,35 @@ pub(crate) fn build_tx_output(
 
     for (path, _original, _) in changes {
         let path_str = display_path(path);
+        let (match_mode, match_score) = match_meta_for_path(path, replace_match_meta);
+        if let Some((mode, score)) = replace_match_meta.get(path) {
+            agg_mode = Some(merge_match_modes(agg_mode, *mode));
+            if matches!(mode, crate::api::MatchMode::Fuzzy) {
+                agg_score = score.or(agg_score);
+            }
+        }
         if deletions.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
                 action: "deleted".to_string(),
+                match_mode,
+                match_score,
             });
             deleted_count += 1;
         } else if !existed_before.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
                 action: "created".to_string(),
+                match_mode,
+                match_score,
             });
             created += 1;
         } else {
             tx_changes.push(TxChange {
                 path: path_str,
                 action: "modified".to_string(),
+                match_mode,
+                match_score,
             });
             modified += 1;
         }
@@ -174,13 +241,28 @@ pub(crate) fn build_tx_output(
     // Deletions not captured in changes (empty files).
     for path in deletions {
         if !changes.iter().any(|(c, _, _)| c == path) {
+            let (match_mode, match_score) = match_meta_for_path(path, replace_match_meta);
             tx_changes.push(TxChange {
                 path: display_path(path),
                 action: "deleted".to_string(),
+                match_mode,
+                match_score,
             });
             deleted_count += 1;
         }
     }
+
+    let (top_mode, top_score) = match agg_mode {
+        Some(m) => (
+            Some(match_mode_label(m).to_string()),
+            if matches!(m, crate::api::MatchMode::Fuzzy) {
+                agg_score
+            } else {
+                None
+            },
+        ),
+        None => (None, None),
+    };
 
     TxOutput {
         ok,
@@ -198,6 +280,8 @@ pub(crate) fn build_tx_output(
         error_kind: None,
         error: None,
         backup_session: None,
+        match_mode: top_mode,
+        match_score: top_score,
     }
 }
 
@@ -206,13 +290,14 @@ pub(crate) fn build_full_tx_output(
     result: &mut TxExecResult,
     cwd: &Path,
 ) -> TxOutput {
-    let mut output = build_tx_output(
+    let mut output = build_tx_output_with_meta(
         status,
         true,
         &result.changes,
         &result.deletions,
         &result.existed_before,
         cwd,
+        &result.replace_match_meta,
     );
     output.reads = std::mem::take(&mut result.tx_reads);
     output.searches = std::mem::take(&mut result.tx_searches);
@@ -269,6 +354,8 @@ pub(crate) fn build_error_output(
             format_error_with_backup_hint(error, backup_session)
         )),
         backup_session: backup_session.map(str::to_string),
+        match_mode: None,
+        match_score: None,
     }
 }
 
@@ -404,6 +491,8 @@ mod tests {
             error_kind: None,
             error: None,
             backup_session: None,
+            match_mode: None,
+            match_score: None,
         }
     }
 
@@ -424,6 +513,8 @@ mod tests {
             error_kind: Some(kind.to_string()),
             error: Some("test error".to_string()),
             backup_session: None,
+            match_mode: None,
+            match_score: None,
         }
     }
 
@@ -547,7 +638,15 @@ mod tests {
             ),
         ];
 
-        let out = build_tx_output("success", true, &changes, &deletions, &existed, cwd);
+        let out = build_tx_output_with_meta(
+            "success",
+            true,
+            &changes,
+            &deletions,
+            &existed,
+            cwd,
+            &HashMap::new(),
+        );
         assert!(out.ok);
         assert_eq!(out.files_changed, 1); // existing.txt modified
         assert_eq!(out.files_created, 1); // brand_new.txt
@@ -563,11 +662,45 @@ mod tests {
     #[test]
     fn build_tx_output_empty_changes() {
         let cwd = Path::new("/project");
-        let out = build_tx_output("success", true, &[], &HashSet::new(), &HashSet::new(), cwd);
+        let out = build_tx_output_with_meta(
+            "success",
+            true,
+            &[],
+            &HashSet::new(),
+            &HashSet::new(),
+            cwd,
+            &HashMap::new(),
+        );
         assert_eq!(out.files_changed, 0);
         assert_eq!(out.files_created, 0);
         assert_eq!(out.files_deleted, 0);
         assert!(out.changes.is_empty());
+    }
+
+    #[test]
+    fn build_tx_output_includes_replace_match_mode() {
+        let cwd = Path::new("/project");
+        let path = PathBuf::from("/project/a.txt");
+        let existed = HashSet::from([path.clone()]);
+        let changes = vec![(path.clone(), "old".into(), "new".into())];
+        let mut meta = HashMap::new();
+        meta.insert(path, (crate::api::MatchMode::Fuzzy, Some(0.91)));
+        let out = build_tx_output_with_meta(
+            "success",
+            true,
+            &changes,
+            &HashSet::new(),
+            &existed,
+            cwd,
+            &meta,
+        );
+        assert_eq!(out.match_mode.as_deref(), Some("fuzzy"));
+        assert_eq!(out.match_score, Some(0.91));
+        assert_eq!(out.changes.len(), 1);
+        assert_eq!(out.changes[0].match_mode.as_deref(), Some("fuzzy"));
+        assert_eq!(out.changes[0].match_score, Some(0.91));
+        let json = serde_json::to_string(&out).unwrap();
+        assert!(json.contains("\"match_mode\":\"fuzzy\""), "{json}");
     }
 
     // ---- TxOutput serde round-trip ----

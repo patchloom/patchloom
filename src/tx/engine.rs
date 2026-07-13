@@ -228,6 +228,7 @@ pub fn execute_precomputed(
         no_effective_changes,
         replace_no_matches: false,
         replace_hint: None,
+        replace_match_meta: HashMap::new(),
     };
 
     Ok(ExecutionResult {
