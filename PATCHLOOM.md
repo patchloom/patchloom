@@ -44,6 +44,7 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path
 - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)
 - `api::run_post_write_validation(project_root, path, &PostWriteHooks { format_cmd, lint_cmd, on_failure: Revert|KeepWithError, .. })` (#1663) maps to `format_failed` / `EditErrorKind::FormatFailed`
+**Match honesty in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`) and optional `match_score` so agents can verify low-confidence fuzzy sites (#1669, #1674).
 
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)
@@ -259,6 +260,7 @@ Plan/MCP `replace` accepts library flags (default false):
 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).
 - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).
 Example: `{"op":"replace","path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
+Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`) on replace-backed changes plus an aggregate `match_mode` when any replace matched (#1674).
 
 ## AST-aware operations
 
