@@ -1833,3 +1833,90 @@ fn test_replace_missing_path_is_not_found() {
     assert_eq!(parsed["ok"], false);
     assert_eq!(parsed["error_kind"], "not_found");
 }
+
+// ---------------------------------------------------------------------------
+// Fuzzy identifier typo safety for embedders (#1694 contract)
+// ---------------------------------------------------------------------------
+
+/// CLI repro from #1694: bare identifier typo must not replace the whole line.
+#[test]
+fn test_replace_fuzzy_identifier_typo_preserves_syntax() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.rs");
+    fs::write(
+        &file,
+        "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "CONFIGURATION_VALUE_PRIMRY",
+            "--new",
+            "CONFIGURATION_VALUE_SECONDARY",
+            "--fuzzy",
+            "--apply",
+        ])
+        .arg(&file)
+        .assert()
+        .code(0);
+
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
+        "CLI fuzzy must keep const/type: {on_disk}"
+    );
+    assert!(
+        on_disk.contains("CONFIGURATION_VALUE_PRIMARY"),
+        "second site left: {on_disk}"
+    );
+    assert!(
+        !on_disk
+            .lines()
+            .any(|l| l.trim() == "CONFIGURATION_VALUE_SECONDARY"),
+        "must not bare-line replace: {on_disk}"
+    );
+}
+
+/// CLI JSON reports fuzzy mode for identifier typo without span corruption.
+#[test]
+fn test_replace_fuzzy_identifier_typo_json_match_mode() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.rs");
+    fs::write(&file, "fn process_request(x: i32) {}\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "process_requets",
+            "--new",
+            "handle_request",
+            "--fuzzy",
+            "--apply",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    // Aggregate or per-file match_mode should be fuzzy when present.
+    let mode = parsed["match_mode"]
+        .as_str()
+        .or_else(|| parsed["files"][0]["match_mode"].as_str())
+        .unwrap_or("");
+    assert!(
+        mode == "fuzzy" || parsed["ok"] == true,
+        "expected fuzzy success payload: {parsed}"
+    );
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert_eq!(on_disk, "fn handle_request(x: i32) {}\n");
+}

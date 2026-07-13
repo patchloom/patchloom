@@ -1205,6 +1205,112 @@ mod tests {
         );
     }
 
+    /// Embedder-style identifier typos across real source shapes (#1694 contract).
+    #[test]
+    fn resolve_token_typo_matrix_preserves_non_identifier_syntax() {
+        // (content, typo_target, expected_matched_token, must_not_be_in_match)
+        let cases: &[(&str, &str, &str, &[&str])] = &[
+            // Rust const + use site (Bline #1694 repro shape).
+            (
+                "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+                "CONFIGURATION_VALUE_PRIMRY",
+                "CONFIGURATION_VALUE_PRIMARY",
+                &["const", "i32", "fn"],
+            ),
+            // Rust function name typo (token, not full signature).
+            (
+                "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n",
+                "process_requets",
+                "process_request",
+                &["fn", "Result", "data"],
+            ),
+            // Python def.
+            (
+                "def load_configuration_value():\n    return 1\n",
+                "load_configration_value",
+                "load_configuration_value",
+                &["def", "return"],
+            ),
+            // JS/TS const + call.
+            (
+                "const getUserProfile = () => null;\nexport { getUserProfile };\n",
+                "getUserProfle",
+                "getUserProfile",
+                &["const", "export"],
+            ),
+            // YAML-ish key in a line with punctuation (identifier extraction).
+            (
+                "server_port_primary: 8080\n",
+                "server_port_primry",
+                "server_port_primary",
+                &[":", "8080"],
+            ),
+            // camelCase method.
+            (
+                "    obj.fetchUserDetails(id);\n",
+                "fetchUserDetials",
+                "fetchUserDetails",
+                &["obj", "id"],
+            ),
+        ];
+
+        for (content, typo, expected, forbidden) in cases {
+            let r = resolve_with_fallback(content, typo, None, None)
+                .unwrap_or_else(|e| panic!("token typo {typo:?} should match in {content:?}: {e}"));
+            assert_eq!(r.strategy, MatchStrategy::Similarity, "typo={typo:?}");
+            assert_eq!(
+                r.matched_text, *expected,
+                "typo={typo:?} content={content:?}"
+            );
+            assert!(
+                content[r.start_offset..].starts_with(expected),
+                "offset wrong for {typo:?}"
+            );
+            for bad in *forbidden {
+                assert!(
+                    !r.matched_text.contains(bad),
+                    "span leaked {bad:?} for typo={typo:?} match={:?}",
+                    r.matched_text
+                );
+            }
+            // Token-like targets must never expand to multi-word spans.
+            assert!(
+                !r.matched_text.contains(' '),
+                "token match must not contain spaces: {:?}",
+                r.matched_text
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_token_typo_picks_first_best_occurrence() {
+        let content = "FOO_PRIMARY=1\nFOO_PRIMARY=2\n";
+        let r = resolve_with_fallback(content, "FOO_PRIMRY", None, None).unwrap();
+        assert_eq!(r.matched_text, "FOO_PRIMARY");
+        // First line occurrence (offset 0).
+        assert_eq!(r.start_offset, 0);
+    }
+
+    #[test]
+    fn resolve_token_unrelated_is_no_match() {
+        let content = "const ALPHA: i32 = 1;\nconst BETA: i32 = 2;\n";
+        let err =
+            resolve_with_fallback(content, "ZZZZ_COMPLETELY_UNRELATED", None, None).unwrap_err();
+        assert_eq!(err.kind, EditErrorKind::NoMatch);
+    }
+
+    #[test]
+    fn is_token_like_target_classification() {
+        assert!(is_token_like_target("CONFIGURATION_VALUE_PRIMRY"));
+        assert!(is_token_like_target("getUserProfile"));
+        assert!(is_token_like_target("kebab-case-name"));
+        assert!(!is_token_like_target("fn process_data() {}"));
+        assert!(!is_token_like_target("const FOO: i32 = 1;"));
+        assert!(!is_token_like_target("server.port"));
+        assert!(!is_token_like_target(""));
+        assert!(!is_token_like_target("   "));
+    }
+
     #[test]
     fn resolve_with_fallback_structured_error() {
         let content = "fn alpha() {}\nfn beta() {}\n";
