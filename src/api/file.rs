@@ -61,10 +61,14 @@ fn file_write(
                 }));
             }
             let policy = crate::write::WritePolicy::default();
-            let applied = super::write_if_apply(path, &content, mode, &policy, guard)?;
-            Ok(super::build_edit_result(
-                &path_str, original, content, applied, action, None,
-            ))
+            let (applied, backup_session) =
+                super::write_if_apply(path, &content, mode, &policy, guard)?;
+            {
+                let mut __e =
+                    super::build_edit_result(&path_str, original, content, applied, action, None);
+                __e.backup_session = backup_session;
+                Ok(__e)
+            }
         }
         Operation::FileDelete { .. } => {
             let path_str = path.to_string_lossy();
@@ -77,22 +81,32 @@ fn file_write(
             }
             let original = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
-            let applied = if mode == ApplyMode::Apply {
-                super::ensure_contained(guard, path)?;
-                std::fs::remove_file(path)
-                    .with_context(|| format!("failed to delete {}", path.display()))?;
-                true
+            let (applied, backup_session) = if mode == ApplyMode::Apply {
+                super::apply_mutation(
+                    path,
+                    mode,
+                    guard,
+                    |backup| backup.save_before_delete(path),
+                    || {
+                        std::fs::remove_file(path)
+                            .with_context(|| format!("failed to delete {}", path.display()))
+                    },
+                )?
             } else {
-                false
+                (false, None)
             };
-            Ok(super::build_edit_result(
-                &path_str,
-                original,
-                String::new(),
-                applied,
-                action,
-                None,
-            ))
+            {
+                let mut __e = super::build_edit_result(
+                    &path_str,
+                    original,
+                    String::new(),
+                    applied,
+                    action,
+                    None,
+                );
+                __e.backup_session = backup_session;
+                Ok(__e)
+            }
         }
         Operation::FileAppend { ref content, .. } | Operation::FilePrepend { ref content, .. } => {
             let is_append = matches!(op, Operation::FileAppend { .. });
@@ -118,10 +132,14 @@ fn file_write(
                 crate::ops::file::prepend_content(&original, &content)
             };
             let policy = crate::write::WritePolicy::default();
-            let applied = super::write_if_apply(path, &combined, mode, &policy, guard)?;
-            Ok(super::build_edit_result(
-                &path_str, original, combined, applied, action, None,
-            ))
+            let (applied, backup_session) =
+                super::write_if_apply(path, &combined, mode, &policy, guard)?;
+            {
+                let mut __e =
+                    super::build_edit_result(&path_str, original, combined, applied, action, None);
+                __e.backup_session = backup_session;
+                Ok(__e)
+            }
         }
         _ => bail!("unsupported file operation"),
     }
@@ -162,7 +180,7 @@ fn file_write_cross(
         }
         let original = std::fs::read_to_string(src)
             .with_context(|| format!("failed to read {}", src.display()))?;
-        let applied = super::apply_cross_file_mutation(
+        let (applied, backup_session) = super::apply_cross_file_mutation(
             src,
             Some(dst),
             mode,
@@ -180,14 +198,18 @@ fn file_write_cross(
                 })
             },
         )?;
-        Ok(super::build_edit_result(
-            &src.to_string_lossy(),
-            original.clone(),
-            original,
-            applied,
-            action,
-            dest_path,
-        ))
+        {
+            let mut __e = super::build_edit_result(
+                &src.to_string_lossy(),
+                original.clone(),
+                original,
+                applied,
+                action,
+                dest_path,
+            );
+            __e.backup_session = backup_session;
+            Ok(__e)
+        }
     } else {
         bail!("unsupported cross-file operation")
     }

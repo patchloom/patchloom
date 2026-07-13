@@ -70,6 +70,9 @@ pub(crate) struct ReplaceParams {
     /// When exact match fails, try fuzzy/similarity fallback (#1668).
     #[serde(default)]
     pub fuzzy: bool,
+    /// Reject fuzzy matches below this similarity floor (#1687). `None` = no floor.
+    #[serde(default)]
+    pub min_fuzzy_score: Option<f64>,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
@@ -264,6 +267,9 @@ pub(crate) struct BatchReplaceParams {
     /// When exact match fails, try fuzzy/similarity fallback (#1668).
     #[serde(default)]
     pub fuzzy: bool,
+    /// Reject fuzzy matches below this similarity floor (#1687). `None` = no floor.
+    #[serde(default)]
+    pub min_fuzzy_score: Option<f64>,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,

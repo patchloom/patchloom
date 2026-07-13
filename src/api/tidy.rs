@@ -69,7 +69,16 @@ pub fn tidy_with_indent(
         indent: indent_opts.indent.clone(),
         lines: indent_opts.lines.clone(),
     };
-    tidy_write(op, path, mode, guard)
+    let result = tidy_write(op, path, mode, guard)?;
+    // Optional post-Apply format/lint hooks from WritePolicyOptions (#1690).
+    super::maybe_post_write(
+        result.applied,
+        path,
+        policy_opts.post_write.as_ref(),
+        policy_opts.post_write_cwd.as_deref(),
+        result.backup_session.as_deref(),
+    )?;
+    Ok(result)
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -138,15 +147,14 @@ fn tidy_write(
         }
 
         let noop_policy = crate::write::WritePolicy::default();
-        let applied = super::write_if_apply(path, &new_content, mode, &noop_policy, guard)?;
-        Ok(super::build_edit_result(
-            &path_str,
-            original,
-            new_content,
-            applied,
-            "tidy",
-            None,
-        ))
+        let (applied, backup_session) =
+            super::write_if_apply(path, &new_content, mode, &noop_policy, guard)?;
+        {
+            let mut __e =
+                super::build_edit_result(&path_str, original, new_content, applied, "tidy", None);
+            __e.backup_session = backup_session;
+            Ok(__e)
+        }
     } else {
         anyhow::bail!("expected TidyFix operation")
     }

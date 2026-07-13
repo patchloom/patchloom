@@ -124,14 +124,17 @@ fn commit_and_finalize(
         result.deletions.len(),
         ctx.strict
     );
-    if let Err(err) = crate::tx::commit_changes(
+    let _apply_backup_session = match crate::tx::commit_changes(
         &result.changes,
         &result.deletions,
         &result.existed_before,
         ctx.cwd,
     ) {
-        return handle_commit_error(err, ctx.structured, ctx.compact);
-    }
+        Ok(session) => session,
+        Err(err) => {
+            return handle_commit_error(err, ctx.structured, ctx.compact);
+        }
+    };
 
     if let Err(e) = run_format_command(global, ctx.cwd) {
         // The commit already succeeded; files are written but unformatted.

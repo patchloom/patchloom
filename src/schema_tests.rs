@@ -353,6 +353,7 @@ mod basic {
                     require_change: false,
                     command_position: false,
                     fuzzy: false,
+                    min_fuzzy_score: None,
                 },
             ),
             (

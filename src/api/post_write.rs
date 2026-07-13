@@ -46,6 +46,18 @@ pub fn run_post_write_validation(
     path: &Path,
     hooks: &PostWriteHooks,
 ) -> anyhow::Result<()> {
+    run_post_write_validation_with_session(project_root, path, hooks, None)
+}
+
+/// Like [`run_post_write_validation`], but reverts via a specific backup session
+/// when `backup_session` is `Some` (#1686 / #1690). Falls back to latest-session
+/// restore when `None`.
+pub fn run_post_write_validation_with_session(
+    project_root: &Path,
+    path: &Path,
+    hooks: &PostWriteHooks,
+    backup_session: Option<&str>,
+) -> anyhow::Result<()> {
     let timeout = hooks.timeout_secs.unwrap_or(30);
     for (label, cmd) in [
         ("format", hooks.format_cmd.as_deref()),
@@ -58,7 +70,12 @@ pub fn run_post_write_validation(
             if hooks.on_failure == PostWriteOnFailure::Revert {
                 // Surface restore failure: silent Ok(false)/Err left the file
                 // mutated while the host only saw the format error.
-                match restore_path_from_latest_backup(project_root, path) {
+                let restore = if let Some(ts) = backup_session {
+                    crate::backup::restore_path_from_session(project_root, ts, path)
+                } else {
+                    restore_path_from_latest_backup(project_root, path)
+                };
+                match restore {
                     Ok(true) => {}
                     Ok(false) => {
                         return Err(FormatFailedError {

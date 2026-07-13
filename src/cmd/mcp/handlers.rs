@@ -395,6 +395,7 @@ impl PatchloomService {
                 require_change: p.require_change,
                 command_position: p.command_position,
                 fuzzy: p.fuzzy,
+                min_fuzzy_score: p.min_fuzzy_score,
             };
             let mut tool_result = svc.run_one_op(replace_op, Some(p.strict))?;
 
@@ -545,6 +546,7 @@ impl PatchloomService {
                     require_change: p.require_change,
                     command_position: p.command_position,
                     fuzzy: p.fuzzy,
+                    min_fuzzy_score: p.min_fuzzy_score,
                 })
                 .collect();
             svc.run_ops(ops, Some(p.strict))

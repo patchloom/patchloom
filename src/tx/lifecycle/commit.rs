@@ -70,12 +70,14 @@ pub(crate) fn restore_after_failed_commit(cwd: &Path, timestamp: &str) -> bool {
 ///
 /// If any write fails, restores all already-written files from the backup
 /// session before returning [`CommitError`].
+/// Finalize backup then write. Returns the backup session timestamp when a
+/// session was created (`None` if nothing was backed up).
 pub(crate) fn commit_changes(
     changes: &[(PathBuf, String, String)],
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     cwd: &Path,
-) -> Result<(), CommitError> {
+) -> Result<Option<String>, CommitError> {
     let mut backup = crate::backup::BackupSession::new(cwd)
         .map_err(|e| commit_error(format!("starting backup session: {e}")))?;
     for (path, _, _) in changes {
@@ -147,5 +149,5 @@ pub(crate) fn commit_changes(
         });
     }
 
-    Ok(())
+    Ok(backup_session)
 }

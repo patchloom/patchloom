@@ -115,6 +115,14 @@
 //! CLI `--command-position`. Post-Apply validate/revert: use
 //! `api::run_post_write_validation` (#1663) or
 //! `backup::restore_path_from_session` / `restore_path_from_latest_backup` (#1660).
+//! After Apply, `EditResult.backup_session` names the session created for that
+//! write so hosts can call `restore_path_from_session` without re-listing
+//! backups (#1686). Nested monorepos: `backup::list_sessions_under` walks
+//! descendant `.patchloom/backups` roots (#1688). Fuzzy policy:
+//! `ReplaceOptions.min_fuzzy_score` rejects weak similarity matches (#1687).
+//! Project-wide rename: `api::ast_rename_project` (#1689). Post-Apply hooks:
+//! `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` / batch
+//! `AstRenameBatchOptions.post_write` (#1690).
 //!
 //! Match honesty for agents (#1662 / #1669 / #1674): `EditResult` /
 //! `ContentEditResult` / `ContentEditsResult` expose `match_mode`

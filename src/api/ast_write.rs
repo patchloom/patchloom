@@ -15,7 +15,8 @@ use crate::plan::Operation;
 use crate::write::WritePolicy;
 
 use super::{
-    ApplyMode, ContentEditResult, EditResult, ensure_contained, make_diff, write_if_apply,
+    ApplyMode, ContentEditResult, EditResult, PostWriteHooks, ensure_contained, make_diff,
+    maybe_post_write, write_if_apply,
 };
 
 /// Rewrite a function signature on disk (PathGuard + ApplyMode like other writers).
@@ -147,7 +148,7 @@ pub fn ast_rename(
         .into());
     }
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &renamed.content, mode, &policy, guard)?;
+    let (applied, backup_session) = write_if_apply(path, &renamed.content, mode, &policy, guard)?;
     let mut result = super::build_edit_result(
         &path_str,
         original,
@@ -156,6 +157,7 @@ pub fn ast_rename(
         "ast.rename",
         None,
     );
+    result.backup_session = backup_session;
     result.match_count = renamed.replacements;
     Ok(result)
 }
@@ -211,7 +213,7 @@ pub fn ast_replace_in_symbol(
         .into());
     }
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &replaced.content, mode, &policy, guard)?;
+    let (applied, backup_session) = write_if_apply(path, &replaced.content, mode, &policy, guard)?;
     let mut result = super::build_edit_result(
         &path_str,
         original,
@@ -220,6 +222,7 @@ pub fn ast_replace_in_symbol(
         "ast.replace_in_symbol",
         None,
     );
+    result.backup_session = backup_session;
     result.match_count = replaced.replacements;
     result.match_mode = Some(super::MatchMode::Exact);
     Ok(result)
@@ -315,6 +318,55 @@ pub fn find_files_with_symbol(
     Ok(out)
 }
 
+/// Options for [`ast_rename_project`] (#1689).
+#[derive(Debug, Clone, Default)]
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+pub struct AstRenameProjectOptions {
+    pub search: SymbolSearchOptions,
+    pub rename: AstRenameBatchOptions,
+}
+
+/// Result of [`ast_rename_project`]: discovery set plus per-file rename outcomes.
+#[derive(Debug)]
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+pub struct AstRenameProjectReport {
+    /// Paths discovery considered (even when rename is a no-op).
+    pub paths_considered: Vec<PathBuf>,
+    /// Per-file rename results (same order as batch processing).
+    pub results: Vec<AstRenameFileResult>,
+}
+
+/// Discover files containing `old_name` under `root` then batch-rename (#1689).
+///
+/// Preferred one-shot for agent hosts: “rename OldType project-wide” without a
+/// separate path list from the model.
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+pub fn ast_rename_project(
+    root: &Path,
+    old_name: &str,
+    new_name: &str,
+    opts: &AstRenameProjectOptions,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<AstRenameProjectReport> {
+    let paths = find_files_with_symbol(root, old_name, &opts.search)?;
+    if paths.is_empty() {
+        return Err(EditError::new(
+            EditErrorKind::NoMatch,
+            format!(
+                "no files under {} contain identifier {old_name:?}",
+                root.display()
+            ),
+        )
+        .into());
+    }
+    let path_refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    let results = ast_rename_batch(&path_refs, old_name, new_name, &opts.rename, guard)?;
+    Ok(AstRenameProjectReport {
+        paths_considered: paths,
+        results,
+    })
+}
+
 /// Word-boundary check for an identifier (ASCII-aware; good enough for discovery).
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
 fn content_has_identifier(content: &str, name: &str) -> bool {
@@ -357,6 +409,10 @@ pub struct AstRenameBatchOptions {
     /// Independent of [`Self::continue_on_no_match`] (which only covers
     /// `NoMatch`).
     pub fail_fast: bool,
+    /// Optional post-Apply format/lint hooks run per successful write (#1690).
+    pub post_write: Option<PostWriteHooks>,
+    /// Working directory for [`Self::post_write`] shell commands.
+    pub post_write_cwd: Option<std::path::PathBuf>,
 }
 
 impl Default for AstRenameBatchOptions {
@@ -365,6 +421,8 @@ impl Default for AstRenameBatchOptions {
             mode: ApplyMode::Preview,
             continue_on_no_match: true,
             fail_fast: false,
+            post_write: None,
+            post_write_cwd: None,
         }
     }
 }
@@ -412,10 +470,32 @@ pub fn ast_rename_batch(
     let mut out = Vec::with_capacity(unique_paths.len());
     for path in unique_paths {
         match ast_rename(path, old, new, opts.mode, guard) {
-            Ok(r) => out.push(AstRenameFileResult {
-                path: path.to_path_buf(),
-                result: Ok(r),
-            }),
+            Ok(r) => {
+                // Post-Apply format/lint hooks when configured (#1690).
+                if let Err(e) = maybe_post_write(
+                    r.applied,
+                    path,
+                    opts.post_write.as_ref(),
+                    opts.post_write_cwd.as_deref(),
+                    r.backup_session.as_deref(),
+                ) {
+                    let edit_err = e.downcast::<EditError>().unwrap_or_else(|e| {
+                        EditError::new(EditErrorKind::FormatFailed, e.to_string())
+                    });
+                    out.push(AstRenameFileResult {
+                        path: path.to_path_buf(),
+                        result: Err(edit_err),
+                    });
+                    if opts.fail_fast {
+                        break;
+                    }
+                    continue;
+                }
+                out.push(AstRenameFileResult {
+                    path: path.to_path_buf(),
+                    result: Ok(r),
+                });
+            }
             Err(e) => {
                 let edit_err = e.downcast::<EditError>().unwrap_or_else(|e| {
                     EditError::new(EditErrorKind::OperationFailed, e.to_string())

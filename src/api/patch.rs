@@ -81,15 +81,14 @@ fn patch_write(
         })?;
 
         let policy = crate::write::WritePolicy::default();
-        let applied = super::write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
-        Ok(super::build_edit_result(
-            &pf.path,
-            original,
-            new_content,
-            applied,
-            "patch",
-            None,
-        ))
+        let (applied, backup_session) =
+            super::write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
+        {
+            let mut __e =
+                super::build_edit_result(&pf.path, original, new_content, applied, "patch", None);
+            __e.backup_session = backup_session;
+            Ok(__e)
+        }
     } else {
         anyhow::bail!("expected PatchApply operation")
     }
@@ -131,15 +130,12 @@ pub fn apply_patch_file(
         })?;
 
         let policy = crate::write::WritePolicy::default();
-        let applied = super::write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
-        results.push(super::build_edit_result(
-            &pf.path,
-            original,
-            new_content,
-            applied,
-            "patch",
-            None,
-        ));
+        let (applied, backup_session) =
+            super::write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
+        let mut edit =
+            super::build_edit_result(&pf.path, original, new_content, applied, "patch", None);
+        edit.backup_session = backup_session;
+        results.push(edit);
     }
     Ok(results)
 }

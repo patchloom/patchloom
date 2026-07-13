@@ -195,20 +195,24 @@ pub fn execute_plan_direct(
     }
 
     // Apply: back up originals, write files.
-    if let Err(err) = commit_changes(
+    let apply_backup_session = match commit_changes(
         &result.changes,
         &result.deletions,
         &result.existed_before,
         &effective_cwd,
     ) {
-        let error_kind = if err.rollback_ok {
-            "rollback"
-        } else {
-            "rollback_failed"
-        };
-        let output = build_error_output(error_kind, &err.message, err.backup_session.as_deref());
-        return Ok(output);
-    }
+        Ok(session) => session,
+        Err(err) => {
+            let error_kind = if err.rollback_ok {
+                "rollback"
+            } else {
+                "rollback_failed"
+            };
+            let output =
+                build_error_output(error_kind, &err.message, err.backup_session.as_deref());
+            return Ok(output);
+        }
+    };
 
     // Snapshot non-tx files before format/validate steps so we can restore
     // collateral changes on strict rollback (#1111.7).
@@ -237,7 +241,10 @@ pub fn execute_plan_direct(
         return Ok(build_error_output(err.kind, &err.message, None));
     }
 
-    let output = build_full_tx_output("success", &mut result, &effective_cwd);
+    let mut output = build_full_tx_output("success", &mut result, &effective_cwd);
+    if output.backup_session.is_none() {
+        output.backup_session = apply_backup_session;
+    }
     Ok(output)
 }
 
@@ -368,6 +375,7 @@ mod tests {
                 require_change: false,
                 command_position: false,
                 fuzzy: false,
+                min_fuzzy_score: None,
             }],
             write_policy: None,
             strict: None,
@@ -725,6 +733,7 @@ mod tests {
                     require_change: true,
                     command_position: false,
                     fuzzy: true,
+                    min_fuzzy_score: None,
                 },
                 crate::plan::Operation::Replace {
                     glob: None,
@@ -747,6 +756,7 @@ mod tests {
                     require_change: true,
                     command_position: false,
                     fuzzy: false,
+                    min_fuzzy_score: None,
                 },
             ],
             write_policy: None,

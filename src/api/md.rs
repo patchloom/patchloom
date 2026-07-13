@@ -73,15 +73,18 @@ fn md_write(
             return match ops::md::table_append_in(&original, body_start, body_end, &row) {
                 Ok(new_content) => {
                     let policy = WritePolicy::default();
-                    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
-                    Ok(super::build_edit_result(
+                    let (applied, backup_session) =
+                        super::write_if_apply(path, &new_content, mode, &policy, guard)?;
+                    let mut edit = super::build_edit_result(
                         &path_str,
                         original,
                         new_content,
                         applied,
                         action,
                         None,
-                    ))
+                    );
+                    edit.backup_session = backup_session;
+                    Ok(edit)
                 }
                 Err(e) => Err(anyhow::Error::new(crate::exit::InvalidInputError {
                     msg: format!("{e} under heading {heading:?} in {path_str}"),
@@ -97,15 +100,12 @@ fn md_write(
     })?;
 
     let policy = WritePolicy::default();
-    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok(super::build_edit_result(
-        &path_str,
-        original,
-        new_content,
-        applied,
-        action,
-        None,
-    ))
+    let (applied, backup_session) =
+        super::write_if_apply(path, &new_content, mode, &policy, guard)?;
+    let mut edit =
+        super::build_edit_result(&path_str, original, new_content, applied, action, None);
+    edit.backup_session = backup_session;
+    Ok(edit)
 }
 
 /// Replace the body of a markdown section identified by heading.
@@ -220,7 +220,7 @@ pub fn md_move_section(
         let _ = super::write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
     }
     // Use generalized cross helper for source (centralized per #839).
-    let applied = super::apply_cross_file_mutation(
+    let (applied, backup_session) = super::apply_cross_file_mutation(
         path,
         None,
         mode,
@@ -229,9 +229,10 @@ pub fn md_move_section(
         || crate::write::atomic_write(path, &new_source, &policy),
     )?;
     let dest = to.map(|p| p.to_string_lossy().to_string());
-    Ok(super::build_edit_result(
-        &path_str, original, new_source, applied, "md.move", dest,
-    ))
+    let mut edit =
+        super::build_edit_result(&path_str, original, new_source, applied, "md.move", dest);
+    edit.backup_session = backup_session;
+    Ok(edit)
 }
 
 /// Remove duplicate headings at the same level in a markdown file.
@@ -251,11 +252,12 @@ pub fn md_dedupe_headings(
     let (new_content, removed) = ops::md::dedupe_headings_in(&original);
 
     let policy = crate::write::WritePolicy::default();
-    let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
-    Ok((
-        super::build_edit_result(&path_str, original, new_content, applied, "md.dedupe", None),
-        removed,
-    ))
+    let (applied, backup_session) =
+        super::write_if_apply(path, &new_content, mode, &policy, guard)?;
+    let mut edit =
+        super::build_edit_result(&path_str, original, new_content, applied, "md.dedupe", None);
+    edit.backup_session = backup_session;
+    Ok((edit, removed))
 }
 
 /// A lint issue found in a markdown file.

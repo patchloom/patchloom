@@ -186,6 +186,12 @@ pub struct EditResult {
     pub match_mode: Option<MatchMode>,
     /// Similarity score when [`MatchMode::Fuzzy`] was used; otherwise `None`.
     pub match_score: Option<f64>,
+    /// Backup session timestamp created for this Apply (if any).
+    ///
+    /// Set when a write produced a backup session (see `BackupSession::finalize`).
+    /// `None` for Preview/Check, no-ops, or when nothing was backed up.
+    /// Use with [`crate::backup::restore_path_from_session`] for surgical undo (#1686).
+    pub backup_session: Option<String>,
 }
 
 /// Result of an in-memory content edit (no file path, no applied flag).
@@ -293,6 +299,17 @@ pub struct ReplaceOptions {
     /// longer tokens (`pip` vs `pipenv`) or as arguments (`uv pip`). Opt-in;
     /// not the same as `word_boundary`. See #1494.
     pub command_position: bool,
+    /// When fuzzy applies, reject if similarity is below this floor (e.g. `0.80`).
+    /// `None` = no floor (default). Exact and anchored matches are unaffected (#1687).
+    pub min_fuzzy_score: Option<f64>,
+    /// Optional post-Apply format/lint hooks (#1690 / #1663).
+    ///
+    /// When set, runs after a successful disk write. Prefer pairing with
+    /// [`EditResult::backup_session`] for targeted revert.
+    pub post_write: Option<PostWriteHooks>,
+    /// Working directory for [`Self::post_write`] shell commands.
+    /// Defaults to the written file's parent when unset.
+    pub post_write_cwd: Option<std::path::PathBuf>,
 }
 
 // Re-export structured edit errors for embedders (#1492, #1659).
@@ -312,6 +329,10 @@ pub struct WritePolicyOptions {
     pub trim_trailing_whitespace: bool,
     /// Collapse consecutive blank lines into a single blank line.
     pub collapse_blanks: bool,
+    /// Optional post-Apply format/lint hooks for high-level writers (#1690).
+    pub post_write: Option<PostWriteHooks>,
+    /// Cwd for [`Self::post_write`] shell commands (default: file parent).
+    pub post_write_cwd: Option<std::path::PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -389,15 +410,16 @@ fn make_diff(path: &str, old: &str, new: &str) -> String {
 /// Generalized helper for Apply-mode mutations that need backup + guard.
 ///
 /// Used by write_if_apply and special file ops (create/delete/rename cross-file).
-fn apply_mutation(
+/// Returns `(applied, backup_session)`.
+pub(crate) fn apply_mutation(
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
     prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
     perform_mutation: impl FnOnce() -> anyhow::Result<()>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, Option<String>)> {
     if mode != ApplyMode::Apply {
-        return Ok(false);
+        return Ok((false, None));
     }
     ensure_contained(guard, path)?;
     // Use the project root (parent of the file) as backup root.
@@ -406,14 +428,15 @@ fn apply_mutation(
     let mut backup = BackupSession::new(cwd)?;
     prepare_backup(&mut backup)?;
     perform_mutation()?;
-    backup.finalize()?;
-    Ok(true)
+    let session = backup.finalize()?;
+    Ok((true, session))
 }
 
 /// Generalized cross-file mutation helper (for rename and md cross-file moves).
 ///
 /// Handles guard checks and backup for src (and optional dst).
 /// Centralizes the cross-file guard and backup logic.
+/// Returns `(applied, backup_session)`.
 fn apply_cross_file_mutation(
     src: &Path,
     dst: Option<&Path>,
@@ -421,9 +444,9 @@ fn apply_cross_file_mutation(
     guard: Option<&PathGuard>,
     prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
     perform_mutation: impl FnOnce() -> anyhow::Result<()>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, Option<String>)> {
     if mode != ApplyMode::Apply {
-        return Ok(false);
+        return Ok((false, None));
     }
     ensure_contained(guard, src)?;
     if let Some(d) = dst {
@@ -433,17 +456,18 @@ fn apply_cross_file_mutation(
     let mut backup = BackupSession::new(cwd)?;
     prepare_backup(&mut backup)?;
     perform_mutation()?;
-    backup.finalize()?;
-    Ok(true)
+    let session = backup.finalize()?;
+    Ok((true, session))
 }
 
-fn write_if_apply(
+/// Write content on Apply. Returns `(applied, backup_session)`.
+pub(crate) fn write_if_apply(
     path: &Path,
     new_content: &str,
     mode: ApplyMode,
     policy: &WritePolicy,
     guard: Option<&PathGuard>,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, Option<String>)> {
     apply_mutation(
         path,
         mode,
@@ -451,6 +475,28 @@ fn write_if_apply(
         |backup| backup.save_before_write(path),
         || atomic_write(path, new_content, policy),
     )
+}
+
+/// Run optional post-write hooks after a successful Apply (#1690).
+pub(crate) fn maybe_post_write(
+    applied: bool,
+    path: &Path,
+    hooks: Option<&PostWriteHooks>,
+    hooks_cwd: Option<&Path>,
+    backup_session: Option<&str>,
+) -> anyhow::Result<()> {
+    if !applied {
+        return Ok(());
+    }
+    let Some(hooks) = hooks else {
+        return Ok(());
+    };
+    let root = hooks_cwd.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
+    if let Some(ts) = backup_session {
+        run_post_write_validation_with_session(root, path, hooks, Some(ts))
+    } else {
+        run_post_write_validation(root, path, hooks)
+    }
 }
 
 /// Private helper to centralize the guard check and eliminate duplicated
@@ -491,6 +537,7 @@ pub(crate) fn build_edit_result(
         removed: 0,
         match_mode: None,
         match_score: None,
+        backup_session: None,
     }
 }
 
@@ -616,16 +663,17 @@ fn execution_result_to_edit_result(
             (String::new(), String::new(), String::new())
         };
 
-    // Commit for Apply mode.
-    let applied = if mode == ApplyMode::Apply && has_changes {
-        result.commit()?;
-        true
+    // Commit for Apply mode; capture backup session for embedder undo (#1686).
+    let (applied, backup_session) = if mode == ApplyMode::Apply && has_changes {
+        let session = result.commit()?;
+        (true, session)
     } else {
-        false
+        (false, None)
     };
 
     let mut edit = build_edit_result(&path_str, original, new_content, applied, action, dest_path);
     edit.removed = removed;
+    edit.backup_session = backup_session;
     // Thread replace honesty from the engine (#1674 / #1662).
     if let Some(meta) = replace_meta {
         edit.match_mode = Some(meta.mode);
