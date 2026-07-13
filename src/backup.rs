@@ -328,9 +328,17 @@ pub fn list_sessions_under(
     roots.push(project_root.to_path_buf());
 
     if opts.ancestors {
+        // Cap ancestor walk so hosts cannot accidentally walk to filesystem root
+        // on deep absolute paths (same budget as descendant max_depth default).
+        let ancestor_cap = opts.max_depth.unwrap_or(8).max(1);
         let mut cur = project_root.parent();
+        let mut walked = 0usize;
         while let Some(p) = cur {
+            if walked >= ancestor_cap {
+                break;
+            }
             roots.push(p.to_path_buf());
+            walked += 1;
             cur = p.parent();
         }
     }
@@ -1237,6 +1245,51 @@ mod tests {
         assert!(!ok, "basename-only match would restore the wrong path");
         assert_eq!(std::fs::read_to_string(&file_a).unwrap(), "A2");
         assert_eq!(std::fs::read_to_string(&file_b).unwrap(), "B");
+    }
+
+    /// #1688: ancestors walk is capped by max_depth (does not climb to FS root).
+    #[test]
+    fn list_sessions_under_ancestors_respects_max_depth() {
+        let deep = tempfile::TempDir::new().unwrap();
+        let nested = deep.path().join("a").join("b").join("c").join("d");
+        std::fs::create_dir_all(&nested).unwrap();
+        // Session only at the temp root (two levels above nested with cap=2).
+        let file = deep.path().join("top.txt");
+        std::fs::write(&file, "x").unwrap();
+        let mut session = BackupSession::new(deep.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap();
+
+        // From nested, max_depth=2 walks a/b then a (not deep root unless shallow enough).
+        let found = list_sessions_under(
+            &nested,
+            &ListSessionsOptions {
+                ancestors: true,
+                descendants: false,
+                max_depth: Some(2),
+            },
+        )
+        .unwrap();
+        // nested is deep/a/b/c/d → parents: c, b (cap 2). top session is at deep root.
+        assert!(
+            found.is_empty(),
+            "cap 2 from nested/d must not reach temp root: {found:?}"
+        );
+
+        let found_far = list_sessions_under(
+            &nested,
+            &ListSessionsOptions {
+                ancestors: true,
+                descendants: false,
+                max_depth: Some(8),
+            },
+        )
+        .unwrap();
+        // May include sibling host temp sessions above deep; require our root.
+        assert!(
+            found_far.iter().any(|l| l.project_root == deep.path()),
+            "cap 8 should reach temp root: {found_far:?}"
+        );
     }
 
     /// #1688: list_sessions_under walks nested crate roots and skips heavy dirs.
