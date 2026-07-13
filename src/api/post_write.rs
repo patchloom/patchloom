@@ -52,6 +52,10 @@ pub fn run_post_write_validation(
 /// Like [`run_post_write_validation`], but reverts via a specific backup session
 /// when `backup_session` is `Some` (#1686 / #1690). Falls back to latest-session
 /// restore when `None`.
+///
+/// `project_root` is the shell cwd for format/lint commands. Backup restore uses
+/// the **file parent** (where library Apply stores sessions), not `project_root`,
+/// so hosts can set `post_write_cwd` to a workspace root without breaking Revert.
 pub fn run_post_write_validation_with_session(
     project_root: &Path,
     path: &Path,
@@ -59,6 +63,9 @@ pub fn run_post_write_validation_with_session(
     backup_session: Option<&str>,
 ) -> anyhow::Result<()> {
     let timeout = hooks.timeout_secs.unwrap_or(30);
+    // Library Apply backs up under the file's parent (`write_if_apply`), which
+    // may differ from the host's hooks cwd (often the workspace root).
+    let backup_root = path.parent().unwrap_or(project_root);
     for (label, cmd) in [
         ("format", hooks.format_cmd.as_deref()),
         ("lint", hooks.lint_cmd.as_deref()),
@@ -71,9 +78,9 @@ pub fn run_post_write_validation_with_session(
                 // Surface restore failure: silent Ok(false)/Err left the file
                 // mutated while the host only saw the format error.
                 let restore = if let Some(ts) = backup_session {
-                    crate::backup::restore_path_from_session(project_root, ts, path)
+                    crate::backup::restore_path_from_session(backup_root, ts, path)
                 } else {
-                    restore_path_from_latest_backup(project_root, path)
+                    restore_path_from_latest_backup(backup_root, path)
                 };
                 match restore {
                     Ok(true) => {}

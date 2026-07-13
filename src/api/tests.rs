@@ -5366,6 +5366,62 @@ fn post_write_hooks_on_replace_apply_and_preview() {
     );
 }
 
+/// #1690 regression: hooks cwd may be workspace root while backup lives under
+/// the file parent; Revert must still restore.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn post_write_revert_uses_file_parent_backup_root() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("pkg");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("x.txt");
+    fs::write(&file, "v1\n").unwrap();
+
+    // Hooks run at workspace root; backup session is under nested/.
+    let fail_opts = ReplaceOptions {
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("false".into()),
+            on_failure: PostWriteOnFailure::Revert,
+            ..Default::default()
+        }),
+        post_write_cwd: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let err = replace_text(&file, "v1", "v2", &fail_opts, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::FormatFailed),
+        "{err}"
+    );
+    assert!(
+        !err.to_string().contains("also failed to revert"),
+        "session restore must find backup under file parent: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "v1\n",
+        "content restored despite hooks cwd != backup root"
+    );
+}
+
+/// #1687: out-of-range min_fuzzy_score is InvalidInput.
+#[test]
+fn min_fuzzy_score_rejects_out_of_range() {
+    for bad in [f64::NAN, -0.1, 1.5, 2.0] {
+        let opts = ReplaceOptions {
+            fuzzy: true,
+            min_fuzzy_score: Some(bad),
+            ..Default::default()
+        };
+        let err = replace_in_content("hello world\n", "helo", "hi", &opts).unwrap_err();
+        assert_eq!(
+            edit_error_kind(&err),
+            Some(EditErrorKind::InvalidInput),
+            "bad={bad} err={err}"
+        );
+    }
+}
+
 /// #1690: tidy honors WritePolicyOptions.post_write.
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]

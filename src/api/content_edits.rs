@@ -19,7 +19,9 @@ use std::path::Path;
 use crate::containment::PathGuard;
 
 #[cfg(any(feature = "cli", feature = "files"))]
-use super::{ApplyMode, EditResult, build_edit_result, write_if_apply};
+use super::{
+    ApplyMode, EditResult, PostWriteHooks, build_edit_result, maybe_post_write, write_if_apply,
+};
 
 #[cfg(any(feature = "cli", feature = "files"))]
 use crate::write::WritePolicy;
@@ -163,11 +165,31 @@ pub fn apply_content_edits_to_file(
         "content.edits",
         None,
     );
-    result.backup_session = backup_session;
+    result.backup_session = backup_session.clone();
     result.match_count = batch.match_count;
     result.match_mode = batch.match_mode;
     result.match_score = batch.match_score;
+    // Honor post_write from the last Replace edit that set hooks (#1690).
+    let (hooks, hooks_cwd) = post_write_from_edits(edits);
+    maybe_post_write(applied, path, hooks, hooks_cwd, backup_session.as_deref())?;
     Ok(result)
+}
+
+/// Last replace-side post_write wins (agent hosts set hooks once on the batch).
+fn post_write_from_edits(
+    edits: &[ContentEdit],
+) -> (Option<&PostWriteHooks>, Option<&std::path::Path>) {
+    let mut hooks = None;
+    let mut cwd = None;
+    for e in edits {
+        if let ContentEdit::Replace { options, .. } = e {
+            if options.post_write.is_some() {
+                hooks = options.post_write.as_ref();
+                cwd = options.post_write_cwd.as_deref();
+            }
+        }
+    }
+    (hooks, cwd)
 }
 
 /// Returns (new content, replace match_count, match_mode, match_score).
