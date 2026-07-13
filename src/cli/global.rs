@@ -67,11 +67,11 @@ pub struct GlobalFlags {
     #[cfg_attr(feature = "cli", arg(long, global = true, action = clap::ArgAction::Append))]
     pub glob: Vec<String>,
 
-    /// Exclude paths matching these glob patterns (in addition to .gitignore and custom ignore files). May be repeated. Enables layered excludes (e.g. .blineignore use cases) for search, replace, tidy etc.
+    /// Exclude paths matching these glob patterns (in addition to .gitignore and custom ignore files). May be repeated. Enables layered excludes for search, replace, tidy etc.
     #[cfg_attr(feature = "cli", arg(long, global = true, action = clap::ArgAction::Append))]
     pub exclude: Vec<String>,
 
-    /// Additional gitignore-style ignore filenames to respect (e.g. `.blineignore`). May be repeated. These are processed in addition to .gitignore.
+    /// Additional gitignore-style ignore filenames to respect (e.g. `.agentignore`). May be repeated. These are processed in addition to .gitignore.
     #[cfg_attr(feature = "cli", arg(long, global = true, action = clap::ArgAction::Append, value_name = "FILENAME"))]
     pub ignore_file: Vec<String>,
 

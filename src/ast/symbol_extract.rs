@@ -104,7 +104,7 @@ fn node_signature(node: tree_sitter_lib::Node, source: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Language-specific extractors (matching bline's patterns)
+// Language-specific extractors (agent-oriented symbol shapes)
 // ---------------------------------------------------------------------------
 
 fn extract_rust(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind, String)> {

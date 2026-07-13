@@ -342,7 +342,7 @@ Replace fail-closed / shell-token options: CLI `replace --require-change` and `-
 
 | Command | Description |
 |---|---|
-| `search` | Fast literal or regex search across text files (supports --glob/--exclude/--ignore-file for .blineignore-style layered filtering, --max-results, -C context, etc.) |
+| `search` | Fast literal or regex search across text files (supports --glob/--exclude/--ignore-file for layered custom ignore files, --max-results, -C context, etc.) |
 | `replace` | Mechanical string replacement across text files with diff preview |
 | `append` | Append content to an existing file |
 | `prepend` | Prepend content to an existing file |

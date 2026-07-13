@@ -84,7 +84,7 @@ pub fn search_file(
 
 /// Options for full directory search (for library consumers).
 ///
-/// Supports customization for advanced ignore behavior (e.g. blineignore)
+/// Supports customization for advanced ignore behavior (e.g. agent/tool ignore files)
 /// via `exclude_patterns` and `custom_ignore_filenames`. The underlying
 /// `ignore::WalkBuilder` is used when the "files" feature is enabled, so
 /// standard .gitignore is respected by default.
@@ -111,11 +111,11 @@ pub struct SearchOptions {
     pub globs: Vec<String>,
     /// Max number of results (0 for unlimited).
     pub max_results: usize,
-    /// Additional gitignore-style patterns to *exclude* (e.g. from a .blineignore).
+    /// Additional gitignore-style patterns to *exclude* (e.g. from a custom ignore file).
     /// These are applied in addition to any .gitignore respected by the walker.
     pub exclude_patterns: Vec<String>,
     /// Custom ignore filenames to respect in addition to .gitignore / .ignore
-    /// (e.g. `vec![".blineignore".to_string()]`).
+    /// (e.g. `vec![".agentignore".to_string()]`).
     pub custom_ignore_filenames: Vec<String>,
 }
 
@@ -167,14 +167,15 @@ pub fn build_context_lines(
 /// Respects globs and custom ignores (via `SearchOptions`) if "files" feature enabled.
 /// Uses parallel processing when available.
 /// This provides the full power of the CLI search for library use (see #773, #796).
-/// See `SearchOptions` for `exclude_patterns` and `custom_ignore_filenames` (blineignore etc.).
+/// See `SearchOptions` for `exclude_patterns` and `custom_ignore_filenames`
+/// (agent/tool ignore files, etc.).
 ///
 /// For callers that already have a list of files (custom walker), see [`search_one_file`].
 ///
-/// Example for custom ignore (bline style):
+/// Example for custom ignore files used by LLM agents:
 /// ```ignore
 /// let opts = SearchOptions {
-///     custom_ignore_filenames: vec![".blineignore".into()],
+///     custom_ignore_filenames: vec![".agentignore".into()],
 ///     exclude_patterns: vec!["*.tmp".into()],
 ///     ..Default::default()
 /// };

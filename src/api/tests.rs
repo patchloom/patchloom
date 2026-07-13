@@ -1748,15 +1748,15 @@ fn search_directory_exclude_patterns_and_custom_ignore() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("keep.txt"), "keep this\n").unwrap();
     std::fs::write(dir.path().join("ignore.txt"), "ignore me\n").unwrap();
-    std::fs::write(dir.path().join("bline.txt"), "bline secret\n").unwrap();
+    std::fs::write(dir.path().join("hidden.txt"), "hidden secret\n").unwrap();
 
-    // Create a custom ignore file (blineignore style)
-    std::fs::write(dir.path().join(".blineignore"), "bline.txt\n").unwrap();
+    // Create a custom agent/tool ignore file
+    std::fs::write(dir.path().join(".agentignore"), "hidden.txt\n").unwrap();
 
     let opts = SearchOptions {
         regex: true,
         exclude_patterns: vec!["*ignore*".to_string()],
-        custom_ignore_filenames: vec![".blineignore".to_string()],
+        custom_ignore_filenames: vec![".agentignore".to_string()],
         ..Default::default()
     };
     let results = search_directory(dir.path(), "keep|me|secret", &opts).unwrap();
@@ -1767,18 +1767,18 @@ fn search_directory_exclude_patterns_and_custom_ignore() {
 
 #[test]
 #[cfg(any(feature = "cli", feature = "files"))]
-fn search_parity_blineignore_across_api_cli_and_plan() {
+fn search_parity_custom_ignore_across_api_cli_and_plan() {
     // Cross-surface parity test for #821: same inputs via api, CLI collect, and tx plan Search
     // produce equivalent rich results (counts/paths) when using custom ignore + exclude + globs + max.
     let dir = TempDir::new().unwrap();
     let root = dir.path();
     std::fs::write(root.join("keep.rs"), "keep foo here\n").unwrap();
     std::fs::write(root.join("skip.rs"), "skip foo\n").unwrap();
-    std::fs::write(root.join("bline.txt"), "bline foo secret\n").unwrap();
+    std::fs::write(root.join("hidden.txt"), "hidden foo secret\n").unwrap();
     std::fs::write(root.join("other.txt"), "other foo\n").unwrap();
     std::fs::create_dir_all(root.join("target")).unwrap();
     std::fs::write(root.join("target/bad.rs"), "bad foo\n").unwrap();
-    std::fs::write(root.join(".blineignore"), "bline.txt\ntarget/\n").unwrap();
+    std::fs::write(root.join(".agentignore"), "hidden.txt\ntarget/\n").unwrap();
     std::fs::write(root.join(".gitignore"), "").unwrap();
 
     let pattern = "foo";
@@ -1786,7 +1786,7 @@ fn search_parity_blineignore_across_api_cli_and_plan() {
         literal: true,
         globs: vec!["*.rs".to_string()],
         exclude_patterns: vec!["*skip*".to_string()],
-        custom_ignore_filenames: vec![".blineignore".to_string()],
+        custom_ignore_filenames: vec![".agentignore".to_string()],
         max_results: 10,
         ..Default::default()
     };
@@ -1840,7 +1840,7 @@ fn search_parity_blineignore_across_api_cli_and_plan() {
             "literal": true,
             "globs": ["*.rs"],
             "exclude_patterns": ["*skip*"],
-            "custom_ignore_filenames": [".blineignore"],
+            "custom_ignore_filenames": [".agentignore"],
             "max_results": 10
         }}]
     }}"#,
@@ -1861,7 +1861,7 @@ fn search_parity_blineignore_across_api_cli_and_plan() {
     assert!(plan_total > 0, "plan should have recorded matches");
     // Ensure no leaked bad files in api results
     assert!(
-        !api_paths.iter().any(|p| p.contains("bline")
+        !api_paths.iter().any(|p| p.contains("hidden")
             || p.contains("skip")
             || p.contains("target")
             || p.contains("bad")),
@@ -4585,7 +4585,7 @@ fn restore_path_from_latest_backup_after_apply() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }
 
-// ── #1658–#1666 Bline embedder API batch ──────────────────────────────────
+// ── #1658–#1666 LLM agent embedder API batch ──────────────────────────────
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
 #[test]

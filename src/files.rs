@@ -171,7 +171,7 @@ pub(crate) fn collect_file_paths_opts(
     if include_hidden {
         builder.hidden(false);
     }
-    // Support advanced layered ignores (e.g. .blineignore) for parity with library
+    // Support advanced layered ignores (e.g. .agentignore) for parity with library
     // `collect_file_paths_with_ignores` and `api::SearchOptions` (#821).
     for name in &global.ignore_file {
         builder.add_custom_ignore_filename(name);
@@ -504,7 +504,7 @@ fn apply_exclude_globs(
     Ok(())
 }
 
-/// Collect files while respecting .gitignore + custom ignore files (e.g. .blineignore)
+/// Collect files while respecting .gitignore + custom ignore files (e.g. .agentignore)
 /// + additional exclude globs.
 ///
 /// This is the reusable primitive for library consumers
@@ -930,18 +930,18 @@ mod tests {
         fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
         fs::write(root.join("target/debug"), "binary").unwrap(); // will be excluded by pattern
         fs::write(root.join("README.md"), "# hi\n").unwrap();
-        fs::write(root.join("Cargo.toml"), "[package]\n").unwrap(); // should survive .blineignore + exclude
-        fs::write(root.join(".blineignore"), "target/\n*.md\n").unwrap();
+        fs::write(root.join("Cargo.toml"), "[package]\n").unwrap(); // should survive .agentignore + exclude
+        fs::write(root.join(".agentignore"), "target/\n*.md\n").unwrap();
 
         let mut global = GlobalFlags::test_default();
         global.cwd = Some(root.to_string_lossy().into_owned());
-        global.ignore_file = vec![".blineignore".to_string()];
+        global.ignore_file = vec![".agentignore".to_string()];
         global.exclude = vec!["*.rs".to_string()]; // further exclude rs on top
 
         let paths =
             collect_file_paths_opts(&[".".to_string()], &global, false, Some(root)).unwrap();
 
-        // .blineignore skips target/ and *.md; then exclude *.rs skips the rs files.
+        // .agentignore skips target/ and *.md; then exclude *.rs skips the rs files.
         // Only nothing should remain? Wait, adjust: actually with exclude *.rs and ignore md/target, expect empty or adjust expectation.
         // Simpler assertion: the ignore_file was honored (no target, no md), and additional exclude removed rs.
         let rels: Vec<_> = paths

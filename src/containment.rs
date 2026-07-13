@@ -14,10 +14,11 @@
 //! |--------|----------|---------|
 //! | `Reject` | MCP server or untrusted agent output (default for safety) | CLI tools exposed over network |
 //! | `AllowIfContained` | Trusted library use, absolute paths inside workspace only | Standard agent in project dir |
-//! | `AllowAdditionalRoots(...)` or builder | Agents needing /tmp (incl. macOS symlinks), build artifacts, scratch dirs while keeping guard for sensitive paths | Bline `--yolo` or experiment mode |
+//! | `AllowAdditionalRoots(...)` or builder | Agents needing /tmp (incl. macOS symlinks), build artifacts, scratch dirs while keeping guard for sensitive paths | Host experiment mode / temp-file agents |
 //!
 //! **Threat model note**: MCP uses untrusted LLM-generated paths, so strict `Reject`.
-//! Direct library embedding (e.g. Bline) can use relaxed policies because the host controls the agent.
+//! Direct library embedding (LLM agent hosts that control the agent process) can use
+//! relaxed policies because the host owns path policy.
 //! Even with extra roots, escapes *out of* allowed roots are still blocked.
 //!
 //! # Example
@@ -781,7 +782,7 @@ mod tests {
             .unwrap();
 
         // Use a unique name under the conventional /tmp to simulate real usage
-        // (Bline yolo flush tests, agent-generated paths, etc.).
+        // (host experiment-mode paths, agent-generated paths, etc.).
         let tmp_path = format!("/tmp/patchloom_781_test_{}.txt", std::process::id());
         let _ = std::fs::remove_file(&tmp_path);
         std::fs::write(&tmp_path, "data for 781").unwrap();

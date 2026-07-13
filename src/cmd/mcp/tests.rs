@@ -58,7 +58,7 @@ mod basic {
         assert_eq!(
             descriptions.get("search_files"),
             Some(
-                &"Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for Bline parity: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .blineignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".blineignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
+                &"Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for LLM agents: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .agentignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".agentignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
             ),
             "search_files description drifted"
         );
@@ -222,14 +222,14 @@ mod basic {
     }
 
     #[test]
-    fn mcp_search_params_accept_new_bline_ignore_fields() {
+    fn mcp_search_params_accept_custom_ignore_fields() {
         // Ensures schemars/serde accept the new fields added for #821 parity.
         let json = r#"{
             "pattern": "TODO",
             "paths": ["src/"],
             "globs": ["*.rs"],
             "exclude_patterns": ["target/**"],
-            "custom_ignore_filenames": [".blineignore"],
+            "custom_ignore_filenames": [".agentignore"],
             "max_results": 10,
             "literal": true
         }"#;

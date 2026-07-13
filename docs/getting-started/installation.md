@@ -71,7 +71,7 @@ Rust tools. Disable default features to omit CLI (clap), MCP server, and AST:
 patchloom = { default-features = false }
 ```
 
-To add AST support without CLI/MCP (embedders such as Bline typically use
+To add AST support without CLI/MCP (LLM agent embedders typically use
 `ast` + `files` for plan execution and AST file mutators):
 
 ```toml
