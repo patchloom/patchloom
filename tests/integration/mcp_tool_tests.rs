@@ -1864,7 +1864,10 @@ async fn test_mcp_batch_replace_fuzzy_reports_match_mode() {
     assert_eq!(changes.len(), 2, "two files changed: {val}");
     for ch in changes {
         assert_eq!(ch["match_mode"], "fuzzy", "per-file fuzzy match_mode: {ch}");
-        assert_eq!(ch["match_count"], 1, "per-file match_count from engine: {ch}");
+        assert_eq!(
+            ch["match_count"], 1,
+            "per-file match_count from engine: {ch}"
+        );
     }
     assert_eq!(
         val["match_count"], 2,
@@ -1884,7 +1887,6 @@ async fn test_mcp_batch_replace_fuzzy_reports_match_mode() {
     );
     client.cancel().await.unwrap();
 }
-
 
 #[tokio::test]
 async fn test_mcp_replace_text_fuzzy_reports_engine_match_mode() {
