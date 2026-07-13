@@ -234,6 +234,8 @@ mod tests {
             error_kind: None,
             error: None,
             backup_session: None,
+            match_mode: None,
+            match_score: None,
         };
         let emit = serialize_structured(&report, true);
         assert!(!emit.primary_ok);

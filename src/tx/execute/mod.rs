@@ -227,6 +227,8 @@ pub(crate) struct TxState<'a> {
     /// applied to these files, not to files loaded solely for reading (#1108).
     pub(crate) write_targets: &'a mut HashSet<PathBuf>,
     pub(crate) replace_hint: Option<String>,
+    /// Per-path replace match honesty (#1674). Accumulated across ops.
+    pub(crate) replace_match_meta: &'a mut HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
     pub(crate) cwd: &'a Path,
     pub(crate) quiet: bool,
     pub(crate) structured: bool,
@@ -250,6 +252,7 @@ pub(crate) struct TxStateFixture {
     pub lints: Vec<TxLintResult>,
     pub mutations: Vec<TxDocMutation>,
     pub write_targets: HashSet<PathBuf>,
+    pub replace_match_meta: HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)>,
 }
 
 #[cfg(test)]
@@ -265,6 +268,7 @@ impl TxStateFixture {
             lints: Vec::new(),
             mutations: Vec::new(),
             write_targets: HashSet::new(),
+            replace_match_meta: HashMap::new(),
         }
     }
 
@@ -280,6 +284,7 @@ impl TxStateFixture {
             tx_mutations: &mut self.mutations,
             write_targets: &mut self.write_targets,
             replace_hint: None,
+            replace_match_meta: &mut self.replace_match_meta,
             cwd,
             quiet: true,
             structured: false,
@@ -509,6 +514,8 @@ pub(crate) fn execute_and_collect(
     let mut tx_mutations: Vec<TxDocMutation> = Vec::new();
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
     let mut replace_hint: Option<String> = None;
+    let mut replace_match_meta: HashMap<PathBuf, (crate::api::MatchMode, Option<f64>)> =
+        HashMap::new();
 
     // Upfront PathGuard on declared paths (same contract as execute_plan_inner /
     // execute_plan_direct). CLI `tx` and `batch` call this function directly and
@@ -562,6 +569,7 @@ pub(crate) fn execute_and_collect(
             tx_mutations: &mut tx_mutations,
             write_targets: &mut write_targets,
             replace_hint: None,
+            replace_match_meta: &mut replace_match_meta,
             cwd,
             quiet,
             structured,
@@ -689,5 +697,6 @@ pub(crate) fn execute_and_collect(
         no_effective_changes,
         replace_no_matches,
         replace_hint,
+        replace_match_meta,
     })
 }
