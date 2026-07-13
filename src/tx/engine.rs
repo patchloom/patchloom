@@ -132,9 +132,11 @@ impl ExecutionResult {
     }
 
     /// Commit the staged changes to disk with backup.
-    pub fn commit(self) -> anyhow::Result<()> {
+    ///
+    /// Returns the backup session timestamp when a session was created.
+    pub fn commit(self) -> anyhow::Result<Option<String>> {
         if !self.has_changes {
-            return Ok(());
+            return Ok(None);
         }
         super::commit_changes(
             &self.exec_result.changes,

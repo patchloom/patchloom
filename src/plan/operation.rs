@@ -67,6 +67,9 @@ pub enum Operation {
         /// Also enabled implicitly when before_context/after_context is set.
         #[serde(default)]
         fuzzy: bool,
+        /// Reject fuzzy matches below this score when set (#1687).
+        #[serde(default)]
+        min_fuzzy_score: Option<f64>,
     },
     #[serde(rename = "doc.set")]
     DocSet {

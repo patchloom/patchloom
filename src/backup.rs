@@ -40,7 +40,7 @@ pub enum FileAction {
 }
 
 /// The manifest for a backup session.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
     pub timestamp: String,
     pub entries: Vec<ManifestEntry>,
@@ -282,6 +282,134 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
     }
 
     Ok(sessions)
+}
+
+/// Options for [`list_sessions_under`] (#1688).
+#[derive(Debug, Clone)]
+pub struct ListSessionsOptions {
+    /// Also search ancestor directories of `project_root` for `.patchloom/backups`.
+    pub ancestors: bool,
+    /// Also search descendants for nested `.patchloom/backups` (default true).
+    pub descendants: bool,
+    /// Max directory depth for descendant walks (default 8).
+    pub max_depth: Option<usize>,
+}
+
+impl Default for ListSessionsOptions {
+    fn default() -> Self {
+        Self {
+            ancestors: false,
+            descendants: true,
+            max_depth: Some(8),
+        }
+    }
+}
+
+/// One backup root plus its sessions (newest first), for nested monorepo layouts (#1688).
+#[derive(Debug, Clone)]
+pub struct SessionListing {
+    /// Directory that contains `.patchloom/backups` (the project root for that tree).
+    pub project_root: PathBuf,
+    /// Sessions under that root, newest first.
+    pub sessions: Vec<Manifest>,
+}
+
+/// List backup sessions under `project_root`, optionally walking nested crates.
+///
+/// Library Apply stores sessions under each file's parent tree, so monorepo
+/// edits may create `crates/foo/.patchloom/backups/` while the workspace root
+/// only has its own backups. Agent hosts use this helper instead of
+/// reimplementing nested discovery.
+pub fn list_sessions_under(
+    project_root: &Path,
+    opts: &ListSessionsOptions,
+) -> anyhow::Result<Vec<SessionListing>> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    roots.push(project_root.to_path_buf());
+
+    if opts.ancestors {
+        let mut cur = project_root.parent();
+        while let Some(p) = cur {
+            roots.push(p.to_path_buf());
+            cur = p.parent();
+        }
+    }
+
+    if opts.descendants {
+        let max_depth = opts.max_depth.unwrap_or(8);
+        collect_descendant_backup_roots(project_root, max_depth, 0, &mut roots)?;
+    }
+
+    // Dedupe while preserving order.
+    let mut seen = std::collections::HashSet::new();
+    let mut unique_roots = Vec::new();
+    for r in roots {
+        if seen.insert(r.clone()) {
+            unique_roots.push(r);
+        }
+    }
+
+    let mut out = Vec::new();
+    for root in unique_roots {
+        let sessions = list_sessions(&root)?;
+        if !sessions.is_empty() {
+            out.push(SessionListing {
+                project_root: root,
+                sessions,
+            });
+        }
+    }
+
+    // Global newest-first by first session timestamp when present.
+    out.sort_by(|a, b| {
+        let ta = a
+            .sessions
+            .first()
+            .map(|s| s.timestamp.as_str())
+            .unwrap_or("");
+        let tb = b
+            .sessions
+            .first()
+            .map(|s| s.timestamp.as_str())
+            .unwrap_or("");
+        tb.cmp(ta)
+    });
+    Ok(out)
+}
+
+fn collect_descendant_backup_roots(
+    dir: &Path,
+    max_depth: usize,
+    depth: usize,
+    out: &mut Vec<PathBuf>,
+) -> anyhow::Result<()> {
+    if depth >= max_depth {
+        return Ok(());
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Ok(());
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Skip heavy / VCS / backup dirs themselves.
+        if matches!(
+            name.as_ref(),
+            ".git" | "target" | "node_modules" | ".patchloom" | "dist" | "build" | ".venv"
+        ) {
+            continue;
+        }
+        let backup = path.join(BACKUP_DIR);
+        if backup.is_dir() {
+            out.push(path.clone());
+        }
+        collect_descendant_backup_roots(&path, max_depth, depth + 1, out)?;
+    }
+    Ok(())
 }
 
 /// Restore a single path from the most recent backup session that contains it.
@@ -1109,5 +1237,49 @@ mod tests {
         assert!(!ok, "basename-only match would restore the wrong path");
         assert_eq!(std::fs::read_to_string(&file_a).unwrap(), "A2");
         assert_eq!(std::fs::read_to_string(&file_b).unwrap(), "B");
+    }
+
+    /// #1688: list_sessions_under walks nested crate roots and skips heavy dirs.
+    #[test]
+    fn list_sessions_under_nested_and_depth_cap() {
+        let workspace = tempfile::TempDir::new().unwrap();
+        let nested = workspace.path().join("crates").join("pkg");
+        std::fs::create_dir_all(&nested).unwrap();
+        let file = nested.join("f.txt");
+        std::fs::write(&file, "x").unwrap();
+
+        let mut session = BackupSession::new(&nested).unwrap();
+        session.save_before_write(&file).unwrap();
+        let ts = session.finalize().unwrap().expect("session");
+
+        // Direct workspace list misses nested.
+        assert!(list_sessions(workspace.path()).unwrap().is_empty());
+
+        let listings = list_sessions_under(
+            workspace.path(),
+            &ListSessionsOptions {
+                descendants: true,
+                max_depth: Some(8),
+                ancestors: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(listings.len(), 1);
+        assert_eq!(listings[0].sessions[0].timestamp, ts);
+
+        // Depth 1 from workspace only sees `crates/`, not `crates/pkg`.
+        let shallow = list_sessions_under(
+            workspace.path(),
+            &ListSessionsOptions {
+                descendants: true,
+                max_depth: Some(1),
+                ancestors: false,
+            },
+        )
+        .unwrap();
+        assert!(
+            shallow.is_empty(),
+            "max_depth=1 should not reach crates/pkg: {shallow:?}"
+        );
     }
 }

@@ -26,6 +26,8 @@ use crate::write::WritePolicy;
 
 /// A single ordered edit on an in-memory buffer.
 #[derive(Debug, Clone)]
+// ReplaceOptions carries post_write hooks (#1690); boxing would break callers.
+#[allow(clippy::large_enum_variant)]
 pub enum ContentEdit {
     /// Text replacement (reuses [`ReplaceOptions`]).
     Replace {
@@ -151,7 +153,7 @@ pub fn apply_content_edits_to_file(
     // Prefer real path labels in multi-op preview (#1665 / #1500).
     let batch = apply_content_edits_with_label(&original, edits, Some(path_str.as_str()))?;
     let policy = WritePolicy::default();
-    let applied = write_if_apply(path, &batch.modified, mode, &policy, guard)?;
+    let (applied, backup_session) = write_if_apply(path, &batch.modified, mode, &policy, guard)?;
     // build_edit_result uses path for headers (#1500) and stays field-complete.
     let mut result = build_edit_result(
         &path_str,
@@ -161,6 +163,7 @@ pub fn apply_content_edits_to_file(
         "content.edits",
         None,
     );
+    result.backup_session = backup_session;
     result.match_count = batch.match_count;
     result.match_mode = batch.match_mode;
     result.match_score = batch.match_score;
@@ -516,6 +519,7 @@ mod tests {
             new: "fn handle_data() {}".into(),
             options: ReplaceOptions {
                 fuzzy: true,
+                min_fuzzy_score: None,
                 require_change: true,
                 ..Default::default()
             },

@@ -867,6 +867,7 @@ fn make_write_policy_maps_options() {
         normalize_eol: Some(EolMode::Lf),
         trim_trailing_whitespace: true,
         collapse_blanks: true,
+        ..Default::default()
     };
     let policy = make_write_policy(&opts);
     assert!(policy.ensure_final_newline);
@@ -2479,6 +2480,7 @@ fn adapter_unchanged_returns_no_diff() {
         require_change: false,
         command_position: false,
         fuzzy: false,
+        min_fuzzy_score: None,
     };
 
     let result =
@@ -2880,6 +2882,7 @@ fn replace_in_content_fuzzy_resolves_typo() {
     let content = "fn setup() {}\nfn process_data(x: i32) {}\nfn cleanup() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         ..Default::default()
     };
     let result = replace::replace_in_content(
@@ -2909,6 +2912,7 @@ fn replace_in_content_fuzzy_exact_match_preferred() {
     let content = "fn hello() {}\nfn world() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         ..Default::default()
     };
     let result =
@@ -2924,6 +2928,7 @@ fn replace_in_content_fuzzy_no_match_returns_error_with_hints() {
     let content = "fn alpha() {}\nfn beta() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         ..Default::default()
     };
     let err = replace::replace_in_content(
@@ -2946,6 +2951,7 @@ fn replace_in_content_fuzzy_with_if_exists_suppresses_error() {
     let content = "fn alpha() {}\nfn beta() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         if_exists: true,
         ..Default::default()
     };
@@ -2982,6 +2988,7 @@ fn replace_in_content_fuzzy_not_applied_in_regex_mode() {
     let content = "fn process_data() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         regex: true,
         ..Default::default()
     };
@@ -3001,6 +3008,7 @@ fn replace_in_content_fuzzy_with_unique() {
     let content = "fn setup() {}\nfn process_data(x: i32) {}\nfn cleanup() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         unique: true,
         ..Default::default()
     };
@@ -3022,6 +3030,7 @@ fn replace_in_content_fuzzy_with_insert_before() {
     let content = "fn process_data() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         insert_before: Some("// TODO: refactor\n".to_string()),
         ..Default::default()
     };
@@ -3050,6 +3059,7 @@ fn replace_in_content_fuzzy_with_insert_after() {
     let content = "fn process_data() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         insert_after: Some("\n// end".to_string()),
         ..Default::default()
     };
@@ -3068,6 +3078,7 @@ fn replace_in_content_fuzzy_uses_before_context() {
     let content = "fn alpha() {}\nfn proccess_data() {}\nfn beta() {}\nfn proccess_data() {}\nfn gamma() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         before_context: Some("fn beta()".to_string()),
         ..Default::default()
     };
@@ -3089,6 +3100,7 @@ fn replace_in_content_fuzzy_uses_after_context() {
     let content = "fn alpha() {}\nfn proccess_data() {}\nfn beta() {}\nfn proccess_data() {}\nfn gamma() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         after_context: Some("fn beta()".to_string()),
         ..Default::default()
     };
@@ -3449,6 +3461,7 @@ fn replace_in_content_unicode_fuzzy() {
     let content = "fn процесс_данных() {}\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         ..Default::default()
     };
     let result = replace::replace_in_content(
@@ -3622,6 +3635,7 @@ fn replace_text_fuzzy_with_context_any_path() {
 
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         before_context: Some("fn setup()".to_string()),
         ..Default::default()
     };
@@ -3651,6 +3665,7 @@ fn replace_text_fuzzy_with_if_exists_any_path() {
 
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         if_exists: true,
         before_context: Some("fn alpha()".to_string()),
         ..Default::default()
@@ -4121,6 +4136,7 @@ fn replace_in_content_command_position_rejects_word_boundary_and_fuzzy() {
             ReplaceOptions {
                 command_position: true,
                 fuzzy: true,
+                min_fuzzy_score: None,
                 ..Default::default()
             },
         ),
@@ -4346,6 +4362,7 @@ fn ast_rename_batch_two_files_success() {
         mode: ApplyMode::Apply,
         continue_on_no_match: true,
         fail_fast: false,
+        ..Default::default()
     };
     let results = ast_rename_batch(&[&a, &b], "foo", "bar", &opts, None).unwrap();
     assert_eq!(results.len(), 2);
@@ -4437,6 +4454,7 @@ fn ast_rename_batch_fail_fast_stops_after_hard_error() {
         mode: ApplyMode::Apply,
         continue_on_no_match: true,
         fail_fast: true,
+        ..Default::default()
     };
     // Process good first (ok), then outside (guard), then after must not run.
     let results = ast_rename_batch(
@@ -4479,6 +4497,7 @@ fn ast_rename_batch_continue_on_no_match_false_stops() {
         mode: ApplyMode::Apply,
         continue_on_no_match: false,
         fail_fast: false,
+        ..Default::default()
     };
     let results = ast_rename_batch(&[&miss, &after], "foo", "bar", &opts, None).unwrap();
     assert_eq!(
@@ -4547,6 +4566,7 @@ fn ast_rename_batch_guard_rejects_outside() {
         mode: ApplyMode::Apply,
         continue_on_no_match: false,
         fail_fast: false,
+        ..Default::default()
     };
     let results = ast_rename_batch(&[&outside], "foo", "bar", &opts, Some(&guard)).unwrap();
     assert_eq!(results.len(), 1);
@@ -4767,6 +4787,7 @@ fn match_mode_exact_fuzzy_and_anchored() {
         "fn process_data() {}",
         &ReplaceOptions {
             fuzzy: true,
+            min_fuzzy_score: None,
             ..Default::default()
         },
     )
@@ -4810,6 +4831,7 @@ fn replace_text_pure_fuzzy_without_context() {
     fs::write(&file, "fn process_data() {}\n").unwrap();
     let opts = ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         require_change: true,
         ..Default::default()
     };
@@ -5053,4 +5075,316 @@ fn replace_text_exact_disk_multi_match_count() {
     assert!(r.changed);
     assert_eq!(r.match_count, 3, "multi exact match_count: {:?}", r);
     assert_eq!(r.match_mode, Some(MatchMode::Exact));
+}
+
+// ---------------------------------------------------------------------------
+// Agent-host APIs #1686–#1690
+// ---------------------------------------------------------------------------
+
+/// #1686: Apply replace reports backup_session; restore_path_from_session works.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn edit_result_backup_session_enables_surgical_restore() {
+    use crate::backup::restore_path_from_session;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("note.txt");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let r = replace_text(
+        &file,
+        "world",
+        "patchloom",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(r.applied);
+    assert!(r.changed);
+    let session = r
+        .backup_session
+        .as_deref()
+        .expect("Apply must report backup_session (#1686)");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello patchloom\n");
+
+    // Preview must not create a session.
+    let preview = replace_text(
+        &file,
+        "patchloom",
+        "again",
+        &ReplaceOptions::default(),
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(preview.backup_session.is_none());
+
+    let cwd = file.parent().unwrap();
+    assert!(
+        restore_path_from_session(cwd, session, &file).unwrap(),
+        "restore via reported session"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello world\n");
+}
+
+/// #1687: min_fuzzy_score rejects low-confidence fuzzy; exact still wins.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn min_fuzzy_score_rejects_weak_fuzzy_allows_exact() {
+    let content = "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n";
+    let misspelled = "fn process_requets(data: &str) -> Result<()> {";
+
+    // First measure the natural fuzzy score, then set a floor just above it.
+    let probe = replace_in_content(
+        content,
+        misspelled,
+        "REPLACED",
+        &ReplaceOptions {
+            fuzzy: true,
+            ..Default::default()
+        },
+    )
+    .expect("unfloored fuzzy should match");
+    assert_eq!(probe.match_mode, Some(MatchMode::Fuzzy));
+    let natural = probe.match_score.expect("fuzzy score");
+    assert!(
+        natural > 0.85,
+        "similarity path requires >0.85, got {natural}"
+    );
+
+    let strict = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: Some(natural + 0.01),
+        ..Default::default()
+    };
+    let err = replace_in_content(content, misspelled, "REPLACED", &strict).unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch),
+        "weak fuzzy must be NoMatch: {err}"
+    );
+    assert!(
+        err.to_string().contains("min_fuzzy_score"),
+        "message should name the floor: {err}"
+    );
+
+    // Floor at or below natural score allows the same fuzzy match.
+    let loose = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: Some(natural),
+        ..Default::default()
+    };
+    let ok = replace_in_content(content, misspelled, "REPLACED {", &loose).unwrap();
+    assert!(ok.changed);
+    assert_eq!(ok.match_mode, Some(MatchMode::Fuzzy));
+    assert!(ok.match_score.is_some_and(|s| s >= natural - 1e-9));
+
+    // Exact match is unaffected by a high floor.
+    let exact_opts = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: Some(1.0),
+        ..Default::default()
+    };
+    let exact = replace_in_content("alpha beta gamma\n", "beta", "BETA", &exact_opts).unwrap();
+    assert!(exact.changed);
+    assert_eq!(exact.match_mode, Some(MatchMode::Exact));
+    assert!(exact.new_content.contains("BETA"));
+}
+
+/// #1688: nested monorepo backups found by list_sessions_under.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn list_sessions_under_finds_nested_backup_roots() {
+    use crate::backup::{ListSessionsOptions, list_sessions, list_sessions_under};
+
+    let workspace = TempDir::new().unwrap();
+    let crate_dir = workspace.path().join("crates").join("foo");
+    fs::create_dir_all(&crate_dir).unwrap();
+    let file = crate_dir.join("lib.txt");
+    fs::write(&file, "old\n").unwrap();
+
+    let r = replace_text(
+        &file,
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(r.backup_session.is_some());
+
+    // Workspace-root list is empty (session lives under file parent).
+    let root_sessions = list_sessions(workspace.path()).unwrap();
+    assert!(
+        root_sessions.is_empty(),
+        "workspace list_sessions should miss nested root: {root_sessions:?}"
+    );
+
+    let listings = list_sessions_under(
+        workspace.path(),
+        &ListSessionsOptions {
+            descendants: true,
+            max_depth: Some(8),
+            ancestors: false,
+        },
+    )
+    .unwrap();
+    assert!(
+        !listings.is_empty(),
+        "list_sessions_under must find nested sessions"
+    );
+    let found = listings.iter().any(|l| {
+        l.sessions
+            .iter()
+            .any(|s| Some(&s.timestamp) == r.backup_session.as_ref())
+    });
+    assert!(
+        found,
+        "reported session must appear in nested listing: {listings:?}"
+    );
+}
+
+/// #1689: ast_rename_project discovers + renames without a path list.
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_project_discovers_and_renames() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.rs");
+    let b = dir.path().join("b.rs");
+    let empty = dir.path().join("empty.rs");
+    fs::write(&a, "struct OldType {}\n").unwrap();
+    fs::write(&b, "fn use_it(x: OldType) {}\n").unwrap();
+    fs::write(&empty, "fn other() {}\n").unwrap();
+
+    let report = ast_rename_project(
+        dir.path(),
+        "OldType",
+        "NewType",
+        &AstRenameProjectOptions {
+            search: SymbolSearchOptions::default(),
+            rename: AstRenameBatchOptions {
+                mode: ApplyMode::Apply,
+                ..Default::default()
+            },
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        report.paths_considered.len(),
+        2,
+        "{:?}",
+        report.paths_considered
+    );
+    assert!(
+        report.results.iter().all(|r| r.result.is_ok()),
+        "rename results: {:?}",
+        report.results
+    );
+    assert!(fs::read_to_string(&a).unwrap().contains("NewType"));
+    assert!(fs::read_to_string(&b).unwrap().contains("NewType"));
+    assert!(!fs::read_to_string(&empty).unwrap().contains("NewType"));
+
+    let err = ast_rename_project(
+        dir.path(),
+        "DoesNotExistAnywhere",
+        "X",
+        &AstRenameProjectOptions::default(),
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(edit_error_kind(&err), Some(EditErrorKind::NoMatch));
+}
+
+/// #1690: post_write hooks on replace Apply; Preview skips hooks; fail reverts.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn post_write_hooks_on_replace_apply_and_preview() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("x.txt");
+    fs::write(&file, "before\n").unwrap();
+
+    // Preview must not run hooks (failing command would error).
+    let preview_opts = ReplaceOptions {
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("false".into()),
+            on_failure: PostWriteOnFailure::KeepWithError,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let preview = replace_text(
+        &file,
+        "before",
+        "after",
+        &preview_opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert!(!preview.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "before\n");
+
+    // Apply + success hook.
+    let ok_opts = ReplaceOptions {
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("true".into()),
+            on_failure: PostWriteOnFailure::KeepWithError,
+            ..Default::default()
+        }),
+        post_write_cwd: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let ok = replace_text(&file, "before", "after", &ok_opts, ApplyMode::Apply, None).unwrap();
+    assert!(ok.applied);
+    assert!(ok.backup_session.is_some());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "after\n");
+
+    // Apply + failing hook with Revert restores prior content.
+    fs::write(&file, "v1\n").unwrap();
+    let fail_opts = ReplaceOptions {
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("false".into()),
+            on_failure: PostWriteOnFailure::Revert,
+            ..Default::default()
+        }),
+        post_write_cwd: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let err = replace_text(&file, "v1", "v2", &fail_opts, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::FormatFailed),
+        "{err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "v1\n",
+        "Revert must restore pre-edit content"
+    );
+}
+
+/// #1690: tidy honors WritePolicyOptions.post_write.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn tidy_post_write_hooks_on_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("messy.txt");
+    fs::write(&file, "line  \n").unwrap();
+
+    let opts = WritePolicyOptions {
+        trim_trailing_whitespace: true,
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("true".into()),
+            ..Default::default()
+        }),
+        post_write_cwd: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let r = tidy(&file, &opts, ApplyMode::Apply, None).unwrap();
+    assert!(r.applied);
+    assert!(r.changed);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "line\n");
 }

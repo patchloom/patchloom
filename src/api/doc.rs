@@ -81,14 +81,15 @@ fn doc_write(
     let policy = WritePolicy::default();
     // Do not write (or report applied) when the mutation is a no-op.
     let content_changed = original != new_content;
-    let applied = if content_changed {
+    let (applied, backup_session) = if content_changed {
         super::write_if_apply(path, &new_content, mode, &policy, guard)?
     } else {
-        false
+        (false, None)
     };
     let mut edit =
         super::build_edit_result(&path_str, original, new_content, applied, action, None);
     edit.removed = removed;
+    edit.backup_session = backup_session;
     Ok(edit)
 }
 

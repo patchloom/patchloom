@@ -89,6 +89,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         require_change,
         command_position,
         fuzzy,
+        min_fuzzy_score,
         ..
     } = op
     else {
@@ -235,6 +236,23 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 after_context.as_deref(),
             ) {
                 Ok(anchor) => {
+                    let (mode, default_score) =
+                        crate::api::match_mode_from_strategy(anchor.strategy);
+                    let score = anchor.score.or(default_score);
+                    // Reject weak fuzzy matches when host set a floor (#1687).
+                    if mode == MatchMode::Fuzzy
+                        && let Some(min) = min_fuzzy_score
+                        && score.is_some_and(|s| s < *min)
+                    {
+                        let actual = score
+                            .map(|s| format!("{s:.3}"))
+                            .unwrap_or_else(|| "?".into());
+                        tx.replace_hint = Some(format!(
+                            "fuzzy match score {actual} below min_fuzzy_score {min} for {:?}",
+                            crate::fallback::truncate_str(old, 60),
+                        ));
+                        return Ok(0);
+                    }
                     let to_text = if let Some(ib) = insert_before {
                         format!("{}{}", ib, anchor.matched_text)
                     } else if let Some(ia) = insert_after {
@@ -255,9 +273,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         &file_path,
                         new_content,
                     );
-                    let (mode, default_score) =
-                        crate::api::match_mode_from_strategy(anchor.strategy);
-                    record_replace_match(tx, &file_path, mode, anchor.score.or(default_score), 1);
+                    record_replace_match(tx, &file_path, mode, score, 1);
                     tx.replace_hint = Some(format!(
                         "fallback matched via {:?} strategy in {}",
                         anchor.strategy, p,
@@ -443,6 +459,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     after_context.as_deref(),
                 ) {
                     Ok(anchor) => {
+                        let (mode, default_score) =
+                            crate::api::match_mode_from_strategy(anchor.strategy);
+                        let score = anchor.score.or(default_score);
+                        if mode == MatchMode::Fuzzy
+                            && let Some(min) = min_fuzzy_score
+                            && score.is_some_and(|s| s < *min)
+                        {
+                            // Skip this file; keep scanning (require_change after loop).
+                            continue;
+                        }
                         let to_text = if let Some(ib) = insert_before {
                             format!("{}{}", ib, anchor.matched_text)
                         } else if let Some(ia) = insert_after {
@@ -463,15 +489,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             &file_path,
                             new_content,
                         );
-                        let (mode, default_score) =
-                            crate::api::match_mode_from_strategy(anchor.strategy);
-                        record_replace_match(
-                            tx,
-                            &file_path,
-                            mode,
-                            anchor.score.or(default_score),
-                            1,
-                        );
+                        record_replace_match(tx, &file_path, mode, score, 1);
                         total_matches += 1;
                     }
                     Err(_) => {
@@ -529,6 +547,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -566,6 +585,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -601,6 +621,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -638,6 +659,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -673,6 +695,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -717,6 +740,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -757,6 +781,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -809,6 +834,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -858,6 +884,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -903,6 +930,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -946,6 +974,7 @@ mod tests {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
 
         let mut f = TxStateFixture::new();
@@ -982,6 +1011,7 @@ mod tests {
             require_change: true,
             command_position: true,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1017,11 +1047,64 @@ mod tests {
             require_change: true,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
         let err = execute_replace_op(&op, &mut tx).unwrap_err();
         assert!(err.to_string().contains("no matches"), "{err}");
+    }
+
+    #[test]
+    fn replace_min_fuzzy_score_rejects_weak_match() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("src.rs");
+        std::fs::write(
+            &file,
+            "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n",
+        )
+        .unwrap();
+
+        // Floor above any real similarity score so the match is always rejected.
+        let op = Operation::Replace {
+            path: Some("src.rs".into()),
+            glob: None,
+            regex: false,
+            old: "fn process_requets(data: &str) -> Result<()> {".into(),
+            new_text: Some("REPLACED".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: true,
+            min_fuzzy_score: Some(1.0),
+        };
+        let mut f = TxStateFixture::new();
+        let hint = {
+            let mut tx = f.state(dir.path());
+            let count = execute_replace_op(&op, &mut tx).unwrap();
+            assert_eq!(count, 0, "score floor must reject weak fuzzy");
+            tx.replace_hint.clone()
+        };
+        assert!(
+            f.write_targets.is_empty(),
+            "rejected fuzzy must not stage a write"
+        );
+        assert!(
+            hint.as_deref()
+                .is_some_and(|h| h.contains("min_fuzzy_score")),
+            "hint: {hint:?}"
+        );
     }
 
     #[test]
@@ -1051,6 +1134,7 @@ mod tests {
             require_change: true,
             command_position: false,
             fuzzy: true,
+            min_fuzzy_score: None,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1095,6 +1179,7 @@ mod tests {
             require_change: true,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1133,6 +1218,7 @@ mod tests {
             require_change: true,
             command_position: false,
             fuzzy: true,
+            min_fuzzy_score: None,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());

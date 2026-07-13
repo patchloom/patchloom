@@ -533,6 +533,7 @@ mod tests {
                 require_change: false,
                 command_position: false,
                 fuzzy: false,
+                min_fuzzy_score: None,
             }],
             write_policy: None,
             format: None,

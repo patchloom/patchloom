@@ -63,7 +63,7 @@ pub fn replace_text(
         })?;
         let content_result = replace_in_content(&original, from, to, opts)?;
         let policy = crate::write::WritePolicy::default();
-        let applied =
+        let (applied, backup_session) =
             super::write_if_apply(path, &content_result.new_content, mode, &policy, guard)?;
         let path_str = path.to_string_lossy();
         let mut result = super::build_edit_result(
@@ -77,6 +77,14 @@ pub fn replace_text(
         result.match_count = content_result.match_count;
         result.match_mode = content_result.match_mode;
         result.match_score = content_result.match_score;
+        result.backup_session = backup_session.clone();
+        super::maybe_post_write(
+            applied,
+            path,
+            opts.post_write.as_ref(),
+            opts.post_write_cwd.as_deref(),
+            backup_session.as_deref(),
+        )?;
         return Ok(result);
     }
 
@@ -102,6 +110,7 @@ pub fn replace_text(
         require_change: false,
         command_position: opts.command_position,
         fuzzy: false,
+        min_fuzzy_score: opts.min_fuzzy_score,
     };
     let mut result = replace_write(op, path, mode, guard, opts.fuzzy)?;
     // if_exists intentionally softens zero-match (Ok unchanged). require_change
@@ -126,6 +135,14 @@ pub fn replace_text(
             result.match_count = 1;
         }
     }
+    // Post-Apply format/lint hooks (#1690).
+    super::maybe_post_write(
+        result.applied,
+        path,
+        opts.post_write.as_ref(),
+        opts.post_write_cwd.as_deref(),
+        result.backup_session.as_deref(),
+    )?;
     Ok(result)
 }
 
@@ -170,6 +187,7 @@ fn replace_write(
         unique,
         before_context,
         after_context,
+        min_fuzzy_score,
         ..
     } = op
     {
@@ -250,7 +268,8 @@ fn replace_write(
                     &original[target_offset + old.len()..],
                 );
                 let policy = crate::write::WritePolicy::default();
-                let applied = super::write_if_apply(path, &ctx_content, mode, &policy, guard)?;
+                let (applied, backup_session) =
+                    super::write_if_apply(path, &ctx_content, mode, &policy, guard)?;
                 let mut result = super::build_edit_result(
                     &path_str,
                     original,
@@ -261,6 +280,7 @@ fn replace_write(
                 );
                 result.match_count = 1;
                 result.match_mode = Some(MatchMode::Anchored);
+                result.backup_session = backup_session;
                 return Ok(result);
             }
         }
@@ -292,6 +312,22 @@ fn replace_write(
                 after_context.as_deref(),
             ) {
                 Ok(anchor) => {
+                    let (match_mode, default_score) =
+                        super::match_mode_from_strategy(anchor.strategy);
+                    let score = anchor.score.or(default_score);
+                    if match_mode == MatchMode::Fuzzy
+                        && let Some(min) = min_fuzzy_score
+                        && score.is_some_and(|s| s < min)
+                    {
+                        let actual = score
+                            .map(|s| format!("{s:.3}"))
+                            .unwrap_or_else(|| "?".into());
+                        return Err(anyhow::Error::new(crate::exit::NoMatchError {
+                            msg: format!(
+                                "fuzzy match score {actual} below min_fuzzy_score {min} for {old:?}"
+                            ),
+                        }));
+                    }
                     let to_text = if let Some(ib) = &insert_before {
                         format!("{}{}", ib, anchor.matched_text)
                     } else if let Some(ia) = &insert_after {
@@ -306,14 +342,15 @@ fn replace_write(
                         &original[anchor.start_offset + anchor.matched_text.len()..],
                     );
                     let policy = crate::write::WritePolicy::default();
-                    let applied = super::write_if_apply(path, &fb_content, mode, &policy, guard)?;
+                    let (applied, backup_session) =
+                        super::write_if_apply(path, &fb_content, mode, &policy, guard)?;
                     let mut result = super::build_edit_result(
                         &path_str, original, fb_content, applied, "replace", None,
                     );
                     result.match_count = 1;
-                    let (mode, default_score) = super::match_mode_from_strategy(anchor.strategy);
-                    result.match_mode = Some(mode);
-                    result.match_score = anchor.score.or(default_score);
+                    result.match_mode = Some(match_mode);
+                    result.match_score = score;
+                    result.backup_session = backup_session;
                     return Ok(result);
                 }
                 Err(edit_error) => {
@@ -352,13 +389,15 @@ fn replace_write(
         }
 
         let policy = crate::write::WritePolicy::default();
-        let applied = super::write_if_apply(path, &new_content, mode, &policy, guard)?;
+        let (applied, backup_session) =
+            super::write_if_apply(path, &new_content, mode, &policy, guard)?;
         let mut result =
             super::build_edit_result(&path_str, original, new_content, applied, "replace", None);
         result.match_count = count;
         if count > 0 {
             result.match_mode = Some(MatchMode::Exact);
         }
+        result.backup_session = backup_session;
         Ok(result)
     } else {
         bail!("expected Replace operation")
@@ -516,6 +555,24 @@ pub fn replace_in_content(
             opts.after_context.as_deref(),
         ) {
             Ok(anchor) => {
+                let (mode, default_score) = super::match_mode_from_strategy(anchor.strategy);
+                let score = anchor.score.or(default_score);
+                if mode == super::MatchMode::Fuzzy
+                    && let Some(min) = opts.min_fuzzy_score
+                    && score.is_some_and(|s| s < min)
+                {
+                    let actual = score
+                        .map(|s| format!("{s:.3}"))
+                        .unwrap_or_else(|| "?".into());
+                    return Err(crate::fallback::EditError::new(
+                        crate::fallback::EditErrorKind::NoMatch,
+                        format!(
+                            "fuzzy match score {actual} below min_fuzzy_score {min} for {:?}",
+                            from
+                        ),
+                    )
+                    .into());
+                }
                 let to_text = if let Some(ib) = &opts.insert_before {
                     format!("{}{}", ib, anchor.matched_text)
                 } else if let Some(ia) = &opts.insert_after {
@@ -530,7 +587,6 @@ pub fn replace_in_content(
                     &content[anchor.start_offset + anchor.matched_text.len()..]
                 );
                 let diff = super::make_diff("<content>", content, &fuzzy_content);
-                let (mode, default_score) = super::match_mode_from_strategy(anchor.strategy);
                 return Ok(ContentEditResult {
                     original: content.to_string(),
                     new_content: fuzzy_content,
@@ -538,7 +594,7 @@ pub fn replace_in_content(
                     changed: true,
                     match_count: 1,
                     match_mode: Some(mode),
-                    match_score: anchor.score.or(default_score),
+                    match_score: score,
                 });
             }
             Err(edit_error) => {
