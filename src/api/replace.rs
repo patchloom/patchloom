@@ -427,14 +427,14 @@ pub fn replace_in_content(
             msg: "empty search pattern".into(),
         }));
     }
-    if let Some(min) = opts.min_fuzzy_score {
-        if !(0.0..=1.0).contains(&min) || min.is_nan() {
-            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: format!(
-                    "min_fuzzy_score must be in 0.0..=1.0 (got {min}); leave None for no floor"
-                ),
-            }));
-        }
+    if let Some(min) = opts.min_fuzzy_score
+        && (!(0.0..=1.0).contains(&min) || min.is_nan())
+    {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!(
+                "min_fuzzy_score must be in 0.0..=1.0 (got {min}); leave None for no floor"
+            ),
+        }));
     }
     if opts.range.is_some() && !opts.whole_line {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {

@@ -182,11 +182,11 @@ fn post_write_from_edits(
     let mut hooks = None;
     let mut cwd = None;
     for e in edits {
-        if let ContentEdit::Replace { options, .. } = e {
-            if options.post_write.is_some() {
-                hooks = options.post_write.as_ref();
-                cwd = options.post_write_cwd.as_deref();
-            }
+        if let ContentEdit::Replace { options, .. } = e
+            && options.post_write.is_some()
+        {
+            hooks = options.post_write.as_ref();
+            cwd = options.post_write_cwd.as_deref();
         }
     }
     (hooks, cwd)
