@@ -331,6 +331,43 @@ pub(super) fn inject_strict_into_schema(mut schema: serde_json::Value) -> serde_
     schema
 }
 
+/// LLM-prior field aliases accepted by plan serde and hand-written MCP params.
+///
+/// Remap **before** the registry allowlist so schemars-derived schemas (which do
+/// not expose `#[serde(alias)]`) still accept the same priors (#1696 / #1435).
+/// Only applied when the **canonical** name is a property of this tool's schema
+/// (so `doc.move`'s real `from`/`to` fields are not remapped to replace's old/new).
+const FIELD_ALIASES: &[(&str, &str)] = &[
+    ("key", "selector"),
+    ("from", "old"),
+    ("to", "new"),
+    ("ops", "operations"),
+];
+
+/// Rename known alias keys to canonical names when the schema allows the canonical.
+fn apply_field_aliases(
+    args: &mut serde_json::Map<String, serde_json::Value>,
+    allowed_fields: &std::collections::HashSet<String>,
+) -> Result<(), McpError> {
+    for &(alias, canonical) in FIELD_ALIASES {
+        if !args.contains_key(alias) || !allowed_fields.contains(canonical) {
+            continue;
+        }
+        if args.contains_key(canonical) {
+            return Err(McpError::invalid_params(
+                format!(
+                    "conflicting fields {alias:?} and {canonical:?}; use canonical {canonical:?} only"
+                ),
+                None,
+            ));
+        }
+        if let Some(val) = args.remove(alias) {
+            args.insert(canonical.to_string(), val);
+        }
+    }
+    Ok(())
+}
+
 /// Generic handler for auto-generated MCP tools.
 ///
 /// Runs field validations from the registry entry, injects the `op` discriminator,
@@ -342,21 +379,40 @@ pub(super) fn handle_simple_op(
     allowed_fields: &std::collections::HashSet<String>,
 ) -> Result<CallToolResult, McpError> {
     let args_obj = args
-        .as_object()
+        .as_object_mut()
         .ok_or_else(|| McpError::invalid_params("expected JSON object", None))?;
 
+    // Remap LLM-prior aliases first so allowlist sees only canonical names (#1696).
+    apply_field_aliases(args_obj, allowed_fields)?;
+
     // Reject unknown fields (replaces deny_unknown_fields from hand-written params).
-    let unknown: Vec<&str> = args_obj
+    let unknown: Vec<String> = args_obj
         .keys()
         .filter(|k| !allowed_fields.contains(k.as_str()))
-        .map(|k| k.as_str())
+        .cloned()
         .collect();
     if !unknown.is_empty() {
-        return Err(McpError::invalid_params(
-            format!("unknown field(s): {}", unknown.join(", ")),
-            None,
-        ));
+        let hint = unknown
+            .iter()
+            .filter_map(|u| {
+                FIELD_ALIASES
+                    .iter()
+                    .find(|(a, _)| *a == u.as_str())
+                    .map(|(_, c)| format!("{u} (did you mean {c}?)"))
+            })
+            .collect::<Vec<_>>();
+        let msg = if hint.is_empty() {
+            format!("unknown field(s): {}", unknown.join(", "))
+        } else {
+            // Alias present but this op's schema has no canonical (should be rare).
+            format!("unknown field(s): {}", hint.join(", "))
+        };
+        return Err(McpError::invalid_params(msg, None));
     }
+
+    let args_obj = args
+        .as_object()
+        .ok_or_else(|| McpError::invalid_params("expected JSON object", None))?;
 
     // Run field validations.
     for v in meta.validations {
@@ -426,4 +482,69 @@ pub(super) fn handle_simple_op(
     }
 
     service.run_one_op(op, strict)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn field_aliases_remap_key_to_selector() {
+        let allowed: HashSet<String> = ["path", "selector", "value", "strict"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let mut args = serde_json::json!({
+            "path": "c.json",
+            "key": "server.port",
+            "value": 9,
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        apply_field_aliases(&mut args, &allowed).unwrap();
+        assert_eq!(
+            args.get("selector").and_then(|v| v.as_str()),
+            Some("server.port")
+        );
+        assert!(!args.contains_key("key"));
+    }
+
+    #[test]
+    fn field_aliases_conflict_when_both_present() {
+        // Only selector is in real schema; include both keys in the args map.
+        let allowed: HashSet<String> = ["selector"].into_iter().map(str::to_string).collect();
+        let mut args = serde_json::json!({
+            "key": "a",
+            "selector": "b",
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let err = apply_field_aliases(&mut args, &allowed).unwrap_err();
+        assert!(err.to_string().contains("conflicting"), "err={err}");
+    }
+
+    #[test]
+    fn field_aliases_skip_from_when_canonical_not_in_schema() {
+        // doc.move has real `from`/`to` properties; do not remap to old/new.
+        let allowed: HashSet<String> = ["path", "from", "to"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        let mut args = serde_json::json!({
+            "path": "c.json",
+            "from": "a.b",
+            "to": "c.d",
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        apply_field_aliases(&mut args, &allowed).unwrap();
+        assert_eq!(args.get("from").and_then(|v| v.as_str()), Some("a.b"));
+        assert_eq!(args.get("to").and_then(|v| v.as_str()), Some("c.d"));
+        assert!(!args.contains_key("old"));
+        assert!(!args.contains_key("new"));
+    }
 }

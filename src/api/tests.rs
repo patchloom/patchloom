@@ -5411,6 +5411,35 @@ fn post_write_revert_uses_file_parent_backup_root() {
     );
 }
 
+/// #1694: fuzzy identifier typo keeps surrounding syntax (not whole-line replace).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn fuzzy_identifier_typo_keeps_line_syntax() {
+    let content = "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n";
+    let r = replace_in_content(
+        content,
+        "CONFIGURATION_VALUE_PRIMRY",
+        "CONFIGURATION_VALUE_SECONDARY",
+        &ReplaceOptions {
+            fuzzy: true,
+            ..Default::default()
+        },
+    )
+    .expect("fuzzy typo should apply");
+    assert!(r.changed);
+    assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+    assert!(
+        r.new_content
+            .starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
+        "must keep const/type/value: {}",
+        r.new_content
+    );
+    assert!(
+        !r.new_content.starts_with("CONFIGURATION_VALUE_SECONDARY\n"),
+        "must not replace whole first line with bare new text"
+    );
+}
+
 /// #1687: out-of-range min_fuzzy_score is InvalidInput.
 #[test]
 fn min_fuzzy_score_rejects_out_of_range() {

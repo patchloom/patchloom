@@ -640,38 +640,22 @@ pub fn resolve_with_fallback(
         return Ok(result);
     }
 
-    // Step 3: Similarity-based matching (find the most similar line block).
+    // Step 3: Similarity-based matching (#1694).
+    //
+    // Single-token targets (identifiers / typos) must match **tokens**, not whole
+    // lines. Jaro-Winkler on a full source line vs a short identifier scores high
+    // because of shared prefixes, then the apply path replaces the entire line and
+    // deletes surrounding syntax (`const`, types, etc.).
     let target_lines: Vec<&str> = target.lines().collect();
     if target_lines.len() == 1 {
-        // Single-line target: find the most similar single line.
-        let mut best_score = 0.0f64;
-        let mut best_match = String::new();
-        let mut best_offset = 0usize;
-        let mut offset = 0usize;
-        for line in content.lines() {
-            let score = strsim::jaro_winkler(line.trim(), target.trim());
-            if score > best_score {
-                best_score = score;
-                best_match = line.to_string();
-                best_offset = offset;
+        let target_trim = target.trim();
+        if is_token_like_target(target_trim) {
+            if let Some(hit) = best_token_similarity(content, target_trim) {
+                return Ok(hit);
             }
-            // Advance past the line content and the actual line ending,
-            // which may be \r\n (2 bytes) or \n (1 byte).
-            offset += line.len();
-            if content.as_bytes().get(offset) == Some(&b'\r') {
-                offset += 1;
-            }
-            if content.as_bytes().get(offset) == Some(&b'\n') {
-                offset += 1;
-            }
-        }
-        if best_score > 0.85 {
-            return Ok(AnchorMatchResult {
-                matched_text: best_match,
-                start_offset: best_offset,
-                strategy: MatchStrategy::Similarity,
-                score: Some(best_score),
-            });
+            // Do not fall through to whole-line similarity for token-like targets.
+        } else if let Some(hit) = best_line_similarity(content, target_trim) {
+            return Ok(hit);
         }
     }
 
@@ -691,24 +675,134 @@ pub fn resolve_with_fallback(
     })
 }
 
+/// True when `target` is a single identifier-like token (no whitespace).
+///
+/// Multi-word / snippet targets keep whole-line similarity. Token-like targets
+/// use identifier-level matching so fuzzy typo recovery does not expand the
+/// replace span to an entire source line (#1694).
+fn is_token_like_target(target: &str) -> bool {
+    if target.is_empty() || target.chars().any(|c| c.is_whitespace()) {
+        return false;
+    }
+    // At least one alphanumeric so we do not treat pure punctuation as a token.
+    target.chars().any(|c| c.is_alphanumeric())
+        && target
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Best identifier similarity hit, if score > 0.85.
+fn best_token_similarity(content: &str, target: &str) -> Option<AnchorMatchResult> {
+    let mut best_score = 0.0f64;
+    let mut best_match = String::new();
+    let mut best_offset = 0usize;
+    let mut offset = 0usize;
+    for line in content.lines() {
+        for (ident, col) in extract_identifiers_with_offsets(line) {
+            if ident == target {
+                continue;
+            }
+            let score = strsim::jaro_winkler(&ident, target);
+            if score > best_score {
+                best_score = score;
+                best_match = ident;
+                best_offset = offset + col;
+            }
+        }
+        offset = advance_line_offset(content, offset, line);
+    }
+    if best_score > 0.85 {
+        Some(AnchorMatchResult {
+            matched_text: best_match,
+            start_offset: best_offset,
+            strategy: MatchStrategy::Similarity,
+            score: Some(best_score),
+        })
+    } else {
+        None
+    }
+}
+
+/// Whole-line similarity for multi-word / snippet targets.
+///
+/// Refuses a match when the line is much longer than the target (ratio > 2)
+/// so accidental line expansion stays rare even for long snippets (#1694).
+fn best_line_similarity(content: &str, target: &str) -> Option<AnchorMatchResult> {
+    let mut best_score = 0.0f64;
+    let mut best_match = String::new();
+    let mut best_offset = 0usize;
+    let mut offset = 0usize;
+    for line in content.lines() {
+        let score = strsim::jaro_winkler(line.trim(), target);
+        if score > best_score {
+            best_score = score;
+            best_match = line.to_string();
+            best_offset = offset;
+        }
+        offset = advance_line_offset(content, offset, line);
+    }
+    if best_score <= 0.85 {
+        return None;
+    }
+    let line_len = best_match.trim().len();
+    let target_len = target.len().max(1);
+    if line_len > target_len.saturating_mul(2) && line_len > target_len + 16 {
+        // Too expansive: treat as no similarity match (suggestions still help).
+        return None;
+    }
+    Some(AnchorMatchResult {
+        matched_text: best_match,
+        start_offset: best_offset,
+        strategy: MatchStrategy::Similarity,
+        score: Some(best_score),
+    })
+}
+
+fn advance_line_offset(content: &str, mut offset: usize, line: &str) -> usize {
+    // Advance past the line content and the actual line ending (\r\n or \n).
+    offset += line.len();
+    if content.as_bytes().get(offset) == Some(&b'\r') {
+        offset += 1;
+    }
+    if content.as_bytes().get(offset) == Some(&b'\n') {
+        offset += 1;
+    }
+    offset
+}
+
 /// Extract identifier-like tokens from a line of code.
 fn extract_identifiers(line: &str) -> Vec<String> {
+    extract_identifiers_with_offsets(line)
+        .into_iter()
+        .map(|(s, _)| s)
+        .collect()
+}
+
+/// Identifier tokens with byte offsets into `line` (#1694).
+fn extract_identifiers_with_offsets(line: &str) -> Vec<(String, usize)> {
     let mut identifiers = Vec::new();
     let mut current = String::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
 
     for ch in line.chars() {
+        let clen = ch.len_utf8();
         if ch.is_alphanumeric() || ch == '_' {
+            if current.is_empty() {
+                start = i;
+            }
             current.push(ch);
         } else {
             if current.len() >= 3 {
-                identifiers.push(std::mem::take(&mut current));
+                identifiers.push((std::mem::take(&mut current), start));
             } else {
                 current.clear();
             }
         }
+        i += clen;
     }
     if current.len() >= 3 {
-        identifiers.push(current);
+        identifiers.push((current, start));
     }
 
     identifiers
@@ -1069,6 +1163,46 @@ mod tests {
         );
         let r = result.expect("similarity fallback should succeed");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
+        // Multi-word snippet → whole-line match (not a bare identifier).
+        assert!(
+            r.matched_text.contains("process_request"),
+            "snippet match: {:?}",
+            r.matched_text
+        );
+    }
+
+    /// #1694: single-token fuzzy must not expand to the whole source line.
+    #[test]
+    fn resolve_token_typo_does_not_match_whole_line() {
+        let content = "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n";
+        let r = resolve_with_fallback(content, "CONFIGURATION_VALUE_PRIMRY", None, None)
+            .expect("token typo should fuzzy-match the identifier");
+        assert_eq!(r.strategy, MatchStrategy::Similarity);
+        assert_eq!(
+            r.matched_text, "CONFIGURATION_VALUE_PRIMARY",
+            "must match the identifier token only, not the whole line"
+        );
+        assert!(
+            content[r.start_offset..].starts_with("CONFIGURATION_VALUE_PRIMARY"),
+            "offset must point at the token"
+        );
+        // Surrounding syntax must still be outside the match span.
+        assert!(!r.matched_text.contains("const"));
+        assert!(!r.matched_text.contains("i32"));
+    }
+
+    /// #1694: intentional full-line target still uses line similarity.
+    #[test]
+    fn resolve_full_line_snippet_still_matches_line() {
+        let content = "const FOO: i32 = 1;\n";
+        let r = resolve_with_fallback(content, "const FO: i32 = 1;", None, None)
+            .expect("near-full-line snippet should match the line");
+        assert_eq!(r.strategy, MatchStrategy::Similarity);
+        assert!(
+            r.matched_text.contains("const") && r.matched_text.contains("FOO"),
+            "line match: {:?}",
+            r.matched_text
+        );
     }
 
     #[test]

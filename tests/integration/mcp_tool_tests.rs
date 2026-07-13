@@ -33,6 +33,42 @@ async fn test_mcp_doc_set_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// #1696: registry MCP accepts LLM-prior `key` as alias for `selector`.
+#[tokio::test]
+async fn test_mcp_doc_set_accepts_key_alias() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"server":{"port":8080}}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "config.json",
+            "key": "server.port",
+            "value": 9090
+        }),
+    )
+    .await;
+    assert!(!is_error, "doc_set with key alias must not reject: {val}");
+    assert_eq!(val["ok"], true, "doc_set key alias ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(
+        v["server"]["port"], 9090,
+        "key alias did not apply: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_replace_round_trip() {
     if !has_mcp_support() {
