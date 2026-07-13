@@ -116,9 +116,12 @@
 //! `api::run_post_write_validation` (#1663) or
 //! `backup::restore_path_from_session` / `restore_path_from_latest_backup` (#1660).
 //!
-//! Match honesty for agents (#1662): `EditResult` / `ContentEditResult` expose
-//! `match_mode` (`Exact` / `Fuzzy` / `Anchored`) and optional `match_score` so hosts
-//! can warn on low-confidence fuzzy sites without re-running the matcher.
+//! Match honesty for agents (#1662 / #1669 / #1674): `EditResult` /
+//! `ContentEditResult` / `ContentEditsResult` expose `match_mode`
+//! (`Exact` / `Fuzzy` / `Anchored`) and optional `match_score` so hosts can warn on
+//! low-confidence fuzzy sites without re-running the matcher. Plan/tx JSON
+//! (`PlanReport` / `TxOutput`) and MCP `batch_replace` / `execute_plan` include
+//! the same fields on each replace-backed change plus a worst-case aggregate.
 //!
 //! Non-anyhow hosts (#1659): branch with `api::classify_error(&*err as &dyn Error)`
 //! or `classify_error_ref` for `similar_targets`; `edit_error_kind` remains for
@@ -133,9 +136,10 @@
 //!
 //! **Note on results**: Single-file ops return `EditResult` (with `action`, `dest_path`,
 //! `match_count` for replace, and `removed` for `doc.delete` / `doc.delete_where`).
-//! `execute_plan` (library) returns `PlanReport` (typed TxOutput) with `ok`, `changes`,
-//! `searches`, `reads`, `error`, plus `mutations` / aggregate `changed` / `removed` for
-//! deletes (including idempotent `removed: 0` no-ops) (#811, #1439, #1459).
+//! `execute_plan` (library) returns `PlanReport` (typed TxOutput) with `ok`, `changes`
+//! (optional per-change `match_mode` / `match_score` for replace), `searches`, `reads`,
+//! `error`, plus `mutations` / aggregate `changed` / `removed` for deletes
+//! (including idempotent `removed: 0` no-ops) (#811, #1439, #1459, #1674).
 //! See `api::PlanReport`, `api::execute_plan`, and embedding docs. CLI/MCP retain (code, json) for compatibility.
 //!
 //! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
