@@ -1714,6 +1714,35 @@ fn test_replace_cli_json_error_kind_no_matches() {
 }
 
 #[test]
+fn test_replace_cli_json_no_matches_includes_similar_targets() {
+    // Agents branch on structured similar_targets (not English scrape).
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "process_request\nprocess_response\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "process_requst", "--new", "x", "a.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["error_kind"], "no_matches");
+    let similar = v["similar_targets"]
+        .as_array()
+        .expect("similar_targets array on literal no-match");
+    assert!(
+        similar
+            .iter()
+            .any(|s| s.as_str() == Some("process_request")),
+        "expected process_request suggestion: {v}"
+    );
+}
+
+#[test]
 fn test_replace_cli_json_error_kind_ambiguous() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("a.txt");

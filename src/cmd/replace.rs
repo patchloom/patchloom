@@ -142,6 +142,10 @@ struct ReplaceOutput {
     match_mode: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     match_score: Option<f64>,
+    /// Did-you-mean candidates on soft no-match (literal patterns only).
+    /// Agents should prefer this over scraping the English error string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    similar_targets: Option<Vec<String>>,
 }
 
 /// Result of processing a single file.
@@ -158,6 +162,48 @@ struct FileReplacement {
 
 fn match_mode_str(mode: crate::api::MatchMode) -> &'static str {
     crate::tx::match_mode_label(mode)
+}
+
+/// Best-effort "did you mean?" candidates for a soft no-match (literal only).
+///
+/// Samples up to a few readable files under the replace path args so agents
+/// can branch on structured `similar_targets` without scraping English.
+fn similar_targets_for_no_match(
+    args: &ReplaceArgs,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+) -> Option<Vec<String>> {
+    if args.regex {
+        return None;
+    }
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for p in &args.paths {
+        let abs = cwd.join(p);
+        if abs.is_file() {
+            files.push(abs);
+        } else if abs.is_dir()
+            && let Ok(mut walked) = crate::files::collect_file_paths_opts(
+                std::slice::from_ref(p),
+                global,
+                false,
+                Some(cwd),
+            )
+        {
+            walked.truncate(5);
+            files.extend(walked);
+        }
+    }
+    files.truncate(5);
+    for f in files {
+        let Ok(content) = std::fs::read_to_string(&f) else {
+            continue;
+        };
+        let similar = crate::fallback::find_similar_targets(&content, &args.old, 3);
+        if !similar.is_empty() {
+            return Some(similar);
+        }
+    }
+    None
 }
 
 /// Parse `--range` argument into (start, optional_end). Reuses the line-range
@@ -381,6 +427,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     error_kind: Some("ambiguous"),
                     match_mode: None,
                     match_score: None,
+                    similar_targets: None,
                 };
                 global.emit_json(&output)?;
                 if !global.quiet {
@@ -415,6 +462,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 error_kind: None,
                 match_mode: Some("exact"),
                 match_score: None,
+                similar_targets: None,
             };
             global.emit_json(&output)?;
             if !global.quiet && !global.json && !global.jsonl {
@@ -436,6 +484,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 error_kind: None,
                 match_mode: None,
                 match_score: None,
+                similar_targets: None,
             };
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
@@ -448,6 +497,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
+        let similar = similar_targets_for_no_match(&args, global, &cwd);
         let output = ReplaceOutput {
             ok: false,
             match_count: 0,
@@ -458,11 +508,15 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             error_kind: Some("no_matches"),
             match_mode: None,
             match_score: None,
+            similar_targets: similar.clone(),
         };
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
             let path_desc = global.path_scope_description(&args.paths);
             eprintln!("no matches for '{}' in {path_desc}", args.old);
+            if let Some(ref s) = similar {
+                eprintln!("did you mean: {}?", s.join(", "));
+            }
             if !args.regex && crate::files::has_regex_metacharacters(&args.old) {
                 eprintln!("hint: pattern contains regex characters, try --regex");
             }
@@ -523,6 +577,7 @@ fn replace_output(
         error_kind: None,
         match_mode: agg_mode,
         match_score: agg_score,
+        similar_targets: None,
     };
 
     finalize_report(
@@ -626,6 +681,7 @@ fn run_context_replace(
             },
             match_mode: None,
             match_score: None,
+            similar_targets: None,
         };
         global.emit_json(&empty)?;
         if args.if_exists {
@@ -691,6 +747,7 @@ fn run_context_replace(
             },
             match_mode: None,
             match_score: None,
+            similar_targets: None,
         };
         global.emit_json(&empty)?;
         if args.if_exists {

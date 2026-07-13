@@ -44,7 +44,7 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path
 - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)
 - `api::run_post_write_validation(project_root, path, &PostWriteHooks { format_cmd, lint_cmd, on_failure: Revert|KeepWithError, .. })` (#1663) maps to `format_failed` / `EditErrorKind::FormatFailed`
-**Match honesty in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, and replace `match_count` (plan/tx also on each change + sum) so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) (#1669, #1674).
+**Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, and replace `match_count` (plan/tx also on each change + sum) so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`). Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674).
 
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)
