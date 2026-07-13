@@ -1864,7 +1864,12 @@ async fn test_mcp_batch_replace_fuzzy_reports_match_mode() {
     assert_eq!(changes.len(), 2, "two files changed: {val}");
     for ch in changes {
         assert_eq!(ch["match_mode"], "fuzzy", "per-file fuzzy match_mode: {ch}");
+        assert_eq!(ch["match_count"], 1, "per-file match_count from engine: {ch}");
     }
+    assert_eq!(
+        val["match_count"], 2,
+        "top-level match_count sum from engine: {val}"
+    );
     assert!(
         fs::read_to_string(dir.path().join("a.rs"))
             .unwrap()
@@ -1876,6 +1881,53 @@ async fn test_mcp_batch_replace_fuzzy_reports_match_mode() {
             .unwrap()
             .contains("handle_data"),
         "b.rs rewritten"
+    );
+    client.cancel().await.unwrap();
+}
+
+
+#[tokio::test]
+async fn test_mcp_replace_text_fuzzy_reports_engine_match_mode() {
+    // Honesty must come from replace_op meta via TxOutput, not a pre-apply
+    // replace_in_content re-derive (which hard-coded range: None).
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn process_data() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "lib.rs",
+            "old": "fn proccess_data() {}",
+            "new": "fn handle_data() {}",
+            "fuzzy": true,
+            "require_change": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "replace_text fuzzy should succeed: {val}");
+    assert_eq!(val["ok"], true, "replace_text ok: {val}");
+    assert_eq!(
+        val["match_mode"], "fuzzy",
+        "engine match_mode on replace_text: {val}"
+    );
+    assert_eq!(
+        val["match_count"], 1,
+        "engine match_count on replace_text: {val}"
+    );
+    let changes = val["changes"].as_array().expect("changes");
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0]["match_mode"], "fuzzy");
+    assert_eq!(changes[0]["match_count"], 1);
+    assert!(
+        fs::read_to_string(dir.path().join("lib.rs"))
+            .unwrap()
+            .contains("handle_data"),
+        "file rewritten"
     );
     client.cancel().await.unwrap();
 }
