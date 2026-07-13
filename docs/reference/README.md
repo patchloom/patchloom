@@ -1283,11 +1283,14 @@ The operations below are the building blocks inside `operations`.
 | Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks |
 | Shell token rename | `ReplaceOptions.command_position` / `ContentEdit::Replace` (#1666) |
 | Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |
-| Project symbol discovery + multi-file rename | `find_files_with_symbol` then `ast_rename_batch` (#1664) |
+| Project symbol discovery + multi-file rename | `find_files_with_symbol` then `ast_rename_batch` (#1664); one-shot `ast_rename_project` (#1689) |
 | Match honesty (fuzzy confidence) | `EditResult` / `ContentEditsResult` `match_mode` / `match_score` (#1662); CLI/MCP JSON (#1669); plan/tx `TxChange` + aggregate mode/score/`match_count` from engine meta (#1674) |
+| Reject weak fuzzy matches | `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score` / MCP `min_fuzzy_score` (#1687); range `0.0..=1.0` |
+| Apply session id for surgical undo | `EditResult.backup_session` after Apply (#1686); pair with `restore_path_from_session` |
+| Nested monorepo backup listing | `backup::list_sessions_under` + `ListSessionsOptions` (#1688) |
 | In-memory multi-op with real diff headers | `apply_content_edits_with_label` (#1665) |
 | Surgical undo one path | `backup::restore_path_from_session(root, ts, path)` (#1660) |
-| Post-Apply format/lint + optional revert | `run_post_write_validation` / `PostWriteHooks` (#1663) |
+| Post-Apply format/lint + optional revert | `run_post_write_validation` / `PostWriteHooks` (#1663); also `ReplaceOptions.post_write`, `WritePolicyOptions.post_write`, `AstRenameBatchOptions.post_write` (#1690). Revert uses the file parent as backup root even when hooks cwd differs |
 | Signature rewrite complete in one write | `ast_rewrite_signature` body-gap invariant (#1661) |
 
 ### Shell command-position for embedders

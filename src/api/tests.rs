@@ -5152,22 +5152,29 @@ fn min_fuzzy_score_rejects_weak_fuzzy_allows_exact() {
         natural > 0.85,
         "similarity path requires >0.85, got {natural}"
     );
-
-    let strict = ReplaceOptions {
-        fuzzy: true,
-        min_fuzzy_score: Some(natural + 0.01),
-        ..Default::default()
-    };
-    let err = replace_in_content(content, misspelled, "REPLACED", &strict).unwrap_err();
-    assert_eq!(
-        edit_error_kind(&err),
-        Some(EditErrorKind::NoMatch),
-        "weak fuzzy must be NoMatch: {err}"
-    );
-    assert!(
-        err.to_string().contains("min_fuzzy_score"),
-        "message should name the floor: {err}"
-    );
+    // Strict floor just above natural, clamped to the valid 0.0..=1.0 range.
+    // When natural is already 1.0, any valid floor allows equality (score < min is false).
+    let strict_floor = (natural + 1e-4).clamp(0.0, 1.0);
+    if (strict_floor - natural).abs() < 1e-12 {
+        // Natural is effectively 1.0; only out-of-range floors would reject, which is InvalidInput.
+        // Covered by min_fuzzy_score_rejects_out_of_range.
+    } else {
+        let strict = ReplaceOptions {
+            fuzzy: true,
+            min_fuzzy_score: Some(strict_floor),
+            ..Default::default()
+        };
+        let err = replace_in_content(content, misspelled, "REPLACED", &strict).unwrap_err();
+        assert_eq!(
+            edit_error_kind(&err),
+            Some(EditErrorKind::NoMatch),
+            "weak fuzzy must be NoMatch: {err}"
+        );
+        assert!(
+            err.to_string().contains("min_fuzzy_score"),
+            "message should name the floor: {err}"
+        );
+    }
 
     // Floor at or below natural score allows the same fuzzy match.
     let loose = ReplaceOptions {
@@ -5364,6 +5371,62 @@ fn post_write_hooks_on_replace_apply_and_preview() {
         "v1\n",
         "Revert must restore pre-edit content"
     );
+}
+
+/// #1690 regression: hooks cwd may be workspace root while backup lives under
+/// the file parent; Revert must still restore.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn post_write_revert_uses_file_parent_backup_root() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("pkg");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("x.txt");
+    fs::write(&file, "v1\n").unwrap();
+
+    // Hooks run at workspace root; backup session is under nested/.
+    let fail_opts = ReplaceOptions {
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("false".into()),
+            on_failure: PostWriteOnFailure::Revert,
+            ..Default::default()
+        }),
+        post_write_cwd: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let err = replace_text(&file, "v1", "v2", &fail_opts, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::FormatFailed),
+        "{err}"
+    );
+    assert!(
+        !err.to_string().contains("also failed to revert"),
+        "session restore must find backup under file parent: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "v1\n",
+        "content restored despite hooks cwd != backup root"
+    );
+}
+
+/// #1687: out-of-range min_fuzzy_score is InvalidInput.
+#[test]
+fn min_fuzzy_score_rejects_out_of_range() {
+    for bad in [f64::NAN, -0.1, 1.5, 2.0] {
+        let opts = ReplaceOptions {
+            fuzzy: true,
+            min_fuzzy_score: Some(bad),
+            ..Default::default()
+        };
+        let err = replace_in_content("hello world\n", "helo", "hi", &opts).unwrap_err();
+        assert_eq!(
+            edit_error_kind(&err),
+            Some(EditErrorKind::InvalidInput),
+            "bad={bad} err={err}"
+        );
+    }
 }
 
 /// #1690: tidy honors WritePolicyOptions.post_write.
