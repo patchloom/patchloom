@@ -9,7 +9,7 @@ use anyhow::Context;
 
 use crate::ops::file::{append_content, prepend_content};
 
-use super::{ContentEditResult, ReplaceOptions, make_diff, replace_in_content};
+use super::{ContentEditResult, MatchMode, ReplaceOptions, make_diff, replace_in_content};
 use crate::fallback::{EditError, EditErrorKind};
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -59,6 +59,11 @@ pub struct ContentEditsResult {
     /// Sum of replace match counts across all [`ContentEdit::Replace`] ops.
     /// Insert/append/prepend contribute 0. Useful for agent ambiguity policies.
     pub match_count: usize,
+    /// Worst-case match strategy across replace ops (`Fuzzy` > `Anchored` > `Exact`).
+    /// `None` when no replace ops ran or none matched.
+    pub match_mode: Option<MatchMode>,
+    /// Similarity score from the first fuzzy replace op in the batch, if any.
+    pub match_score: Option<f64>,
 }
 
 /// Apply ordered edits to an in-memory buffer.
@@ -90,13 +95,21 @@ pub fn apply_content_edits_with_label(
     let mut current = content.to_string();
     let mut ops_applied = 0usize;
     let mut match_count = 0usize;
+    let mut match_mode: Option<MatchMode> = None;
+    let mut match_score: Option<f64> = None;
 
     for (i, edit) in edits.iter().enumerate() {
-        let (next, n) = apply_one(&current, edit)
+        let (next, n, mode, score) = apply_one(&current, edit)
             .with_context(|| format!("content edit {} of {} failed", i + 1, edits.len()))?;
         current = next;
         match_count = match_count.saturating_add(n);
         ops_applied += 1;
+        if let Some(m) = mode {
+            match_mode = Some(merge_match_mode(match_mode, m));
+            if m == MatchMode::Fuzzy && match_score.is_none() {
+                match_score = score;
+            }
+        }
     }
 
     let changed = current != original;
@@ -109,7 +122,17 @@ pub fn apply_content_edits_with_label(
         changed,
         ops_applied,
         match_count,
+        match_mode,
+        match_score,
     })
+}
+
+fn merge_match_mode(prev: Option<MatchMode>, next: MatchMode) -> MatchMode {
+    match (prev, next) {
+        (Some(MatchMode::Fuzzy), _) | (_, MatchMode::Fuzzy) => MatchMode::Fuzzy,
+        (Some(MatchMode::Anchored), _) | (_, MatchMode::Anchored) => MatchMode::Anchored,
+        _ => MatchMode::Exact,
+    }
 }
 
 /// Read a file, apply multi-op content edits, and write according to `mode`.
@@ -147,15 +170,25 @@ pub fn apply_content_edits_to_file(
         None,
     );
     result.match_count = batch.match_count;
+    result.match_mode = batch.match_mode;
+    result.match_score = batch.match_score;
     Ok(result)
 }
 
-/// Returns (new content, replace match_count for this op).
-fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize)> {
+/// Returns (new content, replace match_count, match_mode, match_score).
+fn apply_one(
+    content: &str,
+    edit: &ContentEdit,
+) -> anyhow::Result<(String, usize, Option<MatchMode>, Option<f64>)> {
     match edit {
         ContentEdit::Replace { old, new, options } => {
             let result: ContentEditResult = replace_in_content(content, old, new, options)?;
-            Ok((result.new_content, result.match_count))
+            Ok((
+                result.new_content,
+                result.match_count,
+                result.match_mode,
+                result.match_score,
+            ))
         }
         ContentEdit::InsertBefore {
             anchor,
@@ -175,7 +208,7 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize
                     out.push_str(&content[..idx]);
                     out.push_str(insert);
                     out.push_str(&content[idx..]);
-                    Ok((out, 0))
+                    Ok((out, 0, None, None))
                 }
                 None => Err(EditError::new(
                     EditErrorKind::NoMatch,
@@ -201,7 +234,7 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize
                     out.push_str(&content[..end]);
                     out.push_str(insert);
                     out.push_str(&content[end..]);
-                    Ok((out, 0))
+                    Ok((out, 0, None, None))
                 }
                 None => Err(EditError::new(
                     EditErrorKind::NoMatch,
@@ -210,8 +243,12 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<(String, usize
                 .into()),
             }
         }
-        ContentEdit::Append { content: inject } => Ok((append_content(content, inject), 0)),
-        ContentEdit::Prepend { content: inject } => Ok((prepend_content(content, inject), 0)),
+        ContentEdit::Append { content: inject } => {
+            Ok((append_content(content, inject), 0, None, None))
+        }
+        ContentEdit::Prepend { content: inject } => {
+            Ok((prepend_content(content, inject), 0, None, None))
+        }
     }
 }
 
@@ -478,5 +515,22 @@ mod tests {
         }];
         let r = apply_content_edits("a x b x c\n", &edits).unwrap();
         assert_eq!(r.modified, "a IN:x b x c\n");
+    }
+
+    #[test]
+    fn content_edit_fuzzy_match_mode_rollup() {
+        let edits = [ContentEdit::Replace {
+            old: "fn proccess_data() {}".into(),
+            new: "fn handle_data() {}".into(),
+            options: ReplaceOptions {
+                fuzzy: true,
+                require_change: true,
+                ..Default::default()
+            },
+        }];
+        let r = apply_content_edits("fn process_data() {}\n", &edits).unwrap();
+        assert!(r.changed);
+        assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+        assert!(r.match_score.is_some_and(|s| s > 0.85));
     }
 }

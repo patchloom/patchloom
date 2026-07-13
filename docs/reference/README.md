@@ -1284,7 +1284,7 @@ The operations below are the building blocks inside `operations`.
 | Shell token rename | `ReplaceOptions.command_position` / `ContentEdit::Replace` (#1666) |
 | Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |
 | Project symbol discovery + multi-file rename | `find_files_with_symbol` then `ast_rename_batch` (#1664) |
-| Match honesty (fuzzy confidence) | `EditResult.match_mode` / `match_score` (#1662) |
+| Match honesty (fuzzy confidence) | `EditResult` / `ContentEditsResult` `match_mode` / `match_score` (#1662); CLI/MCP JSON (#1669) |
 | In-memory multi-op with real diff headers | `apply_content_edits_with_label` (#1665) |
 | Surgical undo one path | `backup::restore_path_from_session(root, ts, path)` (#1660) |
 | Post-Apply format/lint + optional revert | `run_post_write_validation` / `PostWriteHooks` (#1663) |
