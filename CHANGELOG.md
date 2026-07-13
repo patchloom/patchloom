@@ -11,6 +11,27 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.13.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.12.0...patchloom-v0.13.0) (2026-07-13)
+
+
+### Features
+
+* Bline embedder API surfaces ([#1658](https://github.com/patchloom/patchloom/issues/1658)–[#1666](https://github.com/patchloom/patchloom/issues/1666)) ([#1667](https://github.com/patchloom/patchloom/issues/1667)) ([e413ec7](https://github.com/patchloom/patchloom/commit/e413ec784aa1383084481d44f961d3c2eb119f85)), closes [#1659](https://github.com/patchloom/patchloom/issues/1659) [#1660](https://github.com/patchloom/patchloom/issues/1660) [#1661](https://github.com/patchloom/patchloom/issues/1661) [#1662](https://github.com/patchloom/patchloom/issues/1662) [#1663](https://github.com/patchloom/patchloom/issues/1663) [#1664](https://github.com/patchloom/patchloom/issues/1664) [#1665](https://github.com/patchloom/patchloom/issues/1665)
+* match honesty for tx/batch_replace + agent-rules undo docs ([#1676](https://github.com/patchloom/patchloom/issues/1676)) ([9ef792a](https://github.com/patchloom/patchloom/commit/9ef792a663a9d5441cd7e5398fa4a8af9640bd9a))
+* match_mode rollup on multi-op content edits ([#1673](https://github.com/patchloom/patchloom/issues/1673)) ([ebbd458](https://github.com/patchloom/patchloom/commit/ebbd45825522908ebad04e27661035a1689ad35b))
+* plan/tx fuzzy replace and match_mode JSON ([#1668](https://github.com/patchloom/patchloom/issues/1668) [#1669](https://github.com/patchloom/patchloom/issues/1669)) ([#1671](https://github.com/patchloom/patchloom/issues/1671)) ([8b3dde5](https://github.com/patchloom/patchloom/commit/8b3dde5e45faf67e87b0fbb661af05fd1d65b268))
+
+
+### Bug Fixes
+
+* Bline API follow-ups (fuzzy disk, FormatFailed, max_files) ([#1670](https://github.com/patchloom/patchloom/issues/1670)) ([64d046d](https://github.com/patchloom/patchloom/commit/64d046df99fc12d418095b60610b46c882a46eb0))
+* CLI fuzzy match_mode from tx meta + docs ([#1677](https://github.com/patchloom/patchloom/issues/1677)) ([12df1c3](https://github.com/patchloom/patchloom/commit/12df1c335aadece3ea43f1bad9df88a06973ada8))
+* EditResult match_mode and match_count from tx ([#1679](https://github.com/patchloom/patchloom/issues/1679)) ([03deb12](https://github.com/patchloom/patchloom/commit/03deb120512bbd0e4194eff3c73256226061921f))
+* fuzzy/context replace parity for globs and directories ([#1672](https://github.com/patchloom/patchloom/issues/1672)) ([e14840c](https://github.com/patchloom/patchloom/commit/e14840cc9ffc734456bfd47ee33a4bb00328bfae))
+* match_mode worst-case rollup parity across surfaces ([#1681](https://github.com/patchloom/patchloom/issues/1681)) ([17dd323](https://github.com/patchloom/patchloom/commit/17dd323660e7147f52b552eb7b803dd30693cc53))
+* MCP replace honesty from engine match meta ([#1682](https://github.com/patchloom/patchloom/issues/1682)) ([f122add](https://github.com/patchloom/patchloom/commit/f122add27c83da701d2db36ed2db167912bb6188))
+* tidy JSON emit and check-fast README accuracy ([#1656](https://github.com/patchloom/patchloom/issues/1656)) ([66bc9c0](https://github.com/patchloom/patchloom/commit/66bc9c00b3a879bea1b32af0671c38398aed5bda))
+
 ## [0.12.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.11.0...patchloom-v0.12.0) (2026-07-11)
 
 
