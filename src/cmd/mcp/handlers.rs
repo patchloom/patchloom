@@ -9,7 +9,7 @@
 //! for new 1:1 `Operation` writes. See `surface` module docs for the policy.
 //!
 //! size-waiver: accepted single-domain bulk (policy #1408). Custom MCP tool
-//! handlers and match_mode JSON enrichment co-located; do not split for LOC alone.
+//! handlers co-located with surface inventory; do not split for LOC alone.
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;

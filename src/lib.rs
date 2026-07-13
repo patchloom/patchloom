@@ -137,7 +137,7 @@
 //! **Note on results**: Single-file ops return `EditResult` (with `action`, `dest_path`,
 //! `match_count` for replace, and `removed` for `doc.delete` / `doc.delete_where`).
 //! `execute_plan` (library) returns `PlanReport` (typed TxOutput) with `ok`, `changes`
-//! (optional per-change `match_mode` / `match_score` for replace), `searches`, `reads`,
+//! (optional per-change `match_mode` / `match_score` / `match_count` for replace), `searches`, `reads`,
 //! `error`, plus `mutations` / aggregate `changed` / `removed` for deletes
 //! (including idempotent `removed: 0` no-ops) (#811, #1439, #1459, #1674).
 //! See `api::PlanReport`, `api::execute_plan`, and embedding docs. CLI/MCP retain (code, json) for compatibility.
