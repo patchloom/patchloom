@@ -684,11 +684,11 @@ fn is_token_like_target(target: &str) -> bool {
     if target.is_empty() || target.chars().any(|c| c.is_whitespace()) {
         return false;
     }
-    // At least one alphanumeric so we do not treat pure punctuation as a token.
+    // Match extract_identifiers: alphanumeric + underscore only. Hyphens would
+    // mark the target as "token-like" while extraction splits on `-`, so a
+    // kebab-case typo never matched a full token and skipped line fallback.
     target.chars().any(|c| c.is_alphanumeric())
-        && target
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+        && target.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// Best identifier similarity hit, if score > 0.85.
@@ -1303,12 +1303,28 @@ mod tests {
     fn is_token_like_target_classification() {
         assert!(is_token_like_target("CONFIGURATION_VALUE_PRIMRY"));
         assert!(is_token_like_target("getUserProfile"));
-        assert!(is_token_like_target("kebab-case-name"));
+        // Hyphenated names are not identifier tokens (extraction splits on `-`).
+        assert!(!is_token_like_target("kebab-case-name"));
         assert!(!is_token_like_target("fn process_data() {}"));
         assert!(!is_token_like_target("const FOO: i32 = 1;"));
         assert!(!is_token_like_target("server.port"));
         assert!(!is_token_like_target(""));
         assert!(!is_token_like_target("   "));
+    }
+
+    /// Kebab-case targets use line similarity (not broken token path).
+    #[test]
+    fn resolve_kebab_case_uses_line_similarity_not_broken_token_path() {
+        let content = "font-weight-primary: bold;\n";
+        // Near-full-line typo; must still resolve (line path), not dead-end as token.
+        let r = resolve_with_fallback(content, "font-weight-primry: bold;", None, None)
+            .expect("kebab line snippet should match via line similarity");
+        assert_eq!(r.strategy, MatchStrategy::Similarity);
+        assert!(
+            r.matched_text.contains("font-weight-primary"),
+            "{:?}",
+            r.matched_text
+        );
     }
 
     #[test]

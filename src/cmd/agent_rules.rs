@@ -122,8 +122,10 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
              - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)\n\
              - `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)\n\
+             - CLI: `patchloom undo --list` also walks nested `.patchloom/backups` under the cwd (#1695)\n\
              - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
              - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)\n\
+             - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts (#1687, #1694)\n\
              **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, and replace `match_count` (plan/tx also on each change + sum) so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`). Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674).\n\n",
         );
     }

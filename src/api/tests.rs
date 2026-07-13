@@ -5531,6 +5531,32 @@ fn fuzzy_identifier_typo_matrix_replace_in_content() {
     }
 }
 
+/// unique must still fire on exact multi-match even when fuzzy is enabled.
+#[test]
+fn fuzzy_does_not_bypass_unique_on_exact_multi_match() {
+    let content = "foo bar foo\n";
+    let err = replace_in_content(
+        content,
+        "foo",
+        "baz",
+        &ReplaceOptions {
+            fuzzy: true,
+            unique: true,
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::AmbiguousTarget),
+        "exact multi-match must stay unique-ambiguous with fuzzy on: {err}"
+    );
+    assert!(
+        err.to_string().contains("ambiguous"),
+        "message should name ambiguity: {err}"
+    );
+}
+
 /// Disk Apply path used by hosts (replace_text), same safety contract.
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]

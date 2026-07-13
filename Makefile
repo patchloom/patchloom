@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -118,6 +118,9 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Use MOD
 		([ -d .venv ] || python3 -m venv .venv) && \
 		.venv/bin/pip install -q -r requirements.txt && \
 		.venv/bin/pytest -v --timeout 240 $(if $(MODEL),--model $(MODEL),) --ignore=test_bench.py
+
+embedder-smoke: build ## Pre-release host contracts (fuzzy token span, nested undo list, plan key alias)
+	bash scripts/embedder-smoke.sh target/debug/patchloom
 
 bench-cli: build ## Run CLI benchmarks vs native tools (requires hyperfine)
 	cd benches/cli && bash run.sh
