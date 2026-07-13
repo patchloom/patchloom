@@ -218,10 +218,11 @@ Returns:
   "files_deleted": 0,
   "changes": [
     { "path": "CHANGELOG.md", "action": "modified" },
-    { "path": "README.md", "action": "modified", "match_mode": "exact" },
+    { "path": "README.md", "action": "modified", "match_mode": "exact", "match_count": 1 },
     { "path": "package.json", "action": "modified" }
   ],
-  "match_mode": "exact"
+  "match_mode": "exact",
+  "match_count": 1
 }
 ```
 
