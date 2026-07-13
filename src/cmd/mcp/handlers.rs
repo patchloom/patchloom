@@ -502,7 +502,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; JSON reports match_mode (exact/fuzzy/anchored) per change and aggregate (#1674). IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
+        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; JSON reports match_mode (exact/fuzzy/anchored), match_count per change and aggregate (#1674). IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
     )]
     async fn batch_replace(
         &self,
