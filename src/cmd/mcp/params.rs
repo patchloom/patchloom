@@ -170,7 +170,7 @@ pub(crate) struct SearchParams {
     /// Exclude glob patterns (in addition to ignore files).
     #[serde(default)]
     pub exclude_patterns: Vec<String>,
-    /// Custom ignore filenames (e.g. .blineignore).
+    /// Custom ignore filenames (e.g. .agentignore).
     #[serde(default)]
     pub custom_ignore_filenames: Vec<String>,
     /// Max detailed results (0 = unlimited).

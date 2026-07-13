@@ -158,14 +158,14 @@ These flags affect how Patchloom reports results or chooses which files to touch
 ### `--exclude`
 
 - **What it does:** Excludes paths matching the given glob patterns (applied after .gitignore and any custom ignore files). May be repeated. Complements `--glob`.
-- **Use when:** You want to layer additional excludes (e.g. `target/**` or build artifacts) on top of `.blineignore` / `.gitignore` for search, replace, or tidy.
+- **Use when:** You want to layer additional excludes (e.g. `target/**` or build artifacts) on top of custom ignore files / `.gitignore` for search, replace, or tidy.
 - **Parity:** Matches `SearchOptions.exclude_patterns` and the library `collect_file_paths_with_ignores` precedence.
 
 <!-- ref:global-flag:ignore-file -->
 ### `--ignore-file`
 
-- **What it does:** Specifies additional gitignore-style ignore files (e.g. `.blineignore`) to respect during file collection. May be repeated.
-- **Use when:** Agents or projects use custom ignore files (Bline-style) and want CLI / tx / MCP search (and replace/tidy) to honor the same layered ignores as the pure-library API.
+- **What it does:** Specifies additional gitignore-style ignore files (e.g. `.agentignore`, `.cursorignore`) to respect during file collection. May be repeated.
+- **Use when:** LLM agents or projects use tool-specific ignore files and want CLI / tx / MCP search (and replace/tidy) to honor the same layered ignores as the pure-library API.
 - **Parity:** Matches `SearchOptions.custom_ignore_filenames`.
 
 <!-- ref:global-flag:files-from -->
@@ -1162,7 +1162,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Searches a file for a pattern inside a transaction and includes match results in the JSON output without writing anything.
 - **Use when:** An agent needs to locate patterns before replacing them in the same plan, enabling locate-then-edit in a single call.
-- **Optional fields:** `literal`, `regex`, `case_insensitive`, `multiline`, `invert_match`, `context`/`before_context`/`after_context`, `globs`, `exclude_patterns`, `custom_ignore_filenames` (for .blineignore layering), `max_results`, `assert_count`. These provide full parity with the top-level `search` command and library `SearchOptions`.
+- **Optional fields:** `literal`, `regex`, `case_insensitive`, `multiline`, `invert_match`, `context`/`before_context`/`after_context`, `globs`, `exclude_patterns`, `custom_ignore_filenames` (for agent/tool ignore layering), `max_results`, `assert_count`. These provide full parity with the top-level `search` command and library `SearchOptions`.
 - **Related:** top level `search`
 
 <!-- ref:tx-op:read -->
@@ -1201,7 +1201,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Rewrites a function signature using tree-sitter. Structured fields `visibility`, `parameters`, and `return_type` map to [`FunctionSigEdit`](https://docs.rs/patchloom); optional `new_signature` replaces the whole signature span. Field `old` (alias `name`) is the function name. Library: `api::ast_rewrite_signature`. MCP: `ast_rewrite_signature`.
 - **Body gap:** High-level paths accept a logical `new_signature` without trailing whitespace and preserve the original gap before `{` (or insert a conventional space if the original was already glued). Trait/extern forms ending in `;` do not get a spurious space. See #1503 / `splice_function_signature`.
-- **Use when:** Changing parameter lists, visibility, or return types without a brittle line scan (agent hosts such as Bline).
+- **Use when:** Changing parameter lists, visibility, or return types without a brittle line scan (LLM agent hosts and embedders).
 - **Failure behavior:** Missing function name exits 3 (`no_matches`) with the function name in the error; JSON plans report `error_kind: "no_matches"`.
 - **Related:** `ast.replace`, `ast.rename`
 
@@ -1271,11 +1271,11 @@ The operations below are the building blocks inside `operations`.
 ## Library API
 
 - **What it does:** Use patchloom as a Rust library (`default-features = false`, enable `ast`/`mcp` as needed). High level entry points in `patchloom::api` (search, replace_text, etc), plus `execute_plan`, `make_plan`, `PathGuard` for containment, and full plan types for tx. All public types are `Send + Sync`.
-- **Use when:** Embedding in agents (e.g. bline), custom tools, or tests without CLI spawn overhead. See `cargo doc --no-default-features --features ast --open`.
+- **Use when:** Embedding in LLM coding agents, custom tools, or tests without CLI spawn overhead. See `cargo doc --no-default-features --features ast --open`.
 - **Notable:** `search_directory(root, pattern, opts)` for parallel content search with globs/context (library equivalent of CLI search). Error paths and guards documented in api.rs.
 - **Related:** README "As a library", `src/api.rs`, `src/lib.rs` docs, examples/README.md entry for search_directory.
 
-### Embedder surfaces (Bline-oriented)
+### Embedder surfaces (LLM agent hosts)
 
 | Need | API |
 |------|-----|

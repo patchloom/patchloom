@@ -164,7 +164,7 @@ pub struct EditResult {
     /// Whether the content changed.
     pub changed: bool,
     /// Action/kind of the edit (e.g. "append", "create", "replace", "rename", "doc.set").
-    /// Helps consumers (like Bline) distinguish cross-file or op type without parsing path.
+    /// Helps agent hosts distinguish cross-file or op type without parsing path.
     pub action: &'static str,
     /// For cross-file operations (e.g. `file_rename`, `md_move_section` with `to`),
     /// the destination path if different from `path`.

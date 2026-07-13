@@ -44,7 +44,7 @@
 //!
 //! With "files" feature you also get `api::search_directory`, `api::execute_plan`,
 //! `api::file_append`/`file_prepend`, and full plan execution for library use.
-//! For advanced search ignore (e.g. .blineignore on top of .gitignore) + custom walkers:
+//! For advanced search ignore (e.g. `.agentignore` on top of `.gitignore`) + custom walkers:
 //! Use `SearchOptions::exclude_patterns` and `custom_ignore_filenames` with `search_directory`/`search_file`,
 //! or collect paths with `files::collect_file_paths_with_ignores` (or your own `WalkBuilder`) then
 //! pair with the low-level `api::search_one_file` inside `par_process_files` + `format_search_results` / `build_context_lines`.
@@ -71,7 +71,7 @@
 //! # Ok::<(), anyhow::Error>(())
 //! ```
 //!
-//! For AST signature edits (bline #1459 / #821 follow-through, #1493):
+//! For AST signature edits (library embedder surface, #1459 / #821 / #1493):
 //!
 //! - In-memory: `api::ast_rewrite_signature_in_content` or
 //!   `ast::rewrite::rewrite_function_signature` with `FunctionSigEdit`
@@ -142,7 +142,7 @@
 //! (including idempotent `removed: 0` no-ops) (#811, #1439, #1459, #1674).
 //! See `api::PlanReport`, `api::execute_plan`, and embedding docs. CLI/MCP retain (code, json) for compatibility.
 //!
-//! For library users needing relaxed containment (e.g. agents like Bline using --yolo or temp files):
+//! For library users needing relaxed containment (e.g. LLM agents using temp files or host experiment mode):
 //! ```rust,no_run
 //! use patchloom::containment::PathGuard;
 //! let guard = PathGuard::builder(std::env::current_dir().unwrap())

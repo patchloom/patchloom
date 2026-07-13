@@ -16,7 +16,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make test` | Run unit tests (`cargo test --lib --all-features`) |
 | `make integration-test` | Run integration tests (`cargo test --test integration --all-features`) |
 | `make pty-test` | Run PTY-based interactive terminal tests (`cargo test --test pty --all-features -- --test-threads=1`) |
-| `make test-library-hygiene` | Enforce Bline library set: clippy + tests under `--no-default-features --features "ast,files"` (catches dead_code, hygiene for #800 #802) |
+| `make test-library-hygiene` | Enforce pure-library embedder set: clippy + tests under `--no-default-features --features "ast,files"` (catches dead_code, hygiene for #800 #802) |
 | `make test-mcp-no-ast` | Lib tests with `mcp,cli,files` and no `ast` (MCP inventory/router/instructions honesty) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
 | `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme |
@@ -51,7 +51,7 @@ Keep the working tree clean:
 - After a core PR merges mid-session (e.g. #753 while polish for #754 was in flight): the feature branch tip is no longer ancestor of main ("has merged PR" from pre-commit hook). Recovery: `gh pr view N --json state` (confirm merged), `git checkout -b fix/review-continue-YYYYMMDD origin/main`, cherry-pick the useful commits (or `git show <oldsha> | patch -p1`), `git add <explicit files only>`, commit -s, push, create PR. See patchloom-contrib for full "Follow-up polish after base PR".
   For review/polish sessions you can temporarily set `REVIEW_CONTINUE=1` (or `ALLOW_MERGED_COMMIT=1`) to skip the hook block (see the global pre-commit hook for details). Always unset after the session.
 
-- **PR bodies must contain explicit issue links for traceability (addresses #819).** Every PR that resolves GitHub issues (including library follow-ups after a base PR has merged, Bline feedback polish, etc.) MUST list `Closes #N` or `Fixes #N` (one per line) in the PR *body/description*. GitHub only auto-closes from the PR body under squash-merge (individual commit messages are dropped). Use `Ref #N` for related but non-closing references. Never rely on commit message only. See `~/.grok/skills/owned-repo-gate/SKILL.md` (Phase 4) and `~/.grok/skills/github-interaction/SKILL.md` for the full rule and recovery. For follow-up PRs, edit the body with `gh pr edit` if the initial description was minimal. Verify with issue audit before claiming closure.
+- **PR bodies must contain explicit issue links for traceability (addresses #819).** Every PR that resolves GitHub issues (including library follow-ups after a base PR has merged, embedder/API polish, etc.) MUST list `Closes #N` or `Fixes #N` (one per line) in the PR *body/description*. GitHub only auto-closes from the PR body under squash-merge (individual commit messages are dropped). Use `Ref #N` for related but non-closing references. Never rely on commit message only. See `~/.grok/skills/owned-repo-gate/SKILL.md` (Phase 4) and `~/.grok/skills/github-interaction/SKILL.md` for the full rule and recovery. For follow-up PRs, edit the body with `gh pr edit` if the initial description was minimal. Verify with issue audit before claiming closure.
 
 See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`.
 
@@ -60,7 +60,7 @@ See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`
 - The open release-please PR (#724 etc.) title must be correct. Use `gh pr edit --title` when it shows the wrong version.
 - The PR *body* can be very long and may temporarily show the wrong next version header (release-please behavior). This is tracked as tech-debt #740.
 - When updating library embedding examples (in lib.rs, README, docs/), keep the version string in sync with the current Cargo.toml / .release-please-manifest.json (avoids the 0.4 vs 0.5 drift reported in #816 follow-up).
-- **Library follow-up PRs and high-level API changes must use explicit Closes links in the PR body** (see #819 and the new rule in Git hygiene above). The #811-#815 Bline library work + #817/#818 follow-ups exposed the gap where minimal PR bodies left issues open after squash-merge. Always include them for traceability.
+- **Library follow-up PRs and high-level API changes must use explicit Closes links in the PR body** (see #819 and the new rule in Git hygiene above). The #811-#815 library embedder work + #817/#818 follow-ups exposed the gap where minimal PR bodies left issues open after squash-merge. Always include them for traceability.
 - Primary curation is done via `RELEASE_NOTES.md` (applied to the final GitHub Release by the host job, not the PR body).
 - See `patchloom-contrib` skill ("Curated release notes" and "Major version bumps" sections) for the full process.
 

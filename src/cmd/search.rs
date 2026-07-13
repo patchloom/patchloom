@@ -11,7 +11,7 @@ EXAMPLES:
   patchloom search 'fn main' src/ --count
   patchloom search 'error|warn' --regex src/ -C 2
   patchloom search 'password' . --glob '*.yaml'
-  patchloom search 'TODO' . --ignore-file .blineignore --exclude 'target/**' --max-results 50")]
+  patchloom search 'TODO' . --ignore-file .agentignore --exclude 'target/**' --max-results 50")]
 pub struct SearchArgs {
     /// Pattern to search for.
     pub pattern: String,

@@ -26,7 +26,7 @@ test-ast-only: ## Run lib tests with only the ast feature (no cli, no mcp)
 test-mcp-no-ast: ## MCP without ast (inventory, tool_router merge, instructions honesty; #1395 #1396)
 	cargo test --lib --no-default-features --features "mcp,cli,files"
 
-test-library-hygiene: ## Run clippy + lib tests under exact Bline pure-library set (ast+files) to enforce no dead_code and hygiene (addresses #800 #802)
+test-library-hygiene: ## Run clippy + lib tests under pure-library embedder set (ast+files) to enforce no dead_code and hygiene (addresses #800 #802)
 	cargo clippy --no-default-features --features "ast,files" -- -D warnings
 	cargo test --no-default-features --features "ast,files" --lib
 

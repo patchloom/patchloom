@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - Minimal `ast::symbols::replace_function_signature` starter for Rust sig updates.
   - Re-exports for ergonomics (Plan, EditResult, etc.).
   - Expanded embedding docs + examples in lib.rs and api.
-  - Addresses all gaps in #792 for Bline full adoption (search layering docs, guard+append examples, no dup shims).
+  - Addresses all gaps in #792 for LLM agent embedder adoption (search layering docs, guard+append examples, no dup shims).
 * Tests and matrix verification for no-cli builds.
 
 ### Changed
@@ -34,7 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Features
 
-* **api:** Bline embedder surface (require_change, AST mutators, shell tokens, batch rename) ([#1497](https://github.com/patchloom/patchloom/issues/1497)) ([afd19b2](https://github.com/patchloom/patchloom/commit/afd19b215b2122d721fbff65f323a265ae8a05cf)), closes [#1492](https://github.com/patchloom/patchloom/issues/1492) [#1493](https://github.com/patchloom/patchloom/issues/1493) [#1494](https://github.com/patchloom/patchloom/issues/1494) [#1495](https://github.com/patchloom/patchloom/issues/1495)
+* **api:** LLM agent embedder surface (require_change, AST mutators, shell tokens, batch rename) ([#1497](https://github.com/patchloom/patchloom/issues/1497)) ([afd19b2](https://github.com/patchloom/patchloom/commit/afd19b215b2122d721fbff65f323a265ae8a05cf)), closes [#1492](https://github.com/patchloom/patchloom/issues/1492) [#1493](https://github.com/patchloom/patchloom/issues/1493) [#1494](https://github.com/patchloom/patchloom/issues/1494) [#1495](https://github.com/patchloom/patchloom/issues/1495)
 * **api:** crate-root apply_content_edits_to_file re-export ([#1512](https://github.com/patchloom/patchloom/issues/1512)) ([1604d2e](https://github.com/patchloom/patchloom/commit/1604d2e3328bfa84d07aea76a35cedd634c163c9))
 * **cli:** identity JSON flag and GNU --name=value option peeling ([#1543](https://github.com/patchloom/patchloom/issues/1543)) ([8615bb9](https://github.com/patchloom/patchloom/commit/8615bb994baa3f6b9f8eb197bc33b9a5a7d15070))
 * **cli:** replace --command-position and --require-change ([#1523](https://github.com/patchloom/patchloom/issues/1523)) ([0c53415](https://github.com/patchloom/patchloom/commit/0c53415c224a9fe455552ffc311797918064f7de))
@@ -135,7 +135,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Features
 
-* library embedder gaps for bline ([#1459](https://github.com/patchloom/patchloom/issues/1459)) ([#1461](https://github.com/patchloom/patchloom/issues/1461)) ([37d4573](https://github.com/patchloom/patchloom/commit/37d457373af009d293653a7440c23c860d923e7a))
+* library embedder gaps for LLM agents ([#1459](https://github.com/patchloom/patchloom/issues/1459)) ([#1461](https://github.com/patchloom/patchloom/issues/1461)) ([37d4573](https://github.com/patchloom/patchloom/commit/37d457373af009d293653a7440c23c860d923e7a))
 
 
 ### Bug Fixes
@@ -228,7 +228,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 * add --before-context/--after-context to CLI replace and new prepend command ([#1290](https://github.com/patchloom/patchloom/issues/1290)) ([8a576dd](https://github.com/patchloom/patchloom/commit/8a576dd55d106de02b6dd2bd6152d7f9f38f125b))
 * add fuzzy fallback to replace_in_content ([#1286](https://github.com/patchloom/patchloom/issues/1286)) ([#1292](https://github.com/patchloom/patchloom/issues/1292)) ([a7c009e](https://github.com/patchloom/patchloom/commit/a7c009e4dbbdecabc6ec813269100d3dc86ba2d2))
-* implement Bline issues [#1287](https://github.com/patchloom/patchloom/issues/1287), [#1288](https://github.com/patchloom/patchloom/issues/1288), [#1289](https://github.com/patchloom/patchloom/issues/1289) ([#1291](https://github.com/patchloom/patchloom/issues/1291)) ([d24dd45](https://github.com/patchloom/patchloom/commit/d24dd45b1b6a08667acd998d30628a4171e77bdc))
+* implement agent-host issues [#1287](https://github.com/patchloom/patchloom/issues/1287), [#1288](https://github.com/patchloom/patchloom/issues/1288), [#1289](https://github.com/patchloom/patchloom/issues/1289) ([#1291](https://github.com/patchloom/patchloom/issues/1291)) ([d24dd45](https://github.com/patchloom/patchloom/commit/d24dd45b1b6a08667acd998d30628a4171e77bdc))
 
 
 ### Bug Fixes
@@ -423,10 +423,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Features
 
 * add Streamable HTTP/HTTPS transport to mcp-server ([#866](https://github.com/patchloom/patchloom/issues/866)) ([30124e3](https://github.com/patchloom/patchloom/commit/30124e3ff7ca8120882684f8876b1f8c079fa57b))
-* Bline [#805](https://github.com/patchloom/patchloom/issues/805) downstream polish (PlanReport, search/AST docs, versions) ([#810](https://github.com/patchloom/patchloom/issues/810)) ([be7db34](https://github.com/patchloom/patchloom/commit/be7db3413ff02b7c763b005336d5b666d83e422b))
-* Bline library follow-ups ([#811](https://github.com/patchloom/patchloom/issues/811)-[#815](https://github.com/patchloom/patchloom/issues/815)) ([#817](https://github.com/patchloom/patchloom/issues/817)) ([f421f57](https://github.com/patchloom/patchloom/commit/f421f57c95145372b7aed22aea2cc0ef3a7f685b))
-* Bline library follow-ups for execute_plan typed return, search primitives/format/ignore helper, richer types, errors, versions sync ([#811](https://github.com/patchloom/patchloom/issues/811)-[#815](https://github.com/patchloom/patchloom/issues/815)) ([#816](https://github.com/patchloom/patchloom/issues/816)) ([4dcddf4](https://github.com/patchloom/patchloom/commit/4dcddf47e96e91ccae94fe231ecbf5189a2b7539))
-* full CLI/MCP/plan parity for Bline search ignore layering ([#821](https://github.com/patchloom/patchloom/issues/821)) ([#822](https://github.com/patchloom/patchloom/issues/822)) ([f7c0a8f](https://github.com/patchloom/patchloom/commit/f7c0a8fde8c2f04591ec0c22eb36374380e4f043))
+* Agent embedder [#805](https://github.com/patchloom/patchloom/issues/805) downstream polish (PlanReport, search/AST docs, versions) ([#810](https://github.com/patchloom/patchloom/issues/810)) ([be7db34](https://github.com/patchloom/patchloom/commit/be7db3413ff02b7c763b005336d5b666d83e422b))
+* Library embedder follow-ups ([#811](https://github.com/patchloom/patchloom/issues/811)-[#815](https://github.com/patchloom/patchloom/issues/815)) ([#817](https://github.com/patchloom/patchloom/issues/817)) ([f421f57](https://github.com/patchloom/patchloom/commit/f421f57c95145372b7aed22aea2cc0ef3a7f685b))
+* Library embedder follow-ups for execute_plan typed return, search primitives/format/ignore helper, richer types, errors, versions sync ([#811](https://github.com/patchloom/patchloom/issues/811)-[#815](https://github.com/patchloom/patchloom/issues/815)) ([#816](https://github.com/patchloom/patchloom/issues/816)) ([4dcddf4](https://github.com/patchloom/patchloom/commit/4dcddf47e96e91ccae94fe231ecbf5189a2b7539))
+* full CLI/MCP/plan parity for agent search ignore layering ([#821](https://github.com/patchloom/patchloom/issues/821)) ([#822](https://github.com/patchloom/patchloom/issues/822)) ([f7c0a8f](https://github.com/patchloom/patchloom/commit/f7c0a8fde8c2f04591ec0c22eb36374380e4f043))
 * library embedding gaps for pure 'ast'+'files' ([#792](https://github.com/patchloom/patchloom/issues/792)) ([#793](https://github.com/patchloom/patchloom/issues/793)) ([f0f99ef](https://github.com/patchloom/patchloom/commit/f0f99ef2b137633463312aad4be782868f2fda6e))
 * **lib:** ungate files helpers + add directory search API ([#773](https://github.com/patchloom/patchloom/issues/773) [#774](https://github.com/patchloom/patchloom/issues/774)) ([#775](https://github.com/patchloom/patchloom/issues/775)) ([505240c](https://github.com/patchloom/patchloom/commit/505240c6d48894e937ad775863147d12345b890f))
 * **mcp:** add execute_plan tool for multi-step tx plans + document cross-call semantics ([#827](https://github.com/patchloom/patchloom/issues/827)) ([#829](https://github.com/patchloom/patchloom/issues/829)) ([9b66e9a](https://github.com/patchloom/patchloom/commit/9b66e9abc5442b3a47001ce1e723268fc34559ba))
@@ -435,7 +435,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Bug Fixes
 
-* align version strings to 0.4 and expose search_one_file (Bline feedback on [#817](https://github.com/patchloom/patchloom/issues/817)) ([#818](https://github.com/patchloom/patchloom/issues/818)) ([1637cb3](https://github.com/patchloom/patchloom/commit/1637cb33cdebf06cb3a5af45f495aef5299cd85d))
+* align version strings to 0.4 and expose search_one_file (embedder feedback on [#817](https://github.com/patchloom/patchloom/issues/817)) ([#818](https://github.com/patchloom/patchloom/issues/818)) ([1637cb3](https://github.com/patchloom/patchloom/commit/1637cb33cdebf06cb3a5af45f495aef5299cd85d))
 * **containment:** make allow_temp_directory() and allow_workspace_and_temp_dir() handle conventional /tmp paths on macOS ([#781](https://github.com/patchloom/patchloom/issues/781)) ([#782](https://github.com/patchloom/patchloom/issues/782)) ([15bdc53](https://github.com/patchloom/patchloom/commit/15bdc53c52563f1a0288fb50a6f8ac3c29c8a123))
 * FOSSA false positive and TLS error path test ([#870](https://github.com/patchloom/patchloom/issues/870)) ([2c81d04](https://github.com/patchloom/patchloom/commit/2c81d04c6f09d6d478c160cc9ff2a0041f691208))
 * HTTPS banner shows real port; add TLS round-trip test ([#869](https://github.com/patchloom/patchloom/issues/869)) ([df6839f](https://github.com/patchloom/patchloom/commit/df6839ffba996a2a3464498c9687d43c6f29a74d)), closes [#867](https://github.com/patchloom/patchloom/issues/867) [#868](https://github.com/patchloom/patchloom/issues/868)
