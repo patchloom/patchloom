@@ -164,20 +164,10 @@ pub(crate) fn match_mode_label(mode: crate::api::MatchMode) -> &'static str {
 }
 
 /// Worst-case rollup: fuzzy > anchored > exact (#1674 / #1673).
-pub(crate) fn merge_match_modes(
-    prev: Option<crate::api::MatchMode>,
-    next: crate::api::MatchMode,
-) -> crate::api::MatchMode {
-    match (prev, next) {
-        (Some(crate::api::MatchMode::Fuzzy), _) | (_, crate::api::MatchMode::Fuzzy) => {
-            crate::api::MatchMode::Fuzzy
-        }
-        (Some(crate::api::MatchMode::Anchored), _) | (_, crate::api::MatchMode::Anchored) => {
-            crate::api::MatchMode::Anchored
-        }
-        _ => crate::api::MatchMode::Exact,
-    }
-}
+///
+/// Thin re-export of [`crate::api::merge_match_modes`] so `tx::replace_op`
+/// and callers keep a stable import path.
+pub(crate) use crate::api::merge_match_modes;
 
 fn match_meta_for_path(
     path: &Path,

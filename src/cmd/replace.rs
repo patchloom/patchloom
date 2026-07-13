@@ -270,22 +270,36 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
         .collect()
 }
 
-/// Prefer a single top-level match_mode when every file agrees (#1669).
+/// Top-level match honesty for multi-file CLI replace (#1669 / #1674).
+///
+/// Uses the same worst-case rollup as plan/tx and content_edits
+/// (`fuzzy` > `anchored` > `exact`) so agents see a single conservative
+/// confidence when files disagree.
 fn aggregate_match_meta(files: &[ReplaceFileResult]) -> (Option<&'static str>, Option<f64>) {
-    let modes: Vec<_> = files.iter().filter_map(|f| f.match_mode).collect();
-    if modes.is_empty() {
-        return (None, None);
-    }
-    let first = modes[0];
-    if modes.iter().all(|m| *m == first) {
-        let score = if first == "fuzzy" {
-            files.iter().find_map(|f| f.match_score)
-        } else {
-            None
+    use crate::api::{MatchMode, merge_match_modes};
+
+    let mut agg: Option<MatchMode> = None;
+    let mut score: Option<f64> = None;
+    for f in files {
+        let Some(label) = f.match_mode else {
+            continue;
         };
-        (Some(first), score)
-    } else {
-        (None, None)
+        let mode = match label {
+            "fuzzy" => MatchMode::Fuzzy,
+            "anchored" => MatchMode::Anchored,
+            "exact" => MatchMode::Exact,
+            _ => continue,
+        };
+        agg = Some(merge_match_modes(agg, mode));
+        if mode == MatchMode::Fuzzy && score.is_none() {
+            score = f.match_score;
+        }
+    }
+    match agg {
+        Some(MatchMode::Fuzzy) => (Some("fuzzy"), score),
+        Some(MatchMode::Anchored) => (Some("anchored"), None),
+        Some(MatchMode::Exact) => (Some("exact"), None),
+        None => (None, None),
     }
 }
 

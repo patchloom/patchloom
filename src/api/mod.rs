@@ -506,6 +506,18 @@ pub(crate) fn match_mode_from_strategy(
     }
 }
 
+/// Worst-case match honesty rollup: fuzzy > anchored > exact (#1673 / #1674).
+///
+/// Shared by multi-op content edits, plan/tx aggregates, and replace_op path
+/// re-visits so every surface reports the same confidence ordering.
+pub(crate) fn merge_match_modes(prev: Option<MatchMode>, next: MatchMode) -> MatchMode {
+    match (prev, next) {
+        (Some(MatchMode::Fuzzy), _) | (_, MatchMode::Fuzzy) => MatchMode::Fuzzy,
+        (Some(MatchMode::Anchored), _) | (_, MatchMode::Anchored) => MatchMode::Anchored,
+        _ => MatchMode::Exact,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TX engine adapter (requires tx module: cli or files feature)
 // ---------------------------------------------------------------------------
