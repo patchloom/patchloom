@@ -105,7 +105,7 @@ pub fn apply_content_edits_with_label(
         match_count = match_count.saturating_add(n);
         ops_applied += 1;
         if let Some(m) = mode {
-            match_mode = Some(merge_match_mode(match_mode, m));
+            match_mode = Some(super::merge_match_modes(match_mode, m));
             if m == MatchMode::Fuzzy && match_score.is_none() {
                 match_score = score;
             }
@@ -125,14 +125,6 @@ pub fn apply_content_edits_with_label(
         match_mode,
         match_score,
     })
-}
-
-fn merge_match_mode(prev: Option<MatchMode>, next: MatchMode) -> MatchMode {
-    match (prev, next) {
-        (Some(MatchMode::Fuzzy), _) | (_, MatchMode::Fuzzy) => MatchMode::Fuzzy,
-        (Some(MatchMode::Anchored), _) | (_, MatchMode::Anchored) => MatchMode::Anchored,
-        _ => MatchMode::Exact,
-    }
 }
 
 /// Read a file, apply multi-op content edits, and write according to `mode`.
@@ -532,5 +524,50 @@ mod tests {
         assert!(r.changed);
         assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
         assert!(r.match_score.is_some_and(|s| s > 0.85));
+    }
+
+    #[test]
+    fn content_edit_match_mode_rollup_anchored_over_exact() {
+        // Exact first, then context-anchored: worst-case is Anchored (#1673).
+        let edits = [
+            ContentEdit::Replace {
+                old: "alpha".into(),
+                new: "ALPHA".into(),
+                options: ReplaceOptions::default(),
+            },
+            ContentEdit::Replace {
+                old: "TODO: fix".into(),
+                new: "TODO: done".into(),
+                options: ReplaceOptions {
+                    before_context: Some("gamma".into()),
+                    ..Default::default()
+                },
+            },
+        ];
+        let r = apply_content_edits("alpha\nTODO: fix\nbeta\ngamma\nTODO: fix\n", &edits).unwrap();
+        assert!(r.changed);
+        assert_eq!(r.match_mode, Some(MatchMode::Anchored));
+        assert_eq!(r.match_count, 2);
+        assert!(r.modified.starts_with("ALPHA\n"));
+        assert!(r.modified.contains("gamma\nTODO: done"));
+        // Context-anchored replace must not touch the first TODO: fix
+        assert!(
+            r.modified.contains("ALPHA\nTODO: fix\nbeta"),
+            "first TODO must remain: {}",
+            r.modified
+        );
+    }
+
+    #[test]
+    fn merge_match_modes_precedence_table() {
+        use super::super::merge_match_modes;
+        use MatchMode::*;
+        assert_eq!(merge_match_modes(None, Exact), Exact);
+        assert_eq!(merge_match_modes(Some(Exact), Anchored), Anchored);
+        assert_eq!(merge_match_modes(Some(Anchored), Exact), Anchored);
+        assert_eq!(merge_match_modes(Some(Exact), Fuzzy), Fuzzy);
+        assert_eq!(merge_match_modes(Some(Anchored), Fuzzy), Fuzzy);
+        assert_eq!(merge_match_modes(Some(Fuzzy), Anchored), Fuzzy);
+        assert_eq!(merge_match_modes(Some(Fuzzy), Exact), Fuzzy);
     }
 }
