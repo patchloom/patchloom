@@ -1,3 +1,8 @@
+//! Tx replace operation execution.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Path + glob replace
+//! with fuzzy/context fallback co-located; do not split for LOC alone.
+
 use super::execute::{TxState, read_and_probe, read_file_content, update_file_content};
 use crate::ops::replace::{
     compile_replace_regex, context_filtered_offset, replace_content, replace_whole_lines,
@@ -331,8 +336,52 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             } else {
                 replace_content(&content, old, &replacement, compiled_re.as_ref(), *nth)
             };
-            total_matches += match_count;
+            if *unique && match_count > 1 {
+                let rel = file_path
+                    .strip_prefix(tx.cwd)
+                    .unwrap_or(&file_path)
+                    .display();
+                return Err(crate::exit::AmbiguousError {
+                    msg: format!(
+                        "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
+                        crate::fallback::truncate_str(old, 60),
+                        match_count,
+                        rel
+                    ),
+                }
+                .into());
+            }
             if match_count > 0 {
+                // Multi-match context disambiguation (parity with single-path).
+                if match_count > 1
+                    && nth.is_none()
+                    && !*whole_line
+                    && !regex_mode
+                    && (before_context.is_some() || after_context.is_some())
+                    && let Some(target_offset) = context_filtered_offset(
+                        &content,
+                        old,
+                        before_context.as_deref(),
+                        after_context.as_deref(),
+                    )
+                {
+                    let new_content = format!(
+                        "{}{}{}",
+                        &content[..target_offset],
+                        replacement,
+                        &content[target_offset + old.len()..],
+                    );
+                    update_file_content(
+                        tx.pending,
+                        tx.deletions,
+                        tx.write_targets,
+                        &file_path,
+                        new_content,
+                    );
+                    total_matches += 1;
+                    continue;
+                }
+                total_matches += match_count;
                 update_file_content(
                     tx.pending,
                     tx.deletions,
@@ -340,6 +389,42 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     &file_path,
                     replaced.into_owned(),
                 );
+            } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some())
+            {
+                // Fuzzy/context fallback for glob paths (parity with #1668 path arm).
+                match crate::fallback::resolve_with_fallback(
+                    &content,
+                    old,
+                    before_context.as_deref(),
+                    after_context.as_deref(),
+                ) {
+                    Ok(anchor) => {
+                        let to_text = if let Some(ib) = insert_before {
+                            format!("{}{}", ib, anchor.matched_text)
+                        } else if let Some(ia) = insert_after {
+                            format!("{}{}", anchor.matched_text, ia)
+                        } else {
+                            new_text.as_deref().unwrap_or("").to_string()
+                        };
+                        let new_content = format!(
+                            "{}{}{}",
+                            &content[..anchor.start_offset],
+                            to_text,
+                            &content[anchor.start_offset + anchor.matched_text.len()..]
+                        );
+                        update_file_content(
+                            tx.pending,
+                            tx.deletions,
+                            tx.write_targets,
+                            &file_path,
+                            new_content,
+                        );
+                        total_matches += 1;
+                    }
+                    Err(_) => {
+                        // Keep scanning other files; require_change checked after loop.
+                    }
+                }
             }
         }
         if total_matches == 0 && *require_change && !if_exists {
@@ -923,6 +1008,47 @@ mod tests {
             f.pending[&file].1.contains("handle_data"),
             "pure fuzzy plan op must rewrite: {}",
             f.pending[&file].1
+        );
+    }
+
+    #[test]
+    fn replace_glob_pure_fuzzy_without_context() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn process_data() {}\n").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "unrelated\n").unwrap();
+
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("**/*.rs".into()),
+            regex: false,
+            old: "fn proccess_data() {}".into(),
+            new_text: Some("fn handle_data() {}".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
+            require_change: true,
+            command_position: false,
+            fuzzy: true,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 1, "glob fuzzy should rewrite one .rs file");
+        let a = dir.path().join("a.rs");
+        assert!(
+            f.pending[&a].1.contains("handle_data"),
+            "glob pure fuzzy must rewrite: {}",
+            f.pending[&a].1
         );
     }
 }

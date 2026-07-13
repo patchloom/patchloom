@@ -601,7 +601,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:replace-mode:fuzzy -->
 ### `replace --fuzzy` / library `ReplaceOptions.fuzzy` / plan `fuzzy`
 
-- **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library and tx paths (#1668).
+- **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library, single-path tx, **glob** plan ops, and CLI (including directory roots expanded like ordinary replace).
 - **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` in library results and CLI/MCP JSON (#1669).
 - **Prefer instead:** Exact replace when the target string is known.
 

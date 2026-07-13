@@ -575,46 +575,92 @@ fn replace_output(
     )
 }
 
-/// Context-based replace: routes through the tx engine where
+/// Context / pure-fuzzy replace: routes through the tx engine where
 /// `context_filtered_offset` and the fallback chain live.
 fn run_context_replace(
     args: ReplaceArgs,
     global: &GlobalFlags,
-    _cwd: &std::path::Path,
+    cwd: &std::path::Path,
 ) -> anyhow::Result<u8> {
     use crate::plan::Operation;
 
-    // Context-based replace requires explicit file paths (not directory scan).
-    if args.paths.is_empty() {
-        let msg = "--before-context/--after-context requires explicit file paths";
-        global.emit_error_json_kind(Some("invalid_input"), msg)?;
-        return Ok(exit::FAILURE);
+    // Expand directories the same way as the default replace scan so
+    // `patchloom replace --fuzzy OLD --new NEW src/` works (not only
+    // single-file paths). Empty roots default to `.` via collect.
+    let paths = if args.paths.is_empty() {
+        vec![".".to_string()]
+    } else {
+        args.paths.clone()
+    };
+    let file_paths = crate::collect_file_paths_opts(&paths, global, false, Some(cwd))?;
+    if file_paths.is_empty() {
+        if crate::files::all_scan_targets_missing(global, &paths, Some(cwd))? {
+            let msg = format!(
+                "no such file or directory: {}",
+                global.path_scope_description(&paths)
+            );
+            global.emit_error_json_kind(Some("not_found"), &msg)?;
+            return Ok(exit::FAILURE);
+        }
+        let empty = ReplaceOutput {
+            ok: args.if_exists,
+            match_count: 0,
+            file_count: 0,
+            files: vec![],
+            diff: None,
+            identity: None,
+            error_kind: if args.if_exists {
+                None
+            } else {
+                Some("no_matches")
+            },
+            match_mode: None,
+            match_score: None,
+        };
+        global.emit_json(&empty)?;
+        if args.if_exists {
+            return Ok(exit::SUCCESS);
+        }
+        if !global.quiet && !global.json && !global.jsonl {
+            eprintln!(
+                "no matches for '{}' in fuzzy/context replace ({})",
+                args.old,
+                global.path_scope_description(&paths)
+            );
+        }
+        return Ok(exit::NO_MATCHES);
     }
 
-    let ops: Vec<Operation> = args
-        .paths
+    let ops: Vec<Operation> = file_paths
         .iter()
-        .map(|p| Operation::Replace {
-            glob: None,
-            path: Some(p.clone()),
-            regex: args.regex,
-            old: args.old.clone(),
-            new_text: args.new.clone(),
-            nth: args.nth,
-            insert_before: args.insert_before.clone(),
-            insert_after: args.insert_after.clone(),
-            case_insensitive: args.case_insensitive,
-            multiline: args.multiline,
-            if_exists: args.if_exists,
-            whole_line: args.whole_line,
-            range: args.range.clone(),
-            word_boundary: args.word_boundary,
-            before_context: args.before_context.clone(),
-            after_context: args.after_context.clone(),
-            unique: args.unique,
-            require_change: args.require_change,
-            command_position: args.command_position,
-            fuzzy: args.fuzzy,
+        .map(|p| {
+            let rel = crate::files::relative_display(p, cwd)
+                .to_string_lossy()
+                .into_owned();
+            Operation::Replace {
+                glob: None,
+                path: Some(rel),
+                regex: args.regex,
+                old: args.old.clone(),
+                new_text: args.new.clone(),
+                nth: args.nth,
+                insert_before: args.insert_before.clone(),
+                insert_after: args.insert_after.clone(),
+                case_insensitive: args.case_insensitive,
+                multiline: args.multiline,
+                if_exists: args.if_exists || file_paths.len() > 1,
+                // Multi-file fuzzy: soft-miss per file so one miss does not
+                // abort the batch; overall require_change checked via has_changes.
+                whole_line: args.whole_line,
+                range: args.range.clone(),
+                word_boundary: args.word_boundary,
+                before_context: args.before_context.clone(),
+                after_context: args.after_context.clone(),
+                unique: args.unique,
+                require_change: args.require_change && file_paths.len() == 1,
+                command_position: args.command_position,
+                fuzzy: args.fuzzy,
+            }
         })
         .collect();
 

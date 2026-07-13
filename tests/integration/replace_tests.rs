@@ -1402,11 +1402,11 @@ fn test_replace_after_context_disambiguates() {
 }
 
 #[test]
-fn test_replace_context_requires_explicit_file() {
+fn test_replace_context_or_fuzzy_expands_cwd_when_paths_omitted() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
 
-    // No file paths at all (only --cwd is set via patchloom_in).
+    // No positional paths: fuzzy/context path expands cwd (same as ordinary replace).
     patchloom_in(dir.path())
         .arg("replace")
         .arg("hello")
@@ -1416,8 +1416,11 @@ fn test_replace_context_requires_explicit_file() {
         .arg("ctx")
         .arg("--apply")
         .assert()
-        .code(1)
-        .stderr(predicates::str::contains("explicit file paths"));
+        .code(0);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+        "world\n"
+    );
 }
 
 #[test]

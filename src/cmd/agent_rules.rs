@@ -317,6 +317,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply\n\n\
              # Rewrite shell invocable tokens only (not uv pip / pipenv):\n\
              patchloom replace pip --new uv install.sh --command-position --require-change --apply\n\
+             patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --apply\n\
              ```\n\n",
         );
 
@@ -688,11 +689,15 @@ mod tests {
     fn workflow_includes_plan_require_change_and_command_position() {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(
-            out.contains("require_change") && out.contains("command_position"),
+            out.contains("require_change")
+                && out.contains("command_position")
+                && out.contains("fuzzy"),
             "plan replace library flags must be documented for agents"
         );
         assert!(
-            out.contains("--command-position") && out.contains("--require-change"),
+            out.contains("--command-position")
+                && out.contains("--require-change")
+                && out.contains("--fuzzy"),
             "CLI flags must appear in agent-rules examples"
         );
         assert!(
@@ -715,7 +720,9 @@ mod tests {
         );
         let mcp = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
         assert!(
-            mcp.contains("require_change") && mcp.contains("command_position"),
+            mcp.contains("require_change")
+                && mcp.contains("command_position")
+                && mcp.contains("fuzzy"),
             "MCP-only agent-rules must document replace_text flags"
         );
     }
