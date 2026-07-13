@@ -6,28 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-### Added
-* Full pure-library support for embedders (`default-features=false, features=["ast","files"]`):
-  - `execute_plan` (and tx engine) now available without "cli"/clap (via "files").
-  - `api::file_append` and `api::file_prepend`.
-  - Shared content helpers in `ops::file`.
-  - Enhanced `EditResult` with `action` field for better cross-op identification.
-  - Minimal `ast::symbols::replace_function_signature` starter for Rust sig updates.
-  - Re-exports for ergonomics (Plan, EditResult, etc.).
-  - Expanded embedding docs + examples in lib.rs and api.
-  - Addresses all gaps in #792 for LLM agent embedder adoption (search layering docs, guard+append examples, no dup shims).
-* Tests and matrix verification for no-cli builds.
+Curated release notes for the next version live in `RELEASE_NOTES.md` when
+present (applied to the GitHub Release body by the host job). Versioned
+sections below are managed by release-please.
 
-### Changed
-* Refactored tx execution out of cmd/ for library use.
-* Config/write helpers partially ungated for library policy support.
-* Read line helpers shared via ops::read.
-
-* tech-debt fixes for release-please major bumps and post-refactor hygiene (#725-#728):
-  - Expanded documented process for major version bumps and manual manifest edits in AGENTS.md and patchloom-contrib (addresses stale PRs, version confusion, positive intent framing).
-  - Added "Changelog framing for breaking changes" and "Post-refactor test name and assertion hygiene" guidance.
-  - Added `make audit-test-hygiene` target to help catch stale test names and weak assertions after refactors/MPI cycles.
-  - Cross-referenced in project docs.
 
 ## [0.13.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.12.0...patchloom-v0.13.0) (2026-07-13)
 

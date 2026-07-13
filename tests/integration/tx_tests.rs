@@ -8136,8 +8136,16 @@ fn test_tx_replace_fuzzy_pure_in_plan() {
         "tx JSON match_mode (#1674): {json}"
     );
     assert_eq!(
+        json["match_count"], 1,
+        "tx JSON match_count from engine meta: {json}"
+    );
+    assert_eq!(
         json["changes"][0]["match_mode"], "fuzzy",
         "per-change match_mode: {json}"
+    );
+    assert_eq!(
+        json["changes"][0]["match_count"], 1,
+        "per-change match_count: {json}"
     );
 
     let on_disk = fs::read_to_string(&file).unwrap();
