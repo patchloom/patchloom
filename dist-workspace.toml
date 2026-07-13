@@ -8,7 +8,7 @@ cargo-dist-version = "0.31.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell", "powershell", "homebrew"]
+installers = ["shell", "powershell", "homebrew", "npm"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "aarch64-pc-windows-msvc", "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
 # The archive format to use for non-windows builds (defaults .tar.xz)
@@ -20,7 +20,9 @@ checksum = "sha256"
 # A GitHub repo to push Homebrew formulas to
 tap = "patchloom/homebrew-tap"
 # Publish jobs to run in CI
-publish-jobs = ["homebrew", "./publish-crates"]
+publish-jobs = ["homebrew", "npm", "./publish-crates"]
+# Unscoped npm package name (available on npmjs.com)
+npm-package = "patchloom"
 # Where to host releases
 hosting = "github"
 # Which actions to run on pull requests

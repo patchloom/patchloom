@@ -166,8 +166,18 @@ MCP mode wins overall (228.5s vs 233.8s native) because structured tool calls sk
 # Homebrew (macOS/Linux)
 brew install patchloom/tap/patchloom
 
+# npm / npx (downloads the platform binary; requires Node.js)
+npm install -g patchloom
+# or: npx patchloom --version
+
 # crates.io (requires Rust 1.95+, includes MCP server)
 cargo install patchloom
+```
+
+```powershell
+# Scoop (Windows)
+scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
+scoop install patchloom/patchloom
 ```
 
 Pre-built binaries for Linux, macOS, and Windows are on the
@@ -448,7 +458,7 @@ flowchart LR
 
 | Component | Status |
 |---|---|
-| CLI | Published on [crates.io](https://crates.io/crates/patchloom) and [Homebrew](https://github.com/patchloom/homebrew-tap) |
+| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [npm](https://www.npmjs.com/package/patchloom), and [Scoop](https://github.com/patchloom/scoop-bucket) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 
 ## Full command reference
