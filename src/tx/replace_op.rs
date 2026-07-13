@@ -96,6 +96,17 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         anyhow::bail!("execute_replace_op called with non-Replace operation")
     };
     let regex_mode = *regex_mode;
+    if let Some(min) = min_fuzzy_score {
+        if !(0.0..=1.0).contains(min) || min.is_nan() {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!(
+                    "min_fuzzy_score must be in 0.0..=1.0 (got {min}); leave None for no floor"
+                )
+                .into(),
+            }
+            .into());
+        }
+    }
     let word_boundary = matches!(
         op,
         Operation::Replace {
