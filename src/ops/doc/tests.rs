@@ -868,6 +868,86 @@ mod error_handling {
     }
 
     #[test]
+    fn yaml_multi_document_set_preserves_separators() {
+        // Writing multi-doc YAML must keep --- separators (not collapse to a
+        // single sequence document). kubectl apply -f requires multi-doc form.
+        let yaml = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\ndata:\n  key: value\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: demo-svc\nspec:\n  ports:\n    - port: 80\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[0]["data"]["key"] = json!("newval");
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+
+        assert!(
+            is_multi_document_yaml(&result),
+            "write must preserve multi-doc stream, got:\n{result}"
+        );
+        assert!(
+            !result.trim_start().starts_with("- "),
+            "must not serialize multi-doc as a YAML sequence, got:\n{result}"
+        );
+        assert!(
+            result.contains("key: newval") || result.contains("key: \"newval\""),
+            "updated value missing:\n{result}"
+        );
+        assert!(
+            result.contains("kind: Service"),
+            "second document must be preserved:\n{result}"
+        );
+
+        // Round-trip: still addressable by document index.
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed[0]["data"]["key"], json!("newval"));
+        assert_eq!(reparsed[1]["kind"], json!("Service"));
+        assert_eq!(reparsed[1]["spec"]["ports"][0]["port"], json!(80));
+    }
+
+    #[test]
+    fn yaml_multi_document_set_second_doc_preserves_first() {
+        let yaml = "---\nname: alpha\nversion: 1\n---\nname: beta\nversion: 2\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[1]["version"] = json!(99);
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+
+        assert!(is_multi_document_yaml(&result), "got:\n{result}");
+        assert!(
+            result.starts_with("---"),
+            "leading marker preserved:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed[0]["name"], json!("alpha"));
+        assert_eq!(reparsed[0]["version"], json!(1));
+        assert_eq!(reparsed[1]["name"], json!("beta"));
+        assert_eq!(reparsed[1]["version"], json!(99));
+    }
+
+    #[test]
+    fn yaml_multi_document_unchanged_returns_original() {
+        let yaml = "first: 1\n---\nsecond: 2\n";
+        let val = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let result = serialize_value_preserving(yaml, &val, &val, &FileFormat::Yaml).unwrap();
+        assert_eq!(result, yaml);
+    }
+
+    #[test]
+    fn split_multi_document_yaml_without_leading_marker() {
+        let (leading, bodies) = split_multi_document_yaml("first: 1\n---\nsecond: 2\n");
+        assert!(!leading);
+        assert_eq!(bodies.len(), 2);
+        assert!(bodies[0].contains("first: 1"));
+        assert!(bodies[1].contains("second: 2"));
+    }
+
+    #[test]
+    fn split_multi_document_yaml_with_leading_marker() {
+        let (leading, bodies) = split_multi_document_yaml("---\na: 1\n---\nb: 2\n");
+        assert!(leading);
+        assert_eq!(bodies.len(), 2);
+        assert!(bodies[0].contains("a: 1"));
+        assert!(bodies[1].contains("b: 2"));
+    }
+
+    #[test]
     fn mutation_append_to_non_array() {
         let mut root = json!({"items": "not-array"});
         let result = apply_doc_mutation(

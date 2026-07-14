@@ -1,3 +1,9 @@
+//! Document format ops (JSON/YAML/TOML): detect, parse, serialize, preserve.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Format detect,
+//! multi-document YAML parse/write (#1718), and CST-preserving serialize
+//! entrypoints are one document surface; do not split for LOC alone.
+
 use crate::selector;
 use serde::Deserialize;
 use std::path::Path;
@@ -92,6 +98,12 @@ pub fn serialize_value_preserving(
             Ok(doc.to_string())
         }
         FileFormat::Yaml => {
+            // Multi-document streams must stay multi-document on write. Falling
+            // through to single-doc serialize turns `---` docs into a YAML
+            // sequence (`- item:`), which breaks kubectl/kustomize manifests.
+            if is_multi_document_yaml(original_content) {
+                return serialize_multi_document_yaml(original_content, old_value, new_value);
+            }
             if let Some(result) = try_preserve_yaml(original_content, old_value, new_value)? {
                 return Ok(result);
             }
@@ -504,6 +516,136 @@ fn parse_multi_document_yaml(content: &str) -> anyhow::Result<serde_json::Value>
     // ---  separators and the YAML deserializer always yields at least one doc.
     debug_assert!(!docs.is_empty(), "multi-doc YAML produced zero documents");
     Ok(serde_json::Value::Array(docs))
+}
+
+/// Whether a single line (without trailing newline) is a YAML document marker.
+fn is_yaml_document_separator_line(line: &str) -> bool {
+    line.strip_prefix("---").is_some_and(is_after_yaml_marker)
+}
+
+/// Split multi-document YAML into document body strings.
+///
+/// Returns `(had_leading_marker, bodies)`. Bodies exclude the `---` separator
+/// lines. Caller should only invoke when [`is_multi_document_yaml`] is true.
+pub(crate) fn split_multi_document_yaml(content: &str) -> (bool, Vec<String>) {
+    let mut bodies: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut leading_marker = false;
+    let mut first_line = true;
+    let mut saw_body = false;
+
+    for line in content.split_inclusive('\n') {
+        let without_nl = line.trim_end_matches(['\n', '\r']);
+        if is_yaml_document_separator_line(without_nl) {
+            if first_line && !saw_body {
+                // Leading stream marker (optional preamble), not a boundary.
+                leading_marker = true;
+                first_line = false;
+                continue;
+            }
+            bodies.push(std::mem::take(&mut current));
+            first_line = false;
+            continue;
+        }
+        first_line = false;
+        saw_body = true;
+        current.push_str(line);
+    }
+    bodies.push(current);
+    (leading_marker, bodies)
+}
+
+/// Reassemble multi-document YAML from body strings.
+fn join_multi_document_yaml(leading_marker: bool, docs: &[String]) -> String {
+    let mut out = String::new();
+    if leading_marker {
+        out.push_str("---\n");
+    }
+    for (i, doc) in docs.iter().enumerate() {
+        if i > 0 {
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("---\n");
+        }
+        let body = doc.trim_end_matches(['\n', '\r']);
+        if !body.is_empty() {
+            out.push_str(body);
+            out.push('\n');
+        }
+    }
+    if out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
+/// Serialize one document body (single-doc preserve path, no multi-doc re-entry).
+fn serialize_single_yaml_document(
+    original_body: &str,
+    old_value: &serde_json::Value,
+    new_value: &serde_json::Value,
+) -> anyhow::Result<String> {
+    if old_value == new_value && !original_body.is_empty() {
+        return Ok(original_body.to_string());
+    }
+    if !original_body.trim().is_empty()
+        && let Some(result) = try_preserve_yaml(original_body, old_value, new_value)?
+    {
+        return Ok(result);
+    }
+    let body = serialize_value(new_value, &FileFormat::Yaml)?;
+    if original_body.is_empty() {
+        Ok(body)
+    } else {
+        Ok(preserve::hoist_comments(original_body, &body))
+    }
+}
+
+/// Write multi-document YAML while keeping `---` document separators.
+///
+/// Parse models multi-doc streams as a JSON array. Naively serializing that
+/// array emits a single sequence document (`- kind: ...`), which is not a
+/// multi-document stream and breaks tools that expect `---` separators
+/// (e.g. `kubectl apply -f`).
+fn serialize_multi_document_yaml(
+    original_content: &str,
+    old_value: &serde_json::Value,
+    new_value: &serde_json::Value,
+) -> anyhow::Result<String> {
+    if old_value == new_value {
+        return Ok(original_content.to_string());
+    }
+
+    let (leading_marker, bodies) = split_multi_document_yaml(original_content);
+
+    let Some(new_docs) = new_value.as_array() else {
+        // Unexpected: multi-doc parse always yields an array. Fall back.
+        let body = serialize_value(new_value, &FileFormat::Yaml)?;
+        return Ok(preserve::hoist_comments(original_content, &body));
+    };
+
+    let old_docs = old_value.as_array();
+    let mut out_docs: Vec<String> = Vec::with_capacity(new_docs.len());
+
+    for (i, new_doc) in new_docs.iter().enumerate() {
+        let orig_body = bodies.get(i).map(String::as_str).unwrap_or("");
+        let old_doc = old_docs.and_then(|arr| arr.get(i));
+        match old_doc {
+            Some(old_doc) if old_doc == new_doc && !orig_body.is_empty() => {
+                out_docs.push(orig_body.to_string());
+            }
+            Some(old_doc) => {
+                out_docs.push(serialize_single_yaml_document(orig_body, old_doc, new_doc)?);
+            }
+            None => {
+                // Appended document: no original body to preserve.
+                out_docs.push(serialize_value(new_doc, &FileFormat::Yaml)?);
+            }
+        }
+    }
+
+    Ok(join_multi_document_yaml(leading_marker, &out_docs))
 }
 
 // ---------------------------------------------------------------------------
