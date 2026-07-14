@@ -43,6 +43,12 @@
 - `min_fuzzy_score`: reject fuzzy matches below this floor (0.0..=1.0); exact/anchored unaffected (#1687).
 Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
+**Fuzzy success is not semantic success (#1736):**
+- `min_fuzzy_score` only rejects *weak* similarity. Scores above the floor can still rewrite a *different* live identifier than the `old` string you requested.
+- After any fuzzy apply, read JSON `matched_text` (and re-read the file if needed). If `matched_text` is not the intended typo (for example `old=compute_cheksum` fuzzy-hits `compute_checksum` at score ~0.99), **undo** and use `ast_rename` / exact replace instead.
+- Prefer `ast_rename` / `ast_rename_project` for code identifiers. Fuzzy is a last resort for typos in non-AST text (prose, comments), not a general rename tool.
+- Do not treat `ok` + `match_score >= min_fuzzy_score` alone as "correct target." Distinct from closed whole-line bug #1694.
+
 **Library embedder undo / post-write (Rust hosts, not CLI-only):**
 - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).
 - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path
@@ -51,8 +57,8 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).
 - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`
 - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)
-- Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts (#1687, #1694)
-**Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, and replace `match_count` (plan/tx also on each change + sum) so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`). Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674).
+- Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts; always check `matched_text` (#1687, #1694, #1736)
+**Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`). Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736).
 
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)
@@ -193,6 +199,8 @@ patchloom search --count "old_function_name" src/
 patchloom replace "old_function_name" --new "new_function_name" src/ --apply
 ```
 
+Bad: `replace --fuzzy` with a misspelled `old` that is **not** in the file (e.g. `compute_cheksum` → may rewrite live `compute_checksum` even with `--min-fuzzy-score 0.95`). After fuzzy JSON, check `matched_text` (#1736).
+
 ### Delete lines matching a pattern
 
 ```bash
@@ -273,7 +281,7 @@ Plan/MCP `replace` accepts library flags (default false):
 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).
 - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).
 Example: `{"op":"replace","path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
-Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`) and `match_count` on replace-backed changes plus worst-case aggregate mode and sum of counts when any replace matched (#1674).
+Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`), optional `matched_text` for fuzzy/anchored spans, and `match_count` on replace-backed changes plus worst-case aggregate mode and sum of counts when any replace matched (#1674, #1736).
 
 ## AST-aware operations
 
@@ -351,7 +359,7 @@ dependencies[name=react].version # predicate filter
 
 ## Operations (from schema registry)
 
-- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails).
+- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails). Fuzzy + min_fuzzy_score only reject weak scores; high scores can still rewrite a different live identifier than old—check matched_text and prefer ast.rename for identifiers (#1736).
 - `file.append`: Append content to an existing file.
 - `file.prepend`: Prepend content to an existing file.
 - `file.create`: Create a new file with specified content.

@@ -237,6 +237,7 @@ mod tests {
             match_mode: None,
             match_score: None,
             match_count: None,
+            matched_text: None,
         };
         let emit = serialize_structured(&report, true);
         assert!(!emit.primary_ok);

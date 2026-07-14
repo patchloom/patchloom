@@ -105,6 +105,8 @@ pub fn ast_rewrite_signature_in_content(
         match_count: if changed { 1 } else { 0 },
         match_mode: None,
         match_score: None,
+
+        matched_text: None,
     })
 }
 

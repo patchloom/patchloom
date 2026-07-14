@@ -186,6 +186,12 @@ pub struct EditResult {
     pub match_mode: Option<MatchMode>,
     /// Similarity score when [`MatchMode::Fuzzy`] was used; otherwise `None`.
     pub match_score: Option<f64>,
+    /// Text actually matched for fuzzy/anchored replace (may differ from `old`).
+    ///
+    /// Agents must not treat `match_mode == Fuzzy` + high `match_score` alone as
+    /// "correct target": compare this field to the requested pattern and prefer
+    /// `ast_rename` for identifier renames (#1736).
+    pub matched_text: Option<String>,
     /// Backup session timestamp created for this Apply (if any).
     ///
     /// Set when a write produced a backup session (see `BackupSession::finalize`).
@@ -219,6 +225,9 @@ pub struct ContentEditResult {
     pub match_mode: Option<MatchMode>,
     /// Similarity score when fuzzy matching was used.
     pub match_score: Option<f64>,
+    /// Text actually matched for fuzzy/anchored replace (may differ from `from`).
+    /// See #1736: hosts should verify this against the requested pattern.
+    pub matched_text: Option<String>,
 }
 
 /// Controls whether an operation writes to disk.
@@ -537,6 +546,7 @@ pub(crate) fn build_edit_result(
         removed: 0,
         match_mode: None,
         match_score: None,
+        matched_text: None,
         backup_session: None,
     }
 }
@@ -639,7 +649,7 @@ fn execution_result_to_edit_result(
         .exec_result
         .changes
         .first()
-        .and_then(|(abs_path, _, _)| result.exec_result.replace_match_meta.get(abs_path).copied());
+        .and_then(|(abs_path, _, _)| result.exec_result.replace_match_meta.get(abs_path).cloned());
     let (path_str, original, new_content) =
         if let Some((abs_path, orig, new)) = result.exec_result.changes.first() {
             let rel = crate::files::relative_display(abs_path, cwd);
@@ -674,11 +684,12 @@ fn execution_result_to_edit_result(
     let mut edit = build_edit_result(&path_str, original, new_content, applied, action, dest_path);
     edit.removed = removed;
     edit.backup_session = backup_session;
-    // Thread replace honesty from the engine (#1674 / #1662).
+    // Thread replace honesty from the engine (#1674 / #1662 / #1736).
     if let Some(meta) = replace_meta {
         edit.match_mode = Some(meta.mode);
         edit.match_score = meta.score;
         edit.match_count = meta.match_count;
+        edit.matched_text = meta.matched_text;
     } else if has_changes && action == "replace" {
         // Legacy fallback if meta was not recorded (should be rare).
         edit.match_mode = Some(MatchMode::Exact);

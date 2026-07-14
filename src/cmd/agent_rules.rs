@@ -126,6 +126,16 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - `min_fuzzy_score`: reject fuzzy matches below this floor (0.0..=1.0); exact/anchored unaffected (#1687).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n\
+             **Fuzzy success is not semantic success (#1736):**\n\
+             - `min_fuzzy_score` only rejects *weak* similarity. Scores above the floor can still \
+rewrite a *different* live identifier than the `old` string you requested.\n\
+             - After any fuzzy apply, read JSON `matched_text` (and re-read the file if needed). \
+If `matched_text` is not the intended typo (for example `old=compute_cheksum` fuzzy-hits \
+`compute_checksum` at score ~0.99), **undo** and use `ast_rename` / exact replace instead.\n\
+             - Prefer `ast_rename` / `ast_rename_project` for code identifiers. Fuzzy is a last \
+resort for typos in non-AST text (prose, comments), not a general rename tool.\n\
+             - Do not treat `ok` + `match_score >= min_fuzzy_score` alone as \"correct target.\" \
+Distinct from closed whole-line bug #1694.\n\n\
              **Library embedder undo / post-write (Rust hosts, not CLI-only):**\n\
              - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).\n\
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
@@ -134,8 +144,8 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).\n\
              - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
              - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)\n\
-             - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts (#1687, #1694)\n\
-             **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, and replace `match_count` (plan/tx also on each change + sum) so agents can verify low-confidence fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`). Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674).\n\n",
+             - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts; always check `matched_text` (#1687, #1694, #1736)\n\
+             **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`). Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736).\n\n",
         );
     }
     if show_cli {
@@ -333,7 +343,10 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              # Fallback: text-based workflow when AST mode is unavailable\n\
              patchloom search --count \"old_function_name\" src/\n\
              patchloom replace \"old_function_name\" --new \"new_function_name\" src/ --apply\n\
-             ```\n\n",
+             ```\n\n\
+             Bad: `replace --fuzzy` with a misspelled `old` that is **not** in the file \
+             (e.g. `compute_cheksum` → may rewrite live `compute_checksum` even with \
+             `--min-fuzzy-score 0.95`). After fuzzy JSON, check `matched_text` (#1736).\n\n",
         );
 
         out.push_str(
@@ -421,7 +434,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).\n\
                  Example: `{\"op\":\"replace\",\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
                  \"command_position\":true,\"require_change\":true}`\n\
-                 Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`) and `match_count` on replace-backed changes plus worst-case aggregate mode and sum of counts when any replace matched (#1674).\n\n");
+                 Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`), optional `matched_text` for fuzzy/anchored spans, and `match_count` on replace-backed changes plus worst-case aggregate mode and sum of counts when any replace matched (#1674, #1736).\n\n");
         }
     }
 
@@ -801,8 +814,20 @@ mod tests {
                 && mcp.contains("fuzzy")
                 && mcp.contains("restore_path_from_session")
                 && mcp.contains("run_post_write_validation")
-                && mcp.contains("match_mode"),
-            "MCP-only agent-rules must document replace_text flags, library undo helpers, and match_mode"
+                && mcp.contains("match_mode")
+                && mcp.contains("matched_text")
+                && mcp.contains("Fuzzy success is not semantic success")
+                && mcp.contains("compute_cheksum"),
+            "MCP-only agent-rules must document replace_text flags, matched_text, and fuzzy semantic check (#1736)"
+        );
+    }
+
+    #[test]
+    fn workflow_documents_fuzzy_near_collision_negative_example() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("compute_cheksum") && out.contains("matched_text"),
+            "CLI rename workflow must warn about fuzzy near-identifier collisions (#1736)"
         );
     }
 

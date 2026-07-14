@@ -68,6 +68,8 @@ pub struct ContentEditsResult {
     pub match_mode: Option<MatchMode>,
     /// Similarity score from the first fuzzy replace op in the batch, if any.
     pub match_score: Option<f64>,
+    /// Matched span from the first fuzzy/anchored replace in the batch (#1736).
+    pub matched_text: Option<String>,
 }
 
 /// Apply ordered edits to an in-memory buffer.
@@ -101,17 +103,21 @@ pub fn apply_content_edits_with_label(
     let mut match_count = 0usize;
     let mut match_mode: Option<MatchMode> = None;
     let mut match_score: Option<f64> = None;
+    let mut matched_text: Option<String> = None;
 
     for (i, edit) in edits.iter().enumerate() {
-        let (next, n, mode, score) = apply_one(&current, edit)
+        let one = apply_one(&current, edit)
             .with_context(|| format!("content edit {} of {} failed", i + 1, edits.len()))?;
-        current = next;
-        match_count = match_count.saturating_add(n);
+        current = one.content;
+        match_count = match_count.saturating_add(one.match_count);
         ops_applied += 1;
-        if let Some(m) = mode {
+        if let Some(m) = one.match_mode {
             match_mode = Some(super::merge_match_modes(match_mode, m));
             if m == MatchMode::Fuzzy && match_score.is_none() {
-                match_score = score;
+                match_score = one.match_score;
+            }
+            if matched_text.is_none() {
+                matched_text = one.matched_text;
             }
         }
     }
@@ -128,6 +134,7 @@ pub fn apply_content_edits_with_label(
         match_count,
         match_mode,
         match_score,
+        matched_text,
     })
 }
 
@@ -169,6 +176,7 @@ pub fn apply_content_edits_to_file(
     result.match_count = batch.match_count;
     result.match_mode = batch.match_mode;
     result.match_score = batch.match_score;
+    result.matched_text = batch.matched_text;
     // Honor post_write from the last Replace edit that set hooks (#1690).
     let (hooks, hooks_cwd) = post_write_from_edits(edits);
     maybe_post_write(applied, path, hooks, hooks_cwd, backup_session.as_deref())?;
@@ -193,20 +201,27 @@ fn post_write_from_edits(
     (hooks, cwd)
 }
 
-/// Returns (new content, replace match_count, match_mode, match_score).
-fn apply_one(
-    content: &str,
-    edit: &ContentEdit,
-) -> anyhow::Result<(String, usize, Option<MatchMode>, Option<f64>)> {
+/// Intermediate apply_one result (keeps the match-honesty fields together).
+struct OneEdit {
+    content: String,
+    match_count: usize,
+    match_mode: Option<MatchMode>,
+    match_score: Option<f64>,
+    matched_text: Option<String>,
+}
+
+/// Apply a single content edit; returns the new buffer plus replace honesty.
+fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<OneEdit> {
     match edit {
         ContentEdit::Replace { old, new, options } => {
             let result: ContentEditResult = replace_in_content(content, old, new, options)?;
-            Ok((
-                result.new_content,
-                result.match_count,
-                result.match_mode,
-                result.match_score,
-            ))
+            Ok(OneEdit {
+                content: result.new_content,
+                match_count: result.match_count,
+                match_mode: result.match_mode,
+                match_score: result.match_score,
+                matched_text: result.matched_text,
+            })
         }
         ContentEdit::InsertBefore {
             anchor,
@@ -226,7 +241,13 @@ fn apply_one(
                     out.push_str(&content[..idx]);
                     out.push_str(insert);
                     out.push_str(&content[idx..]);
-                    Ok((out, 0, None, None))
+                    Ok(OneEdit {
+                        content: out,
+                        match_count: 0,
+                        match_mode: None,
+                        match_score: None,
+                        matched_text: None,
+                    })
                 }
                 None => Err(EditError::new(
                     EditErrorKind::NoMatch,
@@ -252,7 +273,13 @@ fn apply_one(
                     out.push_str(&content[..end]);
                     out.push_str(insert);
                     out.push_str(&content[end..]);
-                    Ok((out, 0, None, None))
+                    Ok(OneEdit {
+                        content: out,
+                        match_count: 0,
+                        match_mode: None,
+                        match_score: None,
+                        matched_text: None,
+                    })
                 }
                 None => Err(EditError::new(
                     EditErrorKind::NoMatch,
@@ -261,12 +288,20 @@ fn apply_one(
                 .into()),
             }
         }
-        ContentEdit::Append { content: inject } => {
-            Ok((append_content(content, inject), 0, None, None))
-        }
-        ContentEdit::Prepend { content: inject } => {
-            Ok((prepend_content(content, inject), 0, None, None))
-        }
+        ContentEdit::Append { content: inject } => Ok(OneEdit {
+            content: append_content(content, inject),
+            match_count: 0,
+            match_mode: None,
+            match_score: None,
+            matched_text: None,
+        }),
+        ContentEdit::Prepend { content: inject } => Ok(OneEdit {
+            content: prepend_content(content, inject),
+            match_count: 0,
+            match_mode: None,
+            match_score: None,
+            matched_text: None,
+        }),
     }
 }
 

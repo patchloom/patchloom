@@ -183,7 +183,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     // --- Weak tier ---
     OpMeta {
         name: "replace",
-        description: "Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails).",
+        description: "Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails). Fuzzy + min_fuzzy_score only reject weak scores; high scores can still rewrite a different live identifier than old—check matched_text and prefer ast.rename for identifiers (#1736).",
         tier: Tier::Weak,
         examples: &[
             (

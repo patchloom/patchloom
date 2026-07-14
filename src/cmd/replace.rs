@@ -125,6 +125,9 @@ struct ReplaceFileResult {
     /// Similarity score when match_mode is fuzzy.
     #[serde(skip_serializing_if = "Option::is_none")]
     match_score: Option<f64>,
+    /// Text actually matched for fuzzy/anchored (may differ from `--old`). #1736
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_text: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -147,6 +150,9 @@ struct ReplaceOutput {
     match_mode: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     match_score: Option<f64>,
+    /// First-file fuzzy/anchored matched span when `file_count == 1` (#1736).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_text: Option<String>,
     /// Did-you-mean candidates on soft no-match (literal patterns only).
     /// Agents should prefer this over scraping the English error string.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -163,6 +169,7 @@ struct FileReplacement {
     match_count: usize,
     match_mode: Option<&'static str>,
     match_score: Option<f64>,
+    matched_text: Option<String>,
 }
 
 fn match_mode_str(mode: crate::api::MatchMode) -> &'static str {
@@ -297,6 +304,7 @@ fn collect_replacements(
                     match_count: count,
                     match_mode: Some("exact"),
                     match_score: None,
+                    matched_text: None,
                 })
             } else {
                 None
@@ -317,6 +325,7 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
             match_count: r.match_count,
             match_mode: r.match_mode,
             match_score: r.match_score,
+            matched_text: r.matched_text.clone(),
         })
         .collect()
 }
@@ -426,12 +435,14 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         match_count: r.match_count,
                         match_mode: r.match_mode,
                         match_score: r.match_score,
+                        matched_text: r.matched_text.clone(),
                     }],
                     diff: None,
                     identity: None,
                     error_kind: Some("ambiguous"),
                     match_mode: None,
                     match_score: None,
+                    matched_text: None,
                     similar_targets: None,
                 };
                 global.emit_json(&output)?;
@@ -467,6 +478,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 error_kind: None,
                 match_mode: Some("exact"),
                 match_score: None,
+                matched_text: None,
                 similar_targets: None,
             };
             global.emit_json(&output)?;
@@ -489,6 +501,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 error_kind: None,
                 match_mode: None,
                 match_score: None,
+                matched_text: None,
                 similar_targets: None,
             };
             global.emit_json(&output)?;
@@ -513,6 +526,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             error_kind: Some("no_matches"),
             match_mode: None,
             match_score: None,
+            matched_text: None,
             similar_targets: similar.clone(),
         };
         global.emit_json(&output)?;
@@ -582,6 +596,11 @@ fn replace_output(
         error_kind: None,
         match_mode: agg_mode,
         match_score: agg_score,
+        matched_text: if files.len() == 1 {
+            files[0].matched_text.clone()
+        } else {
+            None
+        },
         similar_targets: None,
     };
 
@@ -686,6 +705,7 @@ fn run_context_replace(
             },
             match_mode: None,
             match_score: None,
+            matched_text: None,
             similar_targets: None,
         };
         global.emit_json(&empty)?;
@@ -753,6 +773,7 @@ fn run_context_replace(
             },
             match_mode: None,
             match_score: None,
+            matched_text: None,
             similar_targets: None,
         };
         global.emit_json(&empty)?;
@@ -795,20 +816,26 @@ fn run_context_replace(
         .changes
         .iter()
         .map(|(p, original, _new)| {
-            let (mode, score, count) = if let Some(m) = result.exec_result.replace_match_meta.get(p)
-            {
-                (Some(match_mode_str(m.mode)), m.score, m.match_count.max(1))
-            } else {
-                match crate::api::replace_in_content(original, &args.old, to, &lib_opts) {
-                    Ok(r) => (
-                        r.match_mode.map(match_mode_str),
-                        r.match_score,
-                        r.match_count.max(1),
-                    ),
-                    // Do not invent "exact" when re-derive fails (#1674 honesty).
-                    Err(_) => (None, None, 1),
-                }
-            };
+            let (mode, score, count, matched_text) =
+                if let Some(m) = result.exec_result.replace_match_meta.get(p) {
+                    (
+                        Some(match_mode_str(m.mode)),
+                        m.score,
+                        m.match_count.max(1),
+                        m.matched_text.clone(),
+                    )
+                } else {
+                    match crate::api::replace_in_content(original, &args.old, to, &lib_opts) {
+                        Ok(r) => (
+                            r.match_mode.map(match_mode_str),
+                            r.match_score,
+                            r.match_count.max(1),
+                            r.matched_text,
+                        ),
+                        // Do not invent "exact" when re-derive fails (#1674 honesty).
+                        Err(_) => (None, None, 1, None),
+                    }
+                };
             ReplaceFileResult {
                 path: crate::files::relative_display(p, &cwd)
                     .to_string_lossy()
@@ -816,6 +843,7 @@ fn run_context_replace(
                 match_count: count,
                 match_mode: mode,
                 match_score: score,
+                matched_text,
             }
         })
         .collect();
