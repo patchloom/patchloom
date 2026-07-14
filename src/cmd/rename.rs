@@ -128,12 +128,13 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::CaseOnly);
     }
 
-    // Plain text renames with no write-policy transforms: use fs::rename so
-    // multi-hardlinked files keep a shared inode (engine path is create-dst +
-    // delete-src, which splits hardlinks). When write flags rewrite content,
-    // fall through to the engine. Found by fixrealloop dogfood.
+    // Plain text renames with no write-policy transforms: on --apply/--confirm,
+    // use fs::rename so multi-hardlinked files keep a shared inode (engine path
+    // is create-dst + delete-src, which splits hardlinks). Default preview and
+    // --check still use the engine so content-oriented rename diffs remain.
+    // Found by fixrealloop dogfood.
     let policy = crate::write::policy_from_flags(global, None);
-    if policy.is_noop() && !global.respect_editorconfig {
+    if (global.apply || global.confirm) && policy.is_noop() && !global.respect_editorconfig {
         return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Plain);
     }
 
