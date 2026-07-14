@@ -176,8 +176,11 @@ scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
 scoop install patchloom/patchloom
 ```
 
-npm (`npx patchloom` / `npm install -g patchloom`) is wired in the release
-pipeline and will publish once `NPM_TOKEN` is configured (tracked in #963).
+```bash
+# npm / npx (downloads the platform binary from GitHub Releases)
+npx patchloom --version
+# or: npm install -g patchloom
+```
 
 Pre-built binaries for Linux, macOS, and Windows are on the
 [Releases](https://github.com/patchloom/patchloom/releases/latest) page.
@@ -457,7 +460,7 @@ flowchart LR
 
 | Component | Status |
 |---|---|
-| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), and [Scoop](https://github.com/patchloom/scoop-bucket); npm package name reserved as `patchloom` (publish on next release with `NPM_TOKEN`) |
+| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), and [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 
 ## Full command reference
