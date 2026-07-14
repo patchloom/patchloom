@@ -1880,6 +1880,63 @@ fn test_replace_fuzzy_identifier_typo_preserves_syntax() {
     );
 }
 
+/// CLI `--min-fuzzy-score` rejects weak fuzzy hits (plan/MCP parity; fixrealloop R4).
+#[test]
+fn test_replace_cli_min_fuzzy_score_rejects_weak_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("typo.txt");
+    fs::write(&file, "hello wrold foo\n").unwrap();
+
+    // Score for "hello world" vs "hello wrold" is ~0.93; floor 0.99 must miss.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "hello world",
+            "--new",
+            "hello earth",
+            "--fuzzy",
+            "--min-fuzzy-score",
+            "0.99",
+            "--apply",
+        ])
+        .arg(&file)
+        .assert()
+        .code(3);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "hello wrold foo\n",
+        "high floor must leave content unchanged"
+    );
+
+    // Lower floor accepts the same fuzzy hit.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "hello world",
+            "--new",
+            "hello earth",
+            "--fuzzy",
+            "--min-fuzzy-score",
+            "0.5",
+            "--apply",
+        ])
+        .arg(&file)
+        .assert()
+        .code(0);
+    // Fuzzy may replace a larger token span than the query string alone.
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.contains("hello earth"),
+        "low floor must apply fuzzy replacement: {on_disk}"
+    );
+    assert!(
+        !on_disk.contains("wrold"),
+        "typo token must be gone: {on_disk}"
+    );
+}
+
 /// CLI JSON reports fuzzy mode for identifier typo without span corruption.
 #[test]
 fn test_replace_fuzzy_identifier_typo_json_match_mode() {

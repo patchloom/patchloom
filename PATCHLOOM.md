@@ -200,6 +200,7 @@ patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply
 # Rewrite shell invocable tokens only (not uv pip / pipenv):
 patchloom replace pip --new uv install.sh --command-position --require-change --apply
 patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --apply
+patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --min-fuzzy-score 0.80 --apply
 ```
 
 ### Edit a CI workflow
