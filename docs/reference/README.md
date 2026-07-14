@@ -349,13 +349,14 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 <!-- ref:command:undo -->
 ## `undo`
 
-- **What it does:** Restores files from a backup created by a previous `--apply` operation. Before any `--apply` write, patchloom saves the original content of affected files to `.patchloom/backups/<timestamp>/`. In dry-run mode, `undo` reports what would be restored and exits with code `2` (`CHANGES_DETECTED`). `--json` or `--jsonl` emit that preview as structured output.
+- **What it does:** Previews or restores files from a backup created by a previous write `--apply`. Before any `--apply` write, patchloom saves originals under `.patchloom/backups/<timestamp>/`. **Default is dry-run** (same singularity as other write commands): bare `patchloom undo` prints what would be restored, exits `2` (`CHANGES_DETECTED`), and does not change files. Pass `--apply` to restore (exit `0`). There is no `--latest`; without `--session`, the most recent backup is used. Dry-run JSON includes `status: "changes_detected"` and a `hint` field reminding agents to pass `--apply`.
 - **Use when:** An `--apply` operation produced an undesirable result and you want to revert. Especially useful when the working tree was not committed before applying changes.
 - **Notable flags:**
   - `--list` shows available backup sessions. `--json` emits the full session list as one array, while `--jsonl` emits one session object per line.
   - `--session <timestamp>` targets a specific session (defaults to most recent).
-  - `--apply` actually restores files (dry-run by default, showing what would change).
+  - `--apply` actually restores files (required for a real restore; omitted = preview only).
 - **Failure behavior:** No backup sessions (`--list` empty, or restore with no sessions) exits `3` (`NO_MATCHES`). With `--json`/`--jsonl`, the error envelope includes `error_kind: "no_matches"` so agents can branch without scraping stderr.
+- **Agent trap:** Do not treat exit `2` from bare `undo` as a completed restore. Re-run with `--apply`.
 - **Prefer instead:** Use `git checkout` or `git stash` when working in a committed git repo.
 - **Related:** `tx`, `replace`, `tidy`
 
