@@ -99,6 +99,7 @@ mod basic {
             "md_table_append",
             "md_replace_section",
             "md_insert_after_heading",
+            "md_insert_after_section",
             "md_insert_before_heading",
             "md_dedupe_headings",
             "move_file",
@@ -155,6 +156,10 @@ mod basic {
         assert!(
             names.contains(&"md_insert_after_heading"),
             "missing md_insert_after_heading tool"
+        );
+        assert!(
+            names.contains(&"md_insert_after_section"),
+            "missing md_insert_after_section tool"
         );
         assert!(
             names.contains(&"md_insert_before_heading"),

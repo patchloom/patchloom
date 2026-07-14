@@ -48,6 +48,7 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         | Operation::DocDeleteWhere { .. }
         | Operation::MdReplaceSection { .. }
         | Operation::MdInsertAfterHeading { .. }
+        | Operation::MdInsertAfterSection { .. }
         | Operation::MdInsertBeforeHeading { .. }
         | Operation::MdUpsertBullet { .. }
         | Operation::MdTableAppend { .. }

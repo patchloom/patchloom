@@ -2681,3 +2681,27 @@ fn test_doc_set_format_failure_json_error_kind() {
         "doc set must still write before format failure"
     );
 }
+
+/// Predicate selectors on doc set point agents at doc update (#1725).
+#[test]
+fn test_doc_set_predicate_errors_with_update_hint() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items":[{"id":"a","val":1}]}"#).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "set"])
+        .arg(&file)
+        .args(["items[id=a].val", "9", "--apply"])
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("doc update") && combined.contains("wildcard/predicate"),
+        "expected actionable error, got: {combined}"
+    );
+}

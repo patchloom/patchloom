@@ -701,6 +701,31 @@ mod edge_cases {
     }
 
     #[test]
+    fn insert_after_section_places_sibling_after_body() {
+        // #1726: sibling section after full body keeps Config body under Config.
+        let content = "## Config\n\nSettings.\n\n## Usage\n\nRun it.\n";
+        let result =
+            insert_after_section_in(content, "## Config", "## FAQ\n\nCommon Q.\n").unwrap();
+        let config = result.find("## Config").unwrap();
+        let settings = result.find("Settings.").unwrap();
+        let faq = result.find("## FAQ").unwrap();
+        let common = result.find("Common Q.").unwrap();
+        let usage = result.find("## Usage").unwrap();
+        assert!(
+            config < settings && settings < faq && faq < common && common < usage,
+            "expected Config body then FAQ sibling then Usage:\n{result}"
+        );
+        // Contrast: insert_after_heading would put FAQ before Settings.
+        let under = insert_after_heading_in(content, "## Config", "## FAQ\n\nCommon Q.\n").unwrap();
+        let u_faq = under.find("## FAQ").unwrap();
+        let u_settings = under.find("Settings.").unwrap();
+        assert!(
+            u_faq < u_settings,
+            "heading insert puts FAQ under Config heading:\n{under}"
+        );
+    }
+
+    #[test]
     fn dedupe_headings_no_duplicates() {
         let content = "# A\n## B\n# C\n";
         let (result, removed) = dedupe_headings_in(content);

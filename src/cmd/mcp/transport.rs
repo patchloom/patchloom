@@ -25,7 +25,7 @@ fn server_instructions() -> String {
          doc_merge, doc_query, doc_update, doc_ensure, doc_move, doc_append, doc_prepend, \
          doc_delete_where, doc_diff\n\
          - Markdown ops (by heading): md_replace_section, md_upsert_bullet, \
-         md_table_append, md_insert_after_heading, md_insert_before_heading, \
+         md_table_append, md_insert_after_heading, md_insert_after_section, md_insert_before_heading, \
          md_move_section, md_dedupe_headings, md_lint\n\
          - Text ops: replace_text, batch_replace, search_files, apply_patch\n\
          - File ops: create_file, read_file, delete_file, move_file, append_file, \

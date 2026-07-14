@@ -21,7 +21,9 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// doc.update <path> <selector> <value>
 /// doc.move <path> <from> <to>
 /// doc.delete_where <path> <selector> <predicate>
-/// replace <path> <from> <to>
+/// replace <path> <from> <to> [--fuzzy] [--min-fuzzy-score N] [-i] …
+///   Optional flags (phase 1, #1724): --fuzzy, --min-fuzzy-score, --word-boundary/-w,
+///   --command-position, --require-change, -i/--case-insensitive, --if-exists
 /// file.create <path> <content>
 /// file.delete <path>
 /// file.rename <from> <to>
@@ -31,6 +33,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// md.table_append <path> <heading> <row>
 /// md.replace_section <path> <heading> <content>
 /// md.insert_after_heading <path> <heading> <content>
+/// md.insert_after_section <path> <heading> <content>
 /// md.insert_before_heading <path> <heading> <content>
 /// md.move_section <path> <heading> before|after <target_heading>
 /// md.move_section <path> <heading> <to> before|after <target_heading>
@@ -47,10 +50,10 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 #[derive(Debug, Args)]
 #[command(after_help = r#"OPERATIONS:
   doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend,
-  doc.update, doc.move, doc.delete_where, replace, file.create,
+  doc.update, doc.move, doc.delete_where, replace (optional flags: --fuzzy, …), file.create,
   file.delete, file.rename, file.append, file.prepend, md.upsert_bullet,
   md.table_append, md.replace_section, md.insert_after_heading,
-  md.insert_before_heading, md.move_section, md.dedupe_headings,
+  md.insert_after_section, md.insert_before_heading, md.move_section, md.dedupe_headings,
   md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature
 
 EXAMPLES:
@@ -58,6 +61,7 @@ EXAMPLES:
   patchloom batch --apply <<'EOF'
   doc.set package.json version "3.0.0"
   replace README.md "v1.0" "v3.0"
+  replace src/main.rs "proccess" "process" --fuzzy --min-fuzzy-score 0.80
   EOF"#)]
 pub struct BatchArgs {
     /// Read operations from a file, or stdin if omitted.
@@ -160,32 +164,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         }
 
         // -- replace -----------------------------------------------------------
-        "replace" => {
-            require_args(op, args, 3, line_num)?;
-            Ok(Operation::Replace {
-                glob: None,
-                path: Some(args[0].clone()),
-                regex: false,
-                old: args[1].clone(),
-                new_text: Some(args[2].clone()),
-                nth: None,
-                insert_before: None,
-                insert_after: None,
-                case_insensitive: false,
-                multiline: false,
-                if_exists: false,
-                whole_line: false,
-                range: None,
-                word_boundary: false,
-                before_context: None,
-                after_context: None,
-                unique: false,
-                require_change: false,
-                command_position: false,
-                fuzzy: false,
-                min_fuzzy_score: None,
-            })
-        }
+        "replace" => parse_replace_line(args, line_num),
 
         // -- file operations ---------------------------------------------------
         "file.append" => {
@@ -230,6 +209,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "md.table_append" => md_phc!(op, args, line_num, MdTableAppend, row),
         "md.replace_section" => md_phc!(op, args, line_num, MdReplaceSection, content),
         "md.insert_after_heading" => md_phc!(op, args, line_num, MdInsertAfterHeading, content),
+        "md.insert_after_section" => md_phc!(op, args, line_num, MdInsertAfterSection, content),
         "md.insert_before_heading" => md_phc!(op, args, line_num, MdInsertBeforeHeading, content),
 
         "md.move_section" => {
@@ -360,6 +340,7 @@ const KNOWN_BATCH_OPS: &[&str] = &[
     "md.table_append",
     "md.replace_section",
     "md.insert_after_heading",
+    "md.insert_after_section",
     "md.insert_before_heading",
     "md.move_section",
     "md.dedupe_headings",
@@ -448,6 +429,200 @@ fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> 
         }));
     }
     Ok(())
+}
+
+/// Parse batch `replace path old new [--flags…]` (#1724).
+///
+/// First three non-flag tokens are path/old/new. Remaining tokens are optional
+/// CLI-style flags shared with `patchloom replace`.
+fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operation> {
+    if args.len() < 3 {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: 'replace' requires at least 3 arguments (path old new), got {}",
+                args.len()
+            ),
+        }));
+    }
+
+    let mut path = None;
+    let mut old = None;
+    let mut new_text = None;
+    let mut case_insensitive = false;
+    let mut if_exists = false;
+    let mut word_boundary = false;
+    let mut require_change = false;
+    let mut command_position = false;
+    let mut fuzzy = false;
+    let mut min_fuzzy_score = None;
+    let mut i = 0usize;
+
+    while i < args.len() {
+        let tok = args[i].as_str();
+        // Known flags only. Unknown dash-leading tokens remain positionals so
+        // `replace f.md "- old" "- new"` still works (review #1724).
+        let is_flag = matches!(
+            tok,
+            "--fuzzy"
+                | "--if-exists"
+                | "--require-change"
+                | "--command-position"
+                | "--word-boundary"
+                | "-w"
+                | "-i"
+                | "--case-insensitive"
+                | "--min-fuzzy-score"
+        ) || tok.starts_with("--min-fuzzy-score=");
+
+        if is_flag {
+            match tok {
+                "--fuzzy" => fuzzy = true,
+                "--if-exists" => if_exists = true,
+                "--require-change" => require_change = true,
+                "--command-position" => command_position = true,
+                "--word-boundary" | "-w" => word_boundary = true,
+                "-i" | "--case-insensitive" => case_insensitive = true,
+                flag if flag == "--min-fuzzy-score" || flag.starts_with("--min-fuzzy-score=") => {
+                    let raw = if let Some(v) = flag.strip_prefix("--min-fuzzy-score=") {
+                        v.to_string()
+                    } else {
+                        i += 1;
+                        args.get(i).cloned().ok_or_else(|| {
+                            anyhow::Error::new(crate::exit::ParseErrorError {
+                                msg: format!(
+                                    "line {line_num}: --min-fuzzy-score requires a value (0.0..=1.0)"
+                                ),
+                            })
+                        })?
+                    };
+                    let score: f64 = raw.parse().map_err(|_| {
+                        anyhow::Error::new(crate::exit::ParseErrorError {
+                            msg: format!(
+                                "line {line_num}: invalid --min-fuzzy-score value '{raw}' (expected number)"
+                            ),
+                        })
+                    })?;
+                    if !(0.0..=1.0).contains(&score) {
+                        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                            msg: format!(
+                                "line {line_num}: --min-fuzzy-score must be in 0.0..=1.0 (got {score})"
+                            ),
+                        }));
+                    }
+                    min_fuzzy_score = Some(score);
+                }
+                other => {
+                    return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                        msg: format!(
+                            "line {line_num}: unknown replace flag '{other}' \
+                             (supported: --fuzzy, --min-fuzzy-score, --word-boundary/-w, \
+                             --command-position, --require-change, -i/--case-insensitive, --if-exists); \
+                             advanced flags (regex, context, nth) need `tx` plan JSON"
+                        ),
+                    }));
+                }
+            }
+            i += 1;
+            continue;
+        }
+
+        if tok.starts_with('-')
+            && path.is_some()
+            && old.is_some()
+            && new_text.is_some()
+            && tok != "-"
+        {
+            // After positionals are filled, unknown dash tokens are flag typos.
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!(
+                    "line {line_num}: unknown replace flag '{tok}' \
+                     (supported: --fuzzy, --min-fuzzy-score, --word-boundary/-w, \
+                     --command-position, --require-change, -i/--case-insensitive, --if-exists); \
+                     advanced flags (regex, context, nth) need `tx` plan JSON"
+                ),
+            }));
+        }
+
+        // Positional: path, old, new (in order). May start with '-' (bullet text, flags as values).
+        if path.is_none() {
+            path = Some(args[i].clone());
+        } else if old.is_none() {
+            old = Some(args[i].clone());
+        } else if new_text.is_none() {
+            new_text = Some(args[i].clone());
+        } else {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!(
+                    "line {line_num}: unexpected argument '{}' after replace path/old/new \
+                     (use flags like --fuzzy, or `tx` for full replace options)",
+                    args[i]
+                ),
+            }));
+        }
+        i += 1;
+    }
+
+    let path = path.ok_or_else(|| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'replace' requires a path argument"),
+        })
+    })?;
+    let old = old.ok_or_else(|| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'replace' requires an old pattern argument"),
+        })
+    })?;
+    let new_text = new_text.ok_or_else(|| {
+        anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'replace' requires a new text argument"),
+        })
+    })?;
+
+    if command_position
+        && let Some(msg) = crate::ops::shell_token::command_position_combo_error(
+            crate::ops::shell_token::CommandPositionIncompat {
+                regex: false,
+                case_insensitive,
+                word_boundary,
+                whole_line: false,
+                multiline: false,
+                nth: false,
+                insert_before: false,
+                insert_after: false,
+                before_context: false,
+                after_context: false,
+                fuzzy,
+            },
+        )
+    {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: {msg}"),
+        }));
+    }
+
+    Ok(Operation::Replace {
+        glob: None,
+        path: Some(path),
+        regex: false,
+        old,
+        new_text: Some(new_text),
+        nth: None,
+        insert_before: None,
+        insert_after: None,
+        case_insensitive,
+        multiline: false,
+        if_exists,
+        whole_line: false,
+        range: None,
+        word_boundary,
+        before_context: None,
+        after_context: None,
+        unique: false,
+        require_change,
+        command_position,
+        fuzzy,
+        min_fuzzy_score,
+    })
 }
 
 /// Parse a string as a JSON value. Delegates to `doc::parse_value` which

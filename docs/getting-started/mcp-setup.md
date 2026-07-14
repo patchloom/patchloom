@@ -90,7 +90,7 @@ the registry when that would lose multi-file, batch, or read UX.
 
 Custom tools are inventoried in `CUSTOM_MCP_TOOLS_CORE` (always registered)
 and `CUSTOM_MCP_TOOLS_AST` (only when the `ast` feature is enabled). Default
-builds expose **55** tools (registry + custom). Builds without `ast` omit the
+builds expose **56** tools (registry + custom). Builds without `ast` omit the
 AST tools so `list_tools` stays honest about what is callable.
 
 | Tool | Description |
@@ -115,7 +115,8 @@ AST tools so `list_tools` stays honest about what is callable.
 | `md_upsert_bullet` | Add a bullet under a markdown heading |
 | `md_table_append` | Append a row to a markdown table |
 | `md_replace_section` | Replace a markdown section by heading |
-| `md_insert_after_heading` | Insert content after a markdown heading |
+| `md_insert_after_heading` | Insert content immediately after a heading line (before body) |
+| `md_insert_after_section` | Insert content after the full section body (sibling section) |
 | `md_insert_before_heading` | Insert content before a markdown heading |
 | `md_move_section` | Move a heading section (same file reorder or cross-file) |
 | `md_dedupe_headings` | Remove duplicate markdown headings in a file |

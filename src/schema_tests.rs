@@ -487,6 +487,14 @@ mod basic {
                 },
             ),
             (
+                "md.insert_after_section",
+                Operation::MdInsertAfterSection {
+                    path: "f".into(),
+                    heading: "h".into(),
+                    content: "c".into(),
+                },
+            ),
+            (
                 "md.insert_before_heading",
                 Operation::MdInsertBeforeHeading {
                     path: "f".into(),

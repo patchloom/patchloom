@@ -315,7 +315,7 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 27 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 28 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace with optional flags, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_after_section, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
 - **Quoting:** Double-quoted tokens allow only `\"` and `\\`. Sequences like `\n` are **literal** (not newlines). Prefer `tx` / MCP JSON for multi-line content, or put real newlines outside one-line quoted strings.
 - **Failure behavior:** Line parse failures (unknown op, bad arity, bad quotes) exit `4` (`PARSE_ERROR`) with `error_kind: "parse_error"` under `--json`/`--jsonl`. Too many operations (over the hard cap) exits `1` with `invalid_input`. Runtime op failures use the shared tx exit codes. Preview with changes uses the same `status: "changes_detected"` / exit `2` contract as `tx`.
@@ -814,16 +814,23 @@ Use these when markdown structure matters more than raw text matching.
 <!-- ref:md-action:insert-after-heading -->
 ### `md insert-after-heading`
 
-- **What it does:** Inserts content immediately after a heading.
-- **Use when:** You want to add a note, release entry, or status line while preserving the existing section body.
-- **Prefer instead:** Use `md replace-section` when the whole section should be regenerated.
+- **What it does:** Inserts content **immediately after the heading line** (before any existing body such as tables or paragraphs). It does **not** insert after the full section body.
+- **Use when:** You want to add a note, intro, or status line under a heading while keeping the rest of the section body after the insert (for example intro text before an existing table).
+- **Prefer instead:** Use `md insert-after-section` when adding a **sibling** `##` section after this section's body. Use `md replace-section` when the whole section should be regenerated.
+
+<!-- ref:md-action:insert-after-section -->
+### `md insert-after-section`
+
+- **What it does:** Inserts content after the **full section body** (after the last line of the section, before the next same-or-higher heading). Sibling placement for new sections.
+- **Use when:** You want to add a new `## FAQ` (or similar) after `## Config` including Config's existing body.
+- **Prefer instead:** Use `md insert-after-heading` only for content under the heading line, not for a new sibling section.
 
 <!-- ref:md-action:insert-before-heading -->
 ### `md insert-before-heading`
 
-- **What it does:** Inserts content immediately before a heading.
+- **What it does:** Inserts content immediately before a heading line.
 - **Use when:** You want to add a preface or a new section boundary before an existing heading.
-- **Prefer instead:** Use `md insert-after-heading` when the addition belongs inside the section that starts at the heading.
+- **Prefer instead:** Use `md insert-after-section` when the addition belongs after the previous section's body.
 
 <!-- ref:md-action:upsert-bullet -->
 ### `md upsert-bullet`
@@ -1077,14 +1084,21 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:md.insert_after_heading -->
 ### `md.insert_after_heading`
 
-- **What it does:** Inserts markdown content after a heading inside a transaction.
-- **Use when:** A release note or docs annotation must be added atomically with code or config changes.
-- **Related:** top level `md insert-after-heading`
+- **What it does:** Inserts markdown content immediately after a heading line (before existing body) inside a transaction.
+- **Use when:** A release note or docs annotation under a heading must be added atomically with code or config changes.
+- **Related:** top level `md insert-after-heading`; sibling sections: `md.insert_after_section`
+
+<!-- ref:tx-op:md.insert_after_section -->
+### `md.insert_after_section`
+
+- **What it does:** Inserts markdown content after the full section body (sibling placement) inside a transaction.
+- **Use when:** Adding a new section after an existing section's content as part of a multi-op plan.
+- **Related:** top level `md insert-after-section`
 
 <!-- ref:tx-op:md.insert_before_heading -->
 ### `md.insert_before_heading`
 
-- **What it does:** Inserts markdown content before a heading inside a transaction.
+- **What it does:** Inserts markdown content before a heading line inside a transaction.
 - **Use when:** Docs structure must change as one step in a broader plan.
 - **Related:** top level `md insert-before-heading`
 

@@ -431,6 +431,7 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         // execute_md_op extracted to tx/md_op.rs (#1359).
         Operation::MdReplaceSection { .. }
         | Operation::MdInsertAfterHeading { .. }
+        | Operation::MdInsertAfterSection { .. }
         | Operation::MdInsertBeforeHeading { .. }
         | Operation::MdUpsertBullet { .. }
         | Operation::MdTableAppend { .. }

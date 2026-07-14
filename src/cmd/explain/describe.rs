@@ -149,7 +149,10 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             format!("Replace section \"{heading}\" in {path}")
         }
         Operation::MdInsertAfterHeading { path, heading, .. } => {
-            format!("Insert content after \"{heading}\" in {path}")
+            format!("Insert content after heading line \"{heading}\" in {path}")
+        }
+        Operation::MdInsertAfterSection { path, heading, .. } => {
+            format!("Insert content after section body \"{heading}\" in {path}")
         }
         Operation::MdInsertBeforeHeading { path, heading, .. } => {
             format!("Insert content before \"{heading}\" in {path}")

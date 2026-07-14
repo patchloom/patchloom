@@ -334,13 +334,22 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "md.insert_after_heading",
-        description: "Insert content immediately after a markdown heading.",
+        description: "Insert content immediately after a markdown heading line (before any existing body). For a sibling section after the full body, use md.insert_after_section.",
         tier: Tier::Medium,
         examples: &[],
     },
     OpMeta {
+        name: "md.insert_after_section",
+        description: "Insert content after the full section body (sibling placement). Use when adding a new ## section after this section's content. Prefer md.insert_after_heading for content under the heading line.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Add FAQ after Config section body",
+            r###"{"op":"md.insert_after_section","path":"README.md","heading":"## Config","content":"## FAQ\n\nCommon questions.\n"}"###,
+        )],
+    },
+    OpMeta {
         name: "md.insert_before_heading",
-        description: "Insert content immediately before a markdown heading.",
+        description: "Insert content immediately before a markdown heading line.",
         tier: Tier::Medium,
         examples: &[],
     },
