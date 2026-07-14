@@ -726,6 +726,40 @@ mod edge_cases {
     }
 
     #[test]
+    fn insert_after_section_last_section_appends() {
+        let content = "## First\n\nA\n\n## Last\n\nBody of last\n";
+        let result = insert_after_section_in(content, "## Last", "## Trailer\n\nEnd.\n").unwrap();
+        assert!(
+            result.ends_with("## Trailer\n\nEnd.\n")
+                || result.contains("Body of last\n\n## Trailer\n\nEnd.\n"),
+            "trailer must follow last section body:\n{result}"
+        );
+        assert!(
+            result.find("Body of last").unwrap() < result.find("## Trailer").unwrap(),
+            "body stays under Last:\n{result}"
+        );
+    }
+
+    #[test]
+    fn insert_after_section_includes_nested_lower_headings() {
+        // Nested ### stays under Parent; sibling ## is after the new section.
+        let content = "## Parent\n\nintro\n\n### Nested\n\nnested body\n\n## Sibling\n\nsib\n";
+        let result = insert_after_section_in(content, "## Parent", "## AfterParent\nx\n").unwrap();
+        let nested = result.find("### Nested").unwrap();
+        let after = result.find("## AfterParent").unwrap();
+        let sibling = result.find("## Sibling").unwrap();
+        assert!(
+            nested < after && after < sibling,
+            "nested body stays under Parent, AfterParent before Sibling:\n{result}"
+        );
+    }
+
+    #[test]
+    fn insert_after_section_missing_heading_returns_none() {
+        assert!(insert_after_section_in("# Title\n\nBody\n", "## Missing", "x\n").is_none());
+    }
+
+    #[test]
     fn dedupe_headings_no_duplicates() {
         let content = "# A\n## B\n# C\n";
         let (result, removed) = dedupe_headings_in(content);

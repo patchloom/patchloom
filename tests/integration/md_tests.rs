@@ -186,6 +186,28 @@ fn test_md_insert_after_section_sibling() {
 }
 
 #[test]
+fn test_md_insert_after_section_not_found() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "# Title\n\nContent.\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("md")
+        .arg("insert-after-section")
+        .arg(file.to_str().unwrap())
+        .arg("--heading")
+        .arg("## Missing")
+        .arg("--content")
+        .arg("x")
+        .arg("--apply")
+        .assert()
+        .code(3)
+        .stdout(predicates::str::contains("no_matches"));
+}
+
+#[test]
 fn test_md_upsert_bullet_adds_new() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("notes.md");

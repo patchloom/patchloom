@@ -961,6 +961,46 @@ async fn test_mcp_md_insert_after_heading_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_md_insert_after_section_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("doc.md"),
+        "## Config\n\nSettings.\n\n## Usage\n\nRun it.\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "md_insert_after_section",
+        serde_json::json!({
+            "path": "doc.md",
+            "heading": "## Config",
+            "content": "## FAQ\n\nCommon Q.\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "md insert_after_section should succeed: {val}");
+    assert_eq!(val["ok"], true, "md insert_after_section ok: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "md insert_after_section files_changed: {val}"
+    );
+    let content = fs::read_to_string(dir.path().join("doc.md")).unwrap();
+    let settings = content.find("Settings.").expect("Settings present");
+    let faq = content.find("## FAQ").expect("FAQ present");
+    let usage = content.find("## Usage").expect("Usage present");
+    assert!(
+        settings < faq && faq < usage,
+        "MCP insert_after_section keeps Config body before FAQ:\n{content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_md_insert_before_heading_round_trip() {
     if !has_mcp_support() {
         return;
