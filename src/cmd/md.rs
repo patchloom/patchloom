@@ -26,7 +26,9 @@ pub struct MdArgs {
 pub enum MdAction {
     /// Replace a heading section.
     ReplaceSection {
+        /// Markdown file to edit.
         file: String,
+        /// Heading of the section to replace (e.g. `## Unreleased`).
         #[arg(long)]
         heading: String,
         /// Read replacement content from stdin.
@@ -42,12 +44,16 @@ pub enum MdAction {
     /// Does not insert after the full section body. For a sibling section after
     /// the section ends, use `insert-after-section` (#1726).
     InsertAfterHeading {
+        /// Markdown file to edit.
         file: String,
+        /// Heading line to insert under (e.g. `## Config`).
         #[arg(long)]
         heading: String,
         // ref:md-mode:stdin
+        /// Read insertion content from stdin instead of `--content`.
         #[arg(long)]
         stdin: bool,
+        /// Content to insert (omit when using `--stdin`).
         #[arg(long)]
         content: Option<String>,
     },
@@ -57,42 +63,61 @@ pub enum MdAction {
     /// `insert-after-heading` only for content under the heading (e.g. intro
     /// before a table). #1726
     InsertAfterSection {
+        /// Markdown file to edit.
         file: String,
+        /// Heading whose section body ends just before the insertion point.
         #[arg(long)]
         heading: String,
         // ref:md-mode:stdin
+        /// Read insertion content from stdin instead of `--content`.
         #[arg(long)]
         stdin: bool,
+        /// Content to insert (omit when using `--stdin`).
         #[arg(long)]
         content: Option<String>,
     },
     /// Insert content immediately before a heading line.
     InsertBeforeHeading {
+        /// Markdown file to edit.
         file: String,
+        /// Heading line to insert before (e.g. `## Config`).
         #[arg(long)]
         heading: String,
         // ref:md-mode:stdin
+        /// Read insertion content from stdin instead of `--content`.
         #[arg(long)]
         stdin: bool,
+        /// Content to insert (omit when using `--stdin`).
         #[arg(long)]
         content: Option<String>,
     },
     /// Add a bullet under a heading if not already present.
     UpsertBullet {
+        /// Markdown file to edit.
         file: String,
+        /// Heading under which to upsert the bullet (e.g. `## Rules`).
         #[arg(long)]
         heading: String,
+        /// Bullet text (leading `- ` is optional).
         #[arg(long, allow_hyphen_values = true)]
         bullet: String,
     },
     /// Remove duplicate headings.
-    DedupeHeadings { file: String },
+    DedupeHeadings {
+        /// Markdown file to scan for duplicate headings.
+        file: String,
+    },
     /// Lint common AGENTS.md problems.
     #[command(name = "lint-agents", alias = "lint")]
-    LintAgents { file: String },
+    LintAgents {
+        /// AGENTS.md (or similar) file to lint.
+        file: String,
+    },
     /// Append a row to a markdown table under a heading.
     TableAppend {
+        /// Markdown file containing the table.
         file: String,
+        /// Heading above the target table (e.g. `## API`).
         #[arg(long)]
         heading: String,
         /// Table row: `| col1 | col2 |` or compact `col1|col2` / `col1 | col2`.

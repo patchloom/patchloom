@@ -2733,3 +2733,50 @@ fn test_doc_set_multi_document_bare_key_hints_index() {
     // File must be unchanged.
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: 1\n---\nb: 2\n");
 }
+
+/// CLI `doc set --apply` on multi-doc YAML must keep `---` separators on disk
+/// (not collapse to a single YAML sequence). Unit tests cover the serializer;
+/// this locks the full CLI write path (#1719).
+#[test]
+fn test_doc_set_multi_document_apply_preserves_separators() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("k8s.yaml");
+    let original = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\ndata:\n  key: value\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: demo-svc\nspec:\n  ports:\n    - port: 80\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "set"])
+        .arg(&file)
+        .args(["0.data.key", "newval", "--apply"])
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert!(
+        result.contains("---"),
+        "CLI apply must preserve multi-doc stream separators, got:\n{result}"
+    );
+    assert!(
+        !result.trim_start().starts_with("- "),
+        "must not serialize multi-doc as a YAML sequence, got:\n{result}"
+    );
+    assert!(
+        result.contains("key: newval") || result.contains("key: \"newval\""),
+        "updated value missing:\n{result}"
+    );
+    assert!(
+        result.contains("kind: Service") && result.contains("demo-svc"),
+        "second document must be preserved:\n{result}"
+    );
+
+    // Second document still addressable by index after write.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get"])
+        .arg(&file)
+        .arg("1.metadata.name")
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("demo-svc"));
+}

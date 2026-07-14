@@ -185,6 +185,35 @@ fn test_md_insert_after_section_sibling() {
     );
 }
 
+/// Default (preview) mode for insert-after-section: exit 2, no disk mutation.
+#[test]
+fn test_md_insert_after_section_preview_exits_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("readme.md");
+    let original = "## Config\n\nSettings.\n\n## Usage\n\nRun it.\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "md",
+            "insert-after-section",
+            "--heading",
+            "## Config",
+            "--content",
+            "## FAQ\n\nCommon Q.\n",
+        ])
+        .arg(&file)
+        .assert()
+        .code(2);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        original,
+        "preview must not mutate the file"
+    );
+}
+
 #[test]
 fn test_md_insert_after_section_not_found() {
     let dir = TempDir::new().unwrap();
