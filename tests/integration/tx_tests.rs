@@ -2601,6 +2601,42 @@ fn test_tx_md_insert_after_heading_in_plan() {
 }
 
 #[test]
+fn test_tx_md_insert_after_section_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(&file, "## Config\n\nSettings.\n\n## Usage\n\nRun it.\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "md.insert_after_section",
+            "path": portable_path_str(&file),
+            "heading": "## Config",
+            "content": "## FAQ\n\nCommon Q.\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    let settings = result.find("Settings.").unwrap();
+    let faq = result.find("## FAQ").unwrap();
+    let usage = result.find("## Usage").unwrap();
+    assert!(
+        settings < faq && faq < usage,
+        "tx insert_after_section must keep body under Config:\n{result}"
+    );
+}
+
+#[test]
 fn test_tx_md_replace_section_nonexistent_file_rolls_back() {
     let dir = TempDir::new().unwrap();
 

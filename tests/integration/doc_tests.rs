@@ -2705,3 +2705,31 @@ fn test_doc_set_predicate_errors_with_update_hint() {
         "expected actionable error, got: {combined}"
     );
 }
+
+/// Multi-document YAML is an array root; bare keys must hint document index.
+#[test]
+fn test_doc_set_multi_document_bare_key_hints_index() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "set"])
+        .arg(&file)
+        .args(["a", "9", "--apply"])
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("array")
+            && (combined.contains("0.a") || combined.contains("[0].a"))
+            && combined.contains("index"),
+        "expected multi-doc index hint, got: {combined}"
+    );
+    // File must be unchanged.
+    assert_eq!(fs::read_to_string(&file).unwrap(), "a: 1\n---\nb: 2\n");
+}

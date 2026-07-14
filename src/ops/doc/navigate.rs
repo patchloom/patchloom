@@ -150,12 +150,23 @@ pub fn set_at_path(
                 }
                 return Ok(());
             }
+            // Capture type before mut borrow for the error path (multi-doc array root).
+            let parent_kind = value_type_name(parent);
             parent
                 .as_object_mut()
                 .ok_or_else(|| {
-                    anyhow::Error::new(crate::exit::TypeErrorError {
-                        msg: "parent is not an object".into(),
-                    })
+                    // Multi-document YAML is modeled as a top-level array; agents
+                    // often try `doc set multi.yaml key val` without a doc index.
+                    let msg = if parent_kind == "array" {
+                        format!(
+                            "parent is an array, not an object (for multi-document YAML or \
+                             top-level arrays, address a document/element with an index first, \
+                             e.g. 0.{k} or [0].{k})"
+                        )
+                    } else {
+                        format!("parent is not an object (found {parent_kind})")
+                    };
+                    anyhow::Error::new(crate::exit::TypeErrorError { msg })
                 })?
                 .insert(k.clone(), value);
         }
@@ -683,6 +694,24 @@ mod tests {
         assert!(
             msg.contains("doc update") && msg.contains("wildcard/predicate"),
             "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn set_at_path_array_root_key_hints_document_index() {
+        // Multi-doc YAML / top-level array: key at root needs 0.key / [0].key.
+        let mut root = json!([{"a": 1}, {"b": 2}]);
+        let err = set_at_path(&mut root, &segs("a"), json!(9)).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("array")
+                && (msg.contains("0.a") || msg.contains("[0].a"))
+                && msg.contains("index"),
+            "got: {msg}"
+        );
+        assert!(
+            !msg.eq("parent is not an object"),
+            "bare message is not agent-actionable: {msg}"
         );
     }
 

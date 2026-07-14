@@ -304,6 +304,20 @@ mod basic {
     }
 
     #[test]
+    fn parse_line_md_insert_after_section() {
+        let op = parse_line(
+            "md.insert_after_section README.md \"## Config\" \"## FAQ\"",
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            op,
+            Operation::MdInsertAfterSection { path, heading, content }
+            if path == "README.md" && heading == "## Config" && content == "## FAQ"
+        ));
+    }
+
+    #[test]
     fn parse_line_md_insert_before_heading() {
         let op = parse_line(
             "md.insert_before_heading README.md \"## Rules\" \"Preamble\"",

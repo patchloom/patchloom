@@ -322,6 +322,8 @@ dependencies[name=react].version # predicate filter
 
 **Write ops and predicates:** `doc set` / `doc ensure` / `doc delete` / `doc move` are **single-path only** (keys and indexes such as `items.0.val`). Wildcards and predicates (`items[id=b].val`, `items[*].enabled`) belong on `doc update` (multi-match write) or `doc delete-where` (array filter). If you pass a predicate to `doc set`, the error points you at `doc update` or an index path.
 
+**Multi-document YAML:** Files with multiple `---` documents parse as a **top-level array** (one element per document). Address a field with a document index first, e.g. `0.metadata.name` or `[0].metadata.name`, not a bare key at the stream root. Writes keep the multi-doc form (still `---` separators, not a single YAML sequence).
+
 **Markdown insert placement:** `md_insert_after_heading` inserts **under the heading line** (before existing body). To add a sibling `##` section after the full section body, use `md_insert_after_section`.
 
 ## Exit codes
