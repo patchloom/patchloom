@@ -1,0 +1,101 @@
+# Manually (or on demand) rewrite patchloom/scoop-bucket from a published
+# GitHub Release. The automatic path is publish-scoop-bucket in release.yml;
+# this workflow exists to re-sync after a missed push or to verify the PAT.
+name: Publish Scoop bucket
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Semver without tag prefix (e.g. 0.13.0). Leave empty to use the
+          latest GitHub Release tag (strip patchloom-v / v prefix).
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: publish-scoop-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Update scoop-bucket
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      GITHUB_USER: "axo bot"
+      GITHUB_EMAIL: "admin+bot@axo.dev"
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout patchloom
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          path: patchloom
+
+      - name: Checkout scoop-bucket
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: patchloom/scoop-bucket
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: true
+          path: scoop-bucket
+
+      - name: Resolve version and download SHA256 files
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION}" ]; then
+            version="${INPUT_VERSION#v}"
+            version="${version#patchloom-v}"
+            tag="patchloom-v${version}"
+          else
+            tag=$(gh release view --repo patchloom/patchloom --json tagName --jq .tag_name)
+            version="${tag#patchloom-v}"
+            version="${version#v}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=${version} tag=${tag}"
+          mkdir -p artifacts
+          for asset in \
+            patchloom-x86_64-pc-windows-msvc.zip.sha256 \
+            patchloom-aarch64-pc-windows-msvc.zip.sha256
+          do
+            gh release download "${tag}" \
+              --repo patchloom/patchloom \
+              --pattern "${asset}" \
+              --dir artifacts
+          done
+          ls -la artifacts
+
+      - name: Update and push Scoop manifest
+        working-directory: scoop-bucket
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 ../patchloom/scripts/update-scoop-manifest.py \
+            --version "${VERSION}" \
+            --artifacts-dir ../artifacts \
+            --output bucket/patchloom.json
+          git config user.name "${GITHUB_USER}"
+          git config user.email "${GITHUB_EMAIL}"
+          git add bucket/patchloom.json
+          if git diff --cached --quiet; then
+            echo "Scoop manifest already at ${VERSION}; nothing to commit"
+            exit 0
+          fi
+          git commit -m "patchloom ${VERSION}"
+          git push
