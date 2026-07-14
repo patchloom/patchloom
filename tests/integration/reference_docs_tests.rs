@@ -86,7 +86,13 @@ fn test_reference_doc_describes_status_and_undo_contracts() {
     assert!(
         reference.contains("This command is git-backed, so it must run inside a git repository.")
     );
-    assert!(reference.contains("In dry-run mode, `undo` reports what would be restored and exits with code `2` (`CHANGES_DETECTED`)."));
+    // Undo dry-run singularity (fixrealloop agent trap): bare undo previews only.
+    assert!(
+        reference.contains("**Default is dry-run**")
+            && reference.contains("exits `2` (`CHANGES_DETECTED`)")
+            && reference.contains("Pass `--apply` to restore"),
+        "reference must document undo dry-run exit 2 and --apply restore"
+    );
 }
 
 #[test]
