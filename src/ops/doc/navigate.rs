@@ -1,3 +1,9 @@
+//! Document tree navigation: set/delete/move/update_matching and predicates.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Selector write
+//! navigation and multi-match update share one unit; agent-facing predicate
+//! error strings (#1725) live here; do not split for LOC alone.
+
 use crate::selector;
 
 fn value_type_name(v: &serde_json::Value) -> &'static str {
