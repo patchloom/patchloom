@@ -232,21 +232,47 @@ fn run_direct_rename(
     let apply_msg = format!("renamed {} -> {} ({label})", args.from, args.to);
     let post_msg = format!("renamed {} -> {}", args.from, args.to);
 
+    // Synthetic rename diff for JSON/--diff so agents see the path move even
+    // when content is byte-identical (matches engine-backed text rename UX).
+    let from_disp = args.from.clone();
+    let to_disp = args.to.clone();
+    let content_for_diff = if matches!(kind, DirectRenameKind::Binary) {
+        None
+    } else {
+        fs::read_to_string(src).ok()
+    };
+
     execute_write(
         global,
         cwd,
-        |phase, _diff| RenameOutput {
+        |phase, diff| RenameOutput {
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
 
-            diff: None,
+            diff,
             applied: match phase {
                 WritePhase::Confirmed(a) => Some(a),
                 _ => None,
             },
         },
-        None::<&dyn Fn(bool) -> String>,
+        Some(&|_| {
+            if let Some(ref body) = content_for_diff {
+                // Match engine-backed rename preview: create dest + delete src.
+                let create = crate::diff::unified_diff(&to_disp, "", body);
+                let delete = crate::diff::unified_diff(&from_disp, body, "");
+                let mut diffs = Vec::new();
+                if create.has_changes {
+                    diffs.push(create);
+                }
+                if delete.has_changes {
+                    diffs.push(delete);
+                }
+                crate::diff::format_diff_result(&crate::diff::DiffResult { diffs })
+            } else {
+                String::new()
+            }
+        }),
         || {
             let mut backup = crate::backup::BackupSession::new(cwd)?;
             backup.save_before_delete(src)?;
