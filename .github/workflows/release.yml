@@ -633,6 +633,70 @@ jobs:
           done
           git push
 
+  # Push updated Scoop manifest to patchloom/scoop-bucket (version + hashes).
+  # The committed JSON is the install source of truth; checkver/autoupdate in
+  # the manifest is only a client-side fallback if the bucket lags.
+  # Uses HOMEBREW_TAP_TOKEN (classic PAT with public_repo) — same token must
+  # be able to push to patchloom/scoop-bucket.
+  publish-scoop-bucket:
+    needs:
+      - plan
+      - host
+    runs-on: "ubuntu-22.04"
+    timeout-minutes: 15
+    env:
+      PLAN: ${{ needs.plan.outputs.val }}
+      GITHUB_USER: "axo bot"
+      GITHUB_EMAIL: "admin+bot@axo.dev"
+    # always() prevents transitive skip from release-please chain.
+    # Do not publish outside the repo while the repository is private.
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - name: Checkout patchloom (manifest generator)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          path: patchloom
+      - name: Checkout scoop-bucket
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: "patchloom/scoop-bucket"
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: true
+          path: scoop-bucket
+      - name: Fetch release artifacts (sha256 files)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: artifacts-*
+          path: artifacts/
+          merge-multiple: true
+      - name: Update and push Scoop manifest
+        working-directory: scoop-bucket
+        run: |
+          set -euo pipefail
+          version=$(echo "$PLAN" | jq -r '.releases[0].app_version // empty')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "PLAN had no releases[0].app_version" >&2
+            exit 1
+          fi
+          python3 ../patchloom/scripts/update-scoop-manifest.py \
+            --version "$version" \
+            --artifacts-dir ../artifacts \
+            --output bucket/patchloom.json
+          git config user.name "${GITHUB_USER}"
+          git config user.email "${GITHUB_EMAIL}"
+          git add bucket/patchloom.json
+          if git diff --cached --quiet; then
+            echo "Scoop manifest already at ${version}; nothing to commit"
+            exit 0
+          fi
+          git commit -m "patchloom ${version}"
+          git push
+
   # Publish cargo-dist generated npm installer package (downloads prebuilt
   # binaries from GitHub Releases at install time). Requires NPM_TOKEN secret.
   publish-npm:
@@ -698,12 +762,13 @@ jobs:
       - plan
       - host
       - publish-homebrew-formula
+      - publish-scoop-bucket
       - publish-npm
       - custom-publish-crates
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
+    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 10
     env:

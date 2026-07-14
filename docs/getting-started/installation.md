@@ -34,8 +34,14 @@ scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
 scoop install patchloom/patchloom
 ```
 
-The Scoop manifest uses `checkver` / `autoupdate` against GitHub Releases
-(`patchloom-v*` tags), so `scoop update patchloom` picks up new versions.
+Each GitHub Release updates `bucket/patchloom.json` in
+[patchloom/scoop-bucket](https://github.com/patchloom/scoop-bucket) with the
+new version and SHA256 hashes (same idea as the Homebrew tap). Then:
+
+```powershell
+scoop update
+scoop update patchloom
+```
 
 ## From crates.io
 
