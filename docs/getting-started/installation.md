@@ -40,6 +40,21 @@ scoop update
 scoop update patchloom
 ```
 
+## From Chocolatey (Windows)
+
+```powershell
+choco install patchloom
+```
+
+The package downloads the portable Windows zip from GitHub Releases and
+shims `patchloom.exe`. Each product release packs and pushes a new nupkg
+when `CHOCOLATEY_API_KEY` is configured. The **first** listing is subject
+to [community.chocolatey.org](https://community.chocolatey.org/packages)
+moderation (often multi-day); later version-only updates are usually
+auto-approved. If `choco install` reports the package is not found yet,
+use Scoop or the [GitHub Release](https://github.com/patchloom/patchloom/releases/latest)
+zip meanwhile.
+
 ## From crates.io
 
 ```bash

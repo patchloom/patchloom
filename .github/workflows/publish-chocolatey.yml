@@ -1,0 +1,116 @@
+# Manually (or on demand) pack and push the Chocolatey package from a
+# published GitHub Release. Automatic path is publish-chocolatey in release.yml.
+name: Publish Chocolatey package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Semver without tag prefix (e.g. 0.13.0). Leave empty to use the
+          latest GitHub Release tag (strip patchloom-v / v prefix).
+        required: false
+        type: string
+        default: ""
+      push:
+        description: Push to chocolatey.org (requires CHOCOLATEY_API_KEY)
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-chocolatey-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Pack and push Chocolatey package
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve version and download SHA256 files
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION}" ]; then
+            version="${INPUT_VERSION#v}"
+            version="${version#patchloom-v}"
+            tag="patchloom-v${version}"
+          else
+            tag=$(gh release view --repo patchloom/patchloom --json tagName --jq .tag_name)
+            version="${tag#patchloom-v}"
+            version="${version#v}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version=${version} tag=${tag}"
+          mkdir -p artifacts
+          for asset in \
+            patchloom-x86_64-pc-windows-msvc.zip.sha256 \
+            patchloom-aarch64-pc-windows-msvc.zip.sha256
+          do
+            gh release download "${tag}" \
+              --repo patchloom/patchloom \
+              --pattern "${asset}" \
+              --dir artifacts
+          done
+          ls -la artifacts
+
+      - name: Update Chocolatey package metadata
+        shell: bash
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          python3 scripts/update-chocolatey-package.py \
+            --version "${VERSION}" \
+            --artifacts-dir artifacts \
+            --package-dir chocolatey
+
+      - name: Pack nupkg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          choco pack chocolatey/patchloom.nuspec --outputdirectory dist
+          Get-ChildItem dist/*.nupkg | ForEach-Object { Write-Host "Packed $($_.Name)" }
+
+      - name: Upload nupkg artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: chocolatey-nupkg
+          path: dist/*.nupkg
+          if-no-files-found: error
+
+      - name: Push to chocolatey.org
+        if: ${{ inputs.push }}
+        shell: pwsh
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:CHOCOLATEY_API_KEY)) {
+            Write-Host "CHOCOLATEY_API_KEY not set; cannot push"
+            exit 1
+          }
+          $nupkg = Get-ChildItem dist/patchloom.*.nupkg | Select-Object -First 1
+          if (-not $nupkg) {
+            throw "No nupkg found under dist/"
+          }
+          Write-Host "Pushing $($nupkg.Name) to push.chocolatey.org"
+          choco push $nupkg.FullName `
+            --source 'https://push.chocolatey.org/' `
+            --api-key $env:CHOCOLATEY_API_KEY `
+            --force
