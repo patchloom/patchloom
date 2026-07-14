@@ -18,8 +18,11 @@ on:
       - "scripts/test_update_scoop_manifest.py"
 
 concurrency:
-  group: test-scoop-${{ github.ref }}
-  cancel-in-progress: true
+  # Per-ref group so PRs still cancel superseded runs. Never cancel on main:
+  # a cancelled suite sticks on the commit and makes the default-branch
+  # statusCheckRollup FAILURE even when a later Scoop smoke succeeds.
+  group: test-scoop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
