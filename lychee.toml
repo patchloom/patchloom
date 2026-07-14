@@ -28,6 +28,8 @@ exclude = [
   "no-color\\.org",
   # GitHub Pages docs site (patchloom.github.io) can 503 transiently during deploys or load
   "patchloom\\.github\\.io",
+  # npmjs.com returns 403 to many CI link-checkers (bot protection) for public packages
+  "npmjs\\.com",
 ]
 
 # 502/503/504: GitHub (and occasional other hosts) return gateway errors under
