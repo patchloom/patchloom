@@ -731,17 +731,30 @@ jobs:
           merge-multiple: true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          # Trusted publishing: Node >= 22.14, npm CLI >= 11.5.1
+          # Trusted publishing: Node >= 22.14, npm CLI >= 11.5.1.
+          # Node 24.5+ ships npm >= 11.5.1 (current 24.x has 11.16+). Prefer the
+          # bundled CLI over `npm install -g npm@...` so Scorecard Pinned-
+          # Dependencies does not flag an unhashed npmCommand (alert #45).
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
-      - name: Ensure npm CLI supports OIDC trusted publishing
+      - name: Verify npm CLI supports OIDC trusted publishing
         run: |
           set -euo pipefail
-          # setup-node may ship an older npm; bump to the trusted-publishing floor.
-          npm install -g npm@11.5.1
           node --version
           npm --version
+          # Floor: npm 11.5.1 (OIDC trusted publishing). Fail closed if setup-node
+          # ever hands us an older CLI instead of mutating the install unpinned.
+          node -e "
+            const v = require('child_process').execSync('npm -v', {encoding:'utf8'}).trim();
+            const [a,b,c] = v.split('.').map(Number);
+            const ok = a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1)));
+            if (!ok) {
+              console.error('npm ' + v + ' is below 11.5.1 (OIDC trusted publishing floor)');
+              process.exit(1);
+            }
+            console.log('npm ' + v + ' meets OIDC floor (>= 11.5.1)');
+          "
       - name: Publish npm package
         run: |
           set -euo pipefail
