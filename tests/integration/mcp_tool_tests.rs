@@ -156,6 +156,42 @@ async fn test_mcp_read_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// Boundary: same line count without a trailing newline (str::lines() omits a final empty line).
+#[tokio::test]
+async fn test_mcp_read_round_trip_without_trailing_newline() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("data_no_trailing_newline.txt"),
+        "line1\nline2\nline3",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "read_file",
+        serde_json::json!({"path": "data_no_trailing_newline.txt"}),
+    )
+    .await;
+    assert!(!is_error, "read should succeed");
+    let content = val["reads"][0]["content"]
+        .as_str()
+        .expect("reads[0].content should be a string");
+    assert_eq!(
+        content, "line1\nline2\nline3",
+        "read should return exact file content without trailing newline"
+    );
+    assert_eq!(
+        val["reads"][0]["total_lines"], 3,
+        "should have 3 lines without trailing newline"
+    );
+    assert_eq!(val["reads"][0]["path"], "data_no_trailing_newline.txt");
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     if !has_mcp_support() {
@@ -772,7 +808,6 @@ async fn test_mcp_patch_round_trip() {
     client.cancel().await.unwrap();
 }
 
-#[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_apply_patch_on_stale_merge() {
     if !has_mcp_support() {
@@ -803,7 +838,6 @@ async fn test_mcp_apply_patch_on_stale_merge() {
     client.cancel().await.unwrap();
 }
 
-#[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() {
     if !has_mcp_support() {
@@ -846,7 +880,6 @@ async fn test_mcp_apply_patch_merge_conflict_rejected_without_allow_conflicts() 
     client.cancel().await.unwrap();
 }
 
-#[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_apply_patch_merge_conflict_with_allow_conflicts() {
     if !has_mcp_support() {
@@ -889,7 +922,6 @@ async fn test_mcp_apply_patch_merge_conflict_with_allow_conflicts() {
     client.cancel().await.unwrap();
 }
 
-#[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_md_insert_after_heading_round_trip() {
     if !has_mcp_support() {
@@ -928,7 +960,6 @@ async fn test_mcp_md_insert_after_heading_round_trip() {
     client.cancel().await.unwrap();
 }
 
-#[cfg(feature = "mcp")]
 #[tokio::test]
 async fn test_mcp_md_insert_before_heading_round_trip() {
     if !has_mcp_support() {
