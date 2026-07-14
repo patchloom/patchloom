@@ -117,7 +117,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         crate::files::is_binary(&buf[..n])
     };
     if is_binary {
-        return run_binary_rename(&args, global, &cwd, &src, &dst);
+        return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Binary);
     }
 
     // Case-only renames on case-insensitive filesystems (e.g. macOS APFS)
@@ -125,7 +125,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // would delete the destination (same inode as source). Use fs::rename
     // directly, which handles case changes atomically (#1167).
     if is_case_only_change {
-        return run_binary_rename(&args, global, &cwd, &src, &dst);
+        return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::CaseOnly);
     }
 
     let op = Operation::FileRename {
@@ -156,31 +156,60 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     )
 }
 
-/// Handle binary file renames directly (bypasses the tx engine which only
-/// handles UTF-8 text files).
-fn run_binary_rename(
+/// Why a rename bypasses the UTF-8 tx engine and uses `fs::rename` directly.
+#[derive(Debug, Clone, Copy)]
+enum DirectRenameKind {
+    /// Non-UTF-8 content; engine cannot stage text.
+    Binary,
+    /// Case-only name change on a case-insensitive FS (#1167).
+    CaseOnly,
+}
+
+impl DirectRenameKind {
+    fn label(self) -> &'static str {
+        match self {
+            DirectRenameKind::Binary => "binary",
+            DirectRenameKind::CaseOnly => "case-only",
+        }
+    }
+}
+
+/// Handle renames that must use direct `fs::rename` (binary content, or
+/// case-only renames on case-insensitive filesystems).
+fn run_direct_rename(
     args: &RenameArgs,
     global: &GlobalFlags,
     cwd: &std::path::Path,
     src: &std::path::Path,
     dst: &std::path::Path,
+    kind: DirectRenameKind,
 ) -> anyhow::Result<u8> {
     // Write policies require reading the file as UTF-8 text, which binary
-    // files don't support. Fail early with a clear error.
+    // files don't support. Case-only renames do not rewrite content, so
+    // policies are also rejected (nothing to normalize). Fail early.
     if global.trim_trailing_whitespace
         || global.ensure_final_newline
         || global.normalize_eol.is_some()
     {
-        let msg = format!(
-            "cannot apply write policy to binary file: {}",
-            src.display()
-        );
+        let msg = match kind {
+            DirectRenameKind::Binary => {
+                format!(
+                    "cannot apply write policy to binary file: {}",
+                    src.display()
+                )
+            }
+            DirectRenameKind::CaseOnly => format!(
+                "cannot apply write policy on case-only rename (content is unchanged): {}",
+                src.display()
+            ),
+        };
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(exit::FAILURE);
     }
 
-    let check_msg = format!("would rename {} -> {} (binary)", args.from, args.to);
-    let apply_msg = format!("renamed {} -> {} (binary)", args.from, args.to);
+    let label = kind.label();
+    let check_msg = format!("would rename {} -> {} ({label})", args.from, args.to);
+    let apply_msg = format!("renamed {} -> {} ({label})", args.from, args.to);
     let post_msg = format!("renamed {} -> {}", args.from, args.to);
 
     execute_write(
