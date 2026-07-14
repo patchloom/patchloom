@@ -844,6 +844,10 @@ jobs:
           Get-ChildItem dist/*.nupkg | ForEach-Object { Write-Host "Packed $($_.Name)" }
 
       - name: Push to chocolatey.org
+        # Push can 403 on first community package (moderation / key scope) while
+        # pack succeeded. Soft-fail so host + other channels still green the
+        # release workflow (0.14.0: 403 failed the whole Release run).
+        continue-on-error: true
         shell: pwsh
         env:
           CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
@@ -862,6 +866,10 @@ jobs:
             --source 'https://push.chocolatey.org/' `
             --api-key $env:CHOCOLATEY_API_KEY `
             --force
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::warning::choco push failed exit=$LASTEXITCODE (community moderation or API key); nupkg was packed"
+            exit $LASTEXITCODE
+          }
 
   announce:
     needs:
