@@ -1,3 +1,9 @@
+//! Document format ops (JSON/YAML/TOML): detect, parse, serialize, preserve.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Format detect,
+//! multi-document YAML parse/write (#1718), and CST-preserving serialize
+//! entrypoints are one document surface; do not split for LOC alone.
+
 use crate::selector;
 use serde::Deserialize;
 use std::path::Path;
