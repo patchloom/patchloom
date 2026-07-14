@@ -104,11 +104,15 @@ pub struct ReplaceArgs {
     // ref:replace-mode:fuzzy
     /// When exact match fails, try fuzzy/similarity fallback (and when
     /// `--before-context` / `--after-context` is set). Literal only.
+    /// With `--json`, check `matched_text`: a high score can still rewrite a
+    /// different live identifier than `--old` (#1736).
     #[arg(long)]
     pub fuzzy: bool,
     // ref:replace-mode:min-fuzzy-score
     /// Reject fuzzy matches below this score (0.0..=1.0). Exact and anchored
-    /// matches are unaffected. Plan/MCP field name: `min_fuzzy_score` (#1687).
+    /// matches are unaffected. Does not prove the matched span is the intended
+    /// target; inspect JSON `matched_text`. Plan/MCP field name: `min_fuzzy_score`
+    /// (#1687, #1736).
     #[arg(long, value_name = "SCORE")]
     pub min_fuzzy_score: Option<f64>,
     #[command(flatten)]
