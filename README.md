@@ -458,7 +458,7 @@ flowchart LR
 
 | Component | Status |
 |---|---|
-| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [npm](https://www.npmjs.com/package/patchloom), and [Scoop](https://github.com/patchloom/scoop-bucket) |
+| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), and [Scoop](https://github.com/patchloom/scoop-bucket); npm package name reserved as `patchloom` (publish on next release with `NPM_TOKEN`) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 
 ## Full command reference
