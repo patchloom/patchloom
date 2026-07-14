@@ -204,6 +204,44 @@ mod basic {
     }
 
     #[test]
+    fn table_append_compact_row_without_outer_pipes() {
+        // Agents often pass `a|b` instead of `| a | b |` (fixrealloop).
+        let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
+        let (start, end) = find_section(content, "API").unwrap();
+        let result = table_append_in(content, start, end, "b|2").unwrap();
+        assert!(
+            result.contains("| a | 1 |\n| b | 2 |\n"),
+            "compact row should normalize: {result}"
+        );
+    }
+
+    #[test]
+    fn table_append_compact_row_spaced_cells() {
+        let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
+        let (start, end) = find_section(content, "API").unwrap();
+        let result = table_append_in(content, start, end, "b | 2").unwrap();
+        assert!(result.contains("| b | 2 |\n"), "got: {result}");
+    }
+
+    #[test]
+    fn normalize_md_table_row_canonical_unchanged() {
+        assert_eq!(normalize_md_table_row("| a | b |"), "| a | b |");
+    }
+
+    #[test]
+    fn table_append_column_mismatch_mentions_formats() {
+        let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
+        let (start, end) = find_section(content, "API").unwrap();
+        let err = table_append_in(content, start, end, "only-one").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("column"), "{msg}");
+        assert!(
+            msg.contains("compact") || msg.contains("| a | b |"),
+            "error should hint formats: {msg}"
+        );
+    }
+
+    #[test]
     fn table_append_for_tx_basic() {
         let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
         let result = table_append_for_tx(content, "API", "| b | 2 |")
@@ -1479,14 +1517,22 @@ body text
 
     #[test]
     fn table_append_not_table_row_returns_column_mismatch() {
-        // Row without pipe wrapping should fail with ColumnMismatch,
-        // not with NoTable (there IS a table, the row is just malformed).
+        // Compact two-cell rows are normalized (fixrealloop). A single cell
+        // with no pipes is still a column mismatch for a 2-column table.
         let content = "# T\n| A | B |\n|---|---|\n| 1 | 2 |\n";
         let (start, end) = find_section(content, "T").unwrap();
-        let err = table_append_in(content, start, end, "x | y").unwrap_err();
+        let ok = table_append_in(content, start, end, "x | y").expect("compact two cells");
+        assert!(ok.contains("| x | y |\n"), "got: {ok}");
+        let err = table_append_in(content, start, end, "only-one-cell").unwrap_err();
         assert!(
-            matches!(err, TableAppendError::ColumnMismatch { .. }),
-            "expected ColumnMismatch for unwrapped row, got: {err:?}"
+            matches!(
+                err,
+                TableAppendError::ColumnMismatch {
+                    expected: 2,
+                    actual: 1
+                }
+            ),
+            "expected ColumnMismatch for single cell, got: {err:?}"
         );
     }
 

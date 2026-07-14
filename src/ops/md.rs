@@ -642,10 +642,42 @@ impl std::fmt::Display for TableAppendError {
         match self {
             Self::NoTable => write!(f, "no markdown table found"),
             Self::ColumnMismatch { expected, actual } => {
-                write!(f, "row has {actual} column(s), table has {expected}")
+                write!(
+                    f,
+                    "row has {actual} column(s), table has {expected} \
+                     (use markdown row form `| a | b |` or compact `a|b`)"
+                )
             }
         }
     }
+}
+
+/// Normalize agent-friendly row inputs into a full markdown table row.
+///
+/// Accepts canonical `| a | b |` and compact forms agents often pass
+/// (`a|b`, `a | b`). Empty input stays empty.
+pub(crate) fn normalize_md_table_row(row: &str) -> String {
+    let t = row.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    if is_table_row(t) {
+        return t.to_string();
+    }
+    // Compact pipe-separated cells without requiring outer pipes.
+    let cells: Vec<&str> = t.trim_matches('|').split('|').map(str::trim).collect();
+    if cells.is_empty() || cells.iter().all(|c| c.is_empty()) {
+        return String::new();
+    }
+    format!("| {} |", cells.join(" | "))
+}
+
+fn table_column_count(row: &str) -> usize {
+    let t = row.trim();
+    if !is_table_row(t) {
+        return 0;
+    }
+    t.matches('|').count().saturating_sub(1)
 }
 
 pub fn table_append_in(
@@ -692,6 +724,9 @@ pub fn table_append_in(
 
     let insert_pos = last_data_end.ok_or(TableAppendError::NoTable)?;
 
+    // Agents often pass compact `a|b` without outer pipes; normalize first.
+    let row = normalize_md_table_row(row);
+
     // Validate that the new row has the same column count as the existing
     // table to prevent silent corruption of markdown tables (#1172).
     let expected_cols = {
@@ -699,14 +734,10 @@ pub fn table_append_in(
         section
             .lines()
             .find(|l| is_separator_row(l))
-            .map(|sep| sep.trim().matches('|').count().saturating_sub(1))
+            .map(table_column_count)
     };
     if let Some(expected) = expected_cols {
-        let actual = if is_table_row(row) {
-            row.trim().matches('|').count().saturating_sub(1)
-        } else {
-            0
-        };
+        let actual = table_column_count(&row);
         if actual != expected {
             return Err(TableAppendError::ColumnMismatch { expected, actual });
         }
@@ -720,7 +751,7 @@ pub fn table_append_in(
     if insert_pos > 0 && content.as_bytes().get(insert_pos - 1) != Some(&b'\n') {
         out.push_str(eol);
     }
-    out.push_str(row);
+    out.push_str(&row);
     if !row.ends_with('\n') {
         out.push_str(eol);
     }

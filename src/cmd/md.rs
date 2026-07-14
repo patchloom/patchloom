@@ -12,6 +12,7 @@ use serde::Serialize;
 #[command(after_help = "\
 EXAMPLES:
   patchloom md table-append README.md --heading '## API' --row '| /users | List users |'
+  patchloom md table-append README.md --heading '## API' --row '/users|List users'
   patchloom md upsert-bullet AGENTS.md --heading '## Rules' --bullet '- Run make check'
   patchloom md replace-section CHANGELOG.md --heading '## Unreleased' --content '- New feature' --apply")]
 pub struct MdArgs {
@@ -76,7 +77,7 @@ pub enum MdAction {
         file: String,
         #[arg(long)]
         heading: String,
-        /// The row to append, in markdown table format (e.g., "| col1 | col2 | col3 |").
+        /// Table row: `| col1 | col2 |` or compact `col1|col2` / `col1 | col2`.
         #[arg(long)]
         row: String,
     },
