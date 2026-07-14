@@ -926,11 +926,14 @@ mod hardlink_handling {
     #[test]
     fn atomic_write_single_link_still_uses_rename_path() {
         // Single-link files should not take the hardlink-preserving branch.
-        // After rename, the path still has nlink == 1 and the new content.
+        // Rename (temp+persist) replaces the directory entry with a new inode;
+        // open+truncate would keep the same inode. nlink alone does not prove
+        // which branch ran (both leave nlink == 1).
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("solo.txt");
         fs::write(&path, "before\n").unwrap();
         assert_eq!(fs::metadata(&path).unwrap().nlink(), 1);
+        let before_ino = fs::metadata(&path).unwrap().ino();
 
         let policy = WritePolicy::default();
         atomic_write(&path, "after\n", &policy).unwrap();
@@ -940,6 +943,11 @@ mod hardlink_handling {
             fs::metadata(&path).unwrap().nlink(),
             1,
             "single-link file must remain nlink == 1"
+        );
+        assert_ne!(
+            fs::metadata(&path).unwrap().ino(),
+            before_ino,
+            "rename path must install a new inode (open+write would preserve ino)"
         );
     }
 
@@ -1010,6 +1018,35 @@ mod hardlink_handling {
         assert_eq!(fs::read_to_string(&a).unwrap(), "line\n");
         assert_eq!(fs::read_to_string(&b).unwrap(), "line\n");
         assert!(fs::metadata(&a).unwrap().nlink() > 1);
+    }
+
+    #[test]
+    fn atomic_write_hardlink_readonly_errors_with_path() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "shared\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        fs::set_permissions(&a, fs::Permissions::from_mode(0o444)).unwrap();
+        // Root (common in Docker) can still write mode-444 files. Skip when
+        // permissions do not actually block writing. Probe without truncate so
+        // we never clobber content if the open succeeds.
+        if fs::OpenOptions::new().write(true).open(&a).is_ok() {
+            let _ = fs::set_permissions(&a, fs::Permissions::from_mode(0o644));
+            return;
+        }
+
+        let policy = WritePolicy::default();
+        let err = atomic_write(&a, "changed\n", &policy).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("hardlinked") && msg.contains("a.txt"),
+            "readonly hardlink error must name the path and hardlink path: {msg}"
+        );
+        // Sibling must still hold original content (failed open before truncate).
+        let _ = fs::set_permissions(&a, fs::Permissions::from_mode(0o644));
+        assert_eq!(fs::read_to_string(&b).unwrap(), "shared\n");
     }
 }
 

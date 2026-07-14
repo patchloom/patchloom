@@ -544,8 +544,9 @@ pub fn replace_in_content(
             match_count: 1,
             match_mode: Some(MatchMode::Anchored),
             match_score: None,
-
-            matched_text: None,
+            // Exact span at the context-picked offset (equals `from`; hosts
+            // still get a non-null matched_text on Anchored like fuzzy #1736).
+            matched_text: Some(from.to_string()),
         });
     }
 

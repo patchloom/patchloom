@@ -4815,6 +4815,11 @@ fn match_mode_exact_fuzzy_and_anchored() {
     assert!(r.changed);
     assert_eq!(r.match_mode, Some(MatchMode::Anchored));
     assert_eq!(r.match_count, 1);
+    assert_eq!(
+        r.matched_text.as_deref(),
+        Some("TODO: fix"),
+        "anchored multi-match path must report matched_text (#1736 parity)"
+    );
     assert!(r.new_content.contains("beta\nTODO: done"));
     assert!(r.new_content.contains("alpha\nTODO: fix"));
 }
@@ -4860,6 +4865,16 @@ fn replace_text_pure_fuzzy_without_context() {
         "score: {:?}",
         result.match_score
     );
+    // #1736: library hosts on the disk path need matched_text, not only mode/score.
+    let matched = result
+        .matched_text
+        .as_deref()
+        .expect("disk pure fuzzy must report matched_text");
+    assert!(
+        matched.contains("process_data"),
+        "matched_text should be the live span, got {matched:?}"
+    );
+    assert_ne!(matched, "fn proccess_data() {}");
 }
 
 #[test]
