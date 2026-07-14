@@ -42,12 +42,16 @@ pub enum MdAction {
     /// Does not insert after the full section body. For a sibling section after
     /// the section ends, use `insert-after-section` (#1726).
     InsertAfterHeading {
+        /// Markdown file to edit.
         file: String,
+        /// Heading line to insert under (e.g. `## Config`).
         #[arg(long)]
         heading: String,
         // ref:md-mode:stdin
+        /// Read insertion content from stdin instead of `--content`.
         #[arg(long)]
         stdin: bool,
+        /// Content to insert (omit when using `--stdin`).
         #[arg(long)]
         content: Option<String>,
     },
@@ -57,23 +61,31 @@ pub enum MdAction {
     /// `insert-after-heading` only for content under the heading (e.g. intro
     /// before a table). #1726
     InsertAfterSection {
+        /// Markdown file to edit.
         file: String,
+        /// Heading whose section body ends just before the insertion point.
         #[arg(long)]
         heading: String,
         // ref:md-mode:stdin
+        /// Read insertion content from stdin instead of `--content`.
         #[arg(long)]
         stdin: bool,
+        /// Content to insert (omit when using `--stdin`).
         #[arg(long)]
         content: Option<String>,
     },
     /// Insert content immediately before a heading line.
     InsertBeforeHeading {
+        /// Markdown file to edit.
         file: String,
+        /// Heading line to insert before (e.g. `## Config`).
         #[arg(long)]
         heading: String,
         // ref:md-mode:stdin
+        /// Read insertion content from stdin instead of `--content`.
         #[arg(long)]
         stdin: bool,
+        /// Content to insert (omit when using `--stdin`).
         #[arg(long)]
         content: Option<String>,
     },
