@@ -463,7 +463,7 @@ flowchart LR
 
 | Component | Status |
 |---|---|
-| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [Chocolatey](https://community.chocolatey.org/packages/patchloom), and [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`) |
+| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [Chocolatey](https://community.chocolatey.org/packages) (`choco install patchloom` after first listing), and [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 
 ## Full command reference
