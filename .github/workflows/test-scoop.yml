@@ -1,5 +1,10 @@
 # Smoke-test Scoop install of patchloom on Windows (private org bucket).
 # Installs Scoop, adds patchloom/scoop-bucket, installs the app, checks version.
+#
+# On `release` published: cargo-dist builds and publish-scoop-bucket lag the
+# GitHub Release event (tag + empty release first). Wait for Windows zip
+# assets and a matching bucket manifest before asserting version (#race on
+# 0.14.0: smoke installed 0.13.0 while release assets were still empty).
 name: Test Scoop install
 
 on:
@@ -31,12 +36,62 @@ jobs:
   scoop-install:
     name: Scoop install (Windows)
     runs-on: windows-latest
-    timeout-minutes: 25
+    # Release path waits for cargo-dist + scoop-bucket (often 20–40+ minutes).
+    timeout-minutes: 60
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
+
+      - name: Wait for release assets and Scoop bucket
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = $env:RELEASE_TAG
+          if (-not $tag) { throw "missing RELEASE_TAG" }
+          $expected = $tag -replace '^patchloom-v', '' -replace '^v', ''
+          $assetName = "patchloom-x86_64-pc-windows-msvc.zip"
+          $bucketUrl = "https://raw.githubusercontent.com/patchloom/scoop-bucket/main/bucket/patchloom.json"
+          # cargo-dist multi-arch + host + publish-scoop-bucket can take a while
+          $deadline = (Get-Date).AddMinutes(45)
+          $attempt = 0
+          while ((Get-Date) -lt $deadline) {
+            $attempt++
+            Write-Host "=== readiness attempt $attempt (expect $expected from $tag) ==="
+
+            $assets = @()
+            try {
+              $assets = gh release view $tag --repo patchloom/patchloom --json assets --jq ".assets[].name" 2>$null
+            } catch {
+              Write-Host "gh release view failed: $_"
+            }
+            $assetList = @($assets | Where-Object { $_ })
+            $hasZip = $assetList -contains $assetName
+            Write-Host "release assets ($($assetList.Count)): $($assetList -join ', ')"
+            Write-Host "has $assetName = $hasZip"
+
+            $bucketVer = $null
+            try {
+              $json = Invoke-RestMethod -Uri $bucketUrl -Headers @{ "Cache-Control" = "no-cache" }
+              $bucketVer = [string]$json.version
+            } catch {
+              Write-Host "bucket fetch failed: $_"
+            }
+            Write-Host "scoop-bucket version=$bucketVer"
+
+            if ($hasZip -and $bucketVer -eq $expected) {
+              Write-Host "ready: assets + scoop-bucket at $expected"
+              exit 0
+            }
+            Write-Host "not ready; sleeping 45s"
+            Start-Sleep -Seconds 45
+          }
+          throw "timed out waiting for $assetName on $tag and scoop-bucket version $expected"
 
       - name: Install Scoop
         shell: pwsh
@@ -58,7 +113,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "scoop bucket add failed: $LASTEXITCODE" }
           scoop bucket list
 
-          # Retry: after a GitHub Release, publish-scoop-bucket may lag a few minutes
+          # Retry install (network / transient scoop errors)
           $installed = $false
           for ($i = 1; $i -le 8; $i++) {
             Write-Host "=== install attempt $i ==="
@@ -98,16 +153,21 @@ jobs:
           Write-Host "latest release tag=$tag expected=$expected"
 
           if ($installed -ne $expected) {
-            Write-Host "installed $installed != latest $expected; scoop update and retry"
-            $ErrorActionPreference = "Continue"
-            scoop update
-            scoop update patchloom
-            $ErrorActionPreference = "Stop"
-            $out2 = (& patchloom --version 2>&1 | Out-String).Trim()
-            if ($out2 -notmatch 'patchloom\s+(\d+\.\d+\.\d+)') {
-              throw "unexpected version after update: $out2"
+            # Bucket may have updated after install; force refresh (retries).
+            for ($i = 1; $i -le 12; $i++) {
+              Write-Host "version mismatch ($installed != $expected); scoop update attempt $i"
+              $ErrorActionPreference = "Continue"
+              scoop update
+              scoop update patchloom
+              $ErrorActionPreference = "Stop"
+              $out2 = (& patchloom --version 2>&1 | Out-String).Trim()
+              if ($out2 -match 'patchloom\s+(\d+\.\d+\.\d+)') {
+                $installed = $Matches[1]
+                Write-Host "now installed=$installed"
+                if ($installed -eq $expected) { break }
+              }
+              Start-Sleep -Seconds 30
             }
-            $installed = $Matches[1]
             if ($installed -ne $expected) {
               throw "after update still $installed, expected $expected from $tag"
             }
