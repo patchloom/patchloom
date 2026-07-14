@@ -698,13 +698,20 @@ jobs:
           git push
 
   # Publish cargo-dist generated npm installer package (downloads prebuilt
-  # binaries from GitHub Releases at install time). Requires NPM_TOKEN secret.
+  # binaries from GitHub Releases at install time).
+  # Auth: npm Trusted Publishing (OIDC). No long-lived NPM_TOKEN required.
+  # Package settings on npmjs.com: Trusted Publisher = GitHub Actions
+  #   owner=patchloom repo=patchloom workflow=release.yml (filename only).
+  # Requires Node >= 22.14 and npm CLI >= 11.5.1 for OIDC.
   publish-npm:
     needs:
       - plan
       - host
     runs-on: "ubuntu-22.04"
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       PLAN: ${{ needs.plan.outputs.val }}
@@ -724,21 +731,34 @@ jobs:
           merge-multiple: true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: "20.x"
+          # Trusted publishing: Node >= 22.14, npm CLI >= 11.5.1
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-      - name: Publish npm package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          package-manager-cache: false
+      - name: Ensure npm CLI supports OIDC trusted publishing
         run: |
           set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN is not set; skip npm publish (configure secret to enable)."
-            exit 0
-          fi
+          # setup-node may ship an older npm; bump to the trusted-publishing floor.
+          npm install -g npm@11.5.1
+          node --version
+          npm --version
+      - name: Publish npm package
+        run: |
+          set -euo pipefail
+          # OIDC: npm CLI exchanges the GitHub Actions id-token for a short-lived
+          # publish credential. Do not set NODE_AUTH_TOKEN here (empty tokens
+          # can override OIDC). Optional emergency fallback: set NPM_TOKEN and
+          # export NODE_AUTH_TOKEN only in a temporary override if OIDC fails.
+          published=0
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
+            echo "Publishing ./npm/${pkg} via OIDC trusted publishing"
             npm publish --access public "./npm/${pkg}"
+            published=$((published + 1))
           done
+          if [ "$published" -eq 0 ]; then
+            echo "No *-npm-package.tar.gz artifacts in PLAN; nothing to publish."
+          fi
 
   custom-publish-crates:
     needs:
