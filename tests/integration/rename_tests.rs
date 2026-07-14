@@ -684,13 +684,33 @@ fn test_rename_case_only_change() {
     let file = dir.path().join("readme.md");
     fs::write(&file, "hello\n").unwrap();
 
-    Command::cargo_bin("patchloom")
+    let out = Command::cargo_bin("patchloom")
         .unwrap()
         .args(["rename", "--apply"])
         .arg(file.to_str().unwrap())
         .arg(dir.path().join("README.md").to_str().unwrap())
-        .assert()
-        .code(0);
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let combined = format!("{stdout}{stderr}");
+    // Direct case-only path must not pretend the file is binary (fixrealloop R5).
+    assert!(
+        !combined.contains("(binary)"),
+        "case-only rename of text must not say (binary): {combined}"
+    );
+    if combined.contains("renamed") {
+        assert!(
+            combined.contains("(case-only)") || !combined.contains('('),
+            "expected (case-only) label when status is printed: {combined}"
+        );
+    }
 
     // Verify the rename happened by reading the directory.
     let entries: Vec<String> = fs::read_dir(dir.path())
