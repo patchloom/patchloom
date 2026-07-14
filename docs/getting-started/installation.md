@@ -10,7 +10,13 @@ This installs patchloom with all commands, including the MCP server.
 
 ## From npm / npx
 
+> **Status:** cargo-dist is configured to publish the unscoped `patchloom`
+> package on each GitHub Release once the repo `NPM_TOKEN` secret is set
+> (see issue #963). Until the first publish lands, prefer Homebrew, Scoop,
+> crates.io, or the install scripts below.
+
 ```bash
+# After the package is on npmjs.com:
 # One-shot (downloads the platform binary on first run)
 npx patchloom --version
 
