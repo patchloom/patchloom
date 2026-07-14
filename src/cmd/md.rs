@@ -37,7 +37,10 @@ pub enum MdAction {
         #[arg(long)]
         content: Option<String>,
     },
-    /// Insert content after a heading.
+    /// Insert content immediately after a heading line (before existing body).
+    ///
+    /// Does not insert after the full section body. For a sibling section after
+    /// the section ends, use `insert-after-section` (#1726).
     InsertAfterHeading {
         file: String,
         #[arg(long)]
@@ -48,7 +51,22 @@ pub enum MdAction {
         #[arg(long)]
         content: Option<String>,
     },
-    /// Insert content before a heading.
+    /// Insert content after the full section body (sibling placement).
+    ///
+    /// Use when adding a new `##` section after this section's content. Prefer
+    /// `insert-after-heading` only for content under the heading (e.g. intro
+    /// before a table). #1726
+    InsertAfterSection {
+        file: String,
+        #[arg(long)]
+        heading: String,
+        // ref:md-mode:stdin
+        #[arg(long)]
+        stdin: bool,
+        #[arg(long)]
+        content: Option<String>,
+    },
+    /// Insert content immediately before a heading line.
     InsertBeforeHeading {
         file: String,
         #[arg(long)]
@@ -227,6 +245,34 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::FAILURE);
             };
             let op = Operation::MdInsertAfterHeading {
+                path: file.clone(),
+                heading: heading.clone(),
+                content: insertion,
+            };
+            execute_md_op(
+                op,
+                global,
+                &file,
+                &format!("would modify {file}"),
+                &format!("modified {file}"),
+            )
+        }
+
+        MdAction::InsertAfterSection {
+            file,
+            heading,
+            stdin,
+            content,
+        } => {
+            crate::verbose!(
+                "md: insert-after-section file={}, heading={:?}",
+                file,
+                heading
+            );
+            let Some(insertion) = read_content(stdin, &content, global)? else {
+                return Ok(exit::FAILURE);
+            };
+            let op = Operation::MdInsertAfterSection {
                 path: file.clone(),
                 heading: heading.clone(),
                 content: insertion,

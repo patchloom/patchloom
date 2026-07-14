@@ -94,6 +94,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Compare two structured files | `doc_diff` |\n\
              | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |\n\
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
+             | Insert a sibling section after a full section body | `md_insert_after_section` |\n\
              | Move a heading section (same file or cross-file) | `md_move_section` |\n\
              | Remove duplicate headings | `md_dedupe_headings` |\n\
              | Lint markdown for structural issues | `md_lint` |\n\
@@ -204,13 +205,17 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
                  doc.set config.json version \"2.0.0\"\n\
                  doc.set config.yaml app.version \"2.0.0\"\n\
                  replace README.md \"1.0.0\" \"2.0.0\"\n\
+                 replace src/main.rs \"proccess\" \"process\" --fuzzy --min-fuzzy-score 0.80\n\
                  file.create hello.txt \"Hello, World!\"\n\
                  file.rename old.txt new.txt\n\
                  md.upsert_bullet CHANGELOG.md \"## Changes\" \"- Bumped to 2.0.0\"\n\
                  EOF\n\
                  ```\n\n\
                  One line per operation. Double-quote values with spaces. Escapes in quotes: only `\\\"` and `\\\\` \
-                 (literal `\\n` is not a newline; use `tx`/MCP JSON for multi-line content).\n\n",
+                 (literal `\\n` is not a newline; use `tx`/MCP JSON for multi-line content).\n\
+                 Batch `replace` accepts optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, \
+                 `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, \
+                 `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.\n\n",
             );
         }
 
@@ -454,7 +459,15 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
          scripts.test                    # simple selector path\n\
          jobs[0].steps[*].name           # index + wildcard\n\
          dependencies[name=react].version # predicate filter\n\
-         ```\n\n",
+         ```\n\n\
+         **Write ops and predicates:** `doc set` / `doc ensure` / `doc delete` / `doc move` are \
+         **single-path only** (keys and indexes such as `items.0.val`). Wildcards and predicates \
+         (`items[id=b].val`, `items[*].enabled`) belong on `doc update` (multi-match write) or \
+         `doc delete-where` (array filter). If you pass a predicate to `doc set`, the error points \
+         you at `doc update` or an index path.\n\n\
+         **Markdown insert placement:** `md_insert_after_heading` inserts **under the heading line** \
+         (before existing body). To add a sibling `##` section after the full section body, use \
+         `md_insert_after_section`.\n\n",
     );
 
     // Exit codes (CLI only — MCP tools return results as JSON, not exit codes)

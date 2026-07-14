@@ -16,6 +16,7 @@
 | Compare two structured files | `doc_diff` |
 | Edit markdown section, bullet, or table | `md_replace_section`, `md_upsert_bullet`, `md_table_append` |
 | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |
+| Insert a sibling section after a full section body | `md_insert_after_section` |
 | Move a heading section (same file or cross-file) | `md_move_section` |
 | Remove duplicate headings | `md_dedupe_headings` |
 | Lint markdown for structural issues | `md_lint` |
@@ -108,6 +109,7 @@ patchloom batch --apply <<'EOF'
 doc.set config.json version "2.0.0"
 doc.set config.yaml app.version "2.0.0"
 replace README.md "1.0.0" "2.0.0"
+replace src/main.rs "proccess" "process" --fuzzy --min-fuzzy-score 0.80
 file.create hello.txt "Hello, World!"
 file.rename old.txt new.txt
 md.upsert_bullet CHANGELOG.md "## Changes" "- Bumped to 2.0.0"
@@ -115,6 +117,7 @@ EOF
 ```
 
 One line per operation. Double-quote values with spaces. Escapes in quotes: only `\"` and `\\` (literal `\n` is not a newline; use `tx`/MCP JSON for multi-line content).
+Batch `replace` accepts optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.
 
 On Windows (where heredocs are not available), write operations to a file and pass it:
 
@@ -317,6 +320,10 @@ jobs[0].steps[*].name           # index + wildcard
 dependencies[name=react].version # predicate filter
 ```
 
+**Write ops and predicates:** `doc set` / `doc ensure` / `doc delete` / `doc move` are **single-path only** (keys and indexes such as `items.0.val`). Wildcards and predicates (`items[id=b].val`, `items[*].enabled`) belong on `doc update` (multi-match write) or `doc delete-where` (array filter). If you pass a predicate to `doc set`, the error points you at `doc update` or an index path.
+
+**Markdown insert placement:** `md_insert_after_heading` inserts **under the heading line** (before existing body). To add a sibling `##` section after the full section body, use `md_insert_after_section`.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -356,8 +363,9 @@ dependencies[name=react].version # predicate filter
 - `md.replace_section`: Replace the body of a markdown section identified by heading.
 - `md.upsert_bullet`: Insert or update a bullet point under a markdown heading.
 - `md.table_append`: Append a row to a markdown table under a heading.
-- `md.insert_after_heading`: Insert content immediately after a markdown heading.
-- `md.insert_before_heading`: Insert content immediately before a markdown heading.
+- `md.insert_after_heading`: Insert content immediately after a markdown heading line (before any existing body). For a sibling section after the full body, use md.insert_after_section.
+- `md.insert_after_section`: Insert content after the full section body (sibling placement). Use when adding a new ## section after this section's content. Prefer md.insert_after_heading for content under the heading line.
+- `md.insert_before_heading`: Insert content immediately before a markdown heading line.
 - `md.move_section`: Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.
 - `patch.apply`: Apply a unified diff patch to one or more files. Supports three-way merge on stale context.
 - `doc.prepend`: Prepend a value to the beginning of an array at a selector path.

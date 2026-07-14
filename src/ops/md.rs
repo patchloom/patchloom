@@ -467,6 +467,33 @@ pub fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) ->
     Some(out)
 }
 
+/// Insert content after the **full section body** (after the last line of the
+/// section, before the next same-or-higher heading). Use this to add a sibling
+/// section; prefer [`insert_after_heading_in`] to insert under the heading line
+/// (e.g. intro text before an existing table). See #1726.
+pub fn insert_after_section_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
+    let eol = crate::write::detect_eol(content);
+    let (_, body_end) = find_section(content, heading)?;
+    let mut out = String::with_capacity(content.len() + insertion.len() + 4);
+    out.push_str(&content[..body_end]);
+    if !insertion.is_empty() {
+        // Ensure a blank line before a new sibling section when the prior body
+        // does not already end with a blank line.
+        if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
+            if !out.ends_with('\n') {
+                out.push_str(eol);
+            }
+            out.push_str(eol);
+        }
+        out.push_str(insertion);
+        if !insertion.ends_with('\n') {
+            out.push_str(eol);
+        }
+    }
+    out.push_str(&content[body_end..]);
+    Some(out)
+}
+
 pub fn insert_before_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
     let eol = crate::write::detect_eol(content);
     let headings = parse_headings(content);

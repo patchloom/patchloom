@@ -91,6 +91,53 @@ fn test_batch_apply_modifies_files() {
     );
 }
 
+/// Batch replace optional flags (#1724).
+#[test]
+fn test_batch_replace_fuzzy_min_score() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello wrold\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "hello wrold\n").unwrap();
+
+    let ops_high = dir.path().join("ops_high.txt");
+    fs::write(
+        &ops_high,
+        "replace a.txt \"hello world\" \"hello earth\" --fuzzy --min-fuzzy-score 0.99\n",
+    )
+    .unwrap();
+    // High floor rejects this typo (~0.93 score); file must stay unchanged.
+    let high = patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops_high)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(
+        high.status.code(),
+        Some(0),
+        "high min-fuzzy-score should not succeed; stderr={}",
+        String::from_utf8_lossy(&high.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "hello wrold\n"
+    );
+
+    let ops_low = dir.path().join("ops_low.txt");
+    fs::write(
+        &ops_low,
+        "replace b.txt \"hello world\" \"hello earth\" --fuzzy --min-fuzzy-score 0.5\n",
+    )
+    .unwrap();
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops_low)
+        .arg("--apply")
+        .assert()
+        .code(0);
+    let b = fs::read_to_string(dir.path().join("b.txt")).unwrap();
+    assert!(b.contains("earth"), "low floor should apply fuzzy: {b}");
+}
+
 #[test]
 fn test_batch_empty_input_succeeds() {
     let dir = TempDir::new().unwrap();

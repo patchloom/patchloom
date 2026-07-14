@@ -1,8 +1,8 @@
 use super::execute::{TxState, read_file_content, update_file_content};
 use super::output::TxLintResult;
 use crate::ops::md::{
-    dedupe_headings_in, insert_after_heading_in, insert_before_heading_in, move_section_in,
-    replace_section_in, upsert_bullet_in,
+    dedupe_headings_in, insert_after_heading_in, insert_after_section_in, insert_before_heading_in,
+    move_section_in, replace_section_in, upsert_bullet_in,
 };
 use crate::plan::Operation;
 
@@ -57,6 +57,21 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
                 heading,
                 content,
                 insert_after_heading_in,
+                "heading",
+            )?;
+        }
+
+        Operation::MdInsertAfterSection {
+            path,
+            heading,
+            content,
+        } => {
+            apply_md_heading_op(
+                tx,
+                path,
+                heading,
+                content,
+                insert_after_section_in,
                 "heading",
             )?;
         }

@@ -152,6 +152,39 @@ fn test_md_insert_after_heading() {
     );
 }
 
+/// Sibling section placement keeps body under original heading (#1726).
+#[test]
+fn test_md_insert_after_section_sibling() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("readme.md");
+    fs::write(&file, "## Config\n\nSettings.\n\n## Usage\n\nRun it.\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "md",
+            "insert-after-section",
+            "--heading",
+            "## Config",
+            "--content",
+            "## FAQ\n\nCommon Q.\n",
+            "--apply",
+        ])
+        .arg(&file)
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let config = content.find("## Config").unwrap();
+    let settings = content.find("Settings.").unwrap();
+    let faq = content.find("## FAQ").unwrap();
+    let usage = content.find("## Usage").unwrap();
+    assert!(
+        config < settings && settings < faq && faq < usage,
+        "Config body must stay before FAQ sibling:\n{content}"
+    );
+}
+
 #[test]
 fn test_md_upsert_bullet_adds_new() {
     let dir = TempDir::new().unwrap();

@@ -1,3 +1,9 @@
+//! Document tree navigation: set/delete/move/update_matching and predicates.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Selector write
+//! navigation and multi-match update share one unit; agent-facing predicate
+//! error strings (#1725) live here; do not split for LOC alone.
+
 use crate::selector;
 
 fn value_type_name(v: &serde_json::Value) -> &'static str {
@@ -87,7 +93,7 @@ pub fn navigate_mut<'a>(
             })?,
             _ => {
                 return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: "wildcard/predicate not supported in write navigation".into(),
+                    msg: write_nav_predicate_msg("write navigation (doc.set/ensure/delete/move)"),
                 }));
             }
         };
@@ -169,11 +175,36 @@ pub fn set_at_path(
         }
         _ => {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: "cannot set at wildcard/predicate".into(),
+                msg: write_nav_predicate_msg("doc.set/doc.ensure"),
             }));
         }
     }
     Ok(())
+}
+
+/// Agent-facing message when a single-path write op receives a predicate/wildcard
+/// selector (#1725). Points at the right multi-match alternative and index form.
+fn write_nav_predicate_msg(op_context: &str) -> String {
+    // Match exact op labels, not substrings of compound messages like
+    // "doc.set/ensure/delete/move".
+    let alt = if op_context == "doc.delete"
+        || op_context.starts_with("doc.delete ")
+        || op_context.starts_with("doc.move")
+    {
+        if op_context.starts_with("doc.move") {
+            "Use a concrete index/key path (e.g. items.0.val), not wildcards or predicates"
+        } else {
+            "Use: doc delete-where <file> <array-selector> --predicate key=value for filtered \
+             array deletes, or a concrete index path such as items.0"
+        }
+    } else {
+        "Use: doc update <file> 'items[id=b].val' <value> for multi-match writes, \
+         or a concrete index path such as items.0.val"
+    };
+    format!(
+        "selector uses wildcard/predicate, which is not valid for {op_context} \
+         (single path only). {alt}"
+    )
 }
 
 /// Delete the value at the given selector path. Returns `true` if
@@ -223,7 +254,7 @@ pub fn delete_at_selector(
             }
         }
         _ => Err(anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: "cannot delete at wildcard/predicate".into(),
+            msg: write_nav_predicate_msg("doc.delete"),
         })),
     }
 }
@@ -407,7 +438,7 @@ pub fn move_at_path(
             }
             _ => {
                 return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: "cannot move from wildcard/predicate".into(),
+                    msg: write_nav_predicate_msg("doc.move (from)"),
                 }));
             }
         }
@@ -465,7 +496,7 @@ pub fn move_at_path(
             }
             _ => {
                 return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: "cannot move to wildcard/predicate".into(),
+                    msg: write_nav_predicate_msg("doc.move (to)"),
                 }));
             }
         }
@@ -500,7 +531,7 @@ pub fn move_at_path(
             }
             _ => {
                 return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: "cannot remove from wildcard/predicate selector".into(),
+                    msg: write_nav_predicate_msg("doc.move (remove source)"),
                 }));
             }
         }
@@ -642,6 +673,17 @@ mod tests {
         let mut root = json!({"a": {}});
         let val = navigate_mut(&mut root, &segs("a.b"), true).unwrap();
         assert!(val.is_object(), "should create intermediate object");
+    }
+
+    #[test]
+    fn set_at_path_predicate_errors_with_update_hint() {
+        let mut root = json!({"items":[{"id":"a","val":1}]});
+        let err = set_at_path(&mut root, &segs("items[id=a].val"), json!(9)).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("doc update") && msg.contains("wildcard/predicate"),
+            "got: {msg}"
+        );
     }
 
     #[test]

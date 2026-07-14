@@ -307,6 +307,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
         | Operation::DocDeleteWhere { path, .. }
         | Operation::MdReplaceSection { path, .. }
         | Operation::MdInsertAfterHeading { path, .. }
+        | Operation::MdInsertAfterSection { path, .. }
         | Operation::MdInsertBeforeHeading { path, .. }
         | Operation::MdUpsertBullet { path, .. }
         | Operation::MdTableAppend { path, .. }

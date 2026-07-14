@@ -90,9 +90,121 @@ mod basic {
         let op = parse_line(r#"replace src/main.rs "old text" "new text""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::Replace { path: Some(p), old, new_text: Some(t), .. }
+            Operation::Replace { path: Some(p), old, new_text: Some(t), fuzzy: false, min_fuzzy_score: None, .. }
             if p == "src/main.rs" && old == "old text" && t == "new text"
         ));
+    }
+
+    #[test]
+    fn parse_line_replace_with_fuzzy_flags() {
+        let op = parse_line(
+            r#"replace a.txt "hello world" "hello earth" --fuzzy --min-fuzzy-score 0.80 -i"#,
+            1,
+        )
+        .unwrap();
+        match op {
+            Operation::Replace {
+                path: Some(p),
+                old,
+                new_text: Some(t),
+                fuzzy,
+                min_fuzzy_score,
+                case_insensitive,
+                ..
+            } => {
+                assert_eq!(p, "a.txt");
+                assert_eq!(old, "hello world");
+                assert_eq!(t, "hello earth");
+                assert!(fuzzy);
+                assert_eq!(min_fuzzy_score, Some(0.80));
+                assert!(case_insensitive);
+            }
+            _ => panic!("expected Replace"),
+        }
+    }
+
+    #[test]
+    fn parse_line_replace_flags_before_positionals() {
+        let op = parse_line(
+            r#"replace --fuzzy --word-boundary f.rs old_name new_name"#,
+            1,
+        )
+        .unwrap();
+        match op {
+            Operation::Replace {
+                path: Some(p),
+                fuzzy,
+                word_boundary,
+                old,
+                new_text: Some(t),
+                ..
+            } => {
+                assert_eq!(p, "f.rs");
+                assert!(fuzzy);
+                assert!(word_boundary);
+                assert_eq!(old, "old_name");
+                assert_eq!(t, "new_name");
+            }
+            _ => panic!("expected Replace"),
+        }
+    }
+
+    #[test]
+    fn parse_line_replace_unknown_flag_errors() {
+        let err = parse_line(r#"replace f.txt old new --regex"#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown replace flag") && msg.contains("--regex"),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_line_replace_unexpected_positional_errors() {
+        let err = parse_line(r#"replace f.txt old new extra"#, 1).unwrap_err();
+        assert!(
+            err.to_string().contains("unexpected argument"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_line_replace_dash_prefixed_values_are_positionals() {
+        // Bullet renames and flag-like strings must not be misread as flags.
+        let op = parse_line(r#"replace f.md "- old bullet" "- new bullet" --fuzzy"#, 1).unwrap();
+        match op {
+            Operation::Replace {
+                old,
+                new_text: Some(t),
+                fuzzy,
+                ..
+            } => {
+                assert_eq!(old, "- old bullet");
+                assert_eq!(t, "- new bullet");
+                assert!(fuzzy);
+            }
+            _ => panic!("expected Replace"),
+        }
+    }
+
+    #[test]
+    fn parse_line_replace_min_fuzzy_score_equals_form() {
+        let op = parse_line(
+            r#"replace a.txt "hello world" "hello earth" --fuzzy --min-fuzzy-score=0.75"#,
+            1,
+        )
+        .unwrap();
+        match op {
+            Operation::Replace {
+                fuzzy,
+                min_fuzzy_score: Some(s),
+                ..
+            } => {
+                assert!(fuzzy);
+                assert!((s - 0.75).abs() < f64::EPSILON);
+            }
+            _ => panic!("expected Replace with min_fuzzy_score"),
+        }
     }
 
     #[test]
@@ -389,9 +501,9 @@ mod error_handling {
 
     #[test]
     fn known_batch_ops_inventory_stable() {
-        // docs/reference and clap after_help list 27 batch ops; keep the
+        // docs/reference and clap after_help list 28 batch ops; keep the
         // suggestion table in lockstep so bare-name hints stay accurate.
-        assert_eq!(KNOWN_BATCH_OPS.len(), 27);
+        assert_eq!(KNOWN_BATCH_OPS.len(), 28);
         let mut sorted = KNOWN_BATCH_OPS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -501,11 +613,12 @@ mod error_handling {
             r#"doc.update f.json sel "v" extra"#,
             r#"doc.move f.json from to extra"#,
             r#"doc.delete_where f.json sel "k=v" extra"#,
-            r#"replace f.txt old new extra"#,
+            // replace allows optional flags; bare extra positional tested separately
             r##"md.upsert_bullet f.md "# H" "- b" extra"##,
             r##"md.table_append f.md "# H" "| r |" extra"##,
             r##"md.replace_section f.md "# H" body extra"##,
             r##"md.insert_after_heading f.md "# H" text extra"##,
+            r##"md.insert_after_section f.md "# H" text extra"##,
             r##"md.insert_before_heading f.md "# H" text extra"##,
         ];
         for line in &three_arg_ops {

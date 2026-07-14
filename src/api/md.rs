@@ -57,6 +57,9 @@ fn md_write(
         Operation::MdInsertAfterHeading {
             heading, content, ..
         } => ops::md::insert_after_heading_in(&original, &heading, &content),
+        Operation::MdInsertAfterSection {
+            heading, content, ..
+        } => ops::md::insert_after_section_in(&original, &heading, &content),
         Operation::MdInsertBeforeHeading {
             heading, content, ..
         } => ops::md::insert_before_heading_in(&original, &heading, &content),
@@ -172,6 +175,22 @@ pub fn md_insert_after_heading(
         content: insertion.into(),
     };
     md_write(op, path, mode, guard, "md.insert_after_heading")
+}
+
+/// Insert content after the full section body (sibling placement). #1726
+pub fn md_insert_after_section(
+    path: &Path,
+    heading: &str,
+    insertion: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    let op = Operation::MdInsertAfterSection {
+        path: path.to_string_lossy().into(),
+        heading: heading.into(),
+        content: insertion.into(),
+    };
+    md_write(op, path, mode, guard, "md.insert_after_section")
 }
 
 /// Move a markdown section to a position relative to another heading.

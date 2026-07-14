@@ -168,6 +168,13 @@ pub enum Operation {
         heading: String,
         content: String,
     },
+    /// Insert after the full section body (sibling placement). #1726
+    #[serde(rename = "md.insert_after_section")]
+    MdInsertAfterSection {
+        path: String,
+        heading: String,
+        content: String,
+    },
     #[serde(rename = "md.insert_before_heading")]
     MdInsertBeforeHeading {
         path: String,
@@ -525,6 +532,7 @@ impl Operation {
             Operation::DocDeleteWhere { .. } => "doc.delete_where",
             Operation::MdReplaceSection { .. } => "md.replace_section",
             Operation::MdInsertAfterHeading { .. } => "md.insert_after_heading",
+            Operation::MdInsertAfterSection { .. } => "md.insert_after_section",
             Operation::MdInsertBeforeHeading { .. } => "md.insert_before_heading",
             Operation::MdUpsertBullet { .. } => "md.upsert_bullet",
             Operation::MdTableAppend { .. } => "md.table_append",
@@ -576,6 +584,7 @@ impl Operation {
             Operation::Replace { .. }
                 | Operation::MdReplaceSection { .. }
                 | Operation::MdInsertAfterHeading { .. }
+                | Operation::MdInsertAfterSection { .. }
                 | Operation::MdInsertBeforeHeading { .. }
                 | Operation::MdUpsertBullet { .. }
                 | Operation::MdTableAppend { .. }

@@ -218,7 +218,19 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "md_insert_after_heading",
         op_name: "md.insert_after_heading",
         extra: Some(
-            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+            "Inserts immediately under the heading line (before existing body). For a sibling ## section after the full body, use md_insert_after_section. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    McpToolMeta {
+        tool_name: "md_insert_after_section",
+        op_name: "md.insert_after_section",
+        extra: Some(
+            "Inserts after the full section body (sibling placement). Prefer md_insert_after_heading for content under the heading. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
         validations: &[

@@ -284,7 +284,7 @@ mod tests {
         // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
         let custom_n = custom_mcp_tools().count();
-        let expected_total = if cfg!(feature = "ast") { 55 } else { 35 };
+        let expected_total = if cfg!(feature = "ast") { 56 } else { 36 };
         assert_eq!(
             registry_n + custom_n,
             expected_total,
