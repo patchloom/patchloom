@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>patchloom</id>
+    <version>0.13.0</version>
+    <title>Patchloom</title>
+    <authors>Sebastien Tardif</authors>
+    <owners>SebTardif</owners>
+    <summary>Structured file editing CLI for AI agents</summary>
+    <description>
+      Patchloom is a CLI and library for agent-grade repo operations: parser-backed
+      JSON/YAML/TOML edits, AST-aware code operations, multi-file batching, markdown
+      section editing, dry-run by default, and an MCP server for structured tool calls.
+
+      **Install:** `choco install patchloom`
+
+      This package downloads the portable Windows zip from GitHub Releases and places
+      `patchloom.exe` on the PATH via Chocolatey shims.
+    </description>
+    <projectUrl>https://github.com/patchloom/patchloom</projectUrl>
+    <projectSourceUrl>https://github.com/patchloom/patchloom</projectSourceUrl>
+    <packageSourceUrl>https://github.com/patchloom/patchloom/tree/main/chocolatey</packageSourceUrl>
+    <docsUrl>https://patchloom.github.io/patchloom/</docsUrl>
+    <bugTrackerUrl>https://github.com/patchloom/patchloom/issues</bugTrackerUrl>
+    <licenseUrl>https://github.com/patchloom/patchloom/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <tags>cli mcp ai-agents rust yaml toml json markdown patchloom</tags>
+    <releaseNotes>https://github.com/patchloom/patchloom/releases</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

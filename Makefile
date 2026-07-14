@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -66,6 +66,9 @@ verify-release-notes: ## Verify RELEASE_NOTES.md if present (for curated release
 
 scoop-manifest-test: ## Unit tests for scripts/update-scoop-manifest.py (Scoop release publish)
 	python3 scripts/test_update_scoop_manifest.py
+
+chocolatey-package-test: ## Unit tests for scripts/update-chocolatey-package.py (Chocolatey release publish)
+	python3 scripts/test_update_chocolatey_package.py
 
 git-clean: ## Remove known temp files that pollute `git status` (e.g. .lycheecache). Addresses #736.
 	@rm -f .lycheecache

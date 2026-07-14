@@ -790,6 +790,74 @@ jobs:
       "id-token": "write"
       "packages": "write"
 
+  # Publish Chocolatey Community package (portable zip from GitHub Releases).
+  # Soft-skip push when CHOCOLATEY_API_KEY is unset (pack still validates).
+  # First listing is subject to community.chocolatey.org moderation.
+  publish-chocolatey:
+    needs:
+      - plan
+      - host
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PLAN: ${{ needs.plan.outputs.val }}
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch release artifacts (sha256 files)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: artifacts-*
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Update Chocolatey package metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(echo "$PLAN" | jq -r '.releases[0].app_version // empty')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "PLAN had no releases[0].app_version" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_ENV"
+          python3 scripts/update-chocolatey-package.py \
+            --version "$version" \
+            --artifacts-dir artifacts \
+            --package-dir chocolatey
+
+      - name: Pack nupkg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          choco pack chocolatey/patchloom.nuspec --outputdirectory dist
+          Get-ChildItem dist/*.nupkg | ForEach-Object { Write-Host "Packed $($_.Name)" }
+
+      - name: Push to chocolatey.org
+        shell: pwsh
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:CHOCOLATEY_API_KEY)) {
+            Write-Host "CHOCOLATEY_API_KEY not set; pack-only (no push)"
+            exit 0
+          }
+          $nupkg = Get-ChildItem dist/patchloom.*.nupkg | Select-Object -First 1
+          if (-not $nupkg) {
+            throw "No nupkg found under dist/"
+          }
+          Write-Host "Pushing $($nupkg.Name) to push.chocolatey.org"
+          choco push $nupkg.FullName `
+            --source 'https://push.chocolatey.org/' `
+            --api-key $env:CHOCOLATEY_API_KEY `
+            --force
+
   announce:
     needs:
       - plan
@@ -797,11 +865,12 @@ jobs:
       - publish-homebrew-formula
       - publish-scoop-bucket
       - publish-npm
+      - publish-chocolatey
       - custom-publish-crates
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
+    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.publish-chocolatey.result == 'skipped' || needs.publish-chocolatey.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 10
     env:

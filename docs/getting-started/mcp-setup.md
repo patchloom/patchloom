@@ -5,7 +5,8 @@ Patchloom includes an MCP (Model Context Protocol) server for structured tool ca
 ## Verify MCP support
 
 The MCP server is included by default in all pre-built binaries and in
-Homebrew, Scoop, npm (`npx` / global), and crates.io installs. Verify it works:
+Homebrew, Scoop, Chocolatey, npm (`npx` / global), and crates.io installs.
+Verify it works:
 
 ```bash
 patchloom mcp-server --help
