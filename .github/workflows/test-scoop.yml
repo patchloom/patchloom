@@ -1,0 +1,133 @@
+# Smoke-test Scoop install of patchloom on Windows (private org bucket).
+# Installs Scoop, adds patchloom/scoop-bucket, installs the app, checks version.
+name: Test Scoop install
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Monday 08:17 UTC (offset from other weekly jobs)
+    - cron: "17 8 * * 1"
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/test-scoop.yml"
+      - ".github/workflows/publish-scoop.yml"
+      - "scripts/update-scoop-manifest.py"
+      - "scripts/test_update_scoop_manifest.py"
+
+concurrency:
+  group: test-scoop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scoop-install:
+    name: Scoop install (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Install Scoop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Official installer; non-admin is enough on GHA runners.
+          Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+          "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Also export for this step
+          $env:Path = "$env:USERPROFILE\scoop\shims;" + $env:Path
+          scoop --version
+
+      - name: Add bucket and install patchloom
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $env:Path = "$env:USERPROFILE\scoop\shims;" + $env:Path
+          scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
+          if ($LASTEXITCODE -ne 0) { throw "scoop bucket add failed: $LASTEXITCODE" }
+          scoop bucket list
+
+          # Retry: after a GitHub Release, publish-scoop-bucket may lag a few minutes
+          $installed = $false
+          for ($i = 1; $i -le 8; $i++) {
+            Write-Host "=== install attempt $i ==="
+            scoop update
+            scoop install patchloom/patchloom
+            if ($LASTEXITCODE -eq 0) {
+              $installed = $true
+              break
+            }
+            Write-Host "install attempt $i failed exit=$LASTEXITCODE; sleeping 30s"
+            Start-Sleep -Seconds 30
+          }
+          if (-not $installed) {
+            throw "scoop install patchloom/patchloom failed after retries"
+          }
+          scoop list
+
+      - name: Run patchloom --version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:Path = "$env:USERPROFILE\scoop\shims;" + $env:Path
+
+          $out = (& patchloom --version 2>&1 | Out-String).Trim()
+          Write-Host "version output: $out"
+          if ($out -notmatch 'patchloom\s+(\d+\.\d+\.\d+)') {
+            throw "unexpected version output: $out"
+          }
+          $installed = $Matches[1]
+          Write-Host "installed version=$installed"
+
+          # Pin to latest GitHub Release when gh is available (GHA runners ship gh)
+          $tag = gh release view --repo patchloom/patchloom --json tagName --jq .tagName
+          $expected = $tag -replace '^patchloom-v', '' -replace '^v', ''
+          Write-Host "latest release tag=$tag expected=$expected"
+
+          if ($installed -ne $expected) {
+            Write-Host "installed $installed != latest $expected; scoop update and retry"
+            $ErrorActionPreference = "Continue"
+            scoop update
+            scoop update patchloom
+            $ErrorActionPreference = "Stop"
+            $out2 = (& patchloom --version 2>&1 | Out-String).Trim()
+            if ($out2 -notmatch 'patchloom\s+(\d+\.\d+\.\d+)') {
+              throw "unexpected version after update: $out2"
+            }
+            $installed = $Matches[1]
+            if ($installed -ne $expected) {
+              throw "after update still $installed, expected $expected from $tag"
+            }
+          }
+          Write-Host "version check ok: $installed"
+
+      - name: Smoke help
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:Path = "$env:USERPROFILE\scoop\shims;" + $env:Path
+          $help = (& patchloom --help 2>&1 | Out-String)
+          if ($help -notmatch 'Usage:') {
+            throw "unexpected help output"
+          }
+          & patchloom schema --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "schema --help failed: $LASTEXITCODE" }
+          Write-Host "smoke ok"
+
+      - name: Uninstall
+        if: always()
+        shell: pwsh
+        run: |
+          $env:Path = "$env:USERPROFILE\scoop\shims;" + $env:Path
+          scoop uninstall patchloom
+          Write-Host "uninstall exit=$LASTEXITCODE"
