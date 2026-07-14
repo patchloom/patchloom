@@ -10,6 +10,8 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 | CI | Have at least one required CI workflow | use a single `CI` workflow at the start, and point it at the repo's self-hosted runner once that runner exists |
 | Release workflow | Commit `dist-workspace.toml`, `.github/workflows/release.yml`, and `.github/workflows/publish-crates.yml` together | keep cargo-dist config and release automation in sync, keep release jobs on GitHub-hosted runners at first, and skip crates.io and Homebrew publishing while the repo is private |
 | Homebrew tap repo | create `patchloom/homebrew-tap` before the first stable release | the release workflow pushes formula updates there |
+| Scoop bucket repo | create `patchloom/scoop-bucket` with `bucket/patchloom.json` | manifest uses Scoop `checkver`/`autoupdate` against `patchloom-v*` tags |
+| npm publish | set `NPM_TOKEN` (granular, Bypass 2FA, all packages) on the project repo | cargo-dist builds `*-npm-package.tar.gz`; `publish-npm` job in `release.yml` |
 | Release secrets | add `HOMEBREW_TAP_TOKEN` and `CARGO_REGISTRY_TOKEN` | needed before the first public release |
 | Security reporting | commit `SECURITY.md` now, then enable GitHub private vulnerability reporting after the repo becomes public | private Free org repos do not expose GitHub private vulnerability reporting yet |
 | Branch protection | Protect `main` once the repo is public or on a plan that supports private branch protection | required before accepting outside patches |
