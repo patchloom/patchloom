@@ -1913,10 +1913,11 @@ fn test_replace_fuzzy_identifier_typo_json_match_mode() {
         .as_str()
         .or_else(|| parsed["files"][0]["match_mode"].as_str())
         .unwrap_or("");
-    assert!(
-        mode == "fuzzy" || parsed["ok"] == true,
-        "expected fuzzy success payload: {parsed}"
+    assert_eq!(
+        mode, "fuzzy",
+        "expected fuzzy match_mode in success payload: {parsed}"
     );
+    assert_eq!(parsed["ok"], true, "expected ok in payload: {parsed}");
     let on_disk = fs::read_to_string(&file).unwrap();
     assert_eq!(on_disk, "fn handle_request(x: i32) {}\n");
 }
