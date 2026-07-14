@@ -24,6 +24,7 @@ fn make_args(old: &str, new: &str, paths: Vec<String>) -> ReplaceArgs {
         require_change: false,
         command_position: false,
         fuzzy: false,
+        min_fuzzy_score: None,
         write: Default::default(),
     }
 }
@@ -76,6 +77,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -112,6 +114,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -218,6 +221,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -279,6 +283,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -341,6 +346,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -384,6 +390,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -420,6 +427,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -455,6 +463,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -492,6 +501,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -533,6 +543,7 @@ mod basic {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -577,6 +588,7 @@ mod edge_cases {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -612,6 +624,7 @@ mod edge_cases {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let global = GlobalFlags {
@@ -672,6 +685,7 @@ mod edge_cases {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -752,6 +766,7 @@ mod edge_cases {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -797,6 +812,7 @@ mod edge_cases {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let replacements = collect_replacements(&args, &GlobalFlags::test_default()).unwrap();
@@ -856,6 +872,7 @@ mod error_handling {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -889,6 +906,7 @@ mod error_handling {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -922,6 +940,7 @@ mod error_handling {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -955,6 +974,7 @@ mod error_handling {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -996,6 +1016,7 @@ mod error_handling {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1041,6 +1062,7 @@ mod error_handling {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let code = run(args, &GlobalFlags::test_default()).unwrap();
@@ -1087,6 +1109,7 @@ mod context_replace {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1139,6 +1162,7 @@ mod context_replace {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1185,6 +1209,7 @@ mod context_replace {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
 
@@ -1219,6 +1244,7 @@ mod context_replace {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
 
@@ -1257,6 +1283,7 @@ mod context_replace {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1300,6 +1327,7 @@ mod context_replace {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1344,6 +1372,7 @@ mod context_replace {
             require_change: false,
             command_position: false,
             fuzzy: false,
+            min_fuzzy_score: None,
             write: Default::default(),
         };
         let mut global = GlobalFlags::test_default();
@@ -1383,6 +1412,7 @@ fn fuzzy_cli_json_reports_match_mode() {
     let content = fs::read_to_string(&file).unwrap();
     let opts = crate::api::ReplaceOptions {
         fuzzy: true,
+        min_fuzzy_score: None,
         require_change: true,
         ..Default::default()
     };

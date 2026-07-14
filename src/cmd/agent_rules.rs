@@ -333,6 +333,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              # Rewrite shell invocable tokens only (not uv pip / pipenv):\n\
              patchloom replace pip --new uv install.sh --command-position --require-change --apply\n\
              patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --apply\n\
+             patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --min-fuzzy-score 0.80 --apply\n\
              ```\n\n",
         );
 

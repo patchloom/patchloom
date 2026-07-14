@@ -106,6 +106,11 @@ pub struct ReplaceArgs {
     /// `--before-context` / `--after-context` is set). Literal only.
     #[arg(long)]
     pub fuzzy: bool,
+    // ref:replace-mode:min-fuzzy-score
+    /// Reject fuzzy matches below this score (0.0..=1.0). Exact and anchored
+    /// matches are unaffected. Plan/MCP field name: `min_fuzzy_score` (#1687).
+    #[arg(long, value_name = "SCORE")]
+    pub min_fuzzy_score: Option<f64>,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -726,7 +731,7 @@ fn run_context_replace(
                 require_change: args.require_change && file_paths.len() == 1,
                 command_position: args.command_position,
                 fuzzy: args.fuzzy,
-                min_fuzzy_score: None,
+                min_fuzzy_score: args.min_fuzzy_score,
             }
         })
         .collect();
@@ -780,7 +785,7 @@ fn run_context_replace(
         after_context: args.after_context.clone(),
         require_change: false,
         command_position: args.command_position,
-        min_fuzzy_score: None,
+        min_fuzzy_score: args.min_fuzzy_score,
         post_write: None,
         post_write_cwd: None,
     };

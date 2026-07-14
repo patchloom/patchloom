@@ -606,6 +606,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` in library results and CLI/MCP JSON (#1669). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy.
 - **Prefer instead:** Exact replace when the target string is known.
 
+<!-- ref:replace-mode:min-fuzzy-score -->
+### `replace --min-fuzzy-score` / library `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score`
+
+- **What it does:** When a fuzzy match is found, reject it if its similarity score is below this floor (`0.0..=1.0`). Exact and anchored matches are unaffected. Available on CLI (`--min-fuzzy-score`), plan/MCP (`min_fuzzy_score`), and `ReplaceOptions` (#1687).
+- **Use when:** Agent hosts want fuzzy recovery for small typos but must refuse weak similarity hits (typical floor: `0.80`).
+- **Prefer instead:** Exact replace when the target string is known; bare `--fuzzy` when any fuzzy hit is acceptable.
+
 <!-- ref:create-mode:stdin -->
 ### `create --stdin`
 
@@ -1286,7 +1293,7 @@ The operations below are the building blocks inside `operations`.
 | Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |
 | Project symbol discovery + multi-file rename | `find_files_with_symbol` then `ast_rename_batch` (#1664); one-shot `ast_rename_project` (#1689) |
 | Match honesty (fuzzy confidence) | `EditResult` / `ContentEditsResult` `match_mode` / `match_score` (#1662); CLI/MCP JSON (#1669); plan/tx `TxChange` + aggregate mode/score/`match_count` from engine meta (#1674) |
-| Reject weak fuzzy matches | `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score` / MCP `min_fuzzy_score` (#1687); range `0.0..=1.0` |
+| Reject weak fuzzy matches | CLI `--min-fuzzy-score` / `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score` / MCP `min_fuzzy_score` (#1687); range `0.0..=1.0` |
 | Apply session id for surgical undo | `EditResult.backup_session` after Apply (#1686); pair with `restore_path_from_session` |
 | Nested monorepo backup listing | `backup::list_sessions_under` + `ListSessionsOptions` (#1688) |
 | In-memory multi-op with real diff headers | `apply_content_edits_with_label` (#1665) |
