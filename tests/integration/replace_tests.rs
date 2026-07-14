@@ -1217,10 +1217,56 @@ fn test_replace_follows_symlink_within_cwd() {
         .assert()
         .code(0);
 
-    // atomic_write replaces the symlink with a regular file (rename semantics).
-    // Reading the link path should show the replacement.
-    let content = fs::read_to_string(&link).unwrap();
-    assert_eq!(content, "goodbye world\n");
+    // #1230: atomic_write resolves the symlink and updates the target; the
+    // link path remains a symlink.
+    assert!(
+        link.is_symlink(),
+        "replace --apply through a symlink must preserve the symlink entry"
+    );
+    assert_eq!(fs::read_to_string(&real_file).unwrap(), "goodbye world\n");
+    assert_eq!(fs::read_to_string(&link).unwrap(), "goodbye world\n");
+}
+
+/// CLI Apply through one path of a hardlinked pair must update both (#1733).
+#[cfg(unix)]
+#[test]
+fn test_replace_apply_preserves_hardlinks() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "shared line\n").unwrap();
+    fs::hard_link(&a, &b).unwrap();
+    let before_ino = fs::metadata(&a).unwrap().ino();
+    assert_eq!(fs::metadata(&a).unwrap().nlink(), 2);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("shared line")
+        .arg("--new")
+        .arg("changed line")
+        .arg("--apply")
+        .arg(&a)
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&a).unwrap(), "changed line\n");
+    assert_eq!(
+        fs::read_to_string(&b).unwrap(),
+        "changed line\n",
+        "sibling hardlink must see the same content after replace --apply"
+    );
+    let meta_a = fs::metadata(&a).unwrap();
+    let meta_b = fs::metadata(&b).unwrap();
+    assert_eq!(meta_a.ino(), before_ino, "inode must be preserved");
+    assert_eq!(meta_b.ino(), before_ino);
+    assert!(
+        meta_a.nlink() > 1,
+        "nlink must stay > 1, got {}",
+        meta_a.nlink()
+    );
 }
 
 #[cfg(unix)]

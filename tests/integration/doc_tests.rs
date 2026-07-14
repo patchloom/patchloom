@@ -2734,6 +2734,41 @@ fn test_doc_set_multi_document_bare_key_hints_index() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: 1\n---\nb: 2\n");
 }
 
+/// doc set Apply shares `atomic_write`; hardlinked siblings must stay in sync (#1733).
+#[cfg(unix)]
+#[test]
+fn test_doc_set_apply_preserves_hardlinks() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("cfg.json");
+    let b = dir.path().join("cfg-copy.json");
+    fs::write(&a, r#"{"name":"demo"}"#).unwrap();
+    fs::hard_link(&a, &b).unwrap();
+    let before_ino = fs::metadata(&a).unwrap().ino();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "set"])
+        .arg(&a)
+        .args(["name", "updated", "--apply"])
+        .assert()
+        .code(0);
+
+    let a_content = fs::read_to_string(&a).unwrap();
+    let b_content = fs::read_to_string(&b).unwrap();
+    assert!(
+        a_content.contains("updated"),
+        "doc set must update primary path: {a_content}"
+    );
+    assert_eq!(
+        a_content, b_content,
+        "hardlink sibling must match after doc set --apply"
+    );
+    assert_eq!(fs::metadata(&a).unwrap().ino(), before_ino);
+    assert!(fs::metadata(&a).unwrap().nlink() > 1);
+}
+
 /// CLI `doc set --apply` on multi-doc YAML must keep `---` separators on disk
 /// (not collapse to a single YAML sequence). Unit tests cover the serializer;
 /// this locks the full CLI write path (#1719).

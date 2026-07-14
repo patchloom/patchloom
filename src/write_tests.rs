@@ -881,6 +881,138 @@ mod symlink_handling {
     }
 }
 
+/// Hardlink-preserving writes (#1733): multi-linked files keep a shared inode.
+#[cfg(unix)]
+mod hardlink_handling {
+    use super::*;
+    use std::os::unix::fs::MetadataExt;
+
+    #[test]
+    fn atomic_write_preserves_hardlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "shared\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+
+        let before_ino = fs::metadata(&a).unwrap().ino();
+        assert_eq!(fs::metadata(&a).unwrap().nlink(), 2);
+        assert_eq!(fs::metadata(&b).unwrap().ino(), before_ino);
+
+        let policy = WritePolicy::default();
+        atomic_write(&a, "changed\n", &policy).unwrap();
+
+        assert_eq!(fs::read_to_string(&a).unwrap(), "changed\n");
+        assert_eq!(
+            fs::read_to_string(&b).unwrap(),
+            "changed\n",
+            "sibling hardlink must see the new content"
+        );
+        let after_a = fs::metadata(&a).unwrap();
+        let after_b = fs::metadata(&b).unwrap();
+        assert_eq!(after_a.ino(), before_ino, "inode must be preserved");
+        assert_eq!(
+            after_b.ino(),
+            before_ino,
+            "siblings must share the same inode"
+        );
+        assert!(
+            after_a.nlink() > 1,
+            "nlink must stay > 1 after write, got {}",
+            after_a.nlink()
+        );
+    }
+
+    #[test]
+    fn atomic_write_single_link_still_uses_rename_path() {
+        // Single-link files should not take the hardlink-preserving branch.
+        // After rename, the path still has nlink == 1 and the new content.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("solo.txt");
+        fs::write(&path, "before\n").unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().nlink(), 1);
+
+        let policy = WritePolicy::default();
+        atomic_write(&path, "after\n", &policy).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "after\n");
+        assert_eq!(
+            fs::metadata(&path).unwrap().nlink(),
+            1,
+            "single-link file must remain nlink == 1"
+        );
+    }
+
+    #[test]
+    fn atomic_write_through_symlink_to_hardlinked_target() {
+        // Compose #1230 + #1733: symlink → multi-hardlinked regular file.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.txt");
+        let sibling = dir.path().join("sibling.txt");
+        fs::write(&target, "shared\n").unwrap();
+        fs::hard_link(&target, &sibling).unwrap();
+
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let before_ino = fs::metadata(&target).unwrap().ino();
+        let policy = WritePolicy::default();
+        atomic_write(&link, "via-link\n", &policy).unwrap();
+
+        assert!(link.is_symlink(), "symlink entry must remain a symlink");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "via-link\n");
+        assert_eq!(
+            fs::read_to_string(&sibling).unwrap(),
+            "via-link\n",
+            "hardlink sibling of symlink target must update"
+        );
+        assert_eq!(fs::metadata(&target).unwrap().ino(), before_ino);
+        assert_eq!(fs::metadata(&sibling).unwrap().ino(), before_ino);
+        assert!(fs::metadata(&target).unwrap().nlink() > 1);
+    }
+
+    #[test]
+    fn atomic_write_preserves_hardlink_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "shared\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        let policy = WritePolicy::default();
+        atomic_write(&a, "changed\n", &policy).unwrap();
+
+        let mode = fs::metadata(&a).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o640,
+            "permissions must be restored on the shared inode"
+        );
+        assert_eq!(fs::read_to_string(&b).unwrap(), "changed\n");
+    }
+
+    #[test]
+    fn atomic_write_hardlinks_applies_write_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "line  \n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+
+        let policy = WritePolicy {
+            trim_trailing_whitespace: true,
+            ensure_final_newline: true,
+            ..WritePolicy::default()
+        };
+        atomic_write(&a, "line  ", &policy).unwrap();
+
+        assert_eq!(fs::read_to_string(&a).unwrap(), "line\n");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "line\n");
+        assert!(fs::metadata(&a).unwrap().nlink() > 1);
+    }
+}
+
 mod error_handling {
     use super::*;
 

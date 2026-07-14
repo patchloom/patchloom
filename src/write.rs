@@ -668,9 +668,16 @@ pub(crate) fn atomic_create_new(
 
 /// Atomically write `content` to `path` after applying `policy`.
 ///
-/// A temporary file is created in the same directory as `path`, written to, then
-/// renamed over `path`. This guarantees the target file is never in a
-/// partially-written state (assuming the same filesystem).
+/// Default path (single hard link or new file): a temporary file is created in
+/// the same directory as `path`, written to, then renamed over `path`. The
+/// target is never left half-written for normal files.
+///
+/// When the resolved target is a regular file with **more than one hard link**
+/// (`nlink > 1` on Unix), rename would break siblings (they would keep the old
+/// inode). In that case the full payload is staged to a same-dir temp first,
+/// then written into the **existing** inode so all hardlink paths stay in sync
+/// (#1733). Symlinks are resolved first (#1230); the hardlink rule applies to
+/// the resolved path.
 pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
     let final_content = apply_policy(content, policy);
 
@@ -687,7 +694,24 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
     };
 
     // Capture the original file's permissions before overwriting.
-    let original_perms = std::fs::metadata(write_path).ok().map(|m| m.permissions());
+    let original_meta = std::fs::metadata(write_path).ok();
+    let original_perms = original_meta.as_ref().map(|m| m.permissions());
+
+    // Preserve hardlinks on Unix when the resolved target is multi-linked (#1733).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Some(ref meta) = original_meta
+            && meta.is_file()
+            && meta.nlink() > 1
+        {
+            return write_preserving_hardlinks(
+                write_path,
+                final_content.as_bytes(),
+                original_perms,
+            );
+        }
+    }
 
     let parent = write_path
         .parent()
@@ -709,6 +733,56 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
     tmp.persist(write_path)
         .with_context(|| format!("failed to persist tempfile to {}", write_path.display()))?;
 
+    Ok(())
+}
+
+/// Stage full content on a same-dir temp, then rewrite the existing inode in
+/// place so all hardlink paths observe the new bytes (`nlink` stays > 1).
+///
+/// Used only when `metadata(path).nlink() > 1`. Single-link files keep the
+/// rename path in [`atomic_write`].
+#[cfg(unix)]
+fn write_preserving_hardlinks(
+    path: &Path,
+    bytes: &[u8],
+    original_perms: Option<std::fs::Permissions>,
+) -> anyhow::Result<()> {
+    use std::io::Write;
+
+    let parent = path
+        .parent()
+        .context("cannot determine parent directory of target path")?;
+
+    // Stage complete payload first so we do not begin truncating the shared
+    // inode until the full content exists on disk (best-effort durability).
+    let mut tmp = NamedTempFile::new_in(parent)
+        .with_context(|| format!("failed to create tempfile in {}", parent.display()))?;
+    tmp.write_all(bytes)
+        .with_context(|| format!("failed to write to tempfile {}", tmp.path().display()))?;
+    // Best-effort; some filesystems/OS combinations do not support sync_all.
+    let _ = tmp.as_file().sync_all();
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .with_context(|| {
+            format!(
+                "failed to open hardlinked path for write {}",
+                path.display()
+            )
+        })?;
+    file.write_all(bytes)
+        .with_context(|| format!("failed to write hardlinked path {}", path.display()))?;
+    let _ = file.sync_all();
+    drop(file);
+
+    if let Some(perms) = original_perms {
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("failed to restore permissions on {}", path.display()))?;
+    }
+
+    // NamedTempFile Drop removes the staging file.
     Ok(())
 }
 

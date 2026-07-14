@@ -81,6 +81,14 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
         );
     }
 
+    // Shared Apply write semantics (CLI + MCP + library).
+    out.push_str(
+        "**Apply write safety:** all Apply paths share one writer. Symlinks are resolved so \
+         the link entry is not replaced (#1230). On Unix, files with multiple hard links \
+         (`nlink > 1`) are updated in place so sibling paths stay in sync (#1733); single-link \
+         files use temp+rename.\n\n",
+    );
+
     // When to use
     if show_mcp {
         out.push_str(
@@ -727,6 +735,15 @@ mod tests {
                 && out.contains("0.metadata.name")
                 && out.contains("top-level array"),
             "agents need multi-doc index guidance"
+        );
+    }
+
+    #[test]
+    fn workflow_documents_hardlink_preserving_apply() {
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
+        assert!(
+            out.contains("hard links") && out.contains("nlink") && out.contains("temp+rename"),
+            "agents need hardlink-preserving Apply guidance (#1733)"
         );
     }
 
