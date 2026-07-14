@@ -128,6 +128,16 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::CaseOnly);
     }
 
+    // Plain text renames with no write-policy transforms: on --apply/--confirm,
+    // use fs::rename so multi-hardlinked files keep a shared inode (engine path
+    // is create-dst + delete-src, which splits hardlinks). Default preview and
+    // --check still use the engine so content-oriented rename diffs remain.
+    // Found by fixrealloop dogfood.
+    let policy = crate::write::policy_from_flags(global, None);
+    if (global.apply || global.confirm) && policy.is_noop() && !global.respect_editorconfig {
+        return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Plain);
+    }
+
     let op = Operation::FileRename {
         from: args.from.clone(),
         to: args.to.clone(),
@@ -163,6 +173,8 @@ enum DirectRenameKind {
     Binary,
     /// Case-only name change on a case-insensitive FS (#1167).
     CaseOnly,
+    /// UTF-8 text with no write-policy transforms; keeps hardlink inodes.
+    Plain,
 }
 
 impl DirectRenameKind {
@@ -170,12 +182,13 @@ impl DirectRenameKind {
         match self {
             DirectRenameKind::Binary => "binary",
             DirectRenameKind::CaseOnly => "case-only",
+            DirectRenameKind::Plain => "plain",
         }
     }
 }
 
-/// Handle renames that must use direct `fs::rename` (binary content, or
-/// case-only renames on case-insensitive filesystems).
+/// Handle renames that must use direct `fs::rename` (binary content,
+/// case-only renames, or plain text with no write-policy transforms).
 fn run_direct_rename(
     args: &RenameArgs,
     global: &GlobalFlags,
@@ -185,11 +198,14 @@ fn run_direct_rename(
     kind: DirectRenameKind,
 ) -> anyhow::Result<u8> {
     // Write policies require reading the file as UTF-8 text, which binary
-    // files don't support. Case-only renames do not rewrite content, so
-    // policies are also rejected (nothing to normalize). Fail early.
+    // files don't support. Case-only / plain renames do not rewrite content,
+    // so policies are also rejected (nothing to normalize). Fail early.
+    // Plain is only selected when policy is already a no-op, so this guard is
+    // defensive if call sites change.
     if global.trim_trailing_whitespace
         || global.ensure_final_newline
         || global.normalize_eol.is_some()
+        || global.collapse_blanks
     {
         let msg = match kind {
             DirectRenameKind::Binary => {
@@ -202,6 +218,10 @@ fn run_direct_rename(
                 "cannot apply write policy on case-only rename (content is unchanged): {}",
                 src.display()
             ),
+            DirectRenameKind::Plain => format!(
+                "cannot apply write policy on plain rename (content is unchanged): {}",
+                src.display()
+            ),
         };
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(exit::FAILURE);
@@ -212,21 +232,47 @@ fn run_direct_rename(
     let apply_msg = format!("renamed {} -> {} ({label})", args.from, args.to);
     let post_msg = format!("renamed {} -> {}", args.from, args.to);
 
+    // Synthetic rename diff for JSON/--diff so agents see the path move even
+    // when content is byte-identical (matches engine-backed text rename UX).
+    let from_disp = args.from.clone();
+    let to_disp = args.to.clone();
+    let content_for_diff = if matches!(kind, DirectRenameKind::Binary) {
+        None
+    } else {
+        fs::read_to_string(src).ok()
+    };
+
     execute_write(
         global,
         cwd,
-        |phase, _diff| RenameOutput {
+        |phase, diff| RenameOutput {
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
 
-            diff: None,
+            diff,
             applied: match phase {
                 WritePhase::Confirmed(a) => Some(a),
                 _ => None,
             },
         },
-        None::<&dyn Fn(bool) -> String>,
+        Some(&|_| {
+            if let Some(ref body) = content_for_diff {
+                // Match engine-backed rename preview: create dest + delete src.
+                let create = crate::diff::unified_diff(&to_disp, "", body);
+                let delete = crate::diff::unified_diff(&from_disp, body, "");
+                let mut diffs = Vec::new();
+                if create.has_changes {
+                    diffs.push(create);
+                }
+                if delete.has_changes {
+                    diffs.push(delete);
+                }
+                crate::diff::format_diff_result(&crate::diff::DiffResult { diffs })
+            } else {
+                String::new()
+            }
+        }),
         || {
             let mut backup = crate::backup::BackupSession::new(cwd)?;
             backup.save_before_delete(src)?;
@@ -312,6 +358,52 @@ mod tests {
         assert!(!src.exists());
         assert!(dst.exists());
         assert_eq!(fs::read_to_string(&dst).unwrap(), "hello\n");
+    }
+
+    /// Text rename must use fs::rename so multi-hardlinked inodes stay linked
+    /// (engine create-dst + delete-src splits hardlinks). fixrealloop dogfood.
+    #[cfg(unix)]
+    #[test]
+    fn rename_preserves_hardlinks() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        let c = dir.path().join("c.txt");
+        fs::write(&a, "shared\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        let before_ino = fs::metadata(&a).unwrap().ino();
+        assert_eq!(fs::metadata(&a).unwrap().nlink(), 2);
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let args = RenameArgs {
+            from: a.to_string_lossy().into_owned(),
+            to: c.to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!a.exists());
+        assert!(b.exists());
+        assert!(c.exists());
+        assert_eq!(fs::read_to_string(&c).unwrap(), "shared\n");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "shared\n");
+        assert_eq!(
+            fs::metadata(&c).unwrap().ino(),
+            before_ino,
+            "renamed path must keep the multi-linked inode"
+        );
+        assert_eq!(
+            fs::metadata(&b).unwrap().ino(),
+            before_ino,
+            "sibling hardlink must still share the inode"
+        );
+        assert!(
+            fs::metadata(&c).unwrap().nlink() > 1,
+            "nlink must stay > 1 after rename"
+        );
     }
 
     #[test]
