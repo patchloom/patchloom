@@ -39,6 +39,17 @@ Every write command supports four modes:
 
 These modes are mutually exclusive. Patchloom is safe by default: nothing is written unless you pass `--apply` or confirm an interactive prompt.
 
+## Write safety on disk
+
+Apply writers share a single `atomic_write` path:
+
+- **Normal files** (`nlink == 1`): write a same-directory temp file, then rename over the target so readers never see a half-written file.
+- **Symlinks** (#1230): resolve and write the target; the symlink directory entry is not replaced by a regular file.
+- **Hardlinks** (`nlink > 1` on Unix, #1733): stage full content on a same-dir temp, then rewrite the **existing** inode in place so every hardlink path stays in sync. Temp+rename would break siblings (they would keep the old inode). Windows and other platforms without this check keep rename semantics.
+- **New files**: create via temp + exclusive persist (no pre-existing inode to preserve).
+
+Library embedders, CLI `--apply`, MCP tools, and `tx`/`batch` all use this path.
+
 ## Write policy
 
 A write policy controls transformations applied to all content before it reaches disk:
