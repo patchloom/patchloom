@@ -5,13 +5,28 @@ use clap::Args;
 use serde::Serialize;
 
 #[derive(Debug, Args)]
+#[command(
+    about = "Preview or restore files from a backup created by --apply",
+    long_about = "\
+Preview or restore files from a backup session under `.patchloom/backups/`.
+
+**Dry-run by default (same write singularity as replace/tx):** running \
+`patchloom undo` only shows what would be restored and exits 2 \
+(`CHANGES_DETECTED`). Pass `--apply` to actually restore. There is no \
+`--latest` flag; without `--session`, the most recent backup is used.
+
+Backups are created only when a write command was run with `--apply`."
+)]
 #[command(after_help = "\
 EXAMPLES:
   patchloom undo --list
-  patchloom undo --apply
+  patchloom undo              # dry-run preview (exit 2); does NOT restore
+  patchloom undo --apply      # restore most recent session
   patchloom undo --session 20240101_120000 --apply
 
 NOTE:
+  Default is preview only. Agents that want a real restore must pass
+  `--apply` (exit 0). Preview is exit 2 with status changes_detected.
   --list walks nested .patchloom/backups roots under the cwd (monorepo
   crates) so sessions from library Apply under crates/foo/ are visible.")]
 pub struct UndoArgs {
@@ -19,11 +34,12 @@ pub struct UndoArgs {
     #[arg(long)]
     pub list: bool,
 
-    /// Restore a specific backup session by timestamp.
+    /// Restore a specific backup session by timestamp (default: most recent).
     #[arg(long)]
     pub session: Option<String>,
 
-    /// Actually restore files (default: dry-run showing what would change).
+    /// Actually restore files. Without this flag, undo only previews
+    /// (exit 2) and does not change the working tree.
     #[arg(long)]
     pub apply: bool,
 }
@@ -47,11 +63,15 @@ struct UndoPreviewEntry {
 struct UndoPreviewOutput {
     ok: bool,
     status: &'static str,
+    /// Always set on dry-run so agents do not treat exit 2 as a completed restore.
+    hint: &'static str,
     session: String,
     project_root: String,
     file_count: usize,
     entries: Vec<UndoPreviewEntry>,
 }
+
+const UNDO_DRY_RUN_HINT: &str = "pass --apply to restore files (default is dry-run preview; exit 2 means changes would be made)";
 
 pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!(
@@ -122,6 +142,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let output = UndoPreviewOutput {
             ok: true,
             status: "changes_detected",
+            hint: UNDO_DRY_RUN_HINT,
             session: timestamp.clone(),
             project_root: display_root(&cwd, &backup_root),
             file_count: entries.len(),
@@ -137,9 +158,9 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             for entry in &output.entries {
                 println!("  {} -> {}", entry.path, entry.action);
             }
-        }
-        if global.show_status() {
-            eprintln!("\nhint: use --apply to actually restore these files");
+            // Always print when not quiet: agents often capture piped stderr
+            // and miss TTY-only show_status() hints (fixrealloop confusion).
+            eprintln!("hint: {UNDO_DRY_RUN_HINT}");
         }
         return Ok(exit::CHANGES_DETECTED);
     }
@@ -343,6 +364,38 @@ mod tests {
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
+        // File must remain modified: dry-run never restores without --apply.
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+            "modified"
+        );
+    }
+
+    #[test]
+    fn dry_run_hint_tells_agents_to_pass_apply() {
+        assert!(
+            UNDO_DRY_RUN_HINT.contains("--apply"),
+            "hint must name --apply: {UNDO_DRY_RUN_HINT}"
+        );
+        assert!(
+            UNDO_DRY_RUN_HINT.contains("dry-run") || UNDO_DRY_RUN_HINT.contains("preview"),
+            "hint must say dry-run/preview: {UNDO_DRY_RUN_HINT}"
+        );
+        let preview = UndoPreviewOutput {
+            ok: true,
+            status: "changes_detected",
+            hint: UNDO_DRY_RUN_HINT,
+            session: "t".into(),
+            project_root: ".".into(),
+            file_count: 1,
+            entries: vec![],
+        };
+        let v = serde_json::to_value(&preview).unwrap();
+        assert_eq!(v["status"], "changes_detected");
+        assert!(
+            v["hint"].as_str().unwrap().contains("--apply"),
+            "JSON preview must include hint: {v}"
+        );
     }
 
     #[test]

@@ -122,7 +122,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
              - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)\n\
              - `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)\n\
-             - CLI: `patchloom undo --list` also walks nested `.patchloom/backups` under the cwd (#1695)\n\
+             - CLI undo is **dry-run by default**: `patchloom undo` previews and exits 2; restore with `patchloom undo --apply` (optional `--session <ts>`). `undo --list` walks nested `.patchloom/backups` under the cwd (#1695).\n\
              - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
              - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)\n\
              - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts (#1687, #1694)\n\
@@ -135,7 +135,11 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)\n\
              - Editing markdown sections, bullets, or tables by heading\n\
              - Batching edits across multiple files in one call\n\
-             - You need atomic rollback if any edit fails\n\n",
+             - You need atomic rollback if any edit fails\n\n\
+             **CLI undo (dry-run by default):** `patchloom undo` only previews the most recent \
+             backup and exits 2. Restore with `patchloom undo --apply` (optional \
+             `--session <timestamp>`). List sessions with `patchloom undo --list`. There is no \
+             `--latest` flag.\n\n",
         );
         if !show_mcp {
             out.push_str(
@@ -460,7 +464,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              |------|---------|\n\
              | 0 | Success (operation completed, or no changes needed) |\n\
              | 1 | Failure (error during execution, CLI usage/invalid args/unknown flags/subcommands), or tx `rollback_failed` when mid-commit rollback could not fully restore files |\n\
-             | 2 | Changes detected (`--check` / write preview, or CLI/MCP/plan/tx `search` `assert_count` mismatch; `error_kind: changes_detected` for assert_count) |\n\
+             | 2 | Changes detected (`--check` / write preview including `undo` without `--apply`, or CLI/MCP/plan/tx `search` `assert_count` mismatch; `error_kind: changes_detected` for assert_count). For undo, re-run with `--apply` to restore. |\n\
              | 3 | No matches (search/replace pattern miss, undo with no sessions, missing AST symbol for extract/insert/reorder/wrap/move, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |\n\
              | 4 | Parse error (malformed input file or plan, invalid AST search pattern/query, or AST validate parse failure; `error_kind: parse_error`) |\n\
              | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |\n\
@@ -695,6 +699,20 @@ mod tests {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(out.contains("--whole-line"));
         assert!(out.contains("--collapse-blanks"));
+    }
+
+    #[test]
+    fn workflow_documents_undo_dry_run_and_apply() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("undo --apply") && out.contains("dry-run by default"),
+            "CLI agent-rules must state undo is dry-run unless --apply"
+        );
+        // Exit table should point agents at --apply for undo preview exit 2.
+        assert!(
+            out.contains("For undo, re-run with `--apply`"),
+            "exit code 2 row must mention undo --apply"
+        );
     }
 
     #[test]
