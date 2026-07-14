@@ -926,11 +926,14 @@ mod hardlink_handling {
     #[test]
     fn atomic_write_single_link_still_uses_rename_path() {
         // Single-link files should not take the hardlink-preserving branch.
-        // After rename, the path still has nlink == 1 and the new content.
+        // Rename (temp+persist) replaces the directory entry with a new inode;
+        // open+truncate would keep the same inode. nlink alone does not prove
+        // which branch ran (both leave nlink == 1).
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("solo.txt");
         fs::write(&path, "before\n").unwrap();
         assert_eq!(fs::metadata(&path).unwrap().nlink(), 1);
+        let before_ino = fs::metadata(&path).unwrap().ino();
 
         let policy = WritePolicy::default();
         atomic_write(&path, "after\n", &policy).unwrap();
@@ -940,6 +943,11 @@ mod hardlink_handling {
             fs::metadata(&path).unwrap().nlink(),
             1,
             "single-link file must remain nlink == 1"
+        );
+        assert_ne!(
+            fs::metadata(&path).unwrap().ino(),
+            before_ino,
+            "rename path must install a new inode (open+write would preserve ino)"
         );
     }
 
