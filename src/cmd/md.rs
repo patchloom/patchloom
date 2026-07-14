@@ -26,7 +26,9 @@ pub struct MdArgs {
 pub enum MdAction {
     /// Replace a heading section.
     ReplaceSection {
+        /// Markdown file to edit.
         file: String,
+        /// Heading of the section to replace (e.g. `## Unreleased`).
         #[arg(long)]
         heading: String,
         /// Read replacement content from stdin.
@@ -91,20 +93,31 @@ pub enum MdAction {
     },
     /// Add a bullet under a heading if not already present.
     UpsertBullet {
+        /// Markdown file to edit.
         file: String,
+        /// Heading under which to upsert the bullet (e.g. `## Rules`).
         #[arg(long)]
         heading: String,
+        /// Bullet text (leading `- ` is optional).
         #[arg(long, allow_hyphen_values = true)]
         bullet: String,
     },
     /// Remove duplicate headings.
-    DedupeHeadings { file: String },
+    DedupeHeadings {
+        /// Markdown file to scan for duplicate headings.
+        file: String,
+    },
     /// Lint common AGENTS.md problems.
     #[command(name = "lint-agents", alias = "lint")]
-    LintAgents { file: String },
+    LintAgents {
+        /// AGENTS.md (or similar) file to lint.
+        file: String,
+    },
     /// Append a row to a markdown table under a heading.
     TableAppend {
+        /// Markdown file containing the table.
         file: String,
+        /// Heading above the target table (e.g. `## API`).
         #[arg(long)]
         heading: String,
         /// Table row: `| col1 | col2 |` or compact `col1|col2` / `col1 | col2`.
