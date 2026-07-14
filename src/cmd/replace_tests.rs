@@ -1523,12 +1523,14 @@ fn multi_file_match_mode_worst_case_rollup() {
             match_count: 1,
             match_mode: Some("exact"),
             match_score: None,
+            matched_text: None,
         },
         ReplaceFileResult {
             path: "b.txt".into(),
             match_count: 1,
             match_mode: Some("fuzzy"),
             match_score: Some(0.9),
+            matched_text: None,
         },
     ];
     let (mode, score) = aggregate_match_meta(&files);
@@ -1541,12 +1543,14 @@ fn multi_file_match_mode_worst_case_rollup() {
             match_count: 1,
             match_mode: Some("exact"),
             match_score: None,
+            matched_text: None,
         },
         ReplaceFileResult {
             path: "b.txt".into(),
             match_count: 1,
             match_mode: Some("anchored"),
             match_score: None,
+            matched_text: None,
         },
     ];
     let (mode, score) = aggregate_match_meta(&mixed_anchored);

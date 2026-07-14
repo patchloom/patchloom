@@ -16,13 +16,14 @@ use ignore::WalkBuilder;
 use std::collections::HashSet;
 use std::path::Path;
 
-/// Record replace match honesty for a path (worst-case merge if re-visited) (#1674).
+/// Record replace match honesty for a path (worst-case merge if re-visited) (#1674 / #1736).
 fn record_replace_match(
     tx: &mut TxState<'_>,
     path: &Path,
     mode: MatchMode,
     score: Option<f64>,
     match_count: usize,
+    matched_text: Option<String>,
 ) {
     use crate::tx::output::ReplaceMatchMeta;
     let entry = tx.replace_match_meta.entry(path.to_path_buf());
@@ -32,20 +33,24 @@ fn record_replace_match(
                 mode,
                 score,
                 match_count,
+                matched_text,
             });
         }
         std::collections::hash_map::Entry::Occupied(mut e) => {
-            let prev = *e.get();
+            let prev = e.get().clone();
             let merged = merge_match_modes(Some(prev.mode), mode);
             let merged_score = if matches!(merged, MatchMode::Fuzzy) {
                 score.or(prev.score)
             } else {
                 None
             };
+            // Prefer the first non-exact span so multi-op plans keep the fuzzy text.
+            let merged_text = prev.matched_text.or(matched_text);
             e.insert(ReplaceMatchMeta {
                 mode: merged,
                 score: merged_score,
                 match_count: prev.match_count.saturating_add(match_count),
+                matched_text: merged_text,
             });
         }
     }
@@ -224,7 +229,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     &file_path,
                     new_content,
                 );
-                record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1);
+                record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
                 return Ok(1);
             }
             let owned = replaced.into_owned();
@@ -235,7 +240,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 &file_path,
                 owned,
             );
-            record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count);
+            record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
             Ok(match_count)
         } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some()) {
             // Tier 3: fuzzy and/or context fallback when exact match fails (#1668).
@@ -283,7 +288,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         &file_path,
                         new_content,
                     );
-                    record_replace_match(tx, &file_path, mode, score, 1);
+                    record_replace_match(
+                        tx,
+                        &file_path,
+                        mode,
+                        score,
+                        1,
+                        Some(anchor.matched_text.clone()),
+                    );
                     tx.replace_hint = Some(format!(
                         "fallback matched via {:?} strategy in {}",
                         anchor.strategy, p,
@@ -446,7 +458,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         &file_path,
                         new_content,
                     );
-                    record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1);
+                    record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
                     total_matches += 1;
                     continue;
                 }
@@ -458,7 +470,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     &file_path,
                     replaced.into_owned(),
                 );
-                record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count);
+                record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
             } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some())
             {
                 // Fuzzy/context fallback for glob paths (parity with #1668 path arm).
@@ -499,7 +511,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             &file_path,
                             new_content,
                         );
-                        record_replace_match(tx, &file_path, mode, score, 1);
+                        record_replace_match(
+                            tx,
+                            &file_path,
+                            mode,
+                            score,
+                            1,
+                            Some(anchor.matched_text.clone()),
+                        );
                         total_matches += 1;
                     }
                     Err(_) => {

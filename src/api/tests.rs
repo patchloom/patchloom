@@ -5632,3 +5632,44 @@ fn tidy_post_write_hooks_on_apply() {
     assert!(r.changed);
     assert_eq!(fs::read_to_string(&file).unwrap(), "line\n");
 }
+
+/// #1736: fuzzy near-collision must expose matched_text so hosts can refuse.
+#[test]
+fn replace_in_content_fuzzy_near_collision_reports_matched_text() {
+    let content = concat!(
+        "def compute_checksum(payload: bytes) -> str:\n",
+        "    return payload.hex()\n",
+        "\n",
+        "def compute_checksum_fast(payload: bytes) -> str:\n",
+        "    return payload[:8].hex()\n",
+    );
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: Some(0.95),
+        ..ReplaceOptions::default()
+    };
+    let r = replace_in_content(content, "compute_cheksum", "compute_digest", &opts)
+        .expect("fuzzy should land on a near identifier");
+    assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+    assert!(
+        r.match_score.is_some_and(|s| s >= 0.95),
+        "{:?}",
+        r.match_score
+    );
+    let matched = r
+        .matched_text
+        .as_deref()
+        .expect("matched_text required for fuzzy");
+    assert_ne!(
+        matched, "compute_cheksum",
+        "requested old is absent; matched_text must be the live span"
+    );
+    assert!(
+        matched.contains("compute_checksum"),
+        "expected live identifier in matched_text, got {matched:?}"
+    );
+    assert!(
+        r.new_content.contains("compute_digest"),
+        "replacement should apply to the matched span"
+    );
+}

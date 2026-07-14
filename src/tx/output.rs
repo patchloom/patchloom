@@ -52,6 +52,10 @@ pub struct TxOutput {
     /// Lets MCP/CLI agents read honesty without a second content pass.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_count: Option<usize>,
+    /// First fuzzy/anchored matched span when a single change path is present.
+    /// Compare to requested `old` after fuzzy apply (#1736).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_text: Option<String>,
 }
 
 /// One doc delete / delete-where outcome inside a plan/tx report (#1439).
@@ -80,6 +84,9 @@ pub struct TxChange {
     /// non-replace changes. Prefer this over re-deriving after Apply.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub match_count: Option<usize>,
+    /// Text actually matched for fuzzy/anchored replace on this path (#1736).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub matched_text: Option<String>,
 }
 
 /// A search match in the tx output.
@@ -143,11 +150,13 @@ pub(crate) struct TxExecResult {
 }
 
 /// Per-path replace match honesty recorded during plan execution.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct ReplaceMatchMeta {
     pub mode: crate::api::MatchMode,
     pub score: Option<f64>,
     pub match_count: usize,
+    /// Fuzzy/anchored span text actually matched (may differ from plan `old`). #1736
+    pub matched_text: Option<String>,
 }
 
 /// Apply mutation summaries onto a [`TxOutput`] (aggregates + list).
@@ -180,14 +189,15 @@ pub(crate) use crate::api::merge_match_modes;
 fn match_meta_for_path(
     path: &Path,
     meta: &HashMap<PathBuf, ReplaceMatchMeta>,
-) -> (Option<String>, Option<f64>, Option<usize>) {
+) -> (Option<String>, Option<f64>, Option<usize>, Option<String>) {
     match meta.get(path) {
         Some(m) => (
             Some(match_mode_label(m.mode).to_string()),
             m.score,
             Some(m.match_count),
+            m.matched_text.clone(),
         ),
-        None => (None, None, None),
+        None => (None, None, None, None),
     }
 }
 
@@ -208,6 +218,7 @@ pub(crate) fn build_tx_output_with_meta(
     let mut agg_score: Option<f64> = None;
     let mut agg_count: usize = 0;
     let mut any_replace_meta = false;
+    let mut top_matched_text: Option<String> = None;
 
     let display_path = |p: &Path| -> String {
         crate::files::relative_display(p, cwd)
@@ -217,7 +228,8 @@ pub(crate) fn build_tx_output_with_meta(
 
     for (path, _original, _) in changes {
         let path_str = display_path(path);
-        let (match_mode, match_score, match_count) = match_meta_for_path(path, replace_match_meta);
+        let (match_mode, match_score, match_count, matched_text) =
+            match_meta_for_path(path, replace_match_meta);
         if let Some(m) = replace_match_meta.get(path) {
             any_replace_meta = true;
             agg_mode = Some(merge_match_modes(agg_mode, m.mode));
@@ -225,6 +237,9 @@ pub(crate) fn build_tx_output_with_meta(
                 agg_score = m.score.or(agg_score);
             }
             agg_count = agg_count.saturating_add(m.match_count);
+            if top_matched_text.is_none() {
+                top_matched_text = m.matched_text.clone();
+            }
         }
         if deletions.contains(path) {
             tx_changes.push(TxChange {
@@ -233,6 +248,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_mode,
                 match_score,
                 match_count,
+                matched_text,
             });
             deleted_count += 1;
         } else if !existed_before.contains(path) {
@@ -242,6 +258,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_mode,
                 match_score,
                 match_count,
+                matched_text,
             });
             created += 1;
         } else {
@@ -251,6 +268,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_mode,
                 match_score,
                 match_count,
+                matched_text,
             });
             modified += 1;
         }
@@ -258,7 +276,7 @@ pub(crate) fn build_tx_output_with_meta(
     // Deletions not captured in changes (empty files).
     for path in deletions {
         if !changes.iter().any(|(c, _, _)| c == path) {
-            let (match_mode, match_score, match_count) =
+            let (match_mode, match_score, match_count, matched_text) =
                 match_meta_for_path(path, replace_match_meta);
             if replace_match_meta.contains_key(path) {
                 any_replace_meta = true;
@@ -269,6 +287,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_mode,
                 match_score,
                 match_count,
+                matched_text,
             });
             deleted_count += 1;
         }
@@ -306,6 +325,13 @@ pub(crate) fn build_tx_output_with_meta(
         match_score: top_score,
         match_count: if any_replace_meta {
             Some(agg_count)
+        } else {
+            None
+        },
+        // Surface only when a single replace path is present so multi-file
+        // rollups do not pick an arbitrary sibling span.
+        matched_text: if changes.len() == 1 {
+            top_matched_text
         } else {
             None
         },
@@ -384,6 +410,7 @@ pub(crate) fn build_error_output(
         match_mode: None,
         match_score: None,
         match_count: None,
+        matched_text: None,
     }
 }
 
@@ -522,6 +549,7 @@ mod tests {
             match_mode: None,
             match_score: None,
             match_count: None,
+            matched_text: None,
         }
     }
 
@@ -545,6 +573,7 @@ mod tests {
             match_mode: None,
             match_score: None,
             match_count: None,
+            matched_text: None,
         }
     }
 
@@ -720,6 +749,7 @@ mod tests {
                 mode: crate::api::MatchMode::Fuzzy,
                 score: Some(0.91),
                 match_count: 1,
+                matched_text: Some("proccess".into()),
             },
         );
         let out = build_tx_output_with_meta(
@@ -738,9 +768,12 @@ mod tests {
         assert_eq!(out.changes[0].match_mode.as_deref(), Some("fuzzy"));
         assert_eq!(out.changes[0].match_score, Some(0.91));
         assert_eq!(out.changes[0].match_count, Some(1));
+        assert_eq!(out.matched_text.as_deref(), Some("proccess"));
+        assert_eq!(out.changes[0].matched_text.as_deref(), Some("proccess"));
         let json = serde_json::to_string(&out).unwrap();
         assert!(json.contains("\"match_mode\":\"fuzzy\""), "{json}");
         assert!(json.contains("\"match_count\":1"), "{json}");
+        assert!(json.contains("\"matched_text\":\"proccess\""), "{json}");
     }
 
     // ---- TxOutput serde round-trip ----

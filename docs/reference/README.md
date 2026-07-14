@@ -603,14 +603,16 @@ These are meaningful command-specific modes that change how a top-level command 
 ### `replace --fuzzy` / library `ReplaceOptions.fuzzy` / plan `fuzzy`
 
 - **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library, single-path tx, **glob** plan ops, and CLI (including directory roots expanded like ordinary replace).
-- **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` in library results and CLI/MCP JSON (#1669). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy.
-- **Prefer instead:** Exact replace when the target string is known.
+- **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` / `matched_text` in library results and CLI/MCP JSON (#1669, #1736). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy.
+- **Agent rule:** Fuzzy success is not semantic success. A high score can rewrite a *different* live identifier than `old` (example: `old=compute_cheksum` may match `compute_checksum` at score ~0.99). After fuzzy apply, check `matched_text` against the intended span; prefer `ast rename` for identifiers. Distinct from whole-line span fix #1694.
+- **Prefer instead:** Exact replace when the target string is known; `ast rename` for code identifiers.
 
 <!-- ref:replace-mode:min-fuzzy-score -->
 ### `replace --min-fuzzy-score` / library `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score`
 
 - **What it does:** When a fuzzy match is found, reject it if its similarity score is below this floor (`0.0..=1.0`). Exact and anchored matches are unaffected. Available on CLI (`--min-fuzzy-score`), plan/MCP (`min_fuzzy_score`), and `ReplaceOptions` (#1687).
 - **Use when:** Agent hosts want fuzzy recovery for small typos but must refuse weak similarity hits (typical floor: `0.80`).
+- **Does not mean:** `score >= min_fuzzy_score` proves the matched span is the intended target. Always inspect `matched_text` (#1736).
 - **Prefer instead:** Exact replace when the target string is known; bare `--fuzzy` when any fuzzy hit is acceptable.
 
 <!-- ref:create-mode:stdin -->

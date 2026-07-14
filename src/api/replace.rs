@@ -77,6 +77,7 @@ pub fn replace_text(
         result.match_count = content_result.match_count;
         result.match_mode = content_result.match_mode;
         result.match_score = content_result.match_score;
+        result.matched_text = content_result.matched_text;
         result.backup_session = backup_session.clone();
         super::maybe_post_write(
             applied,
@@ -350,6 +351,7 @@ fn replace_write(
                     result.match_count = 1;
                     result.match_mode = Some(match_mode);
                     result.match_score = score;
+                    result.matched_text = Some(anchor.matched_text.clone());
                     result.backup_session = backup_session;
                     return Ok(result);
                 }
@@ -542,6 +544,8 @@ pub fn replace_in_content(
             match_count: 1,
             match_mode: Some(MatchMode::Anchored),
             match_score: None,
+
+            matched_text: None,
         });
     }
 
@@ -604,6 +608,7 @@ pub fn replace_in_content(
                     match_count: 1,
                     match_mode: Some(mode),
                     match_score: score,
+                    matched_text: Some(anchor.matched_text.clone()),
                 });
             }
             Err(edit_error) => {
@@ -616,6 +621,8 @@ pub fn replace_in_content(
                         match_count: 0,
                         match_mode: None,
                         match_score: None,
+
+                        matched_text: None,
                     });
                 }
                 let similar = fallback::find_similar_targets(content, from, 3);
@@ -668,6 +675,8 @@ fn finalize_content_replace(
             match_count: 0,
             match_mode: None,
             match_score: None,
+
+            matched_text: None,
         });
     }
 
@@ -703,5 +712,7 @@ fn finalize_content_replace(
             None
         },
         match_score: None,
+
+        matched_text: None,
     })
 }

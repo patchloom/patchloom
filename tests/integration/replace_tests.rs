@@ -2024,3 +2024,54 @@ fn test_replace_fuzzy_identifier_typo_json_match_mode() {
     let on_disk = fs::read_to_string(&file).unwrap();
     assert_eq!(on_disk, "fn handle_request(x: i32) {}\n");
 }
+
+/// #1736: CLI fuzzy JSON must report matched_text for agent verification.
+#[test]
+fn test_replace_fuzzy_json_reports_matched_text() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.py");
+    fs::write(
+        &file,
+        "def compute_checksum(payload: bytes) -> str:\n    return payload.hex()\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "compute_cheksum",
+            "--new",
+            "compute_digest",
+            "--fuzzy",
+            "--min-fuzzy-score",
+            "0.95",
+            "--apply",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["match_mode"], "fuzzy");
+    let matched = v["matched_text"]
+        .as_str()
+        .expect("top-level matched_text for single-file fuzzy");
+    assert_ne!(matched, "compute_cheksum");
+    assert!(
+        matched.contains("compute_checksum"),
+        "matched_text should be live identifier: {matched}"
+    );
+    let file_matched = v["files"][0]["matched_text"]
+        .as_str()
+        .expect("per-file matched_text");
+    assert_eq!(file_matched, matched);
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("compute_digest"), "file: {content}");
+}
