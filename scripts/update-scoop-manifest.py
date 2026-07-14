@@ -37,8 +37,6 @@ def find_hash(artifacts_dir: Path, zip_name: str) -> str:
     """Locate zip.sha256 under a recursive artifacts download tree."""
     candidates = list(artifacts_dir.rglob(f"{zip_name}.sha256"))
     if not candidates:
-        # also accept bare sha256 next to zip
-        candidates = list(artifacts_dir.rglob(zip_name))
         raise SystemExit(
             f"missing {zip_name}.sha256 under {artifacts_dir} "
             f"(found {len(list(artifacts_dir.rglob('*')))} files)"
@@ -131,14 +129,16 @@ def main() -> int:
     if version.startswith(TAG_PREFIX):
         version = version[len(TAG_PREFIX) :]
 
-    if args.artifacts_dir:
+    if args.artifacts_dir is not None:
         hash_x64 = find_hash(args.artifacts_dir, X64_ZIP)
         hash_arm64 = find_hash(args.artifacts_dir, ARM64_ZIP)
-    elif args.hash_x64 and args.hash_arm64:
+    elif args.hash_x64 is not None and args.hash_arm64 is not None:
         hash_x64 = args.hash_x64
         hash_arm64 = args.hash_arm64
     else:
-        p.error("provide --artifacts-dir or both --hash-x64 and --hash-arm64")
+        raise SystemExit(
+            "error: provide --artifacts-dir or both --hash-x64 and --hash-arm64"
+        )
 
     manifest = build_manifest(version, hash_x64, hash_arm64)
     text = json.dumps(manifest, indent=4) + "\n"
