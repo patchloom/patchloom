@@ -586,6 +586,14 @@ mod tests {
         assert!(r.changed);
         assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
         assert!(r.match_score.is_some_and(|s| s > 0.85));
+        let matched = r
+            .matched_text
+            .as_deref()
+            .expect("content_edits fuzzy must surface matched_text");
+        assert!(
+            matched.contains("process_data"),
+            "matched_text should be live span: {matched:?}"
+        );
     }
 
     #[test]
@@ -610,6 +618,12 @@ mod tests {
         assert!(r.changed);
         assert_eq!(r.match_mode, Some(MatchMode::Anchored));
         assert_eq!(r.match_count, 2);
+        // Exact first leaves matched_text None; first non-null is the anchored span.
+        assert_eq!(
+            r.matched_text.as_deref(),
+            Some("TODO: fix"),
+            "batch should report first anchored/fuzzy matched_text (#1736)"
+        );
         assert!(r.modified.starts_with("ALPHA\n"));
         assert!(r.modified.contains("gamma\nTODO: done"));
         // Context-anchored replace must not touch the first TODO: fix
