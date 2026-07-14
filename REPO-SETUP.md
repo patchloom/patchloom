@@ -10,7 +10,7 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 | CI | Have at least one required CI workflow | use a single `CI` workflow at the start, and point it at the repo's self-hosted runner once that runner exists |
 | Release workflow | Commit `dist-workspace.toml`, `.github/workflows/release.yml`, and `.github/workflows/publish-crates.yml` together | keep cargo-dist config and release automation in sync, keep release jobs on GitHub-hosted runners at first, and skip crates.io and Homebrew publishing while the repo is private |
 | Homebrew tap repo | create `patchloom/homebrew-tap` before the first stable release | the release workflow pushes formula updates there |
-| Scoop bucket repo | create `patchloom/scoop-bucket` with `bucket/patchloom.json` | `publish-scoop-bucket` in `release.yml` rewrites version + hashes on each release (uses `HOMEBREW_TAP_TOKEN` to push) |
+| Scoop bucket repo | create `patchloom/scoop-bucket` with `bucket/patchloom.json` | `publish-scoop-bucket` in `release.yml` rewrites version + hashes on each release; `publish-scoop.yml` is a manual re-sync (`workflow_dispatch`) |
 | npm publish | set `NPM_TOKEN` (granular, Bypass 2FA, all packages) on the project repo | cargo-dist builds `*-npm-package.tar.gz`; `publish-npm` job in `release.yml` |
 | Release secrets | add `HOMEBREW_TAP_TOKEN` and `CARGO_REGISTRY_TOKEN` | `HOMEBREW_TAP_TOKEN` must push to both `homebrew-tap` and `scoop-bucket` (classic PAT `public_repo` is enough for public org repos) |
 | Security reporting | commit `SECURITY.md` now, then enable GitHub private vulnerability reporting after the repo becomes public | private Free org repos do not expose GitHub private vulnerability reporting yet |
