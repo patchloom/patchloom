@@ -11,6 +11,31 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.14.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.13.0...patchloom-v0.14.0) (2026-07-14)
+
+
+### Features
+
+* agent-host APIs (backup session, fuzzy floor, nested list, project rename, post-write) ([#1692](https://github.com/patchloom/patchloom/issues/1692)) ([c666842](https://github.com/patchloom/patchloom/commit/c666842cd4cb0bbbc411046f9560022734b27521)), closes [#1686](https://github.com/patchloom/patchloom/issues/1686) [#1687](https://github.com/patchloom/patchloom/issues/1687) [#1688](https://github.com/patchloom/patchloom/issues/1688) [#1689](https://github.com/patchloom/patchloom/issues/1689) [#1690](https://github.com/patchloom/patchloom/issues/1690)
+* batch replace flags, doc predicate errors, md insert-after-section ([#1727](https://github.com/patchloom/patchloom/issues/1727)) ([e17e888](https://github.com/patchloom/patchloom/commit/e17e8880cd09909ee9ee6d03058ba3c478e2499e))
+* Chocolatey package and release publish path ([#1714](https://github.com/patchloom/patchloom/issues/1714)) ([d96844e](https://github.com/patchloom/patchloom/commit/d96844e8ea316f18a9a801773cbcfdce45b6d77e))
+* Scoop bucket and cargo-dist npm installer ([#1701](https://github.com/patchloom/patchloom/issues/1701)) ([b3bb18f](https://github.com/patchloom/patchloom/commit/b3bb18f0729e3fb5ea66329d390a07db9d25cf6b))
+* similar_targets on CLI replace no-match JSON ([#1685](https://github.com/patchloom/patchloom/issues/1685)) ([32a0af5](https://github.com/patchloom/patchloom/commit/32a0af53d9435a4bf4a49fcb7d70f014dc2417f0))
+
+
+### Bug Fixes
+
+* accept compact md table-append rows ([#1716](https://github.com/patchloom/patchloom/issues/1716)) ([9966425](https://github.com/patchloom/patchloom/commit/9966425b6a1900efae9b672fbf244b2c4af760d4))
+* add replace --min-fuzzy-score CLI flag for plan/MCP parity ([#1721](https://github.com/patchloom/patchloom/issues/1721)) ([ceae6ff](https://github.com/patchloom/patchloom/commit/ceae6ff740ac425ca4a1f75533c27104576567bc)), closes [#1720](https://github.com/patchloom/patchloom/issues/1720)
+* clear CodeQL alerts in scoop manifest generator ([#1704](https://github.com/patchloom/patchloom/issues/1704)) ([4730a12](https://github.com/patchloom/patchloom/commit/4730a1284498e1927b5f4bcbc0ebfe8a7e327025)), closes [#962](https://github.com/patchloom/patchloom/issues/962)
+* fail-closed min_fuzzy floor; document embedder-smoke ([#1700](https://github.com/patchloom/patchloom/issues/1700)) ([9b9d93e](https://github.com/patchloom/patchloom/commit/9b9d93e8bfb934622226f1ab34b6b9c62aa43a80))
+* fuzzy token span, nested undo list, MCP key alias ([#1697](https://github.com/patchloom/patchloom/issues/1697)) ([b377055](https://github.com/patchloom/patchloom/commit/b377055c330c0a3f4b4a81dbf322b2060c3f639f)), closes [#1694](https://github.com/patchloom/patchloom/issues/1694) [#1695](https://github.com/patchloom/patchloom/issues/1695) [#1696](https://github.com/patchloom/patchloom/issues/1696)
+* fuzzy token-like alignment and embedder smoke ([#1699](https://github.com/patchloom/patchloom/issues/1699)) ([0ffcc72](https://github.com/patchloom/patchloom/commit/0ffcc72fde0fb235b5219d89a8b8267cba56a5e9))
+* label case-only renames as case-only, not binary ([#1723](https://github.com/patchloom/patchloom/issues/1723)) ([0c5f2bb](https://github.com/patchloom/patchloom/commit/0c5f2bb5e9b02ee1e3c5b39d1f1e9a90c349430d)), closes [#1722](https://github.com/patchloom/patchloom/issues/1722)
+* multi-doc set error hint and insert_after_section coverage ([#1728](https://github.com/patchloom/patchloom/issues/1728)) ([e03c152](https://github.com/patchloom/patchloom/commit/e03c152ddb83ec4f5c48eb03887e64ed1d7874f4))
+* post-write backup root, min_fuzzy validation, embedder docs ([#1693](https://github.com/patchloom/patchloom/issues/1693)) ([aca52b7](https://github.com/patchloom/patchloom/commit/aca52b781e26f0f5f6885afafaaa4c20b565232d))
+* preserve --- separators when writing multi-document YAML ([#1719](https://github.com/patchloom/patchloom/issues/1719)) ([2e115ea](https://github.com/patchloom/patchloom/commit/2e115ea0d921c05882eb89178a4374b912dbf214))
+
 ## [0.13.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.12.0...patchloom-v0.13.0) (2026-07-13)
 
 
