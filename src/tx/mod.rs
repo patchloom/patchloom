@@ -31,13 +31,13 @@ mod tidy_op;
 // Re-export all pub and pub(crate) items so `crate::tx::*` paths continue to work.
 
 // output.rs
+pub(crate) use output::{
+    ReplaceMatchMeta, TxExecResult, build_error_output, build_full_tx_output,
+    format_error_with_backup_hint, match_mode_label,
+};
 pub use output::{
     TxChange, TxDocMutation, TxLintResult, TxOutput, TxReadResult, TxSearchMatch, TxSearchResult,
     exit_code_from_tx_output,
-};
-pub(crate) use output::{
-    TxExecResult, build_error_output, build_full_tx_output, format_error_with_backup_hint,
-    match_mode_label,
 };
 
 // validate.rs (test-only re-exports for src/cmd/tx.rs tests)

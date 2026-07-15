@@ -2283,6 +2283,19 @@ fn test_replace_fuzzy_absent_old_fails_closed() {
         err.contains("exact old absent") && err.contains("compute_checksum"),
         "JSON error must explain refuse: {v}"
     );
+    // Structured candidate honesty for agents (not only English error).
+    assert_eq!(
+        v["match_mode"], "fuzzy",
+        "refuse must report fuzzy mode: {v}"
+    );
+    assert!(
+        v["match_score"].as_f64().is_some_and(|s| s >= 0.95),
+        "refuse must report score: {v}"
+    );
+    assert_eq!(
+        v["matched_text"], "compute_checksum",
+        "refuse must report live candidate: {v}"
+    );
     assert!(
         fs::read_to_string(&file)
             .unwrap()

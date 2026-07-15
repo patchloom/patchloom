@@ -1260,3 +1260,37 @@ fn test_search_files_from_all_missing_is_not_found() {
     assert_eq!(parsed["ok"], false);
     assert_eq!(parsed["error_kind"], "not_found");
 }
+
+/// #1756: search --files-from missing paths under --json --quiet.
+#[test]
+fn test_search_files_from_missing_reported_in_json() {
+    let dir = TempDir::new().unwrap();
+    let list = dir.path().join("list.txt");
+    let a = dir.path().join("a.txt");
+    fs::write(&a, "hello\n").unwrap();
+    fs::write(&list, "a.txt\nmissing.txt\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--quiet", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "search", "hello"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true);
+    assert!(v["match_count"].as_u64().unwrap_or(0) >= 1);
+    let skipped = v["skipped"]
+        .as_array()
+        .expect("skipped array for missing files-from entry");
+    assert!(
+        skipped.iter().any(|s| s.as_str() == Some("missing.txt")),
+        "expected missing.txt in skipped: {v}"
+    );
+}

@@ -349,6 +349,45 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
         .collect()
 }
 
+/// Candidate honesty from soft refuses (no write): fuzzy fail-closed (#1758)
+/// or floor reject with recorded meta. Single-path meta surfaces mode/score/span.
+fn aggregate_refuse_match_meta(
+    meta: &std::collections::HashMap<std::path::PathBuf, crate::tx::ReplaceMatchMeta>,
+) -> (Option<&'static str>, Option<f64>, Option<String>) {
+    use crate::api::{MatchMode, merge_match_modes};
+
+    if meta.is_empty() {
+        return (None, None, None);
+    }
+    let mut agg: Option<MatchMode> = None;
+    let mut score: Option<f64> = None;
+    let mut matched: Option<String> = None;
+    for m in meta.values() {
+        agg = Some(merge_match_modes(agg, m.mode));
+        if m.mode == MatchMode::Fuzzy
+            && let Some(s) = m.score
+        {
+            score = Some(score.map_or(s, |prev| prev.min(s)));
+        }
+        if matched.is_none() {
+            matched = m.matched_text.clone();
+        }
+    }
+    let mode = match agg {
+        Some(MatchMode::Fuzzy) => Some("fuzzy"),
+        Some(MatchMode::Anchored) => Some("anchored"),
+        Some(MatchMode::Exact) => Some("exact"),
+        None => None,
+    };
+    let score = if matches!(agg, Some(MatchMode::Fuzzy)) {
+        score
+    } else {
+        None
+    };
+    let matched = if meta.len() == 1 { matched } else { None };
+    (mode, score, matched)
+}
+
 /// Top-level match honesty for multi-file CLI replace (#1669 / #1674).
 ///
 /// Uses the same worst-case rollup as plan/tx and content_edits
@@ -827,6 +866,9 @@ fn run_context_replace(
             .as_deref()
             .filter(|h| !h.is_empty())
             .map(str::to_string);
+        // Soft refuse (#1758) records candidate honesty without a write.
+        let (refuse_mode, refuse_score, refuse_matched) =
+            aggregate_refuse_match_meta(&result.exec_result.replace_match_meta);
         let empty = ReplaceOutput {
             ok: args.if_exists,
             match_count: 0,
@@ -840,9 +882,9 @@ fn run_context_replace(
                 Some("no_matches")
             },
             error: if args.if_exists { None } else { hint.clone() },
-            match_mode: None,
-            match_score: None,
-            matched_text: None,
+            match_mode: refuse_mode,
+            match_score: refuse_score,
+            matched_text: refuse_matched,
             similar_targets: None,
             skipped: skipped.clone(),
         };
