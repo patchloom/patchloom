@@ -406,6 +406,47 @@ mod tests {
         );
     }
 
+    /// `--force` overwrite must also keep multi-hardlinked source inodes
+    /// (CLI direct rename uses fs::rename which replaces dest).
+    #[cfg(unix)]
+    #[test]
+    fn rename_force_preserves_hardlinks() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        let dest = dir.path().join("existing.txt");
+        fs::write(&a, "source body\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        fs::write(&dest, "old dest\n").unwrap();
+        let before_ino = fs::metadata(&a).unwrap().ino();
+        assert_eq!(fs::metadata(&a).unwrap().nlink(), 2);
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let args = RenameArgs {
+            from: a.to_string_lossy().into_owned(),
+            to: dest.to_string_lossy().into_owned(),
+            force: true,
+            write: Default::default(),
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!a.exists());
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "source body\n");
+        assert_eq!(
+            fs::read_to_string(&b).unwrap(),
+            "source body\n",
+            "sibling hardlink must still share the moved inode"
+        );
+        assert_eq!(fs::metadata(&dest).unwrap().ino(), before_ino);
+        assert_eq!(fs::metadata(&b).unwrap().ino(), before_ino);
+        assert!(
+            fs::metadata(&dest).unwrap().nlink() > 1,
+            "nlink must stay > 1 after force rename"
+        );
+    }
+
     #[test]
     fn rename_fails_if_dst_exists() {
         let dir = TempDir::new().unwrap();

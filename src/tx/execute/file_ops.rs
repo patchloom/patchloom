@@ -230,16 +230,23 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 let _ = read_file_content(tx.pending, tx.existed_before, &dst_path)?;
             }
 
-            // Record pure renames so commit can use fs::rename and preserve
-            // hardlinks even when a later op edits the dest (#1739 follow-up:
+            // Record renames so commit can use fs::rename and preserve hardlinks
+            // even when a later op edits the dest (#1739 follow-up:
             // rename-then-replace). Also chain renames where the source is only
             // a prior rename dest in this plan (a->c then c->d; c is not on disk
             // yet during staging). file.create-then-rename stays content-staged
             // (source neither on disk nor a rename dest).
-            if !*force && !case_only && !dst_path.exists() {
+            //
+            // Force overwrite (dest already exists) must also record the pair:
+            // commit's rename_or_copy replaces the dest entry while keeping the
+            // source inode (and its hardlink siblings). Skipping the record falls
+            // back to create-dest + delete-src and splits hardlinks (#1746).
+            if !case_only {
                 let src_on_disk = src_path.exists() && src_path.is_file();
                 let src_is_rename_dest = tx.renames.iter().any(|(_, to)| to == &src_path);
-                if src_on_disk || src_is_rename_dest {
+                // Non-force with an on-disk dest is rejected earlier. Force may
+                // overwrite; non-force only records when dest is not on disk.
+                if (src_on_disk || src_is_rename_dest) && (*force || !dst_path.exists()) {
                     tx.renames.push((src_path.clone(), dst_path.clone()));
                 }
             }

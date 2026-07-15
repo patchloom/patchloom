@@ -35,31 +35,31 @@ pub struct TxOutput {
     /// Aggregate of [`TxDocMutation::changed`] when `mutations` is non-empty.
     /// Mirrors CLI doc write JSON so agents can treat exit 0 + `removed: 0`
     /// as an idempotent no-op without re-reading the file.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub changed: Option<bool>,
     /// Sum of [`TxDocMutation::removed`] when `mutations` is non-empty.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub removed: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub error_kind: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub backup_session: Option<String>,
     /// Aggregate replace match honesty when every replace-backed change agrees
     /// (or worst-case: fuzzy > anchored > exact). See #1674.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub match_mode: Option<String>,
     /// Similarity score when aggregate [`Self::match_mode`] is fuzzy.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub match_score: Option<f64>,
     /// Sum of per-path replace match counts when any replace meta was recorded.
     /// Lets MCP/CLI agents read honesty without a second content pass.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub match_count: Option<usize>,
     /// First fuzzy/anchored matched span when a single change path is present.
     /// Compare to requested `old` after fuzzy apply (#1736).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub matched_text: Option<String>,
 }
 
@@ -808,5 +808,20 @@ mod tests {
         assert!(!json.contains("\"searches\""));
         assert!(!json.contains("\"lints\""));
         assert!(!json.contains("\"error\""));
+    }
+
+    /// Hosts may deserialize older plan/tx JSON that never had match honesty
+    /// fields. Missing keys must default to None (parity with TxChange).
+    #[test]
+    fn tx_output_deserializes_minimal_json_without_match_fields() {
+        let json = r#"{"ok":true,"status":"success","files_changed":0,"files_created":0,"files_deleted":0,"changes":[]}"#;
+        let parsed: TxOutput = serde_json::from_str(json).expect("minimal TxOutput JSON");
+        assert!(parsed.ok);
+        assert!(parsed.match_mode.is_none());
+        assert!(parsed.match_score.is_none());
+        assert!(parsed.match_count.is_none());
+        assert!(parsed.matched_text.is_none());
+        assert!(parsed.backup_session.is_none());
+        assert!(parsed.error_kind.is_none());
     }
 }

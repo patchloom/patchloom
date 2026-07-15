@@ -5,7 +5,7 @@
 
 **Decision rule: if you are about to make 3+ tool calls for file edits, use `patchloom batch` instead.** One call replaces N round-trips. For agent sandboxes that shell out to the CLI, pass `--contain` (with `--cwd`) so operation targets and meta-input files cannot escape the workspace.
 
-**Apply write safety:** all Apply paths share one writer. Symlinks are resolved so the link entry is not replaced (#1230). On Unix, files with multiple hard links (`nlink > 1`) are updated in place so sibling paths stay in sync (#1733); single-link files use temp+rename.
+**Apply write safety:** all Apply paths share one writer. Symlinks are resolved so the link entry is not replaced (#1230). On Unix, files with multiple hard links (`nlink > 1`) are updated in place so sibling paths stay in sync (#1733); single-link files use temp+rename. CLI `rename` and plan `file.rename` (including force overwrite) use `fs::rename` so multi-hardlinked sources keep their shared inode (#1739, #1746).
 
 ## Tool selection guide
 

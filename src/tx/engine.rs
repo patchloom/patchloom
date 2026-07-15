@@ -476,6 +476,53 @@ mod tests {
         assert!(fs::metadata(&c).unwrap().nlink() > 1);
     }
 
+    /// Force-overwrite rename must still keep multi-hardlinked source inodes
+    /// (fs::rename replaces dest; must not fall back to create+delete).
+    #[cfg(unix)]
+    #[test]
+    fn execute_file_rename_force_preserves_hardlinks() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        let dest = dir.path().join("existing.txt");
+        fs::write(&a, "source body\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        fs::write(&dest, "old dest\n").unwrap();
+        let before_ino = fs::metadata(&a).unwrap().ino();
+        assert_eq!(fs::metadata(&a).unwrap().nlink(), 2);
+
+        let global = GlobalFlags::test_default();
+        let op = Operation::FileRename {
+            from: "a.txt".to_string(),
+            to: "existing.txt".to_string(),
+            force: true,
+        };
+        let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
+        assert_eq!(
+            result.exec_result.renames.len(),
+            1,
+            "force rename must be recorded for hardlink-preserving commit, got {:?}",
+            result.exec_result.renames
+        );
+        result.commit().unwrap();
+
+        assert!(!a.exists());
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "source body\n");
+        assert_eq!(
+            fs::read_to_string(&b).unwrap(),
+            "source body\n",
+            "hardlink sibling of source must still share the moved inode"
+        );
+        assert_eq!(fs::metadata(&dest).unwrap().ino(), before_ino);
+        assert_eq!(fs::metadata(&b).unwrap().ino(), before_ino);
+        assert!(
+            fs::metadata(&dest).unwrap().nlink() > 1,
+            "nlink must stay > 1 after force rename, got {}",
+            fs::metadata(&dest).unwrap().nlink()
+        );
+    }
+
     /// Double rename then replace in one plan (a->c->d) must keep hardlinks.
     #[cfg(unix)]
     #[test]
