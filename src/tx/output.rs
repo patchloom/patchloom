@@ -65,6 +65,26 @@ pub struct TxOutput {
     /// Compare to requested `old` after fuzzy apply (#1736).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub matched_text: Option<String>,
+    /// Soft-refuse paths where fuzzy found a candidate but did not write
+    /// (exact old absent without `allow_absent_old`). Present on partial
+    /// multi-op success so agents do not treat overall ok as full coverage
+    /// (parity with CLI `replace` `refused[]`).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub refused: Vec<TxRefused>,
+}
+
+/// One soft-refuse path in a plan/tx report (fuzzy fail-closed without a write).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxRefused {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub matched_text: Option<String>,
+    /// Machine-readable reason (`exact_old_absent` or `no_write`).
+    pub reason: String,
 }
 
 /// One doc delete / delete-where outcome inside a plan/tx report (#1439).
@@ -325,7 +345,7 @@ pub(crate) fn build_tx_output_with_meta(
     // Soft full refuses (fuzzy fail-closed #1758) store honesty without a write.
     // Fold only when there is no write surface: otherwise refuse meta would poison
     // success aggregates (e.g. exact multi-file apply + one soft refuse → match_mode
-    // "fuzzy"). Partial refuses are reported via CLI `refused[]` instead.
+    // "fuzzy"). Partial refuses are listed in `refused[]` instead.
     if changes.is_empty() && deletions.is_empty() {
         for m in replace_match_meta.values() {
             any_replace_meta = true;
@@ -341,6 +361,31 @@ pub(crate) fn build_tx_output_with_meta(
             }
         }
     }
+
+    // Paths with recorded meta but no write (fuzzy refuse / floor skip).
+    let mut refused = Vec::new();
+    for (path, m) in replace_match_meta {
+        if changes.iter().any(|(c, _, _)| c == path) || deletions.contains(path) {
+            continue;
+        }
+        // Only surface candidates that were found but not applied (count 0).
+        if m.match_count != 0 || m.matched_text.is_none() {
+            continue;
+        }
+        let reason = if m.mode == crate::api::MatchMode::Fuzzy {
+            "exact_old_absent"
+        } else {
+            "no_write"
+        };
+        refused.push(TxRefused {
+            path: display_path(path),
+            match_mode: Some(match_mode_label(m.mode).to_string()),
+            match_score: m.score,
+            matched_text: m.matched_text.clone(),
+            reason: reason.to_string(),
+        });
+    }
+    refused.sort_by(|a, b| a.path.cmp(&b.path));
 
     let (top_mode, top_score) = match agg_mode {
         Some(m) => (
@@ -386,6 +431,7 @@ pub(crate) fn build_tx_output_with_meta(
         } else {
             None
         },
+        refused,
     }
 }
 
@@ -474,6 +520,7 @@ pub(crate) fn build_error_output(
         match_score: None,
         match_count: None,
         matched_text: None,
+        refused: Vec::new(),
     }
 }
 
@@ -613,6 +660,7 @@ mod tests {
             match_score: None,
             match_count: None,
             matched_text: None,
+            refused: Vec::new(),
         }
     }
 
@@ -637,6 +685,7 @@ mod tests {
             match_score: None,
             match_count: None,
             matched_text: None,
+            refused: Vec::new(),
         }
     }
 
@@ -1075,6 +1124,11 @@ mod tests {
         assert_eq!(out.match_mode.as_deref(), Some("exact"));
         assert!(out.match_score.is_none());
         assert_eq!(out.match_count, Some(1));
+        assert_eq!(out.refused.len(), 1);
+        assert_eq!(out.refused[0].path, "b.txt");
+        assert_eq!(out.refused[0].match_mode.as_deref(), Some("fuzzy"));
+        assert_eq!(out.refused[0].reason, "exact_old_absent");
+        assert_eq!(out.refused[0].matched_text.as_deref(), Some("helo world"));
     }
 
     /// Hosts may deserialize older plan/tx JSON that never had match honesty

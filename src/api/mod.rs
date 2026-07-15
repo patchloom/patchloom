@@ -91,8 +91,8 @@ use crate::write::{EolMode, WritePolicy, atomic_write};
 
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use crate::tx::{
-    TxChange, TxDocMutation, TxLintResult, TxOutput as PlanReport, TxReadResult, TxSearchMatch,
-    TxSearchResult,
+    TxChange, TxDocMutation, TxLintResult, TxOutput as PlanReport, TxReadResult, TxRefused,
+    TxSearchMatch, TxSearchResult,
 };
 
 mod doc;
