@@ -355,8 +355,12 @@ fn aggregate_match_meta(files: &[ReplaceFileResult]) -> (Option<&'static str>, O
             _ => continue,
         };
         agg = Some(merge_match_modes(agg, mode));
-        if mode == MatchMode::Fuzzy && score.is_none() {
-            score = f.match_score;
+        // Worst-case confidence: lowest fuzzy score across files (parity with
+        // plan/tx aggregate and content_edits).
+        if mode == MatchMode::Fuzzy
+            && let Some(s) = f.match_score
+        {
+            score = Some(score.map_or(s, |prev| prev.min(s)));
         }
     }
     match agg {

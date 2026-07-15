@@ -1537,6 +1537,31 @@ fn multi_file_match_mode_worst_case_rollup() {
     assert_eq!(mode, Some("fuzzy"), "worst-case must be fuzzy");
     assert_eq!(score, Some(0.9));
 
+    // Multiple fuzzy files: aggregate score is the minimum (worst confidence).
+    let multi_fuzzy = [
+        ReplaceFileResult {
+            path: "a.txt".into(),
+            match_count: 1,
+            match_mode: Some("fuzzy"),
+            match_score: Some(0.95),
+            matched_text: None,
+        },
+        ReplaceFileResult {
+            path: "b.txt".into(),
+            match_count: 1,
+            match_mode: Some("fuzzy"),
+            match_score: Some(0.72),
+            matched_text: None,
+        },
+    ];
+    let (mode, score) = aggregate_match_meta(&multi_fuzzy);
+    assert_eq!(mode, Some("fuzzy"));
+    assert_eq!(
+        score,
+        Some(0.72),
+        "multi-file fuzzy aggregate score must be the minimum"
+    );
+
     let mixed_anchored = [
         ReplaceFileResult {
             path: "a.txt".into(),
