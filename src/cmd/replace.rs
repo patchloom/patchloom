@@ -107,8 +107,10 @@ pub struct ReplaceArgs {
     // ref:replace-mode:fuzzy
     /// When exact match fails, try fuzzy/similarity fallback (and when
     /// `--before-context` / `--after-context` is set). Literal only.
-    /// With `--json`, check `matched_text`: a high score can still rewrite a
-    /// different live identifier than `--old` (#1736).
+    /// Default is fail-closed (#1758): without `--allow-absent-old`, reports
+    /// the best candidate (`matched_text` / `refused[]`) and does not write.
+    /// With `--allow-absent-old`, always check JSON `matched_text`: a high
+    /// score can still rewrite a different live span than `--old` (#1736).
     #[arg(long)]
     pub fuzzy: bool,
     // ref:replace-mode:min-fuzzy-score
