@@ -488,6 +488,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             && let Some(min) = min_fuzzy_score
                             && crate::fallback::fuzzy_fails_min_floor(score, *min)
                         {
+                            // Parity with single-path arm (#1745 / AI findings):
+                            // surface the floor rejection so callers can diagnose
+                            // why no matches applied under a multi-file glob.
+                            let actual = score
+                                .map(|s| format!("{s:.3}"))
+                                .unwrap_or_else(|| "none".into());
+                            tx.replace_hint = Some(format!(
+                                "fuzzy match score {actual} below min_fuzzy_score {min} for {:?}",
+                                crate::fallback::truncate_str(old, 60),
+                            ));
                             // Skip this file; keep scanning (require_change after loop).
                             continue;
                         }
@@ -1133,6 +1143,59 @@ mod tests {
             hint.as_deref()
                 .is_some_and(|h| h.contains("min_fuzzy_score")),
             "hint: {hint:?}"
+        );
+    }
+
+    /// Glob arm must set `replace_hint` when min_fuzzy_score rejects, same as
+    /// the single-path arm (#1745 / GitHub AI findings parity).
+    #[test]
+    fn replace_glob_min_fuzzy_score_sets_replace_hint() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("src.rs");
+        std::fs::write(
+            &file,
+            "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n",
+        )
+        .unwrap();
+
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("*.rs".into()),
+            regex: false,
+            old: "fn process_requets(data: &str) -> Result<()> {".into(),
+            new_text: Some("REPLACED".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: true,
+            min_fuzzy_score: Some(1.0),
+        };
+        let mut f = TxStateFixture::new();
+        let hint = {
+            let mut tx = f.state(dir.path());
+            let count = execute_replace_op(&op, &mut tx).unwrap();
+            assert_eq!(count, 0, "score floor must reject weak fuzzy on glob");
+            tx.replace_hint.clone()
+        };
+        assert!(
+            f.write_targets.is_empty(),
+            "rejected fuzzy glob must not stage a write"
+        );
+        assert!(
+            hint.as_deref()
+                .is_some_and(|h| h.contains("min_fuzzy_score")),
+            "glob floor rejection must set replace_hint: {hint:?}"
         );
     }
 
