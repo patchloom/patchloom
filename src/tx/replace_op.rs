@@ -285,6 +285,24 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             );
             record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
             Ok(match_count)
+        } else if let Some((n, total)) = (*nth).and_then(|n| {
+            // nth past last match: applied count is 0 but pattern may still match.
+            // Do not report soft no_matches (agents confuse this with missing pattern).
+            let total =
+                crate::ops::replace::count_content_matches(content, old, compiled_re.as_ref());
+            if total > 0 && n > total {
+                Some((n, total))
+            } else {
+                None
+            }
+        }) {
+            Err(crate::exit::InvalidInputError {
+                msg: format!(
+                    "nth {n} is out of range in {p}: pattern matches {total} time{}",
+                    if total == 1 { "" } else { "s" }
+                ),
+            }
+            .into())
         } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some()) {
             // Tier 3: fuzzy and/or context fallback when exact match fails (#1668).
             match crate::fallback::resolve_with_fallback_skip_exact(
@@ -571,6 +589,26 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     replaced.into_owned(),
                 );
                 record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
+            } else if let Some((n, total)) = (*nth).and_then(|n| {
+                let total =
+                    crate::ops::replace::count_content_matches(&content, old, compiled_re.as_ref());
+                if total > 0 && n > total {
+                    Some((n, total))
+                } else {
+                    None
+                }
+            }) {
+                let rel = file_path
+                    .strip_prefix(tx.cwd)
+                    .unwrap_or(&file_path)
+                    .display();
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!(
+                        "nth {n} is out of range in {rel}: pattern matches {total} time{}",
+                        if total == 1 { "" } else { "s" }
+                    ),
+                }
+                .into());
             } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some())
             {
                 // Fuzzy/context fallback for glob paths (parity with #1668 path arm).

@@ -200,6 +200,28 @@ fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> St
     expanded
 }
 
+/// Count non-overlapping matches of `from` / `compiled_re` in `content`.
+///
+/// Used for agent-honest errors when `--nth` is past the last match (the
+/// replace path returns applied count 0, which is otherwise indistinguishable
+/// from a true no-match).
+pub fn count_content_matches(content: &str, from: &str, compiled_re: Option<&Regex>) -> usize {
+    match compiled_re {
+        Some(re) => {
+            let content_len = content.len();
+            re.find_iter(content)
+                .filter(|m| !(m.start() == content_len && m.end() == content_len))
+                .count()
+        }
+        None => {
+            if from.is_empty() {
+                return 0;
+            }
+            content.match_indices(from).count()
+        }
+    }
+}
+
 pub fn replace_content<'a>(
     content: &'a str,
     from: &str,
