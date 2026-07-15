@@ -48,7 +48,11 @@ pub enum ContentEdit {
 }
 
 /// Result of applying a sequence of [`ContentEdit`]s to a buffer.
+///
+/// Marked `non_exhaustive` so new honesty fields can land in minor releases
+/// without breaking external struct literals.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ContentEditsResult {
     /// Original buffer before any edits.
     pub original: String,

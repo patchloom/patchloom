@@ -149,7 +149,11 @@ pub enum MatchMode {
 }
 
 /// The result of an editing operation.
+///
+/// Marked `non_exhaustive` so new honesty fields (for example `matched_text`)
+/// can land in minor releases without breaking external struct literals.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EditResult {
     /// Path to the affected file (as provided by the caller).
     pub path: String,
@@ -204,7 +208,11 @@ pub struct EditResult {
 ///
 /// Returned by [`replace::replace_in_content`] for callers that work on
 /// in-memory buffers rather than files on disk.
+///
+/// Marked `non_exhaustive` so new honesty fields can land in minor releases
+/// without breaking external struct literals.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ContentEditResult {
     /// The original content before the edit.
     pub original: String,
