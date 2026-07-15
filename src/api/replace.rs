@@ -252,6 +252,7 @@ fn replace_write(
         // Context disambiguation: when multiple exact matches and context is
         // provided, select the match nearest to the context instead of
         // replacing all (mirrors tx engine logic in replace_op.rs).
+        // Fail closed when context does not select a unique match.
         if count > 1
             && nth.is_none()
             && !whole_line
@@ -286,6 +287,13 @@ fn replace_write(
                 result.backup_session = backup_session;
                 return Ok(result);
             }
+            return Err(anyhow::Error::new(crate::exit::AmbiguousError {
+                msg: format!(
+                    "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                    crate::fallback::truncate_str(&old, 60),
+                    count
+                ),
+            }));
         }
 
         let new_content = new_content.into_owned();
@@ -560,37 +568,46 @@ pub fn replace_in_content(
     // Context disambiguation (#1315): when multiple exact matches and context
     // is provided, select the match nearest to the context instead of
     // replacing all (mirrors replace_write and tx engine logic).
+    // Fail closed when context does not select a unique match.
     if count > 1
         && opts.nth.is_none()
         && !opts.whole_line
         && !is_regex
         && (opts.before_context.is_some() || opts.after_context.is_some())
-        && let Some(target_offset) = ops::replace::context_filtered_offset(
+    {
+        if let Some(target_offset) = ops::replace::context_filtered_offset(
             content,
             from,
             opts.before_context.as_deref(),
             opts.after_context.as_deref(),
-        )
-    {
-        let ctx_content = format!(
-            "{}{}{}",
-            &content[..target_offset],
-            replacement,
-            &content[target_offset + from.len()..],
-        );
-        let diff = super::make_diff("<content>", content, &ctx_content);
-        return Ok(ContentEditResult {
-            original: content.to_string(),
-            new_content: ctx_content,
-            diff,
-            changed: true,
-            match_count: 1,
-            match_mode: Some(MatchMode::Anchored),
-            match_score: None,
-            // Exact span at the context-picked offset (equals `from`; hosts
-            // still get a non-null matched_text on Anchored like fuzzy #1736).
-            matched_text: Some(from.to_string()),
-        });
+        ) {
+            let ctx_content = format!(
+                "{}{}{}",
+                &content[..target_offset],
+                replacement,
+                &content[target_offset + from.len()..],
+            );
+            let diff = super::make_diff("<content>", content, &ctx_content);
+            return Ok(ContentEditResult {
+                original: content.to_string(),
+                new_content: ctx_content,
+                diff,
+                changed: true,
+                match_count: 1,
+                match_mode: Some(MatchMode::Anchored),
+                match_score: None,
+                // Exact span at the context-picked offset (equals `from`; hosts
+                // still get a non-null matched_text on Anchored like fuzzy #1736).
+                matched_text: Some(from.to_string()),
+            });
+        }
+        return Err(anyhow::Error::new(crate::exit::AmbiguousError {
+            msg: format!(
+                "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                crate::fallback::truncate_str(from, 60),
+                count
+            ),
+        }));
     }
 
     let new_content = new_content.into_owned();

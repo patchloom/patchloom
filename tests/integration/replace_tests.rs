@@ -2432,3 +2432,41 @@ fn test_replace_multi_fuzzy_floor_reports_refused() {
         "refused must name candidate: {v}"
     );
 }
+
+/// Context that fails to score must not replace-all multi-match.
+#[test]
+fn test_replace_context_fail_closed_not_replace_all() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "alpha foo\nbeta foo\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "foo",
+            "--new",
+            "X",
+            "--before-context",
+            "zzz",
+            "--apply",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(5), "want ambiguous exit 5");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("context did not select"),
+        "{v}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "alpha foo\nbeta foo\n",
+        "must not rewrite when context fails"
+    );
+}
