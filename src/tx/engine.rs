@@ -476,6 +476,54 @@ mod tests {
         assert!(fs::metadata(&c).unwrap().nlink() > 1);
     }
 
+    /// Double rename then replace in one plan (a->c->d) must keep hardlinks.
+    #[cfg(unix)]
+    #[test]
+    fn execute_rename_chain_then_replace_preserves_hardlinks() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "hello\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        let before_ino = fs::metadata(&a).unwrap().ino();
+
+        let global = GlobalFlags::test_default();
+        let plan = crate::plan::parse_plan(
+            r#"{"ops":[
+              {"op":"file.rename","from":"a.txt","to":"c.txt"},
+              {"op":"file.rename","from":"c.txt","to":"d.txt"},
+              {"op":"replace","path":"d.txt","old":"hello","new":"hi"}
+            ]}"#,
+        )
+        .unwrap();
+        let result =
+            execute_operations(plan.operations, test_options(dir.path(), &global)).unwrap();
+        assert_eq!(
+            result.exec_result.renames.len(),
+            2,
+            "both renames must be recorded for chaining, got {:?}",
+            result.exec_result.renames
+        );
+        result.commit().unwrap();
+
+        let d = dir.path().join("d.txt");
+        assert!(!dir.path().join("a.txt").exists());
+        assert!(!dir.path().join("c.txt").exists());
+        assert_eq!(fs::read_to_string(&d).unwrap(), "hi\n");
+        assert_eq!(
+            fs::read_to_string(&b).unwrap(),
+            "hi\n",
+            "hardlink sibling must see chained rename+replace"
+        );
+        assert_eq!(fs::metadata(&d).unwrap().ino(), before_ino);
+        assert!(
+            fs::metadata(&d).unwrap().nlink() > 1,
+            "nlink must stay > 1, got {}",
+            fs::metadata(&d).unwrap().nlink()
+        );
+    }
+
     #[test]
     fn execute_single_create_empty_file() {
         let dir = TempDir::new().unwrap();
