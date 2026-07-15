@@ -235,33 +235,45 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         if match_count > 0 {
             // When there are multiple exact matches and context is provided
             // (but no nth), use context to disambiguate instead of replacing all.
+            // If context does not select a unique match, fail closed as ambiguous
+            // (do not fall through to replace-all; fixrealloop 2026-07-15).
             if match_count > 1
                 && nth.is_none()
                 && !*whole_line
                 && !regex_mode
                 && (before_context.is_some() || after_context.is_some())
-                && let Some(target_offset) = context_filtered_offset(
+            {
+                if let Some(target_offset) = context_filtered_offset(
                     content,
                     old,
                     before_context.as_deref(),
                     after_context.as_deref(),
-                )
-            {
-                let new_content = format!(
-                    "{}{}{}",
-                    &content[..target_offset],
-                    replacement,
-                    &content[target_offset + old.len()..],
-                );
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &file_path,
-                    new_content,
-                );
-                record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
-                return Ok(1);
+                ) {
+                    let new_content = format!(
+                        "{}{}{}",
+                        &content[..target_offset],
+                        replacement,
+                        &content[target_offset + old.len()..],
+                    );
+                    update_file_content(
+                        tx.pending,
+                        tx.deletions,
+                        tx.write_targets,
+                        &file_path,
+                        new_content,
+                    );
+                    record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
+                    return Ok(1);
+                }
+                return Err(crate::exit::AmbiguousError {
+                    msg: format!(
+                        "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                        crate::fallback::truncate_str(old, 60),
+                        match_count,
+                        p
+                    ),
+                }
+                .into());
             }
             let owned = replaced.into_owned();
             update_file_content(
@@ -512,29 +524,43 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     && !*whole_line
                     && !regex_mode
                     && (before_context.is_some() || after_context.is_some())
-                    && let Some(target_offset) = context_filtered_offset(
+                {
+                    if let Some(target_offset) = context_filtered_offset(
                         &content,
                         old,
                         before_context.as_deref(),
                         after_context.as_deref(),
-                    )
-                {
-                    let new_content = format!(
-                        "{}{}{}",
-                        &content[..target_offset],
-                        replacement,
-                        &content[target_offset + old.len()..],
-                    );
-                    update_file_content(
-                        tx.pending,
-                        tx.deletions,
-                        tx.write_targets,
-                        &file_path,
-                        new_content,
-                    );
-                    record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
-                    total_matches += 1;
-                    continue;
+                    ) {
+                        let new_content = format!(
+                            "{}{}{}",
+                            &content[..target_offset],
+                            replacement,
+                            &content[target_offset + old.len()..],
+                        );
+                        update_file_content(
+                            tx.pending,
+                            tx.deletions,
+                            tx.write_targets,
+                            &file_path,
+                            new_content,
+                        );
+                        record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
+                        total_matches += 1;
+                        continue;
+                    }
+                    let rel = file_path
+                        .strip_prefix(tx.cwd)
+                        .unwrap_or(&file_path)
+                        .display();
+                    return Err(crate::exit::AmbiguousError {
+                        msg: format!(
+                            "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                            crate::fallback::truncate_str(old, 60),
+                            match_count,
+                            rel
+                        ),
+                    }
+                    .into());
                 }
                 total_matches += match_count;
                 update_file_content(
@@ -1029,6 +1055,54 @@ mod tests {
             result.contains("[cache]\nhost = localhost"),
             "cache section should be unchanged: {result}"
         );
+    }
+
+    /// Context that scores no match must not fall through to replace-all.
+    #[test]
+    fn replace_context_fail_closed_when_no_score() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "alpha foo\nbeta foo\n").unwrap();
+        let op = Operation::Replace {
+            path: Some("a.txt".into()),
+            glob: None,
+            regex: false,
+            old: "foo".into(),
+            new_text: Some("X".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            // "zzz" is nowhere near either match → score 0 → None.
+            before_context: Some("zzz".into()),
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_replace_op(&op, &mut tx).unwrap_err();
+        drop(tx);
+        let msg = err.to_string();
+        assert!(
+            msg.contains("context did not select") || msg.contains("ambiguous"),
+            "want fail-closed ambiguous, got: {msg}"
+        );
+        if let Some((_, content)) = f.pending.get(&file) {
+            assert_eq!(
+                content, "alpha foo\nbeta foo\n",
+                "must not rewrite either match when context fails: {content:?}"
+            );
+        }
     }
 
     #[test]
