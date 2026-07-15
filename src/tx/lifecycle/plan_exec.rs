@@ -130,7 +130,7 @@ pub fn execute_plan_direct(
     #[cfg(feature = "ast")]
     let verify_before = if let Some(ref checks) = plan.verify {
         if !checks.is_empty() {
-            let affected = verify::affected_file_paths(&plan, &effective_cwd);
+            let affected = verify::scan_paths_for_checks(&plan, &effective_cwd, checks);
             checks
                 .iter()
                 .map(|check| {
@@ -177,7 +177,8 @@ pub fn execute_plan_direct(
     // Post-execution verification against pending content.
     #[cfg(feature = "ast")]
     if !verify_before.is_empty() {
-        let affected = verify::affected_file_paths(&plan, &effective_cwd);
+        let checks: Vec<_> = verify_before.iter().map(|(c, _)| c.clone()).collect();
+        let affected = verify::scan_paths_for_checks(&plan, &effective_cwd, &checks);
         let mut messages = Vec::new();
         let mut any_failed = false;
         for (check, before_snap) in &verify_before {

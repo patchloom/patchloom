@@ -8348,3 +8348,54 @@ fn test_tx_replace_partial_floor_reports_refused() {
         "refused must name candidate: {json}"
     );
 }
+
+/// unique_names must reject renames that collide with symbols in other files.
+#[test]
+fn test_tx_verify_unique_names_cross_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn foo() {}\n").unwrap();
+    fs::write(dir.path().join("b.rs"), "fn bar() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rename",
+            "path": "a.rs",
+            "old": "foo",
+            "new": "bar"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--verify")
+        .arg("unique_names")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(6),
+        "cross-file unique_names collision should exit 6: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "verification_failed", "{json}");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("multiple files") && err.contains("bar"),
+        "error should name cross-file collision: {err}"
+    );
+    // Changes must not apply.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.rs")).unwrap(),
+        "fn foo() {}\n",
+        "rename must roll back on verification failure"
+    );
+}
