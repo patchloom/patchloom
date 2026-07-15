@@ -345,10 +345,18 @@ impl PatchloomService {
             .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
             // Tier 2: pre-validate structured file edits and collect warnings.
-            // Skip when case_insensitive or word_boundary is set: validate_edit_nth
-            // uses literal `content.contains(from)` which is case-sensitive and
-            // ignores word boundaries, producing false "pattern not found" errors.
-            let validation_warnings = if !p.regex && !p.case_insensitive && !p.word_boundary {
+            // Skip when case_insensitive, word_boundary, fuzzy, or context anchors
+            // are set: validate_edit_nth uses literal `content.contains(from)`,
+            // which is case-sensitive and exact-only. Fuzzy typo recovery and
+            // context anchors would get false "pattern not found" warnings while
+            // the engine still applies successfully (#1751).
+            let validation_warnings = if !p.regex
+                && !p.case_insensitive
+                && !p.word_boundary
+                && !p.fuzzy
+                && p.before_context.is_none()
+                && p.after_context.is_none()
+            {
                 let abs = svc.cwd().join(&p.path);
                 if let Ok(content) = std::fs::read_to_string(&abs) {
                     let to_str = p.new_text.as_deref().unwrap_or("");
