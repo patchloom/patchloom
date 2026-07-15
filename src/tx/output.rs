@@ -245,8 +245,11 @@ pub(crate) fn build_tx_output_with_meta(
         if let Some(m) = replace_match_meta.get(path) {
             any_replace_meta = true;
             agg_mode = Some(merge_match_modes(agg_mode, m.mode));
-            if matches!(m.mode, crate::api::MatchMode::Fuzzy) {
-                agg_score = m.score.or(agg_score);
+            if matches!(m.mode, crate::api::MatchMode::Fuzzy)
+                && let Some(s) = m.score
+            {
+                // Worst-case confidence: keep the lowest fuzzy score across paths.
+                agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
             }
             agg_count = agg_count.saturating_add(m.match_count);
             if top_matched_text.is_none() {
@@ -290,8 +293,18 @@ pub(crate) fn build_tx_output_with_meta(
         if !changes.iter().any(|(c, _, _)| c == path) {
             let (match_mode, match_score, match_count, matched_text) =
                 match_meta_for_path(path, replace_match_meta);
-            if replace_match_meta.contains_key(path) {
+            if let Some(m) = replace_match_meta.get(path) {
                 any_replace_meta = true;
+                agg_mode = Some(merge_match_modes(agg_mode, m.mode));
+                if matches!(m.mode, crate::api::MatchMode::Fuzzy)
+                    && let Some(s) = m.score
+                {
+                    agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
+                }
+                agg_count = agg_count.saturating_add(m.match_count);
+                if top_matched_text.is_none() {
+                    top_matched_text = m.matched_text.clone();
+                }
             }
             tx_changes.push(TxChange {
                 path: display_path(path),
@@ -341,8 +354,10 @@ pub(crate) fn build_tx_output_with_meta(
             None
         },
         // Surface only when a single replace path is present so multi-file
-        // rollups do not pick an arbitrary sibling span.
-        matched_text: if changes.len() == 1 {
+        // rollups do not pick an arbitrary sibling span. Gate on replace meta
+        // count (not write `changes.len()`), so a lone replace among other
+        // ops or a deletion-only replace path still reports the span.
+        matched_text: if replace_match_meta.len() == 1 {
             top_matched_text
         } else {
             None
@@ -786,6 +801,97 @@ mod tests {
         assert!(json.contains("\"match_mode\":\"fuzzy\""), "{json}");
         assert!(json.contains("\"match_count\":1"), "{json}");
         assert!(json.contains("\"matched_text\":\"proccess\""), "{json}");
+    }
+
+    /// Multi-path fuzzy aggregate must report the minimum score (worst case).
+    #[test]
+    fn build_tx_output_fuzzy_agg_score_is_minimum() {
+        let cwd = Path::new("/project");
+        let a = PathBuf::from("/project/a.txt");
+        let b = PathBuf::from("/project/b.txt");
+        let existed = HashSet::from([a.clone(), b.clone()]);
+        let changes = vec![
+            (a.clone(), "old".into(), "new".into()),
+            (b.clone(), "old".into(), "new".into()),
+        ];
+        let mut meta = HashMap::new();
+        meta.insert(
+            a,
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Fuzzy,
+                score: Some(0.95),
+                match_count: 1,
+                matched_text: Some("aaa".into()),
+            },
+        );
+        meta.insert(
+            b,
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Fuzzy,
+                score: Some(0.80),
+                match_count: 1,
+                matched_text: Some("bbb".into()),
+            },
+        );
+        let out = build_tx_output_with_meta(
+            "success",
+            true,
+            &changes,
+            &HashSet::new(),
+            &existed,
+            cwd,
+            &meta,
+        );
+        assert_eq!(out.match_mode.as_deref(), Some("fuzzy"));
+        assert_eq!(
+            out.match_score,
+            Some(0.80),
+            "worst-case aggregate score must be the min fuzzy score"
+        );
+        assert!(
+            out.matched_text.is_none(),
+            "multi-replace paths must not surface a single arbitrary matched_text"
+        );
+        assert_eq!(out.match_count, Some(2));
+    }
+
+    /// Top-level matched_text when only one replace path exists, even if other
+    /// non-replace changes are present (gate on replace meta, not changes.len).
+    #[test]
+    fn build_tx_output_matched_text_when_single_replace_among_other_changes() {
+        let cwd = Path::new("/project");
+        let replaced = PathBuf::from("/project/a.txt");
+        let other = PathBuf::from("/project/b.txt");
+        let existed = HashSet::from([replaced.clone(), other.clone()]);
+        let changes = vec![
+            (replaced.clone(), "old".into(), "new".into()),
+            (other, "x".into(), "y".into()),
+        ];
+        let mut meta = HashMap::new();
+        meta.insert(
+            replaced,
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Fuzzy,
+                score: Some(0.88),
+                match_count: 1,
+                matched_text: Some("live_span".into()),
+            },
+        );
+        let out = build_tx_output_with_meta(
+            "success",
+            true,
+            &changes,
+            &HashSet::new(),
+            &existed,
+            cwd,
+            &meta,
+        );
+        assert_eq!(
+            out.matched_text.as_deref(),
+            Some("live_span"),
+            "single replace path must surface matched_text even when other files changed"
+        );
+        assert_eq!(out.match_score, Some(0.88));
     }
 
     // ---- TxOutput serde round-trip ----

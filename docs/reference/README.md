@@ -603,7 +603,7 @@ These are meaningful command-specific modes that change how a top-level command 
 ### `replace --fuzzy` / library `ReplaceOptions.fuzzy` / plan `fuzzy`
 
 - **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library, single-path tx, **glob** plan ops, and CLI (including directory roots expanded like ordinary replace).
-- **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` / `matched_text` in library results and CLI/MCP JSON (#1669, #1736). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy.
+- **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` / `matched_text` in library results and CLI/MCP JSON (#1669, #1736). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy. Aggregate `match_score` is the **minimum** fuzzy score across paths/ops (lowest confidence), not the first fuzzy hit.
 - **Agent rule:** Fuzzy success is not semantic success. A high score can rewrite a *different* live identifier than `old` (example: `old=compute_cheksum` may match `compute_checksum` at score ~0.99). After fuzzy apply, check `matched_text` against the intended span; prefer `ast rename` for identifiers. Distinct from whole-line span fix #1694.
 - **Prefer instead:** Exact replace when the target string is known; `ast rename` for code identifiers.
 

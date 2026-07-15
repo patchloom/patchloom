@@ -70,7 +70,8 @@ pub struct ContentEditsResult {
     /// Worst-case match strategy across replace ops (`Fuzzy` > `Anchored` > `Exact`).
     /// `None` when no replace ops ran or none matched.
     pub match_mode: Option<MatchMode>,
-    /// Similarity score from the first fuzzy replace op in the batch, if any.
+    /// Lowest fuzzy similarity score across replace ops in the batch (worst-case
+    /// confidence when several fuzzy ops ran).
     pub match_score: Option<f64>,
     /// Matched span from the first fuzzy/anchored replace in the batch (#1736).
     pub matched_text: Option<String>,
@@ -117,8 +118,11 @@ pub fn apply_content_edits_with_label(
         ops_applied += 1;
         if let Some(m) = one.match_mode {
             match_mode = Some(super::merge_match_modes(match_mode, m));
-            if m == MatchMode::Fuzzy && match_score.is_none() {
-                match_score = one.match_score;
+            // Worst-case confidence: lowest fuzzy score across ops.
+            if m == MatchMode::Fuzzy
+                && let Some(s) = one.match_score
+            {
+                match_score = Some(match_score.map_or(s, |prev| prev.min(s)));
             }
             if matched_text.is_none() {
                 matched_text = one.matched_text;
