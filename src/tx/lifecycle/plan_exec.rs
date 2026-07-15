@@ -10,6 +10,7 @@ use crate::plan::{self, Plan};
 use crate::tx::execute::execute_and_collect;
 use crate::tx::output::{TxOutput, build_error_output, build_full_tx_output};
 use crate::tx::validate::validate_plan_operations;
+#[cfg(feature = "ast")]
 use crate::tx::verify;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

@@ -350,6 +350,22 @@ pub(crate) fn run_parsed_plan(
         return Ok(exit::PARSE_ERROR);
     }
 
+    // Symbol verify needs AST. Without the feature, reject so agents do not
+    // believe --verify / plan.verify ran when it was compiled out.
+    #[cfg(not(feature = "ast"))]
+    {
+        let plan_has_verify = plan.verify.as_ref().is_some_and(|v| !v.is_empty());
+        if !verify.is_empty() || plan_has_verify {
+            let msg = "symbol verification (`--verify` / plan `verify`) requires the `ast` feature (rebuild with default features or --features ast)";
+            if structured {
+                let ok = emit_error_json("invalid_input", msg, None, compact);
+                return Ok(exit_after_emit(ok, exit::FAILURE));
+            }
+            eprintln!("tx: {msg}");
+            return Ok(exit::FAILURE);
+        }
+    }
+
     crate::verbose!(
         "tx: parsed plan with {} operations, strict={:?}",
         plan.operations.len(),

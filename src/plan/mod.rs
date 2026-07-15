@@ -505,28 +505,27 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     // 3. Apply filter (currently supports `has_symbol(NAME)`).
     if let Some(ref filter) = fe.filter {
         let filter = filter.trim();
-        if let Some(sym_name) = filter
+        let Some(sym_name) = filter
             .strip_prefix("has_symbol(")
             .and_then(|s| s.strip_suffix(')'))
-        {
-            let sym_name = sym_name.trim();
-            #[cfg(feature = "ast")]
-            {
-                matched.retain(|p| {
-                    let syms = crate::ast::symbols::extract_symbols_from_file(p, None);
-                    syms.iter().any(|s| s.name == sym_name)
-                });
-            }
-            #[cfg(not(feature = "ast"))]
-            {
-                let _ = sym_name;
-                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: "for_each filter `has_symbol(...)` requires the `ast` feature".into(),
-                }));
-            }
-        } else {
+        else {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: format!("for_each: unsupported filter expression: {filter}"),
+            }));
+        };
+        let sym_name = sym_name.trim();
+        #[cfg(feature = "ast")]
+        {
+            matched.retain(|p| {
+                let syms = crate::ast::symbols::extract_symbols_from_file(p, None);
+                syms.iter().any(|s| s.name == sym_name)
+            });
+        }
+        #[cfg(not(feature = "ast"))]
+        {
+            let _ = sym_name;
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "for_each filter `has_symbol(...)` requires the `ast` feature".into(),
             }));
         }
     }

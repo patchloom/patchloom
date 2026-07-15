@@ -1488,4 +1488,31 @@ mod integrity {
             "restored file should have original content"
         );
     }
+
+    /// Without the `ast` feature, `--verify` must fail closed (not silent no-op).
+    #[test]
+    #[cfg(not(feature = "ast"))]
+    fn verify_without_ast_feature_is_invalid_input() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let txt = dir.path().join("a.txt");
+        fs::write(&txt, "hello\n").unwrap();
+        let plan_file = dir.path().join("plan.json");
+        fs::write(
+            &plan_file,
+            r#"{"operations":[{"op":"replace","path":"a.txt","old":"hello","new":"hi"}]}"#,
+        )
+        .unwrap();
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: false,
+            verify: vec!["unique_names".into()],
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_default();
+        global.apply = true;
+        global.json = true;
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
 }
