@@ -102,11 +102,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         command_position,
         fuzzy,
         min_fuzzy_score,
+        allow_absent_old,
         ..
     } = op
     else {
         anyhow::bail!("execute_replace_op called with non-Replace operation")
     };
+    let allow_absent_old = *allow_absent_old;
     let regex_mode = *regex_mode;
     if let Some(min) = min_fuzzy_score
         && (!(0.0..=1.0).contains(min) || min.is_nan())
@@ -277,6 +279,27 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             crate::fallback::truncate_str(old, 60),
                         ));
                         // Soft zero: still honor require_change below (#1748).
+                    } else if crate::fallback::should_refuse_fuzzy_absent_old(
+                        *fuzzy,
+                        mode == MatchMode::Fuzzy,
+                        allow_absent_old,
+                    ) {
+                        // #1758: exact old was absent (primary miss); do not
+                        // rewrite a different live span without opt-in.
+                        tx.replace_hint = Some(crate::fallback::fuzzy_absent_old_refuse_message(
+                            old,
+                            &anchor.matched_text,
+                            score,
+                        ));
+                        // Surface candidate honesty without counting a write match.
+                        record_replace_match(
+                            tx,
+                            &file_path,
+                            mode,
+                            score,
+                            0,
+                            Some(anchor.matched_text.clone()),
+                        );
                     } else {
                         let to_text = if let Some(ib) = insert_before {
                             format!("{}{}", ib, anchor.matched_text)
@@ -522,6 +545,28 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             // Skip this file; keep scanning (require_change after loop).
                             continue;
                         }
+                        if crate::fallback::should_refuse_fuzzy_absent_old(
+                            *fuzzy,
+                            mode == MatchMode::Fuzzy,
+                            allow_absent_old,
+                        ) {
+                            // #1758: fail closed when exact old absent.
+                            tx.replace_hint =
+                                Some(crate::fallback::fuzzy_absent_old_refuse_message(
+                                    old,
+                                    &anchor.matched_text,
+                                    score,
+                                ));
+                            record_replace_match(
+                                tx,
+                                &file_path,
+                                mode,
+                                score,
+                                0,
+                                Some(anchor.matched_text.clone()),
+                            );
+                            continue;
+                        }
                         let to_text = if let Some(ib) = insert_before {
                             format!("{}{}", ib, anchor.matched_text)
                         } else if let Some(ia) = insert_after {
@@ -630,6 +675,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -668,6 +714,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -704,6 +751,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -742,6 +790,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -778,6 +827,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -823,6 +873,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -864,6 +915,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -917,6 +969,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -967,6 +1020,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -1013,6 +1067,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -1057,6 +1112,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
 
         let mut f = TxStateFixture::new();
@@ -1094,6 +1150,7 @@ mod tests {
             command_position: true,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1130,6 +1187,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1170,6 +1228,7 @@ mod tests {
             command_position: false,
             fuzzy: true,
             min_fuzzy_score: Some(1.0),
+            allow_absent_old: true,
         };
         let mut f = TxStateFixture::new();
         let hint = {
@@ -1223,6 +1282,7 @@ mod tests {
             command_position: false,
             fuzzy: true,
             min_fuzzy_score: Some(1.0),
+            allow_absent_old: true,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1271,6 +1331,7 @@ mod tests {
             command_position: false,
             fuzzy: true,
             min_fuzzy_score: Some(1.0),
+            allow_absent_old: true,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1316,6 +1377,7 @@ mod tests {
             command_position: false,
             fuzzy: true,
             min_fuzzy_score: Some(1.0),
+            allow_absent_old: true,
         };
         let mut f = TxStateFixture::new();
         let hint = {
@@ -1363,6 +1425,7 @@ mod tests {
             command_position: false,
             fuzzy: true,
             min_fuzzy_score: None,
+            allow_absent_old: true,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1413,6 +1476,7 @@ mod tests {
             command_position: false,
             fuzzy: true,
             min_fuzzy_score: Some(0.80),
+            allow_absent_old: true,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1464,6 +1528,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
@@ -1503,6 +1568,7 @@ mod tests {
             command_position: false,
             fuzzy: true,
             min_fuzzy_score: None,
+            allow_absent_old: true,
         };
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());

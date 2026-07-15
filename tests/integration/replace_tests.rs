@@ -1913,6 +1913,7 @@ fn test_replace_fuzzy_identifier_typo_preserves_syntax() {
             "--new",
             "CONFIGURATION_VALUE_SECONDARY",
             "--fuzzy",
+            "--allow-absent-old",
             "--apply",
         ])
         .arg(&file)
@@ -1952,6 +1953,7 @@ fn test_replace_cli_min_fuzzy_score_rejects_weak_match() {
             "--new",
             "hello earth",
             "--fuzzy",
+            "--allow-absent-old",
             "--min-fuzzy-score",
             "0.99",
             "--apply",
@@ -1976,6 +1978,7 @@ fn test_replace_cli_min_fuzzy_score_rejects_weak_match() {
             "--new",
             "hello earth",
             "--fuzzy",
+            "--allow-absent-old",
             "--min-fuzzy-score",
             "0.99",
         ])
@@ -2007,6 +2010,7 @@ fn test_replace_cli_min_fuzzy_score_rejects_weak_match() {
             "--new",
             "hello earth",
             "--fuzzy",
+            "--allow-absent-old",
             "--min-fuzzy-score",
             "0.5",
             "--apply",
@@ -2042,6 +2046,7 @@ fn test_replace_fuzzy_identifier_typo_json_match_mode() {
             "--new",
             "handle_request",
             "--fuzzy",
+            "--allow-absent-old",
             "--apply",
         ])
         .arg(&file)
@@ -2088,6 +2093,7 @@ fn test_replace_fuzzy_json_reports_matched_text() {
             "--new",
             "compute_digest",
             "--fuzzy",
+            "--allow-absent-old",
             "--min-fuzzy-score",
             "0.95",
             "--apply",
@@ -2158,6 +2164,7 @@ fn test_replace_word_boundary_fuzzy_does_not_partial_match() {
             "X",
             "--word-boundary",
             "--fuzzy",
+            "--allow-absent-old",
             "--apply",
         ])
         .arg(&file)
@@ -2233,4 +2240,74 @@ fn test_replace_files_from_missing_reported_in_json() {
         "expected missing.txt in skipped: {v}"
     );
     assert_eq!(fs::read_to_string(&a).unwrap(), "hi\n");
+}
+
+/// #1758: invented typo near a live identifier must not rewrite without opt-in.
+#[test]
+fn test_replace_fuzzy_absent_old_fails_closed() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.py");
+    fs::write(
+        &file,
+        "def compute_checksum(payload: bytes) -> str:\n    return payload.hex()\n",
+    )
+    .unwrap();
+
+    // Default: refuse (no --allow-absent-old).
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "compute_cheksum",
+            "--new",
+            "compute_digest",
+            "--fuzzy",
+            "--min-fuzzy-score",
+            "0.95",
+            "--apply",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("exact old absent") && err.contains("compute_checksum"),
+        "JSON error must explain refuse: {v}"
+    );
+    assert!(
+        fs::read_to_string(&file)
+            .unwrap()
+            .contains("compute_checksum"),
+        "file must be unchanged without opt-in"
+    );
+
+    // Opt-in restores apply.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "compute_cheksum",
+            "--new",
+            "compute_digest",
+            "--fuzzy",
+            "--allow-absent-old",
+            "--min-fuzzy-score",
+            "0.95",
+            "--apply",
+        ])
+        .arg(&file)
+        .assert()
+        .code(0);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("compute_digest"), "{on_disk}");
+    assert!(!on_disk.contains("compute_checksum"), "{on_disk}");
 }

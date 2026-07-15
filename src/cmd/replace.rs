@@ -115,6 +115,13 @@ pub struct ReplaceArgs {
     /// (#1687, #1736).
     #[arg(long, value_name = "SCORE")]
     pub min_fuzzy_score: Option<f64>,
+    // ref:replace-mode:allow-absent-old
+    /// Allow fuzzy/similarity to rewrite a nearby live span when exact `--old`
+    /// is not in the file. Default is fail-closed (#1758): report the best
+    /// candidate without writing. Anchored context matches still apply.
+    /// Plan/MCP field: `allow_absent_old`.
+    #[arg(long)]
+    pub allow_absent_old: bool,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -805,6 +812,7 @@ fn run_context_replace(
                 command_position: args.command_position,
                 fuzzy: args.fuzzy,
                 min_fuzzy_score: args.min_fuzzy_score,
+                allow_absent_old: args.allow_absent_old,
             }
         })
         .collect();
@@ -873,6 +881,7 @@ fn run_context_replace(
         require_change: false,
         command_position: args.command_position,
         min_fuzzy_score: args.min_fuzzy_score,
+        allow_absent_old: args.allow_absent_old,
         post_write: None,
         post_write_cwd: None,
     };

@@ -2481,6 +2481,7 @@ fn adapter_unchanged_returns_no_diff() {
         command_position: false,
         fuzzy: false,
         min_fuzzy_score: None,
+        allow_absent_old: false,
     };
 
     let result =
@@ -2883,6 +2884,7 @@ fn replace_in_content_fuzzy_resolves_typo() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         ..Default::default()
     };
     let result = replace::replace_in_content(
@@ -2913,6 +2915,7 @@ fn replace_in_content_fuzzy_exact_match_preferred() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         ..Default::default()
     };
     let result =
@@ -2929,6 +2932,7 @@ fn replace_in_content_fuzzy_no_match_returns_error_with_hints() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         ..Default::default()
     };
     let err = replace::replace_in_content(
@@ -2952,6 +2956,7 @@ fn replace_in_content_fuzzy_with_if_exists_suppresses_error() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         if_exists: true,
         ..Default::default()
     };
@@ -2974,6 +2979,7 @@ fn replace_in_content_min_fuzzy_floor_honors_if_exists() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: Some(1.0),
+        allow_absent_old: true,
         if_exists: true,
         ..Default::default()
     };
@@ -2998,6 +3004,7 @@ fn replace_text_min_fuzzy_floor_honors_if_exists() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: Some(1.0),
+        allow_absent_old: true,
         if_exists: true,
         ..Default::default()
     };
@@ -3037,6 +3044,7 @@ fn replace_in_content_fuzzy_not_applied_in_regex_mode() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         regex: true,
         ..Default::default()
     };
@@ -3057,6 +3065,7 @@ fn replace_in_content_fuzzy_with_unique() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         unique: true,
         ..Default::default()
     };
@@ -3079,6 +3088,7 @@ fn replace_in_content_fuzzy_with_insert_before() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         insert_before: Some("// TODO: refactor\n".to_string()),
         ..Default::default()
     };
@@ -3108,6 +3118,7 @@ fn replace_in_content_fuzzy_with_insert_after() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         insert_after: Some("\n// end".to_string()),
         ..Default::default()
     };
@@ -3127,6 +3138,7 @@ fn replace_in_content_fuzzy_uses_before_context() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         before_context: Some("fn beta()".to_string()),
         ..Default::default()
     };
@@ -3149,6 +3161,7 @@ fn replace_in_content_fuzzy_uses_after_context() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         after_context: Some("fn beta()".to_string()),
         ..Default::default()
     };
@@ -3510,6 +3523,7 @@ fn replace_in_content_unicode_fuzzy() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         ..Default::default()
     };
     let result = replace::replace_in_content(
@@ -3684,6 +3698,7 @@ fn replace_text_fuzzy_with_context_any_path() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         before_context: Some("fn setup()".to_string()),
         ..Default::default()
     };
@@ -3714,6 +3729,7 @@ fn replace_text_fuzzy_with_if_exists_any_path() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         if_exists: true,
         before_context: Some("fn alpha()".to_string()),
         ..Default::default()
@@ -4185,6 +4201,7 @@ fn replace_in_content_command_position_rejects_word_boundary_and_fuzzy() {
                 command_position: true,
                 fuzzy: true,
                 min_fuzzy_score: None,
+                allow_absent_old: true,
                 ..Default::default()
             },
         ),
@@ -4836,6 +4853,7 @@ fn match_mode_exact_fuzzy_and_anchored() {
         &ReplaceOptions {
             fuzzy: true,
             min_fuzzy_score: None,
+            allow_absent_old: true,
             ..Default::default()
         },
     )
@@ -4885,6 +4903,7 @@ fn replace_text_pure_fuzzy_without_context() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: None,
+        allow_absent_old: true,
         require_change: true,
         ..Default::default()
     };
@@ -5205,6 +5224,7 @@ fn min_fuzzy_score_rejects_weak_fuzzy_allows_exact() {
         "REPLACED",
         &ReplaceOptions {
             fuzzy: true,
+            allow_absent_old: true,
             ..Default::default()
         },
     )
@@ -5225,6 +5245,7 @@ fn min_fuzzy_score_rejects_weak_fuzzy_allows_exact() {
         let strict = ReplaceOptions {
             fuzzy: true,
             min_fuzzy_score: Some(strict_floor),
+            allow_absent_old: true,
             ..Default::default()
         };
         let err = replace_in_content(content, misspelled, "REPLACED", &strict).unwrap_err();
@@ -5243,6 +5264,7 @@ fn min_fuzzy_score_rejects_weak_fuzzy_allows_exact() {
     let loose = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: Some(natural),
+        allow_absent_old: true,
         ..Default::default()
     };
     let ok = replace_in_content(content, misspelled, "REPLACED {", &loose).unwrap();
@@ -5254,6 +5276,7 @@ fn min_fuzzy_score_rejects_weak_fuzzy_allows_exact() {
     let exact_opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: Some(1.0),
+        allow_absent_old: true,
         ..Default::default()
     };
     let exact = replace_in_content("alpha beta gamma\n", "beta", "BETA", &exact_opts).unwrap();
@@ -5485,6 +5508,7 @@ fn fuzzy_identifier_typo_keeps_line_syntax() {
         "CONFIGURATION_VALUE_SECONDARY",
         &ReplaceOptions {
             fuzzy: true,
+            allow_absent_old: true,
             ..Default::default()
         },
     )
@@ -5509,6 +5533,7 @@ fn fuzzy_embedder_options_identifier_typo_safe() {
     let content = "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n";
     let opts = ReplaceOptions {
         fuzzy: true,
+        allow_absent_old: true,
         unique: true,
         require_change: true,
         min_fuzzy_score: Some(0.80),
@@ -5580,6 +5605,7 @@ fn fuzzy_identifier_typo_matrix_replace_in_content() {
             new,
             &ReplaceOptions {
                 fuzzy: true,
+                allow_absent_old: true,
                 require_change: true,
                 ..Default::default()
             },
@@ -5604,6 +5630,7 @@ fn fuzzy_does_not_bypass_unique_on_exact_multi_match() {
         "baz",
         &ReplaceOptions {
             fuzzy: true,
+            allow_absent_old: true,
             unique: true,
             ..Default::default()
         },
@@ -5637,6 +5664,7 @@ fn fuzzy_identifier_typo_disk_apply_preserves_syntax() {
         "CONFIGURATION_VALUE_SECONDARY",
         &ReplaceOptions {
             fuzzy: true,
+            allow_absent_old: true,
             unique: true,
             require_change: true,
             ..Default::default()
@@ -5662,6 +5690,7 @@ fn min_fuzzy_score_rejects_out_of_range() {
         let opts = ReplaceOptions {
             fuzzy: true,
             min_fuzzy_score: Some(bad),
+            allow_absent_old: true,
             ..Default::default()
         };
         let err = replace_in_content("hello world\n", "helo", "hi", &opts).unwrap_err();
@@ -5709,6 +5738,7 @@ fn replace_in_content_fuzzy_near_collision_reports_matched_text() {
     let opts = ReplaceOptions {
         fuzzy: true,
         min_fuzzy_score: Some(0.95),
+        allow_absent_old: true,
         ..ReplaceOptions::default()
     };
     let r = replace_in_content(content, "compute_cheksum", "compute_digest", &opts)
@@ -5735,4 +5765,34 @@ fn replace_in_content_fuzzy_near_collision_reports_matched_text() {
         r.new_content.contains("compute_digest"),
         "replacement should apply to the matched span"
     );
+}
+
+/// #1758: fuzzy must not rewrite a live identifier when exact old is absent.
+#[test]
+fn fuzzy_absent_old_fails_closed_by_default() {
+    let content = "def compute_checksum(payload: bytes) -> str:\n    return payload.hex()\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: Some(0.95),
+        allow_absent_old: false,
+        require_change: true,
+        ..Default::default()
+    };
+    let err = replace_in_content(content, "compute_cheksum", "compute_digest", &opts)
+        .expect_err("must refuse fuzzy rewrite of live identifier without opt-in");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("exact old absent") && msg.contains("compute_checksum"),
+        "error must name candidate: {msg}"
+    );
+    // Opt-in restores historical apply-on-absent-old behavior.
+    let opts_on = ReplaceOptions {
+        allow_absent_old: true,
+        ..opts
+    };
+    let r = replace_in_content(content, "compute_cheksum", "compute_digest", &opts_on)
+        .expect("opt-in must apply fuzzy candidate");
+    assert!(r.changed);
+    assert!(r.new_content.contains("compute_digest"));
+    assert!(!r.new_content.contains("compute_checksum"));
 }

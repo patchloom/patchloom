@@ -125,18 +125,15 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).\n\
              - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).\n\
              - `min_fuzzy_score`: reject fuzzy matches below this floor (0.0..=1.0); exact/anchored unaffected (#1687).\n\
+             - `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n\
-             **Fuzzy success is not semantic success (#1736):**\n\
-             - `min_fuzzy_score` only rejects *weak* similarity. Scores above the floor can still \
-rewrite a *different* live identifier than the `old` string you requested.\n\
-             - After any fuzzy apply, read JSON `matched_text` (and re-read the file if needed). \
-If `matched_text` is not the intended typo (for example `old=compute_cheksum` fuzzy-hits \
-`compute_checksum` at score ~0.99), **undo** and use `ast_rename` / exact replace instead.\n\
+             **Fuzzy defaults fail closed when exact old is absent (#1758):**\n\
+             - If `old` is not present, fuzzy will **not** rewrite a nearby live span by default, even when \
+score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_absent_old=true` only for deliberate approximate recovery.\n\
              - Prefer `ast_rename` / `ast_rename_project` for code identifiers. Fuzzy is a last \
 resort for typos in non-AST text (prose, comments), not a general rename tool.\n\
-             - Do not treat `ok` + `match_score >= min_fuzzy_score` alone as \"correct target.\" \
-Distinct from closed whole-line bug #1694.\n\n\
+             - When you opt into `allow_absent_old`, still check JSON `matched_text` before treating the edit as semantic success (#1736).\n\n\
              **Library embedder undo / post-write (Rust hosts, not CLI-only):**\n\
              - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).\n\
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
@@ -345,9 +342,9 @@ Distinct from closed whole-line bug #1694.\n\n\
              patchloom search --count \"old_function_name\" src/\n\
              patchloom replace \"old_function_name\" --new \"new_function_name\" src/ --apply\n\
              ```\n\n\
-             Bad: `replace --fuzzy` with a misspelled `old` that is **not** in the file \
-             (e.g. `compute_cheksum` → may rewrite live `compute_checksum` even with \
-             `--min-fuzzy-score 0.95`). After fuzzy JSON, check `matched_text` (#1736).\n\n",
+             Default: `replace --fuzzy` with a misspelled `old` that is **not** in the file \
+             refuses the write (#1758). Opt in only with `--allow-absent-old` for deliberate \
+             approximate recovery, then check `matched_text` (#1736).\n\n",
         );
 
         out.push_str(
@@ -359,8 +356,8 @@ Distinct from closed whole-line bug #1694.\n\n\
              patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply\n\n\
              # Rewrite shell invocable tokens only (not uv pip / pipenv):\n\
              patchloom replace pip --new uv install.sh --command-position --require-change --apply\n\
-             patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --apply\n\
-             patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --min-fuzzy-score 0.80 --apply\n\
+             patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --allow-absent-old --apply\n\
+             patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --allow-absent-old --min-fuzzy-score 0.80 --apply\n\
              ```\n\n",
         );
 
@@ -817,9 +814,9 @@ mod tests {
                 && mcp.contains("run_post_write_validation")
                 && mcp.contains("match_mode")
                 && mcp.contains("matched_text")
-                && mcp.contains("Fuzzy success is not semantic success")
-                && mcp.contains("compute_cheksum"),
-            "MCP-only agent-rules must document replace_text flags, matched_text, and fuzzy semantic check (#1736)"
+                && mcp.contains("allow_absent_old")
+                && mcp.contains("fail closed"),
+            "MCP-only agent-rules must document replace_text flags and fuzzy fail-closed (#1758)"
         );
     }
 
@@ -827,8 +824,8 @@ mod tests {
     fn workflow_documents_fuzzy_near_collision_negative_example() {
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(
-            out.contains("compute_cheksum") && out.contains("matched_text"),
-            "CLI rename workflow must warn about fuzzy near-identifier collisions (#1736)"
+            out.contains("allow-absent-old") && out.contains("refuses the write"),
+            "CLI rename workflow must document fuzzy fail-closed when exact old absent (#1758)"
         );
     }
 

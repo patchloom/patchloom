@@ -200,6 +200,7 @@ fn op_needs_doc_flush_for_replace() {
         command_position: false,
         fuzzy: false,
         min_fuzzy_score: None,
+        allow_absent_old: false,
     };
     assert!(op_needs_doc_flush(&op));
 }

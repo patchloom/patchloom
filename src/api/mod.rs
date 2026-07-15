@@ -319,6 +319,11 @@ pub struct ReplaceOptions {
     /// When fuzzy applies, reject if similarity is below this floor (e.g. `0.80`).
     /// `None` = no floor (default). Exact and anchored matches are unaffected (#1687).
     pub min_fuzzy_score: Option<f64>,
+    /// When exact `old` is not present, allow Similarity/fuzzy to rewrite a nearby
+    /// live span. Default `false` fails closed (#1758): refuse the write and report
+    /// the best candidate. Anchored matches (explicit context) still apply.
+    /// Opt in for deliberate approximate recovery (former 0.14 fuzzy default).
+    pub allow_absent_old: bool,
     /// Optional post-Apply format/lint hooks (#1690 / #1663).
     ///
     /// When set, runs after a successful disk write. Prefer pairing with

@@ -586,6 +586,7 @@ mod tests {
             options: ReplaceOptions {
                 fuzzy: true,
                 min_fuzzy_score: None,
+                allow_absent_old: true,
                 require_change: true,
                 ..Default::default()
             },
