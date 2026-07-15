@@ -552,17 +552,33 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         ));
                         total_matches += 1;
                     }
-                    Err(_) => {
-                        // Keep scanning other files; require_change checked after loop.
+                    Err(edit_error) => {
+                        // Parity with single-path arm: keep diagnostics for
+                        // require_change / replace_no_matches surfaces.
+                        tx.replace_hint = Some(edit_error.message.clone());
                     }
+                }
+            } else if !regex_mode {
+                // Exact miss, no fuzzy/context: did-you-mean for this file
+                // (last non-empty similar list wins; used if no file matched).
+                let similar = crate::fallback::find_similar_targets(&content, old, 3);
+                if !similar.is_empty() {
+                    let rel = crate::files::relative_display(&file_path, tx.cwd).to_string_lossy();
+                    tx.replace_hint = Some(format!(
+                        "no matches for '{}' in {} (did you mean: {}?)",
+                        crate::fallback::truncate_str(old, 60),
+                        rel,
+                        similar.join(", ")
+                    ));
                 }
             }
         }
         if total_matches == 0 && *require_change && !if_exists {
-            return Err(crate::exit::NoMatchError {
-                msg: format!("no matches for {old:?} (glob {pattern})"),
-            }
-            .into());
+            let msg = tx
+                .replace_hint
+                .clone()
+                .unwrap_or_else(|| format!("no matches for {old:?} (glob {pattern})"));
+            return Err(crate::exit::NoMatchError { msg }.into());
         }
         Ok(total_matches)
     } else {
@@ -1213,6 +1229,50 @@ mod tests {
         assert!(
             f.write_targets.is_empty(),
             "rejected fuzzy must not stage a write"
+        );
+    }
+
+    /// Glob + require_change after floor reject must put the floor message in
+    /// the NoMatch error (not a generic "no matches for … (glob …)").
+    #[test]
+    fn replace_glob_min_fuzzy_require_change_includes_hint() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join("src.rs"),
+            "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n",
+        )
+        .unwrap();
+
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("*.rs".into()),
+            regex: false,
+            old: "fn process_requets(data: &str) -> Result<()> {".into(),
+            new_text: Some("REPLACED".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
+            require_change: true,
+            command_position: false,
+            fuzzy: true,
+            min_fuzzy_score: Some(1.0),
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_replace_op(&op, &mut tx).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("min_fuzzy_score"),
+            "glob require_change must surface floor hint, got: {msg}"
         );
     }
 
