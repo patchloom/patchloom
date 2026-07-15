@@ -311,6 +311,9 @@ fn replace_write(
                 &old,
                 before_context.as_deref(),
                 after_context.as_deref(),
+                // Primary path already applied word_boundary exact; bare find
+                // would re-accept substrings rejected by \b (#1755).
+                word_boundary,
             ) {
                 Ok(anchor) => {
                     let (match_mode, default_score) =
@@ -578,6 +581,9 @@ pub fn replace_in_content(
             from,
             opts.before_context.as_deref(),
             opts.after_context.as_deref(),
+            // Primary path already applied word_boundary exact; bare find
+            // would re-accept substrings rejected by \b (#1755).
+            opts.word_boundary,
         ) {
             Ok(anchor) => {
                 let (mode, default_score) = super::match_mode_from_strategy(anchor.strategy);

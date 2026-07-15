@@ -256,6 +256,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 old,
                 before_context.as_deref(),
                 after_context.as_deref(),
+                // Primary path already applied word_boundary exact; bare find
+                // would re-accept substrings rejected by \b (#1755).
+                word_boundary,
             ) {
                 Ok(anchor) => {
                     let (mode, default_score) =
@@ -494,6 +497,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     old,
                     before_context.as_deref(),
                     after_context.as_deref(),
+                    // Primary path already applied word_boundary exact; bare find
+                    // would re-accept substrings rejected by \b (#1755).
+                    word_boundary,
                 ) {
                     Ok(anchor) => {
                         let (mode, default_score) =

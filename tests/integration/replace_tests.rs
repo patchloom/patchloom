@@ -2113,3 +2113,76 @@ fn test_replace_fuzzy_json_reports_matched_text() {
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("compute_digest"), "file: {content}");
 }
+
+/// #1755: --fuzzy must not undo --word-boundary by bare Exact fallback.
+#[test]
+fn test_replace_word_boundary_fuzzy_does_not_partial_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ids.txt");
+    fs::write(&file, "process_data process_data_extra\n").unwrap();
+
+    // word_boundary alone: miss (process_dat is a prefix, not a whole word).
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "process_dat",
+            "--new",
+            "X",
+            "--word-boundary",
+            "--apply",
+        ])
+        .arg(&file)
+        .assert()
+        .code(3);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "process_data process_data_extra\n"
+    );
+
+    // word_boundary + fuzzy: must not re-accept the bare substring via Exact.
+    // Token similarity may rewrite the full identifier process_data, which is
+    // correct whole-word recovery; partial "process_dat" -> "X" + "a" is not.
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "process_dat",
+            "--new",
+            "X",
+            "--word-boundary",
+            "--fuzzy",
+            "--apply",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        !on_disk.starts_with("Xa"),
+        "must not partial-match inside process_data: {on_disk}"
+    );
+    if out.status.code() == Some(0) {
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let mode = v["match_mode"].as_str().unwrap_or("");
+        assert_ne!(mode, "exact", "skip_exact must block bare Exact: {v}");
+        let matched = v["matched_text"].as_str().unwrap_or("");
+        assert_ne!(matched, "process_dat", "must not match bare substring: {v}");
+        // Whole-token recovery rewrites process_data -> X (process_data_extra may remain).
+        assert!(
+            on_disk.starts_with("X "),
+            "fuzzy whole-token recovery expected: {on_disk}"
+        );
+        assert_eq!(matched, "process_data", "should match full identifier: {v}");
+    } else {
+        assert_eq!(
+            out.status.code(),
+            Some(3),
+            "soft miss ok if similarity does not fire: status={} stderr={}",
+            out.status.code().unwrap_or(255),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(on_disk, "process_data process_data_extra\n");
+    }
+}
