@@ -32,7 +32,7 @@
 //!     "fn process_data(x: i32) {}",
 //!     Some("fn setup() {}"),
 //!     Some("fn cleanup() {}"),
-//! ).expect("anchor match should succeed");
+//!).expect("anchor match should succeed");
 //! assert_eq!(result.strategy, MatchStrategy::Anchor);
 //! assert!(result.matched_text.contains("proccess_data"));
 //! ```
@@ -619,14 +619,34 @@ impl std::fmt::Display for MatchStrategy {
 /// Run the full fallback chain: exact -> anchor -> similarity -> structured error.
 ///
 /// Returns the first successful match or a structured error with diagnosis.
+///
+/// Stable 4-arg surface. Callers that already enforced a stricter exact path
+/// (for example `--word-boundary`) should use [`resolve_with_fallback_skip_exact`]
+/// so bare `find` does not re-accept a substring the primary path rejected.
 pub fn resolve_with_fallback(
     content: &str,
     target: &str,
     before_context: Option<&str>,
     after_context: Option<&str>,
 ) -> Result<AnchorMatchResult, EditError> {
-    // Step 1: Exact match.
-    if let Some(pos) = content.find(target) {
+    resolve_with_fallback_skip_exact(content, target, before_context, after_context, false)
+}
+
+/// Like [`resolve_with_fallback`], with control over the bare Exact tier.
+///
+/// When `skip_exact` is true, bare `find` Exact matching is skipped. Callers that
+/// already ran a stricter exact path (for example `--word-boundary`) must set
+/// this so fallback does not re-accept a substring that word boundaries rejected
+/// (#1755). Similarity and anchor strategies still run (whole-token typo recovery).
+pub fn resolve_with_fallback_skip_exact(
+    content: &str,
+    target: &str,
+    before_context: Option<&str>,
+    after_context: Option<&str>,
+    skip_exact: bool,
+) -> Result<AnchorMatchResult, EditError> {
+    // Step 1: Exact match (unless caller already enforced a stricter exact path).
+    if !skip_exact && let Some(pos) = content.find(target) {
         return Ok(AnchorMatchResult {
             matched_text: target.to_string(),
             start_offset: pos,
@@ -637,7 +657,11 @@ pub fn resolve_with_fallback(
 
     // Step 2: Anchor-based matching.
     if let Some(result) = anchor_match(content, target, before_context, after_context) {
-        return Ok(result);
+        // anchor_match may still surface Exact via its own find; reject that when
+        // the caller asked to skip bare exact (word_boundary).
+        if !(skip_exact && result.strategy == MatchStrategy::Exact) {
+            return Ok(result);
+        }
     }
 
     // Step 3: Similarity-based matching (#1694).
@@ -1139,6 +1163,34 @@ mod tests {
         let content = "fn hello() {}\n";
         let result = resolve_with_fallback(content, "fn hello()", None, None).unwrap();
         assert_eq!(result.strategy, MatchStrategy::Exact);
+    }
+
+    /// #1755: skip_exact must not re-accept a bare substring after a stricter
+    /// primary path (e.g. word_boundary) already rejected it.
+    #[test]
+    fn resolve_with_fallback_skip_exact_rejects_substring() {
+        let content = "process_data process_data_extra\n";
+        // Without skip_exact, bare find would match "process_dat" inside process_data.
+        let bare = resolve_with_fallback(content, "process_dat", None, None).unwrap();
+        assert_eq!(bare.strategy, MatchStrategy::Exact);
+        assert_eq!(bare.matched_text, "process_dat");
+
+        // With skip_exact, Exact is skipped; token similarity may recover the
+        // full identifier (process_data) or miss — but never the bare substring.
+        match resolve_with_fallback_skip_exact(content, "process_dat", None, None, true) {
+            Ok(hit) => {
+                assert_ne!(
+                    hit.strategy,
+                    MatchStrategy::Exact,
+                    "skip_exact must not return Exact"
+                );
+                assert_ne!(
+                    hit.matched_text, "process_dat",
+                    "must not re-accept word_boundary-rejected substring"
+                );
+            }
+            Err(e) => assert_eq!(e.kind, EditErrorKind::NoMatch),
+        }
     }
 
     /// Regression: similarity matching on CRLF content must compute

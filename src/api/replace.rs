@@ -306,11 +306,14 @@ fn replace_write(
         if count == 0 && !is_regex && (fuzzy || before_context.is_some() || after_context.is_some())
         {
             use crate::fallback;
-            match fallback::resolve_with_fallback(
+            match fallback::resolve_with_fallback_skip_exact(
                 &original,
                 &old,
                 before_context.as_deref(),
                 after_context.as_deref(),
+                // Primary path already applied word_boundary exact; bare find
+                // would re-accept substrings rejected by \b (#1755).
+                word_boundary,
             ) {
                 Ok(anchor) => {
                     let (match_mode, default_score) =
@@ -573,11 +576,14 @@ pub fn replace_in_content(
         && (opts.fuzzy || opts.before_context.is_some() || opts.after_context.is_some())
     {
         use crate::fallback;
-        match fallback::resolve_with_fallback(
+        match fallback::resolve_with_fallback_skip_exact(
             content,
             from,
             opts.before_context.as_deref(),
             opts.after_context.as_deref(),
+            // Primary path already applied word_boundary exact; bare find
+            // would re-accept substrings rejected by \b (#1755).
+            opts.word_boundary,
         ) {
             Ok(anchor) => {
                 let (mode, default_score) = super::match_mode_from_strategy(anchor.strategy);

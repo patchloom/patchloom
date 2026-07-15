@@ -1786,6 +1786,11 @@ fn test_replace_cli_json_no_matches_includes_similar_targets() {
             .any(|s| s.as_str() == Some("process_request")),
         "expected process_request suggestion: {v}"
     );
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("did you mean") && err.contains("process_request"),
+        "exact no-match JSON error must carry did-you-mean prose: {v}"
+    );
 }
 
 #[test]
@@ -1955,6 +1960,39 @@ fn test_replace_cli_min_fuzzy_score_rejects_weak_match() {
         "high floor must leave content unchanged"
     );
 
+    // Soft floor reject under --json must surface engine replace_hint in `error`
+    // so agents do not only get error_kind=no_matches with an empty body (#1754).
+    let json_out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "hello world",
+            "--new",
+            "hello earth",
+            "--fuzzy",
+            "--min-fuzzy-score",
+            "0.99",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        json_out.status.code(),
+        Some(3),
+        "stderr={}",
+        String::from_utf8_lossy(&json_out.stderr)
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&json_out.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("min_fuzzy_score") || err.contains("below"),
+        "CLI fuzzy floor no-match JSON must include floor hint in error: {v}"
+    );
+
     // Lower floor accepts the same fuzzy hit.
     Command::cargo_bin("patchloom")
         .unwrap()
@@ -2074,4 +2112,77 @@ fn test_replace_fuzzy_json_reports_matched_text() {
     assert_eq!(file_matched, matched);
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("compute_digest"), "file: {content}");
+}
+
+/// #1755: --fuzzy must not undo --word-boundary by bare Exact fallback.
+#[test]
+fn test_replace_word_boundary_fuzzy_does_not_partial_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ids.txt");
+    fs::write(&file, "process_data process_data_extra\n").unwrap();
+
+    // word_boundary alone: miss (process_dat is a prefix, not a whole word).
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace",
+            "process_dat",
+            "--new",
+            "X",
+            "--word-boundary",
+            "--apply",
+        ])
+        .arg(&file)
+        .assert()
+        .code(3);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "process_data process_data_extra\n"
+    );
+
+    // word_boundary + fuzzy: must not re-accept the bare substring via Exact.
+    // Token similarity may rewrite the full identifier process_data, which is
+    // correct whole-word recovery; partial "process_dat" -> "X" + "a" is not.
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "process_dat",
+            "--new",
+            "X",
+            "--word-boundary",
+            "--fuzzy",
+            "--apply",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        !on_disk.starts_with("Xa"),
+        "must not partial-match inside process_data: {on_disk}"
+    );
+    if out.status.code() == Some(0) {
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let mode = v["match_mode"].as_str().unwrap_or("");
+        assert_ne!(mode, "exact", "skip_exact must block bare Exact: {v}");
+        let matched = v["matched_text"].as_str().unwrap_or("");
+        assert_ne!(matched, "process_dat", "must not match bare substring: {v}");
+        // Whole-token recovery rewrites process_data -> X (process_data_extra may remain).
+        assert!(
+            on_disk.starts_with("X "),
+            "fuzzy whole-token recovery expected: {on_disk}"
+        );
+        assert_eq!(matched, "process_data", "should match full identifier: {v}");
+    } else {
+        assert_eq!(
+            out.status.code(),
+            Some(3),
+            "soft miss ok if similarity does not fire: status={} stderr={}",
+            out.status.code().unwrap_or(255),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(on_disk, "process_data process_data_extra\n");
+    }
 }

@@ -149,6 +149,10 @@ struct ReplaceOutput {
     /// aligned with tx JSON `error_kind`. Omitted on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     error_kind: Option<&'static str>,
+    /// Human/agent diagnostic on failure (floor reject, did-you-mean prose).
+    /// Mirrors tx JSON `error` for soft no-matches (#1754).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
     /// Aggregate match strategy when all files share one mode (#1669).
     #[serde(skip_serializing_if = "Option::is_none")]
     match_mode: Option<&'static str>,
@@ -448,6 +452,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     diff: None,
                     identity: None,
                     error_kind: Some("ambiguous"),
+                    error: None,
                     match_mode: None,
                     match_score: None,
                     matched_text: None,
@@ -484,6 +489,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 diff: None,
                 identity: Some(true),
                 error_kind: None,
+                error: None,
                 match_mode: Some("exact"),
                 match_score: None,
                 matched_text: None,
@@ -507,6 +513,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 diff: None,
                 identity: None,
                 error_kind: None,
+                error: None,
                 match_mode: None,
                 match_score: None,
                 matched_text: None,
@@ -524,6 +531,14 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::FAILURE);
         }
         let similar = similar_targets_for_no_match(&args, global, &cwd);
+        // Agents reading `error` (tx parity) should not need to scrape stderr.
+        let error_msg = similar.as_ref().map(|s| {
+            format!(
+                "no matches for '{}' (did you mean: {}?)",
+                crate::fallback::truncate_str(&args.old, 60),
+                s.join(", ")
+            )
+        });
         let output = ReplaceOutput {
             ok: false,
             match_count: 0,
@@ -532,6 +547,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             diff: None,
             identity: None,
             error_kind: Some("no_matches"),
+            error: error_msg,
             match_mode: None,
             match_score: None,
             matched_text: None,
@@ -602,6 +618,7 @@ fn replace_output(
         diff,
         identity: None,
         error_kind: None,
+        error: None,
         match_mode: agg_mode,
         match_score: agg_score,
         matched_text: if files.len() == 1 {
@@ -711,6 +728,7 @@ fn run_context_replace(
             } else {
                 Some("no_matches")
             },
+            error: None,
             match_mode: None,
             match_score: None,
             matched_text: None,
@@ -767,6 +785,13 @@ fn run_context_replace(
     let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
     if !result.has_changes {
+        // Engine already computed floor / resolve / did-you-mean into replace_hint.
+        let hint = result
+            .exec_result
+            .replace_hint
+            .as_deref()
+            .filter(|h| !h.is_empty())
+            .map(str::to_string);
         let empty = ReplaceOutput {
             ok: args.if_exists,
             match_count: 0,
@@ -779,6 +804,7 @@ fn run_context_replace(
             } else {
                 Some("no_matches")
             },
+            error: if args.if_exists { None } else { hint.clone() },
             match_mode: None,
             match_score: None,
             matched_text: None,
@@ -790,6 +816,10 @@ fn run_context_replace(
         }
         if !global.quiet && !global.json && !global.jsonl {
             eprintln!("no matches for '{}' in context-based replace", args.old);
+            // Engine floor / did-you-mean prose (also in JSON `error`).
+            if let Some(ref h) = hint {
+                eprintln!("{h}");
+            }
         }
         return Ok(exit::NO_MATCHES);
     }
