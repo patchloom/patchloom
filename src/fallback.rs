@@ -32,8 +32,7 @@
 //!     "fn process_data(x: i32) {}",
 //!     Some("fn setup() {}"),
 //!     Some("fn cleanup() {}"),
-//!     false,
-//! ).expect("anchor match should succeed");
+//!).expect("anchor match should succeed");
 //! assert_eq!(result.strategy, MatchStrategy::Anchor);
 //! assert!(result.matched_text.contains("proccess_data"));
 //! ```
@@ -621,11 +620,25 @@ impl std::fmt::Display for MatchStrategy {
 ///
 /// Returns the first successful match or a structured error with diagnosis.
 ///
+/// Stable 4-arg surface. Callers that already enforced a stricter exact path
+/// (for example `--word-boundary`) should use [`resolve_with_fallback_skip_exact`]
+/// so bare `find` does not re-accept a substring the primary path rejected.
+pub fn resolve_with_fallback(
+    content: &str,
+    target: &str,
+    before_context: Option<&str>,
+    after_context: Option<&str>,
+) -> Result<AnchorMatchResult, EditError> {
+    resolve_with_fallback_skip_exact(content, target, before_context, after_context, false)
+}
+
+/// Like [`resolve_with_fallback`], with control over the bare Exact tier.
+///
 /// When `skip_exact` is true, bare `find` Exact matching is skipped. Callers that
 /// already ran a stricter exact path (for example `--word-boundary`) must set
-/// this so fallback does not re-accept a substring that word boundaries rejected.
-/// Similarity and anchor strategies still run (whole-token typo recovery).
-pub fn resolve_with_fallback(
+/// this so fallback does not re-accept a substring that word boundaries rejected
+/// (#1755). Similarity and anchor strategies still run (whole-token typo recovery).
+pub fn resolve_with_fallback_skip_exact(
     content: &str,
     target: &str,
     before_context: Option<&str>,
@@ -1148,7 +1161,7 @@ mod tests {
     #[test]
     fn resolve_with_fallback_exact_match() {
         let content = "fn hello() {}\n";
-        let result = resolve_with_fallback(content, "fn hello()", None, None, false).unwrap();
+        let result = resolve_with_fallback(content, "fn hello()", None, None).unwrap();
         assert_eq!(result.strategy, MatchStrategy::Exact);
     }
 
@@ -1158,13 +1171,13 @@ mod tests {
     fn resolve_with_fallback_skip_exact_rejects_substring() {
         let content = "process_data process_data_extra\n";
         // Without skip_exact, bare find would match "process_dat" inside process_data.
-        let bare = resolve_with_fallback(content, "process_dat", None, None, false).unwrap();
+        let bare = resolve_with_fallback(content, "process_dat", None, None).unwrap();
         assert_eq!(bare.strategy, MatchStrategy::Exact);
         assert_eq!(bare.matched_text, "process_dat");
 
         // With skip_exact, Exact is skipped; token similarity may recover the
         // full identifier (process_data) or miss — but never the bare substring.
-        match resolve_with_fallback(content, "process_dat", None, None, true) {
+        match resolve_with_fallback_skip_exact(content, "process_dat", None, None, true) {
             Ok(hit) => {
                 assert_ne!(
                     hit.strategy,
@@ -1186,14 +1199,9 @@ mod tests {
     #[test]
     fn resolve_with_fallback_similarity_crlf_offset() {
         let content = "fn alpha() {}\r\nfn process_requets(data: &str) {}\r\nfn gamma() {}\r\n";
-        let result = resolve_with_fallback(
-            content,
-            "fn process_requests(data: &str) {}",
-            None,
-            None,
-            false,
-        )
-        .unwrap();
+        let result =
+            resolve_with_fallback(content, "fn process_requests(data: &str) {}", None, None)
+                .unwrap();
         assert_eq!(result.strategy, MatchStrategy::Similarity);
         // "fn alpha() {}\r\n" is 15 bytes, so the match starts at offset 15.
         assert_eq!(result.start_offset, 15);
@@ -1216,7 +1224,6 @@ mod tests {
             "fn process_requets(data: &str) -> Result<()> {",
             None,
             None,
-            false,
         );
         let r = result.expect("similarity fallback should succeed");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
@@ -1232,7 +1239,7 @@ mod tests {
     #[test]
     fn resolve_token_typo_does_not_match_whole_line() {
         let content = "const CONFIGURATION_VALUE_PRIMARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n";
-        let r = resolve_with_fallback(content, "CONFIGURATION_VALUE_PRIMRY", None, None, false)
+        let r = resolve_with_fallback(content, "CONFIGURATION_VALUE_PRIMRY", None, None)
             .expect("token typo should fuzzy-match the identifier");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
         assert_eq!(
@@ -1252,7 +1259,7 @@ mod tests {
     #[test]
     fn resolve_full_line_snippet_still_matches_line() {
         let content = "const FOO: i32 = 1;\n";
-        let r = resolve_with_fallback(content, "const FO: i32 = 1;", None, None, false)
+        let r = resolve_with_fallback(content, "const FO: i32 = 1;", None, None)
             .expect("near-full-line snippet should match the line");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
         assert!(
@@ -1312,7 +1319,7 @@ mod tests {
         ];
 
         for (content, typo, expected, forbidden) in cases {
-            let r = resolve_with_fallback(content, typo, None, None, false)
+            let r = resolve_with_fallback(content, typo, None, None)
                 .unwrap_or_else(|e| panic!("token typo {typo:?} should match in {content:?}: {e}"));
             assert_eq!(r.strategy, MatchStrategy::Similarity, "typo={typo:?}");
             assert_eq!(
@@ -1342,7 +1349,7 @@ mod tests {
     #[test]
     fn resolve_token_typo_picks_first_best_occurrence() {
         let content = "FOO_PRIMARY=1\nFOO_PRIMARY=2\n";
-        let r = resolve_with_fallback(content, "FOO_PRIMRY", None, None, false).unwrap();
+        let r = resolve_with_fallback(content, "FOO_PRIMRY", None, None).unwrap();
         assert_eq!(r.matched_text, "FOO_PRIMARY");
         // First line occurrence (offset 0).
         assert_eq!(r.start_offset, 0);
@@ -1351,8 +1358,8 @@ mod tests {
     #[test]
     fn resolve_token_unrelated_is_no_match() {
         let content = "const ALPHA: i32 = 1;\nconst BETA: i32 = 2;\n";
-        let err = resolve_with_fallback(content, "ZZZZ_COMPLETELY_UNRELATED", None, None, false)
-            .unwrap_err();
+        let err =
+            resolve_with_fallback(content, "ZZZZ_COMPLETELY_UNRELATED", None, None).unwrap_err();
         assert_eq!(err.kind, EditErrorKind::NoMatch);
     }
 
@@ -1382,7 +1389,7 @@ mod tests {
     fn resolve_kebab_case_uses_line_similarity_not_broken_token_path() {
         let content = "font-weight-primary: bold;\n";
         // Near-full-line typo; must still resolve (line path), not dead-end as token.
-        let r = resolve_with_fallback(content, "font-weight-primry: bold;", None, None, false)
+        let r = resolve_with_fallback(content, "font-weight-primry: bold;", None, None)
             .expect("kebab line snippet should match via line similarity");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
         assert!(
@@ -1395,8 +1402,7 @@ mod tests {
     #[test]
     fn resolve_with_fallback_structured_error() {
         let content = "fn alpha() {}\nfn beta() {}\n";
-        let result =
-            resolve_with_fallback(content, "fn completely_unrelated_xyz()", None, None, false);
+        let result = resolve_with_fallback(content, "fn completely_unrelated_xyz()", None, None);
         let err = result.unwrap_err();
         assert_eq!(err.kind, EditErrorKind::NoMatch);
         assert!(err.message.contains("target not found"));
@@ -1412,7 +1418,6 @@ mod tests {
             "fn process_data(x: i32) {}",
             Some("fn setup() {}"),
             Some("fn cleanup() {}"),
-            false,
         );
         let r = result.expect("anchor fallback should succeed");
         assert_eq!(r.strategy, MatchStrategy::Anchor);
@@ -1512,8 +1517,7 @@ mod tests {
     fn resolve_fallback_multi_line_no_similarity() {
         // Multi-line targets skip the similarity path and go to error.
         let content = "fn alpha() {}\nfn beta() {}\nfn gamma() {}\n";
-        let result =
-            resolve_with_fallback(content, "fn alphax() {}\nfn betax() {}", None, None, false);
+        let result = resolve_with_fallback(content, "fn alphax() {}\nfn betax() {}", None, None);
         assert!(
             result.is_err(),
             "multi-line targets without context should not match via similarity"
@@ -1532,7 +1536,6 @@ mod tests {
             "fn process_data(x: i32) {\n    x + 1\n}",
             Some("fn header() {}"),
             Some("fn footer() {}"),
-            false,
         );
         let r = result.expect("multi-line anchor should succeed");
         assert_eq!(r.strategy, MatchStrategy::Anchor);
@@ -1652,7 +1655,7 @@ mod tests {
 
     #[test]
     fn resolve_with_fallback_empty_content() {
-        let result = resolve_with_fallback("", "fn hello()", None, None, false);
+        let result = resolve_with_fallback("", "fn hello()", None, None);
         let err = result.unwrap_err();
         assert_eq!(err.kind, EditErrorKind::NoMatch);
     }

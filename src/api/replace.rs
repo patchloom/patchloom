@@ -306,7 +306,7 @@ fn replace_write(
         if count == 0 && !is_regex && (fuzzy || before_context.is_some() || after_context.is_some())
         {
             use crate::fallback;
-            match fallback::resolve_with_fallback(
+            match fallback::resolve_with_fallback_skip_exact(
                 &original,
                 &old,
                 before_context.as_deref(),
@@ -576,7 +576,7 @@ pub fn replace_in_content(
         && (opts.fuzzy || opts.before_context.is_some() || opts.after_context.is_some())
     {
         use crate::fallback;
-        match fallback::resolve_with_fallback(
+        match fallback::resolve_with_fallback_skip_exact(
             content,
             from,
             opts.before_context.as_deref(),

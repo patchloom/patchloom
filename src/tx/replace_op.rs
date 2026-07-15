@@ -251,7 +251,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             Ok(match_count)
         } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some()) {
             // Tier 3: fuzzy and/or context fallback when exact match fails (#1668).
-            match crate::fallback::resolve_with_fallback(
+            match crate::fallback::resolve_with_fallback_skip_exact(
                 content,
                 old,
                 before_context.as_deref(),
@@ -492,7 +492,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             } else if !regex_mode && (*fuzzy || before_context.is_some() || after_context.is_some())
             {
                 // Fuzzy/context fallback for glob paths (parity with #1668 path arm).
-                match crate::fallback::resolve_with_fallback(
+                match crate::fallback::resolve_with_fallback_skip_exact(
                     &content,
                     old,
                     before_context.as_deref(),
