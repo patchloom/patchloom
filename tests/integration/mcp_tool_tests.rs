@@ -3947,6 +3947,43 @@ async fn test_mcp_replace_case_insensitive_no_false_warnings() {
     client.cancel().await.unwrap();
 }
 
+/// Fuzzy typo recovery must not attach false "pattern not found" warnings
+/// from exact-only validate_edit_nth (#1751).
+#[tokio::test]
+async fn test_mcp_replace_fuzzy_no_false_pattern_warnings() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("code.rs"),
+        "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "old": "fn process_requets(data: &str) -> Result<()> {",
+            "new": "fn process_request(data: &str) -> Result<()> {",
+            "fuzzy": true
+        }),
+    )
+    .await;
+    assert!(!is_error, "fuzzy replace should succeed: {val}");
+    assert_eq!(val["ok"], true, "replace ok field: {val}");
+
+    let response_text = format!("{val}");
+    assert!(
+        !response_text.contains("not found"),
+        "fuzzy typo old must not produce false 'pattern not found' warning: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_md_dedupe_headings() {
     if !has_mcp_support() {
