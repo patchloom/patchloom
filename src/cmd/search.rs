@@ -78,6 +78,9 @@ struct SearchOutput {
     /// Human/agent diagnostic on soft no-match (path scope). Omitted on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// Paths from `--files-from` that were missing (agent JSON; #1756).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -158,6 +161,7 @@ pub(crate) fn format_results(
     results: SearchResults,
     args: &SearchArgs,
     global: &GlobalFlags,
+    skipped: Option<Vec<String>>,
 ) -> anyhow::Result<String> {
     use std::fmt::Write;
     let mut out = String::new();
@@ -192,6 +196,7 @@ pub(crate) fn format_results(
             files,
             error_kind: None,
             error: None,
+            skipped,
         };
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
@@ -333,6 +338,8 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let results = collect_matches(&args, global)?;
+    let cwd = global.resolve_cwd()?;
+    let skipped = crate::files::files_from_missing_entries(global, &cwd)?;
 
     // --assert-count mode: succeed only if total count equals N.
     // JSON matches MCP search_files: ok == matched; mismatch sets
@@ -403,6 +410,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 "no matches for '{}' in {path_desc}",
                 crate::fallback::truncate_str(&args.pattern, 60)
             )),
+            skipped: skipped.clone(),
         };
         global.emit_json(&payload)?;
         if !global.quiet && !global.json && !global.jsonl {
@@ -420,7 +428,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.json || global.jsonl || !global.quiet {
-        let output = format_results(results, &args, global)?;
+        let output = format_results(results, &args, global, skipped)?;
         print!("{output}");
     }
 
@@ -556,7 +564,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.files_with_matches = true;
         let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
-        let output = format_results(results, &args, &GlobalFlags::test_default()).unwrap();
+        let output = format_results(results, &args, &GlobalFlags::test_default(), None).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with("hello.txt"));
@@ -574,7 +582,7 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.count = true;
         let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
-        let output = format_results(results, &args, &GlobalFlags::test_default()).unwrap();
+        let output = format_results(results, &args, &GlobalFlags::test_default(), None).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with(":2"));
@@ -768,7 +776,7 @@ mod tests {
         let mut global = GlobalFlags::test_default();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(results, &args, &global).unwrap();
+        let output = format_results(results, &args, &global, None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         // "Hello" appears in two lines of hello.txt, one file.
@@ -806,7 +814,7 @@ mod tests {
         let mut global = GlobalFlags::test_default();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(results, &args, &global).unwrap();
+        let output = format_results(results, &args, &global, None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         assert_eq!(v["file_count"], serde_json::json!(1));
@@ -826,7 +834,7 @@ mod tests {
         let mut global = GlobalFlags::test_default();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(results, &args, &global).unwrap();
+        let output = format_results(results, &args, &global, None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         // files array must contain the per-file counts.
@@ -932,8 +940,13 @@ mod tests {
         let mut args = make_args("match", vec![file.to_string_lossy().into_owned()]);
         args.context = Some(1);
         let global = GlobalFlags::test_default();
-        let output =
-            format_results(collect_matches(&args, &global).unwrap(), &args, &global).unwrap();
+        let output = format_results(
+            collect_matches(&args, &global).unwrap(),
+            &args,
+            &global,
+            None,
+        )
+        .unwrap();
         // "line3" should appear exactly once, not twice.
         let count = output.matches("line3").count();
         assert_eq!(count, 1, "line3 should appear once, got: {output}");
@@ -950,8 +963,13 @@ mod tests {
         let mut args = make_args("match", vec![file.to_string_lossy().into_owned()]);
         args.context = Some(1);
         let global = GlobalFlags::test_default();
-        let output =
-            format_results(collect_matches(&args, &global).unwrap(), &args, &global).unwrap();
+        let output = format_results(
+            collect_matches(&args, &global).unwrap(),
+            &args,
+            &global,
+            None,
+        )
+        .unwrap();
         // "match_b" should appear exactly once (as a match line).
         let count = output.matches("match_b").count();
         assert_eq!(

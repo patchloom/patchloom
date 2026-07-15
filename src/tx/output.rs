@@ -1,3 +1,7 @@
+//! size-waiver: accepted single-domain bulk (policy #1408). Tx JSON output
+//! assembly and match honesty aggregation for plan/CLI/MCP is one unit; do not
+//! split for LOC alone.
+
 use crate::exit;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -315,6 +319,26 @@ pub(crate) fn build_tx_output_with_meta(
                 matched_text,
             });
             deleted_count += 1;
+        }
+    }
+
+    // Soft refuses (fuzzy fail-closed #1758, floor reject with recorded
+    // candidate) store honesty in replace_match_meta without a write. Fold
+    // those paths so no_matches JSON still exposes match_mode/score/matched_text.
+    for (path, m) in replace_match_meta {
+        if changes.iter().any(|(c, _, _)| c == path) || deletions.contains(path) {
+            continue;
+        }
+        any_replace_meta = true;
+        agg_mode = Some(merge_match_modes(agg_mode, m.mode));
+        if matches!(m.mode, crate::api::MatchMode::Fuzzy)
+            && let Some(s) = m.score
+        {
+            agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
+        }
+        agg_count = agg_count.saturating_add(m.match_count);
+        if top_matched_text.is_none() {
+            top_matched_text = m.matched_text.clone();
         }
     }
 
@@ -960,6 +984,45 @@ mod tests {
             "hint must appear in error: {:?}",
             out.error
         );
+    }
+
+    /// Soft refuse (#1758) records replace_match_meta without a write; no_matches
+    /// JSON must still expose match_mode / match_score / matched_text.
+    #[test]
+    fn build_full_tx_output_no_matches_includes_refuse_match_meta() {
+        use std::collections::HashMap;
+        let cwd = Path::new("/project");
+        let mut meta = HashMap::new();
+        meta.insert(
+            PathBuf::from("/project/app.py"),
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Fuzzy,
+                score: Some(0.987),
+                match_count: 0,
+                matched_text: Some("compute_checksum".into()),
+            },
+        );
+        let mut result = TxExecResult {
+            changes: vec![],
+            deletions: HashSet::new(),
+            existed_before: HashSet::new(),
+            pending: HashMap::new(),
+            tx_reads: vec![],
+            tx_searches: vec![],
+            tx_lints: vec![],
+            tx_mutations: vec![],
+            no_effective_changes: true,
+            replace_no_matches: true,
+            replace_hint: Some("exact old absent; best fuzzy candidate".into()),
+            replace_match_meta: meta,
+            renames: vec![],
+        };
+        let out = build_full_tx_output("no_matches", &mut result, cwd);
+        assert_eq!(out.status, "no_matches");
+        assert_eq!(out.match_mode.as_deref(), Some("fuzzy"));
+        assert_eq!(out.match_score, Some(0.987));
+        assert_eq!(out.matched_text.as_deref(), Some("compute_checksum"));
+        assert_eq!(out.match_count, Some(0));
     }
 
     /// Hosts may deserialize older plan/tx JSON that never had match honesty

@@ -297,7 +297,7 @@ impl PatchloomService {
                 return no_results("No matches found.");
             }
 
-            let output = crate::cmd::search::format_results(results, &search_args, &global)
+            let output = crate::cmd::search::format_results(results, &search_args, &global, None)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             exit_code_to_result(exit::SUCCESS, &output, "No results.")
         })
