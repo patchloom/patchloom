@@ -187,6 +187,9 @@ struct TidyCheckOutput {
     ok: bool,
     issue_count: usize,
     issues: Vec<TidyIssue>,
+    /// Paths from `--files-from` that were missing (agent honesty).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<Vec<String>>,
 }
 
 /// Render issues to stdout.
@@ -194,12 +197,17 @@ struct TidyCheckOutput {
 /// Structured modes propagate serialize errors (`?`) instead of discarding
 /// them (`let _ =` / `if let Ok`), so `--json`/`--jsonl` never looks empty
 /// while the exit code still reports issues (#1651 class).
-pub(super) fn render_issues(issues: &[TidyIssue], global: &GlobalFlags) -> anyhow::Result<()> {
+pub(super) fn render_issues(
+    issues: &[TidyIssue],
+    global: &GlobalFlags,
+    skipped: Option<Vec<String>>,
+) -> anyhow::Result<()> {
     if global.json {
         let output = TidyCheckOutput {
             ok: issues.is_empty(),
             issue_count: issues.len(),
             issues: issues.to_vec(),
+            skipped,
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
@@ -229,9 +237,10 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(exit::FAILURE);
     }
+    let skipped = crate::files::files_from_missing_entries(global, &cwd)?;
     let issues = collect_issues(paths, global)?;
     if !global.quiet || global.json || global.jsonl {
-        render_issues(&issues, global)?;
+        render_issues(&issues, global, skipped)?;
     }
     if issues.is_empty() {
         Ok(exit::SUCCESS)

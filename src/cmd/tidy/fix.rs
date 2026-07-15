@@ -23,6 +23,9 @@ struct TidyFixOutput {
     files: Vec<TidyFixFileResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
+    /// Paths from `--files-from` that were missing (agent honesty; #1756 class).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<Vec<String>>,
 }
 
 /// Convert `EolMode` to the string format expected by `Operation::TidyFix`.
@@ -43,6 +46,7 @@ pub(super) fn tidy_fix_output(
     result: ExecutionResult,
     dirty_rel_paths: &[String],
     cwd: &Path,
+    skipped: Option<Vec<String>>,
 ) -> anyhow::Result<u8> {
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
@@ -59,7 +63,7 @@ pub(super) fn tidy_fix_output(
         true,
         FinalizeCallbacks {
             on_check: |g: &GlobalFlags, _has: bool, _diffs: &[crate::diff::FileDiff]| {
-                emit_tidy_fix_output(g, &fix_files, None)?;
+                emit_tidy_fix_output(g, &fix_files, None, skipped.clone())?;
                 if !g.quiet && !g.json && !g.jsonl {
                     for p in dirty_rel_paths {
                         println!("{p}");
@@ -71,14 +75,14 @@ pub(super) fn tidy_fix_output(
                        _has: bool,
                        _diffs: &[crate::diff::FileDiff],
                        diff_text: Option<String>| {
-                emit_tidy_fix_output(g, &fix_files, diff_text)?;
+                emit_tidy_fix_output(g, &fix_files, diff_text, skipped.clone())?;
                 Ok(())
             },
             on_preview: |g: &GlobalFlags,
                          _has: bool,
                          diffs: &[crate::diff::FileDiff],
                          diff_text: Option<String>| {
-                emit_tidy_fix_output(g, &fix_files, diff_text)?;
+                emit_tidy_fix_output(g, &fix_files, diff_text, skipped.clone())?;
                 if !g.json && !g.jsonl && !g.quiet && !diffs.is_empty() {
                     print!("{}", render_diffs_colored(diffs, g.should_color()));
                 }
@@ -103,6 +107,7 @@ fn emit_tidy_fix_output(
     global: &GlobalFlags,
     fix_files: &[TidyFixFileResult],
     diff_text: Option<String>,
+    skipped: Option<Vec<String>>,
 ) -> anyhow::Result<()> {
     if global.json {
         let output = TidyFixOutput {
@@ -110,6 +115,7 @@ fn emit_tidy_fix_output(
             files_changed: fix_files.len(),
             files: fix_files.to_vec(),
             diff: diff_text,
+            skipped,
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
@@ -180,6 +186,7 @@ pub(super) fn run_fix(
 
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, &paths)?;
+    let skipped = crate::files::files_from_missing_entries(global, &cwd)?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&cwd))?;
     let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&cwd))?;
@@ -243,7 +250,7 @@ pub(super) fn run_fix(
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
-        emit_tidy_fix_output(global, &[], None)?;
+        emit_tidy_fix_output(global, &[], None, skipped)?;
         return Ok(exit::SUCCESS);
     }
 
@@ -271,5 +278,5 @@ pub(super) fn run_fix(
     // write-policy fields use the effective check-parity defaults above.
     let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
-    tidy_fix_output(global, result, &dirty_rel_paths, &cwd)
+    tidy_fix_output(global, result, &dirty_rel_paths, &cwd, skipped)
 }
