@@ -196,7 +196,7 @@ fn test_read_multiple_files_json() {
 }
 
 #[test]
-fn test_read_multiple_files_json_partial_failure_keeps_array() {
+fn test_read_multiple_files_json_partial_failure_reports_skipped() {
     let dir = TempDir::new().unwrap();
     let existing = dir.path().join("exists.txt");
     fs::write(&existing, "hello\n").unwrap();
@@ -210,13 +210,26 @@ fn test_read_multiple_files_json_partial_failure_keeps_array() {
         .output()
         .unwrap();
 
-    // Partial failure returns FAILURE exit code (#1166), but still outputs JSON.
+    // Partial failure: FAILURE exit + envelope so agents see skipped paths
+    // (not a bare success array that hides misses).
     assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(json.is_array());
-    assert_eq!(json.as_array().unwrap().len(), 1);
-    assert_eq!(json[0]["path"], existing.to_str().unwrap());
-    assert_eq!(json[0]["content"], "hello\n");
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "not_found", "{json}");
+    assert!(json["files"].is_array(), "{json}");
+    assert_eq!(json["files"].as_array().unwrap().len(), 1);
+    assert_eq!(json["files"][0]["path"], existing.to_str().unwrap());
+    assert_eq!(json["files"][0]["content"], "hello\n");
+    let skipped = json["skipped"]
+        .as_array()
+        .expect("partial multi-read must list skipped");
+    assert_eq!(skipped.len(), 1, "{json}");
+    assert!(
+        skipped[0]
+            .as_str()
+            .is_some_and(|s| s.contains("no-such-file-json-array-shape")),
+        "skipped should name missing path: {json}"
+    );
 }
 
 #[test]

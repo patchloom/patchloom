@@ -238,6 +238,7 @@ mod tests {
             match_score: None,
             match_count: None,
             matched_text: None,
+            refused: vec![],
         };
         let emit = serialize_structured(&report, true);
         assert!(!emit.primary_ok);

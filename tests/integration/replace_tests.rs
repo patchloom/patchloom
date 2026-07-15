@@ -2324,3 +2324,111 @@ fn test_replace_fuzzy_absent_old_fails_closed() {
     assert!(on_disk.contains("compute_digest"), "{on_disk}");
     assert!(!on_disk.contains("compute_checksum"), "{on_disk}");
 }
+
+/// Multi-file fuzzy: exact hits must not hide refuse on other paths.
+#[test]
+fn test_replace_multi_fuzzy_partial_reports_refused() {
+    let dir = TempDir::new().unwrap();
+    let exact = dir.path().join("exact.txt");
+    let typo = dir.path().join("typo.txt");
+    fs::write(&exact, "hello world\n").unwrap();
+    fs::write(&typo, "helo world\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "hello world",
+            "--new",
+            "hi",
+            "--fuzzy",
+            "--apply",
+        ])
+        .arg(&exact)
+        .arg(&typo)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "partial exact apply should succeed: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["file_count"], 1);
+    assert_eq!(fs::read_to_string(&exact).unwrap(), "hi\n");
+    assert_eq!(
+        fs::read_to_string(&typo).unwrap(),
+        "helo world\n",
+        "typo file must not rewrite without allow_absent_old"
+    );
+    let refused = v["refused"]
+        .as_array()
+        .expect("partial multi-file fuzzy must report refused paths");
+    assert_eq!(refused.len(), 1, "one refused path: {v}");
+    assert_eq!(refused[0]["reason"], "exact_old_absent");
+    assert_eq!(refused[0]["match_mode"], "fuzzy");
+    assert!(
+        refused[0]["matched_text"]
+            .as_str()
+            .is_some_and(|t| t.contains("helo")),
+        "refused must name candidate: {v}"
+    );
+}
+
+/// Multi-file floor: exact hits must not hide below-min_fuzzy_score on other paths.
+#[test]
+fn test_replace_multi_fuzzy_floor_reports_refused() {
+    let dir = TempDir::new().unwrap();
+    let exact = dir.path().join("exact.txt");
+    let typo = dir.path().join("typo.txt");
+    fs::write(&exact, "hello world\n").unwrap();
+    fs::write(&typo, "helo world\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "hello world",
+            "--new",
+            "hi",
+            "--fuzzy",
+            "--min-fuzzy-score",
+            "0.99",
+            "--apply",
+        ])
+        .arg(&exact)
+        .arg(&typo)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "partial exact apply should succeed: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["file_count"], 1);
+    assert_eq!(fs::read_to_string(&exact).unwrap(), "hi\n");
+    assert_eq!(
+        fs::read_to_string(&typo).unwrap(),
+        "helo world\n",
+        "floor reject must not rewrite"
+    );
+    let refused = v["refused"]
+        .as_array()
+        .expect("partial multi-file floor must report refused paths");
+    assert_eq!(refused.len(), 1, "one refused path: {v}");
+    assert_eq!(refused[0]["reason"], "below_min_fuzzy_score");
+    assert_eq!(refused[0]["match_mode"], "fuzzy");
+    assert!(
+        refused[0]["matched_text"]
+            .as_str()
+            .is_some_and(|t| t.contains("helo")),
+        "refused must name candidate: {v}"
+    );
+}

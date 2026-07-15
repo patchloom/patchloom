@@ -49,6 +49,50 @@ fn print_diffs(changes: &[(PathBuf, String, String)], cwd: &Path, color: bool) {
     print!("{}", format_diff_result_colored(&result, color));
 }
 
+/// Human-mode soft-refuse + no_matches diagnostics (parity with CLI replace).
+/// Uses `!quiet`, not `show_status()`, so scripts/piped stderr still see them.
+fn print_human_replace_honesty(result: &TxExecResult, cwd: &Path, quiet: bool) {
+    if quiet {
+        return;
+    }
+    // Full soft no-match: print engine hint (floor / exact_old_absent / did-you-mean).
+    if result.replace_no_matches
+        && let Some(hint) = result.replace_hint.as_deref().filter(|h| !h.is_empty())
+    {
+        eprintln!("{hint}");
+    }
+    // Partial multi-op: list soft-refused paths from meta.
+    let mut refused: Vec<_> = result
+        .replace_match_meta
+        .iter()
+        .filter(|(path, m)| {
+            m.match_count == 0
+                && m.matched_text.is_some()
+                && !result.changes.iter().any(|(c, _, _)| c == *path)
+                && !result.deletions.contains(*path)
+        })
+        .map(|(path, m)| {
+            let rel = crate::files::relative_display(path, cwd)
+                .to_string_lossy()
+                .into_owned();
+            let reason = m
+                .refuse_reason
+                .unwrap_or(if m.mode == crate::api::MatchMode::Fuzzy {
+                    "exact_old_absent"
+                } else {
+                    "no_write"
+                });
+            (rel, reason)
+        })
+        .collect();
+    refused.sort_by(|a, b| a.0.cmp(&b.0));
+    for (path, reason) in refused {
+        eprintln!(
+            "refused {path}: {reason} (use allow_absent_old / --allow-absent-old for exact_old_absent)"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
@@ -191,13 +235,16 @@ fn commit_and_finalize(
             let ok = emit_output_json(&output, ctx.compact);
             return Ok(exit_after_emit(ok, exit::NO_MATCHES));
         }
+        print_human_replace_honesty(result, ctx.cwd, global.quiet);
         return Ok(exit::NO_MATCHES);
     }
     if ctx.structured {
         let output = build_full_tx_output("success", result, ctx.cwd);
         let ok = emit_output_json(&output, ctx.compact);
         return Ok(exit_after_emit(ok, exit::SUCCESS));
-    } else if global.show_status() {
+    }
+    print_human_replace_honesty(result, ctx.cwd, global.quiet);
+    if global.show_status() {
         let extra_deletions = result
             .deletions
             .iter()
@@ -463,6 +510,7 @@ pub(crate) fn run_parsed_plan(
                     let ok = emit_output_json(&output, compact);
                     return Ok(exit_after_emit(ok, exit::NO_MATCHES));
                 }
+                print_human_replace_honesty(&result, &cwd, global.quiet);
                 return Ok(exit::NO_MATCHES);
             }
             if structured {
@@ -482,6 +530,7 @@ pub(crate) fn run_parsed_plan(
                 result.changes.len() + pending_deletions
             );
         }
+        print_human_replace_honesty(&result, &cwd, global.quiet);
         return Ok(exit::CHANGES_DETECTED);
     }
 
@@ -504,6 +553,7 @@ pub(crate) fn run_parsed_plan(
             let ok = emit_output_json(&output, compact);
             return Ok(exit_after_emit(ok, exit::NO_MATCHES));
         }
+        print_human_replace_honesty(&result, &cwd, global.quiet);
         return Ok(exit::NO_MATCHES);
     }
 
@@ -537,6 +587,7 @@ pub(crate) fn run_parsed_plan(
     } else if !result.changes.is_empty() {
         print_diffs(&result.changes, &cwd, global.should_color());
     }
+    print_human_replace_honesty(&result, &cwd, global.quiet);
     if !result.no_effective_changes && global.show_status() {
         let extra_deletions = result
             .deletions

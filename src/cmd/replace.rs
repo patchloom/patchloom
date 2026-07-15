@@ -1,3 +1,6 @@
+//! size-waiver: accepted single-domain bulk (policy #1408). CLI replace scan,
+//! context/fuzzy routing, and agent JSON honesty for matches/refuses is one unit.
+
 use crate::cli::global::GlobalFlags;
 use crate::diff::render_diffs_colored;
 use crate::exit;
@@ -176,6 +179,25 @@ struct ReplaceOutput {
     /// Present under `--json` even when `--quiet` suppresses stderr (#1756).
     #[serde(skip_serializing_if = "Option::is_none")]
     skipped: Option<Vec<String>>,
+    /// Files where fuzzy/similarity found a candidate but did not write
+    /// (exact old absent without `allow_absent_old`). Present on partial multi-file
+    /// success so agents do not treat overall ok as full coverage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refused: Option<Vec<RefuseFileResult>>,
+}
+
+/// Per-file soft refuse honesty (fuzzy fail-closed without a write).
+#[derive(Debug, Clone, Serialize)]
+struct RefuseFileResult {
+    path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_mode: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    match_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    matched_text: Option<String>,
+    /// Machine-readable reason (`exact_old_absent`).
+    reason: &'static str,
 }
 
 /// Result of processing a single file.
@@ -349,6 +371,41 @@ fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult>
         .collect()
 }
 
+/// Files with recorded match meta but no write (fuzzy refuse / floor skip).
+fn collect_refused_files(
+    cwd: &std::path::Path,
+    changes: &[(std::path::PathBuf, String, String)],
+    meta: &std::collections::HashMap<std::path::PathBuf, crate::tx::ReplaceMatchMeta>,
+) -> Option<Vec<RefuseFileResult>> {
+    let mut out = Vec::new();
+    for (path, m) in meta {
+        if changes.iter().any(|(c, _, _)| c == path) {
+            continue;
+        }
+        // Only surface candidates that were found but not applied (count 0).
+        if m.match_count != 0 || m.matched_text.is_none() {
+            continue;
+        }
+        let reason = m
+            .refuse_reason
+            .unwrap_or(if m.mode == crate::api::MatchMode::Fuzzy {
+                "exact_old_absent"
+            } else {
+                "no_write"
+            });
+        out.push(RefuseFileResult {
+            path: crate::files::relative_display(path, cwd)
+                .to_string_lossy()
+                .into_owned(),
+            match_mode: Some(match_mode_str(m.mode)),
+            match_score: m.score,
+            matched_text: m.matched_text.clone(),
+            reason,
+        });
+    }
+    if out.is_empty() { None } else { Some(out) }
+}
+
 /// Candidate honesty from soft refuses (no write): fuzzy fail-closed (#1758)
 /// or floor reject with recorded meta. Single-path meta surfaces mode/score/span.
 fn aggregate_refuse_match_meta(
@@ -509,6 +566,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     matched_text: None,
                     similar_targets: None,
                     skipped: skipped.clone(),
+                    refused: None,
                 };
                 global.emit_json(&output)?;
                 if !global.quiet {
@@ -547,6 +605,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 matched_text: None,
                 similar_targets: None,
                 skipped: skipped.clone(),
+                refused: None,
             };
             global.emit_json(&output)?;
             if !global.quiet && !global.json && !global.jsonl {
@@ -572,6 +631,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 matched_text: None,
                 similar_targets: None,
                 skipped: skipped.clone(),
+                refused: None,
             };
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
@@ -614,6 +674,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             matched_text: None,
             similar_targets: similar.clone(),
             skipped: skipped.clone(),
+            refused: None,
         };
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
@@ -679,6 +740,11 @@ fn replace_output(
 ) -> anyhow::Result<u8> {
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
+    let refused = collect_refused_files(
+        cwd,
+        &result.exec_result.changes,
+        &result.exec_result.replace_match_meta,
+    );
     let (agg_mode, agg_score) = aggregate_match_meta(files);
     let build_output = |diff: Option<String>| ReplaceOutput {
         ok: true,
@@ -698,6 +764,7 @@ fn replace_output(
         },
         similar_targets: None,
         skipped: skipped.clone(),
+        refused: refused.clone(),
     };
 
     finalize_report(
@@ -713,6 +780,18 @@ fn replace_output(
                     println!("{total_matches} match(es) in {file_count} file(s)");
                     for f in files {
                         println!("  {}: {} match(es)", f.path, f.match_count);
+                    }
+                }
+                if !g.quiet
+                    && !g.json
+                    && !g.jsonl
+                    && let Some(ref refused) = refused
+                {
+                    for r in refused {
+                        eprintln!(
+                            "refused {}: {} (use --allow-absent-old to apply fuzzy candidate)",
+                            r.path, r.reason
+                        );
                     }
                 }
                 Ok(())
@@ -733,6 +812,18 @@ fn replace_output(
                         }
                     }
                 }
+                if !g.quiet
+                    && !g.json
+                    && !g.jsonl
+                    && let Some(ref refused) = refused
+                {
+                    for r in refused {
+                        eprintln!(
+                            "refused {}: {} (use --allow-absent-old to apply fuzzy candidate)",
+                            r.path, r.reason
+                        );
+                    }
+                }
                 Ok(())
             },
             on_preview: |g: &GlobalFlags,
@@ -743,6 +834,18 @@ fn replace_output(
                     g.emit_json(&build_output(diff_text))?;
                 } else if !g.emit_json_items(files)? && !diffs.is_empty() {
                     print!("{}", render_diffs_colored(diffs, g.should_color()));
+                }
+                if !g.quiet
+                    && !g.json
+                    && !g.jsonl
+                    && let Some(ref refused) = refused
+                {
+                    for r in refused {
+                        eprintln!(
+                            "refused {}: {} (use --allow-absent-old to apply fuzzy candidate)",
+                            r.path, r.reason
+                        );
+                    }
                 }
                 Ok(())
             },
@@ -806,6 +909,7 @@ fn run_context_replace(
             matched_text: None,
             similar_targets: None,
             skipped: skipped.clone(),
+            refused: None,
         };
         global.emit_json(&empty)?;
         if args.if_exists {
@@ -869,6 +973,11 @@ fn run_context_replace(
         // Soft refuse (#1758) records candidate honesty without a write.
         let (refuse_mode, refuse_score, refuse_matched) =
             aggregate_refuse_match_meta(&result.exec_result.replace_match_meta);
+        let refused = collect_refused_files(
+            &cwd,
+            &result.exec_result.changes,
+            &result.exec_result.replace_match_meta,
+        );
         let empty = ReplaceOutput {
             ok: args.if_exists,
             match_count: 0,
@@ -887,6 +996,7 @@ fn run_context_replace(
             matched_text: refuse_matched,
             similar_targets: None,
             skipped: skipped.clone(),
+            refused,
         };
         global.emit_json(&empty)?;
         if args.if_exists {

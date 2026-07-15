@@ -65,6 +65,26 @@ pub struct TxOutput {
     /// Compare to requested `old` after fuzzy apply (#1736).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub matched_text: Option<String>,
+    /// Soft-refuse paths where fuzzy found a candidate but did not write
+    /// (exact old absent without `allow_absent_old`). Present on partial
+    /// multi-op success so agents do not treat overall ok as full coverage
+    /// (parity with CLI `replace` `refused[]`).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub refused: Vec<TxRefused>,
+}
+
+/// One soft-refuse path in a plan/tx report (fuzzy fail-closed without a write).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TxRefused {
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub match_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub matched_text: Option<String>,
+    /// Machine-readable reason (`exact_old_absent` or `no_write`).
+    pub reason: String,
 }
 
 /// One doc delete / delete-where outcome inside a plan/tx report (#1439).
@@ -173,6 +193,9 @@ pub(crate) struct ReplaceMatchMeta {
     pub match_count: usize,
     /// Fuzzy/anchored span text actually matched (may differ from plan `old`). #1736
     pub matched_text: Option<String>,
+    /// Soft-no-write reason when `match_count` is 0 (`exact_old_absent`,
+    /// `below_min_fuzzy_score`). Used for CLI/tx `refused[]` honesty.
+    pub refuse_reason: Option<&'static str>,
 }
 
 /// Apply mutation summaries onto a [`TxOutput`] (aggregates + list).
@@ -322,25 +345,52 @@ pub(crate) fn build_tx_output_with_meta(
         }
     }
 
-    // Soft refuses (fuzzy fail-closed #1758, floor reject with recorded
-    // candidate) store honesty in replace_match_meta without a write. Fold
-    // those paths so no_matches JSON still exposes match_mode/score/matched_text.
+    // Soft full refuses (fuzzy fail-closed #1758) store honesty without a write.
+    // Fold only when there is no write surface: otherwise refuse meta would poison
+    // success aggregates (e.g. exact multi-file apply + one soft refuse → match_mode
+    // "fuzzy"). Partial refuses are listed in `refused[]` instead.
+    if changes.is_empty() && deletions.is_empty() {
+        for m in replace_match_meta.values() {
+            any_replace_meta = true;
+            agg_mode = Some(merge_match_modes(agg_mode, m.mode));
+            if matches!(m.mode, crate::api::MatchMode::Fuzzy)
+                && let Some(s) = m.score
+            {
+                agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
+            }
+            agg_count = agg_count.saturating_add(m.match_count);
+            if top_matched_text.is_none() {
+                top_matched_text = m.matched_text.clone();
+            }
+        }
+    }
+
+    // Paths with recorded meta but no write (fuzzy refuse / floor skip).
+    let mut refused = Vec::new();
     for (path, m) in replace_match_meta {
         if changes.iter().any(|(c, _, _)| c == path) || deletions.contains(path) {
             continue;
         }
-        any_replace_meta = true;
-        agg_mode = Some(merge_match_modes(agg_mode, m.mode));
-        if matches!(m.mode, crate::api::MatchMode::Fuzzy)
-            && let Some(s) = m.score
-        {
-            agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
+        // Only surface candidates that were found but not applied (count 0).
+        if m.match_count != 0 || m.matched_text.is_none() {
+            continue;
         }
-        agg_count = agg_count.saturating_add(m.match_count);
-        if top_matched_text.is_none() {
-            top_matched_text = m.matched_text.clone();
-        }
+        let reason = m
+            .refuse_reason
+            .unwrap_or(if m.mode == crate::api::MatchMode::Fuzzy {
+                "exact_old_absent"
+            } else {
+                "no_write"
+            });
+        refused.push(TxRefused {
+            path: display_path(path),
+            match_mode: Some(match_mode_label(m.mode).to_string()),
+            match_score: m.score,
+            matched_text: m.matched_text.clone(),
+            reason: reason.to_string(),
+        });
     }
+    refused.sort_by(|a, b| a.path.cmp(&b.path));
 
     let (top_mode, top_score) = match agg_mode {
         Some(m) => (
@@ -386,6 +436,7 @@ pub(crate) fn build_tx_output_with_meta(
         } else {
             None
         },
+        refused,
     }
 }
 
@@ -474,6 +525,7 @@ pub(crate) fn build_error_output(
         match_score: None,
         match_count: None,
         matched_text: None,
+        refused: Vec::new(),
     }
 }
 
@@ -613,6 +665,7 @@ mod tests {
             match_score: None,
             match_count: None,
             matched_text: None,
+            refused: Vec::new(),
         }
     }
 
@@ -637,6 +690,7 @@ mod tests {
             match_score: None,
             match_count: None,
             matched_text: None,
+            refused: Vec::new(),
         }
     }
 
@@ -813,6 +867,7 @@ mod tests {
                 score: Some(0.91),
                 match_count: 1,
                 matched_text: Some("proccess".into()),
+                refuse_reason: None,
             },
         );
         let out = build_tx_output_with_meta(
@@ -858,6 +913,7 @@ mod tests {
                 score: Some(0.95),
                 match_count: 1,
                 matched_text: Some("aaa".into()),
+                refuse_reason: None,
             },
         );
         meta.insert(
@@ -867,6 +923,7 @@ mod tests {
                 score: Some(0.80),
                 match_count: 1,
                 matched_text: Some("bbb".into()),
+                refuse_reason: None,
             },
         );
         let out = build_tx_output_with_meta(
@@ -911,6 +968,7 @@ mod tests {
                 score: Some(0.88),
                 match_count: 1,
                 matched_text: Some("live_span".into()),
+                refuse_reason: None,
             },
         );
         let out = build_tx_output_with_meta(
@@ -1000,6 +1058,7 @@ mod tests {
                 score: Some(0.987),
                 match_count: 0,
                 matched_text: Some("compute_checksum".into()),
+                refuse_reason: None,
             },
         );
         let mut result = TxExecResult {
@@ -1023,6 +1082,65 @@ mod tests {
         assert_eq!(out.match_score, Some(0.987));
         assert_eq!(out.matched_text.as_deref(), Some("compute_checksum"));
         assert_eq!(out.match_count, Some(0));
+    }
+
+    /// Partial apply + soft refuse must not report aggregate match_mode=fuzzy.
+    #[test]
+    fn build_full_tx_output_partial_success_ignores_refuse_meta_in_aggregate() {
+        use std::collections::HashMap;
+        let cwd = Path::new("/project");
+        let changed = PathBuf::from("/project/a.txt");
+        let refused = PathBuf::from("/project/b.txt");
+        let mut meta = HashMap::new();
+        meta.insert(
+            changed.clone(),
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Exact,
+                score: None,
+                match_count: 1,
+                matched_text: None,
+                refuse_reason: None,
+            },
+        );
+        meta.insert(
+            refused,
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Fuzzy,
+                score: Some(0.97),
+                match_count: 0,
+                matched_text: Some("helo world".into()),
+                refuse_reason: Some("exact_old_absent"),
+            },
+        );
+        let mut result = TxExecResult {
+            changes: vec![(changed, "hello world\n".into(), "hi\n".into())],
+            deletions: HashSet::new(),
+            existed_before: {
+                let mut s = HashSet::new();
+                s.insert(PathBuf::from("/project/a.txt"));
+                s
+            },
+            pending: HashMap::new(),
+            tx_reads: vec![],
+            tx_searches: vec![],
+            tx_lints: vec![],
+            tx_mutations: vec![],
+            no_effective_changes: false,
+            replace_no_matches: false,
+            replace_hint: Some("exact old absent".into()),
+            replace_match_meta: meta,
+            renames: vec![],
+        };
+        let out = build_full_tx_output("success", &mut result, cwd);
+        assert_eq!(out.status, "success");
+        assert_eq!(out.match_mode.as_deref(), Some("exact"));
+        assert!(out.match_score.is_none());
+        assert_eq!(out.match_count, Some(1));
+        assert_eq!(out.refused.len(), 1);
+        assert_eq!(out.refused[0].path, "b.txt");
+        assert_eq!(out.refused[0].match_mode.as_deref(), Some("fuzzy"));
+        assert_eq!(out.refused[0].reason, "exact_old_absent");
+        assert_eq!(out.refused[0].matched_text.as_deref(), Some("helo world"));
     }
 
     /// Hosts may deserialize older plan/tx JSON that never had match honesty

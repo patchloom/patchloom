@@ -121,8 +121,28 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.json {
-        if !multi && outputs.len() == 1 {
+        if !multi && outputs.len() == 1 && errors.is_empty() {
             global.emit_json(&outputs[0])?;
+        } else if multi && !errors.is_empty() {
+            // Partial multi-path: bare success array hides failed paths from agents
+            // that only parse stdout. Envelope with skipped[] + error_kind.
+            #[derive(Serialize)]
+            struct PartialReadReport {
+                ok: bool,
+                files: Vec<ReadOutput>,
+                skipped: Vec<String>,
+                error_kind: &'static str,
+                error: String,
+            }
+            // Errors are "{path}: {io}"; keep full diagnostic string.
+            let report = PartialReadReport {
+                ok: false,
+                files: outputs,
+                skipped: errors.clone(),
+                error_kind: "not_found",
+                error: format!("partial read failure: {} path(s) failed", errors.len()),
+            };
+            global.emit_json(&report)?;
         } else {
             global.emit_json(&outputs)?;
         }

@@ -472,7 +472,7 @@ fn check_render_issues_json_ok() {
         json: true,
         ..GlobalFlags::default()
     };
-    render_issues(&issues, &global).expect("json emit must succeed for TidyIssue");
+    render_issues(&issues, &global, None).expect("json emit must succeed for TidyIssue");
 }
 
 #[test]
@@ -486,7 +486,7 @@ fn check_render_issues_jsonl_ok() {
         jsonl: true,
         ..GlobalFlags::default()
     };
-    render_issues(&issues, &global).expect("jsonl emit must succeed for TidyIssue");
+    render_issues(&issues, &global, None).expect("jsonl emit must succeed for TidyIssue");
 }
 
 /// Regression: `tidy check --quiet --json` must still emit JSON output.

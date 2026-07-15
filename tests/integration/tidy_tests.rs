@@ -639,3 +639,37 @@ fn test_tidy_fix_format_failure_json_error_kind() {
     // Tidy write still applied before format failure.
     assert_eq!(fs::read_to_string(&file).unwrap(), "x\n");
 }
+
+/// --files-from missing entries must appear in tidy fix JSON skipped[] (agent honesty).
+#[test]
+fn test_tidy_fix_files_from_missing_reports_skipped() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("a.txt");
+    // Dirty so fix reports a change; also covers clean+skipped path.
+    fs::write(&existing, "x  ").unwrap();
+    let list = dir.path().join("list.txt");
+    fs::write(&list, "a.txt\nmissing.txt\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "tidy", "fix", "--apply"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(parsed["files_changed"], 1, "{parsed}");
+    let skipped = parsed["skipped"]
+        .as_array()
+        .expect("tidy fix must report files-from missing in skipped");
+    assert_eq!(skipped.len(), 1, "{parsed}");
+    assert_eq!(skipped[0], "missing.txt");
+}
