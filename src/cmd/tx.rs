@@ -435,7 +435,7 @@ pub(crate) fn run_parsed_plan(
     // 3c. Take pre-execution symbol snapshot for verification.
     #[cfg(feature = "ast")]
     let verify_before = if !verify_checks.is_empty() {
-        let affected = crate::tx::verify::affected_file_paths(&plan, &cwd);
+        let affected = crate::tx::verify::scan_paths_for_checks(&plan, &cwd, &verify_checks);
         verify_checks
             .iter()
             .map(|check| {
@@ -480,7 +480,7 @@ pub(crate) fn run_parsed_plan(
     // 4b. Post-execution verification against pending content.
     #[cfg(feature = "ast")]
     if !verify_before.is_empty() {
-        let affected = crate::tx::verify::affected_file_paths(&plan, &cwd);
+        let affected = crate::tx::verify::scan_paths_for_checks(&plan, &cwd, &verify_checks);
         let mut any_failed = false;
         let mut messages = Vec::new();
         for (check, before_snap) in &verify_before {

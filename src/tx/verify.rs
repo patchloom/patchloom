@@ -1,5 +1,8 @@
 //! Pre/post-operation symbol count verification for structural safety.
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). Symbol snapshot,
+//! unique_names/no_orphans, and count checks co-located; do not split for LOC.
+//!
 //! When `--verify` is used, the tx engine captures a symbol snapshot before
 //! executing operations and compares it against a post-execution snapshot.
 //! Mismatches trigger rollback with a descriptive error.
@@ -95,6 +98,39 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
                     walk_and_match(cwd, cwd, &matcher, &mut paths);
                 }
             }
+        }
+    }
+    paths.into_iter().collect()
+}
+
+/// Paths to snapshot for a set of verify checks.
+///
+/// Named checks (`unique_names`, `no_orphans`) need a project-wide view so a
+/// single-file rename cannot create a silent cross-file name collision
+/// (runtime fixrealloop 2026-07-15). Symbol-count checks stay on declared
+/// operation paths only for performance.
+#[cfg(feature = "ast")]
+pub(crate) fn scan_paths_for_checks(
+    plan: &crate::plan::Plan,
+    cwd: &Path,
+    checks: &[VerifyCheck],
+) -> Vec<PathBuf> {
+    let needs_project = checks.iter().any(|c| {
+        matches!(
+            c,
+            VerifyCheck::Named { check }
+                if check == "unique_names" || check == "no_orphans"
+        )
+    });
+    // `mut` needed when `cli` extends the set for unique_names/no_orphans.
+    #[allow(unused_mut)]
+    let mut paths: HashSet<PathBuf> = affected_file_paths(plan, cwd).into_iter().collect();
+    if needs_project {
+        #[cfg(feature = "cli")]
+        if let Ok(files) =
+            crate::cmd::ast::collect_source_files(cwd, &crate::cli::global::GlobalFlags::default())
+        {
+            paths.extend(files);
         }
     }
     paths.into_iter().collect()
@@ -419,10 +455,14 @@ pub(crate) fn compare_snapshots(
     }
 }
 
-/// Check that no file has duplicate symbol names.
+/// Check that symbol names are unique within each file and across the snapshot.
+///
+/// Cross-file uniqueness matters for renames: `foo` → `bar` in one file must
+/// fail when another scanned file already defines `bar`.
 #[cfg(feature = "ast")]
 fn check_unique_names(snapshot: &SymbolSnapshot, cwd: &Path) -> VerifyResult {
     let mut duplicates = Vec::new();
+    // Per-file duplicates.
     for (path, syms) in &snapshot.files {
         let mut seen = HashMap::new();
         for sym in syms {
@@ -435,6 +475,29 @@ fn check_unique_names(snapshot: &SymbolSnapshot, cwd: &Path) -> VerifyResult {
             }
         }
     }
+    // Cross-file: same name in two or more files (count each file once).
+    let mut by_name: HashMap<&str, Vec<&Path>> = HashMap::new();
+    for (path, syms) in &snapshot.files {
+        let mut names_in_file = HashSet::new();
+        for sym in syms {
+            if names_in_file.insert(sym.name.as_str()) {
+                by_name.entry(sym.name.as_str()).or_default().push(path);
+            }
+        }
+    }
+    for (name, paths) in &by_name {
+        if paths.len() > 1 {
+            let mut displays: Vec<String> = paths
+                .iter()
+                .map(|p| p.strip_prefix(cwd).unwrap_or(p).display().to_string())
+                .collect();
+            displays.sort();
+            duplicates.push(format!(
+                "  '{name}' appears in multiple files: {}",
+                displays.join(", ")
+            ));
+        }
+    }
 
     if duplicates.is_empty() {
         VerifyResult {
@@ -442,6 +505,8 @@ fn check_unique_names(snapshot: &SymbolSnapshot, cwd: &Path) -> VerifyResult {
             message: "verify unique_names: no duplicates found \u{2713}".to_string(),
         }
     } else {
+        // Stable order for agent-facing diagnostics.
+        duplicates.sort();
         VerifyResult {
             passed: false,
             message: format!(
@@ -850,6 +915,37 @@ fn not_a_test() {}
         let result = check_unique_names(&snapshot, Path::new("/tmp"));
         assert!(!result.passed);
         assert!(result.message.contains("'foo' appears 2 times"));
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn unique_names_cross_file_duplicates() {
+        let snapshot = SymbolSnapshot {
+            files: HashMap::from([
+                (
+                    PathBuf::from("/tmp/a.rs"),
+                    vec![SnappedSymbol {
+                        name: "bar".into(),
+                        kind: symbols::SymbolKind::Function,
+                    }],
+                ),
+                (
+                    PathBuf::from("/tmp/b.rs"),
+                    vec![SnappedSymbol {
+                        name: "bar".into(),
+                        kind: symbols::SymbolKind::Function,
+                    }],
+                ),
+            ]),
+            total: 2,
+        };
+        let result = check_unique_names(&snapshot, Path::new("/tmp"));
+        assert!(!result.passed, "{}", result.message);
+        assert!(
+            result.message.contains("multiple files") && result.message.contains("'bar'"),
+            "cross-file collision must be reported: {}",
+            result.message
+        );
     }
 
     #[test]
