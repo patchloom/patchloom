@@ -1786,6 +1786,11 @@ fn test_replace_cli_json_no_matches_includes_similar_targets() {
             .any(|s| s.as_str() == Some("process_request")),
         "expected process_request suggestion: {v}"
     );
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("did you mean") && err.contains("process_request"),
+        "exact no-match JSON error must carry did-you-mean prose: {v}"
+    );
 }
 
 #[test]
@@ -1953,6 +1958,39 @@ fn test_replace_cli_min_fuzzy_score_rejects_weak_match() {
         fs::read_to_string(&file).unwrap(),
         "hello wrold foo\n",
         "high floor must leave content unchanged"
+    );
+
+    // Soft floor reject under --json must surface engine replace_hint in `error`
+    // so agents do not only get error_kind=no_matches with an empty body (#1754).
+    let json_out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "hello world",
+            "--new",
+            "hello earth",
+            "--fuzzy",
+            "--min-fuzzy-score",
+            "0.99",
+        ])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        json_out.status.code(),
+        Some(3),
+        "stderr={}",
+        String::from_utf8_lossy(&json_out.stderr)
+    );
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&json_out.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("min_fuzzy_score") || err.contains("below"),
+        "CLI fuzzy floor no-match JSON must include floor hint in error: {v}"
     );
 
     // Lower floor accepts the same fuzzy hit.
