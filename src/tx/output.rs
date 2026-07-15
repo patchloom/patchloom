@@ -383,6 +383,18 @@ pub(crate) fn build_full_tx_output(
     output.searches = std::mem::take(&mut result.tx_searches);
     output.lints = std::mem::take(&mut result.tx_lints);
     attach_mutations(&mut output, std::mem::take(&mut result.tx_mutations));
+    // Soft no-match replaces still set status=no_matches with ok=true (exit 3).
+    // Surface error_kind + replace_hint so agents see floor / did-you-mean
+    // diagnostics that path/glob arms already computed (#1753).
+    if status == "no_matches" {
+        output.error_kind = Some("no_matches".to_string());
+        let detail = result
+            .replace_hint
+            .as_deref()
+            .filter(|h| !h.is_empty())
+            .unwrap_or("no matches");
+        output.error = Some(detail.to_string());
+    }
     output
 }
 
@@ -914,6 +926,40 @@ mod tests {
         assert!(!json.contains("\"searches\""));
         assert!(!json.contains("\"lints\""));
         assert!(!json.contains("\"error\""));
+    }
+
+    /// Soft no_matches reports must carry error_kind + replace_hint for agents.
+    #[test]
+    fn build_full_tx_output_no_matches_includes_hint() {
+        use std::collections::HashMap;
+        let cwd = Path::new("/project");
+        let mut result = TxExecResult {
+            changes: vec![],
+            deletions: HashSet::new(),
+            existed_before: HashSet::new(),
+            pending: HashMap::new(),
+            tx_reads: vec![],
+            tx_searches: vec![],
+            tx_lints: vec![],
+            tx_mutations: vec![],
+            no_effective_changes: true,
+            replace_no_matches: true,
+            replace_hint: Some(
+                "fuzzy match score 0.900 below min_fuzzy_score 1 for \"proccess\"".into(),
+            ),
+            replace_match_meta: HashMap::new(),
+            renames: vec![],
+        };
+        let out = build_full_tx_output("no_matches", &mut result, cwd);
+        assert_eq!(out.status, "no_matches");
+        assert_eq!(out.error_kind.as_deref(), Some("no_matches"));
+        assert!(
+            out.error
+                .as_deref()
+                .is_some_and(|e| e.contains("min_fuzzy_score")),
+            "hint must appear in error: {:?}",
+            out.error
+        );
     }
 
     /// Hosts may deserialize older plan/tx JSON that never had match honesty
