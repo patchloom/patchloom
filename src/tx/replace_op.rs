@@ -266,47 +266,55 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             "fuzzy match score {actual} below min_fuzzy_score {min} for {:?}",
                             crate::fallback::truncate_str(old, 60),
                         ));
-                        return Ok(0);
-                    }
-                    let to_text = if let Some(ib) = insert_before {
-                        format!("{}{}", ib, anchor.matched_text)
-                    } else if let Some(ia) = insert_after {
-                        format!("{}{}", anchor.matched_text, ia)
+                        // Soft zero: still honor require_change below (#1748).
                     } else {
-                        new_text.as_deref().unwrap_or("").to_string()
-                    };
-                    let new_content = format!(
-                        "{}{}{}",
-                        &content[..anchor.start_offset],
-                        to_text,
-                        &content[anchor.start_offset + anchor.matched_text.len()..]
-                    );
-                    update_file_content(
-                        tx.pending,
-                        tx.deletions,
-                        tx.write_targets,
-                        &file_path,
-                        new_content,
-                    );
-                    record_replace_match(
-                        tx,
-                        &file_path,
-                        mode,
-                        score,
-                        1,
-                        Some(anchor.matched_text.clone()),
-                    );
-                    tx.replace_hint = Some(format!(
-                        "fallback matched via {:?} strategy in {}",
-                        anchor.strategy, p,
-                    ));
-                    Ok(1)
+                        let to_text = if let Some(ib) = insert_before {
+                            format!("{}{}", ib, anchor.matched_text)
+                        } else if let Some(ia) = insert_after {
+                            format!("{}{}", anchor.matched_text, ia)
+                        } else {
+                            new_text.as_deref().unwrap_or("").to_string()
+                        };
+                        let new_content = format!(
+                            "{}{}{}",
+                            &content[..anchor.start_offset],
+                            to_text,
+                            &content[anchor.start_offset + anchor.matched_text.len()..]
+                        );
+                        update_file_content(
+                            tx.pending,
+                            tx.deletions,
+                            tx.write_targets,
+                            &file_path,
+                            new_content,
+                        );
+                        record_replace_match(
+                            tx,
+                            &file_path,
+                            mode,
+                            score,
+                            1,
+                            Some(anchor.matched_text.clone()),
+                        );
+                        tx.replace_hint = Some(format!(
+                            "fallback matched via {:?} strategy in {}",
+                            anchor.strategy, p,
+                        ));
+                        return Ok(1);
+                    }
                 }
                 Err(edit_error) => {
                     tx.replace_hint = Some(edit_error.message.clone());
-                    Ok(0)
                 }
             }
+            if *require_change && !if_exists {
+                let msg = tx
+                    .replace_hint
+                    .clone()
+                    .unwrap_or_else(|| format!("no matches for {old:?} in {p}"));
+                return Err(crate::exit::NoMatchError { msg }.into());
+            }
+            Ok(0)
         } else {
             if !regex_mode {
                 // Tier 1: Provide "did you mean?" hints for literal no-match.
@@ -1143,6 +1151,55 @@ mod tests {
             hint.as_deref()
                 .is_some_and(|h| h.contains("min_fuzzy_score")),
             "hint: {hint:?}"
+        );
+    }
+
+    /// Path arm: floor reject with require_change must hard-fail (NoMatch), not
+    /// soft Ok(0). Previously returned Ok(0) and skipped the require_change check.
+    #[test]
+    fn replace_min_fuzzy_score_require_change_bails() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("src.rs");
+        std::fs::write(
+            &file,
+            "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n",
+        )
+        .unwrap();
+
+        let op = Operation::Replace {
+            path: Some("src.rs".into()),
+            glob: None,
+            regex: false,
+            old: "fn process_requets(data: &str) -> Result<()> {".into(),
+            new_text: Some("REPLACED".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            if_exists: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            unique: false,
+            require_change: true,
+            command_position: false,
+            fuzzy: true,
+            min_fuzzy_score: Some(1.0),
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_replace_op(&op, &mut tx).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("min_fuzzy_score") || msg.contains("no matches"),
+            "require_change after floor reject must surface NoMatch with hint: {msg}"
+        );
+        assert!(
+            f.write_targets.is_empty(),
+            "rejected fuzzy must not stage a write"
         );
     }
 
