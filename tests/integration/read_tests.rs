@@ -87,6 +87,40 @@ fn test_read_json_invalid_lines_returns_error_object() {
     );
 }
 
+/// --lines past EOF must not return ok:true with empty content (agents treat that
+/// as a successful empty read).
+#[test]
+fn test_read_lines_beyond_eof_json_no_matches() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("short.txt");
+    fs::write(&file, "a\nb\nc\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .arg("--lines")
+        .arg("5-10")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "expected NO_MATCHES, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "no_matches");
+    let error = json["error"].as_str().unwrap();
+    assert!(
+        error.contains("line range outside file"),
+        "got error: {error}"
+    );
+}
+
 #[test]
 fn test_read_json_output() {
     let dir = TempDir::new().unwrap();

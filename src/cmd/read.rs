@@ -49,6 +49,16 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
     }
 
     let selected = select_lines(&content, lines.expect("checked is_none above"));
+    // Empty selection for an explicit --lines range is not success: agents treat
+    // ok:true + empty content as "file is empty", not "range past EOF"
+    // (fixrealloop 2026-07-15).
+    if selected.start_line == 0 {
+        let n = selected.total_lines;
+        return Err(format!(
+            "{path}: line range outside file ({n} line{})",
+            if n == 1 { "" } else { "s" }
+        ));
+    }
 
     Ok(ReadOutput {
         ok: true,
@@ -114,8 +124,14 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if errors.len() == args.files.len() {
-        // Prefer not_found when every path failed (typical: missing files).
         let msg = errors.join("\n");
+        // Prefer no_matches when every path failed only because --lines is past EOF.
+        let all_range_outside = errors.iter().all(|e| e.contains("line range outside file"));
+        if all_range_outside {
+            global.emit_error_json_kind(Some("no_matches"), &msg)?;
+            return Ok(exit::NO_MATCHES);
+        }
+        // Prefer not_found when every path failed (typical: missing files).
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(exit::FAILURE);
     }
@@ -315,9 +331,30 @@ mod tests {
         let file = dir.path().join("empty.txt");
         fs::write(&file, "").unwrap();
         let lines = Some((1, Some(5)));
-        let result = read_one_file(file.to_str().unwrap(), lines).unwrap();
-        assert_eq!(result.content, "");
-        assert_eq!(result.total_lines, 0);
+        let result = read_one_file(file.to_str().unwrap(), lines);
+        assert!(
+            result.is_err(),
+            "empty file with --lines must not look like success: {result:?}"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("line range outside file"),
+            "expected outside-file error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn read_one_file_line_range_beyond_eof_errors() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("short.txt");
+        fs::write(&file, "line1\nline2\nline3\n").unwrap();
+        let result = read_one_file(file.to_str().unwrap(), Some((5, Some(10))));
+        assert!(result.is_err(), "expected error, got Ok: {result:?}");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("line range outside file") && err.contains("3 lines"),
+            "got: {err}"
+        );
     }
 
     #[test]
