@@ -3027,6 +3027,14 @@ fn test_tx_json_check_replace_no_match_exits_3_with_no_matches_payload() {
     let v: serde_json::Value =
         serde_json::from_str(stdout.trim()).expect("tx --json should emit JSON on no-match");
     assert_eq!(v["status"], "no_matches", "status should be no_matches");
+    assert_eq!(
+        v["error_kind"], "no_matches",
+        "agents need error_kind on soft no_matches: {stdout}"
+    );
+    assert!(
+        v["error"].as_str().is_some_and(|e| !e.is_empty()),
+        "agents need non-empty error (hint or default): {stdout}"
+    );
 }
 
 #[test]

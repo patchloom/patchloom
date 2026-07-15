@@ -159,12 +159,13 @@ pub fn execute_plan_direct(
     };
 
     if result.replace_no_matches {
-        let output = build_error_output(
+        // Prefer structured no_matches report so replace_hint / error_kind
+        // match CLI --json tx (build_full_tx_output), not an empty error body.
+        return Ok(build_full_tx_output(
             "no_matches",
-            result.replace_hint.as_deref().unwrap_or(""),
-            None,
-        );
-        return Ok(output);
+            &mut result,
+            &effective_cwd,
+        ));
     }
 
     if result.no_effective_changes {
