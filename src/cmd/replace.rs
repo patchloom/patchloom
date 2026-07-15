@@ -165,6 +165,38 @@ struct ReplaceOutput {
     /// Agents should prefer this over scraping the English error string.
     #[serde(skip_serializing_if = "Option::is_none")]
     similar_targets: Option<Vec<String>>,
+    /// Paths from `--files-from` that were missing or unreadable and soft-skipped.
+    /// Present under `--json` even when `--quiet` suppresses stderr (#1756).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<Vec<String>>,
+}
+
+/// List `--files-from` entries that do not exist on disk (for agent JSON).
+///
+/// Skips when the list is stdin (`-`): that source can only be read once, and
+/// `collect_file_paths_opts` already consumes it for the walk.
+fn files_from_skipped_missing(
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+) -> anyhow::Result<Option<Vec<String>>> {
+    if global.files_from.as_deref() == Some("-") {
+        return Ok(None);
+    }
+    let Some(files) = global.read_files_from()? else {
+        return Ok(None);
+    };
+    let mut missing = Vec::new();
+    for f in files {
+        let p = cwd.join(&f);
+        if !p.exists() {
+            missing.push(f);
+        }
+    }
+    if missing.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(missing))
+    }
 }
 
 /// Result of processing a single file.
@@ -422,11 +454,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // outside the workspace while computing matches (precomputed write-path
     // guard remains defense-in-depth).
     global.check_paths_contained(&cwd, &args.paths)?;
+    let skipped = files_from_skipped_missing(global, &cwd)?;
 
     // Context / pure fuzzy: route through the tx engine where the
     // context_filtered_offset and fallback chain live (#1668).
     if args.fuzzy || args.before_context.is_some() || args.after_context.is_some() {
-        return run_context_replace(args, global, &cwd);
+        return run_context_replace(args, global, &cwd, skipped);
     }
 
     // Phase 1: Parallel file scan to identify files with matches (includes identity).
@@ -457,6 +490,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     match_score: None,
                     matched_text: None,
                     similar_targets: None,
+                    skipped: skipped.clone(),
                 };
                 global.emit_json(&output)?;
                 if !global.quiet {
@@ -494,6 +528,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 match_score: None,
                 matched_text: None,
                 similar_targets: None,
+                skipped: skipped.clone(),
             };
             global.emit_json(&output)?;
             if !global.quiet && !global.json && !global.jsonl {
@@ -518,6 +553,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 match_score: None,
                 matched_text: None,
                 similar_targets: None,
+                skipped: skipped.clone(),
             };
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
@@ -559,6 +595,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             match_score: None,
             matched_text: None,
             similar_targets: similar.clone(),
+            skipped: skipped.clone(),
         };
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
@@ -599,7 +636,15 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Phase 3: Render output based on mode (check/apply/diff/confirm).
     // Custom JSON schema (match counts); mode/exit via write_mode helpers.
-    replace_output(global, result, &files, total_matches, file_count, &cwd)
+    replace_output(
+        global,
+        result,
+        &files,
+        total_matches,
+        file_count,
+        &cwd,
+        skipped,
+    )
 }
 
 /// Handle output rendering and commit/check/preview for replace via the engine.
@@ -612,6 +657,7 @@ fn replace_output(
     total_matches: usize,
     file_count: usize,
     cwd: &std::path::Path,
+    skipped: Option<Vec<String>>,
 ) -> anyhow::Result<u8> {
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
@@ -633,6 +679,7 @@ fn replace_output(
             None
         },
         similar_targets: None,
+        skipped: skipped.clone(),
     };
 
     finalize_report(
@@ -701,6 +748,7 @@ fn run_context_replace(
     args: ReplaceArgs,
     global: &GlobalFlags,
     cwd: &std::path::Path,
+    skipped: Option<Vec<String>>,
 ) -> anyhow::Result<u8> {
     use crate::plan::Operation;
 
@@ -739,6 +787,7 @@ fn run_context_replace(
             match_score: None,
             matched_text: None,
             similar_targets: None,
+            skipped: skipped.clone(),
         };
         global.emit_json(&empty)?;
         if args.if_exists {
@@ -815,6 +864,7 @@ fn run_context_replace(
             match_score: None,
             matched_text: None,
             similar_targets: None,
+            skipped: skipped.clone(),
         };
         global.emit_json(&empty)?;
         if args.if_exists {
@@ -894,7 +944,15 @@ fn run_context_replace(
     let total_matches = files.len();
     let file_count = total_matches;
     // Same mode/exit owner as default replace path (no hand-rolled matrix).
-    replace_output(global, result, &files, total_matches, file_count, &cwd)
+    replace_output(
+        global,
+        result,
+        &files,
+        total_matches,
+        file_count,
+        &cwd,
+        skipped,
+    )
 }
 
 #[path = "replace_tests.rs"]
