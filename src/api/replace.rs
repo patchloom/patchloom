@@ -320,6 +320,17 @@ fn replace_write(
                         && let Some(min) = min_fuzzy_score
                         && crate::fallback::fuzzy_fails_min_floor(score, min)
                     {
+                        // Floor reject is a soft miss: honor if_exists like resolve Err.
+                        if if_exists {
+                            return Ok(super::build_edit_result(
+                                &path_str,
+                                original.clone(),
+                                original,
+                                false,
+                                "replace",
+                                None,
+                            ));
+                        }
                         let actual = score
                             .map(|s| format!("{s:.3}"))
                             .unwrap_or_else(|| "none".into());
@@ -575,6 +586,20 @@ pub fn replace_in_content(
                     && let Some(min) = opts.min_fuzzy_score
                     && crate::fallback::fuzzy_fails_min_floor(score, min)
                 {
+                    // Floor reject is a soft miss: honor if_exists like resolve Err
+                    // (#1750). Without if_exists, still hard NoMatch.
+                    if opts.if_exists {
+                        return Ok(ContentEditResult {
+                            original: content.to_string(),
+                            new_content: content.to_string(),
+                            diff: String::new(),
+                            changed: false,
+                            match_count: 0,
+                            match_mode: None,
+                            match_score: None,
+                            matched_text: None,
+                        });
+                    }
                     let actual = score
                         .map(|s| format!("{s:.3}"))
                         .unwrap_or_else(|| "none".into());
