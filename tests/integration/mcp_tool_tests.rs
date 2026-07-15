@@ -1991,6 +1991,7 @@ async fn test_mcp_batch_replace_fuzzy_reports_match_mode() {
             "old": "fn proccess_data() {}",
             "new": "fn handle_data() {}",
             "fuzzy": true,
+            "allow_absent_old": true,
             "require_change": true
         }),
     )
@@ -2048,6 +2049,7 @@ async fn test_mcp_replace_text_fuzzy_reports_engine_match_mode() {
             "old": "fn proccess_data() {}",
             "new": "fn handle_data() {}",
             "fuzzy": true,
+            "allow_absent_old": true,
             "require_change": true
         }),
     )
@@ -3969,7 +3971,8 @@ async fn test_mcp_replace_fuzzy_no_false_pattern_warnings() {
             "path": "code.rs",
             "old": "fn process_requets(data: &str) -> Result<()> {",
             "new": "fn process_request(data: &str) -> Result<()> {",
-            "fuzzy": true
+            "fuzzy": true,
+            "allow_absent_old": true
         }),
     )
     .await;

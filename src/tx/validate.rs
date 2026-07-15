@@ -157,6 +157,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         }
     }
 
@@ -216,6 +217,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(

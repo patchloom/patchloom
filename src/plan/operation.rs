@@ -70,6 +70,11 @@ pub enum Operation {
         /// Reject fuzzy matches below this score when set (#1687).
         #[serde(default)]
         min_fuzzy_score: Option<f64>,
+        /// When exact `old` is absent, allow Similarity/fuzzy apply of a nearby
+        /// span (historical default). When false (default), refuse the write and
+        /// report the best candidate (#1758). Anchored context matches still apply.
+        #[serde(default)]
+        allow_absent_old: bool,
     },
     #[serde(rename = "doc.set")]
     DocSet {

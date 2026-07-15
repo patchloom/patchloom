@@ -604,7 +604,7 @@ These are meaningful command-specific modes that change how a top-level command 
 
 - **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library, single-path tx, **glob** plan ops, and CLI (including directory roots expanded like ordinary replace).
 - **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` / `matched_text` in library results and CLI/MCP JSON (#1669, #1736). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy. Aggregate `match_score` is the **minimum** fuzzy score across paths/ops (lowest confidence), not the first fuzzy hit.
-- **Agent rule:** Fuzzy success is not semantic success. A high score can rewrite a *different* live identifier than `old` (example: `old=compute_cheksum` may match `compute_checksum` at score ~0.99). After fuzzy apply, check `matched_text` against the intended span; prefer `ast rename` for identifiers. Distinct from whole-line span fix #1694.
+- **Default safety (#1758):** When exact `old` is **absent**, Similarity/fuzzy **refuses to write** by default (even above `min_fuzzy_score`) and reports the best candidate. Set `--allow-absent-old` / `allow_absent_old` only for deliberate approximate recovery. Anchored matches (explicit context) still apply.
 - **Prefer instead:** Exact replace when the target string is known; `ast rename` for code identifiers.
 
 <!-- ref:replace-mode:min-fuzzy-score -->
@@ -612,8 +612,15 @@ These are meaningful command-specific modes that change how a top-level command 
 
 - **What it does:** When a fuzzy match is found, reject it if its similarity score is below this floor (`0.0..=1.0`). Exact and anchored matches are unaffected. Available on CLI (`--min-fuzzy-score`), plan/MCP (`min_fuzzy_score`), and `ReplaceOptions` (#1687).
 - **Use when:** Agent hosts want fuzzy recovery for small typos but must refuse weak similarity hits (typical floor: `0.80`).
-- **Does not mean:** `score >= min_fuzzy_score` proves the matched span is the intended target. Always inspect `matched_text` (#1736).
-- **Prefer instead:** Exact replace when the target string is known; bare `--fuzzy` when any fuzzy hit is acceptable.
+- **Does not mean:** `score >= min_fuzzy_score` alone authorizes a write when exact `old` is absent; that still requires `allow_absent_old` (#1758).
+- **Prefer instead:** Exact replace when the target string is known.
+
+<!-- ref:replace-mode:allow-absent-old -->
+### `replace --allow-absent-old` / library `ReplaceOptions.allow_absent_old` / plan `allow_absent_old`
+
+- **What it does:** Opt in to historical fuzzy behavior: when exact `old` is not in the file, apply the best Similarity candidate above `min_fuzzy_score` (if any). Default is **false** (fail closed; no write).
+- **Use when:** You intentionally want approximate recovery and will verify `matched_text`.
+- **Prefer instead:** Leave unset for agent hosts; use exact strings or AST renames.
 
 <!-- ref:create-mode:stdin -->
 ### `create --stdin`

@@ -450,6 +450,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Replace "v1" with "v2" in README.md (literal)"#);
@@ -479,6 +480,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -611,6 +613,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(
@@ -644,6 +647,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert_eq!(desc, r#"Insert "// added" after "use crate" in lib.rs"#);
@@ -673,6 +677,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("whole-line"), "{desc}");
@@ -788,6 +793,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert!(
@@ -821,6 +827,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert!(
@@ -853,6 +860,7 @@ mod tests {
             command_position: true,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert!(
@@ -886,6 +894,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains(", multiline"), "missing multiline: {desc}");
@@ -916,6 +925,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("**/*.rs"), "{desc}");
@@ -945,6 +955,7 @@ mod tests {
             command_position: false,
             fuzzy: false,
             min_fuzzy_score: None,
+            allow_absent_old: false,
         };
         let desc = describe_operation(&op);
         assert!(desc.contains("(delete)"), "{desc}");

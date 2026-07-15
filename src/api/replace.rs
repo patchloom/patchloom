@@ -112,6 +112,7 @@ pub fn replace_text(
         command_position: opts.command_position,
         fuzzy: false,
         min_fuzzy_score: opts.min_fuzzy_score,
+        allow_absent_old: opts.allow_absent_old,
     };
     let mut result = replace_write(op, path, mode, guard, opts.fuzzy)?;
     // if_exists intentionally softens zero-match (Ok unchanged). require_change
@@ -189,6 +190,7 @@ fn replace_write(
         before_context,
         after_context,
         min_fuzzy_score,
+        allow_absent_old,
         ..
     } = op
     {
@@ -342,6 +344,33 @@ fn replace_write(
                                 "fuzzy match score {actual} below min_fuzzy_score {min} for {old:?}"
                             ),
                         }));
+                    }
+                    if crate::fallback::should_refuse_fuzzy_absent_old(
+                        fuzzy,
+                        match_mode == MatchMode::Fuzzy,
+                        allow_absent_old,
+                    ) {
+                        // #1758: exact old absent — do not rewrite a different live span.
+                        let msg = crate::fallback::fuzzy_absent_old_refuse_message(
+                            &old,
+                            &anchor.matched_text,
+                            score,
+                        );
+                        if if_exists {
+                            let mut result = super::build_edit_result(
+                                &path_str,
+                                original.clone(),
+                                original,
+                                false,
+                                "replace",
+                                None,
+                            );
+                            result.match_mode = Some(match_mode);
+                            result.match_score = score;
+                            result.matched_text = Some(anchor.matched_text.clone());
+                            return Ok(result);
+                        }
+                        return Err(anyhow::Error::new(crate::exit::NoMatchError { msg }));
                     }
                     let to_text = if let Some(ib) = &insert_before {
                         format!("{}{}", ib, anchor.matched_text)
@@ -615,6 +644,35 @@ pub fn replace_in_content(
                             "fuzzy match score {actual} below min_fuzzy_score {min} for {:?}",
                             from
                         ),
+                    )
+                    .into());
+                }
+                if crate::fallback::should_refuse_fuzzy_absent_old(
+                    opts.fuzzy,
+                    mode == super::MatchMode::Fuzzy,
+                    opts.allow_absent_old,
+                ) {
+                    // #1758: report candidate honesty without rewriting a different live span.
+                    let msg = crate::fallback::fuzzy_absent_old_refuse_message(
+                        from,
+                        &anchor.matched_text,
+                        score,
+                    );
+                    if opts.if_exists {
+                        return Ok(ContentEditResult {
+                            original: content.to_string(),
+                            new_content: content.to_string(),
+                            diff: String::new(),
+                            changed: false,
+                            match_count: 0,
+                            match_mode: Some(mode),
+                            match_score: score,
+                            matched_text: Some(anchor.matched_text.clone()),
+                        });
+                    }
+                    return Err(crate::fallback::EditError::new(
+                        crate::fallback::EditErrorKind::NoMatch,
+                        msg,
                     )
                     .into());
                 }

@@ -711,6 +711,39 @@ pub(crate) fn fuzzy_fails_min_floor(score: Option<f64>, min: f64) -> bool {
     }
 }
 
+/// #1758: refuse Similarity/fuzzy apply when exact `old` was absent unless opt-in.
+///
+/// Anchored (explicit context) matches are not refused here — the host supplied
+/// landmarks. Only when the host opted into `fuzzy` and the resolve path returns
+/// Similarity/Fuzzy mode do we fail closed by default. Context-only fallback
+/// (before/after without `fuzzy`) may still land Similarity without this gate
+/// so structural recovery stays usable.
+pub(crate) fn should_refuse_fuzzy_absent_old(
+    fuzzy_requested: bool,
+    is_fuzzy_mode: bool,
+    allow_absent_old: bool,
+) -> bool {
+    fuzzy_requested && is_fuzzy_mode && !allow_absent_old
+}
+
+/// Diagnostic when refusing fuzzy apply because exact `old` is not in the file.
+pub(crate) fn fuzzy_absent_old_refuse_message(
+    old: &str,
+    matched_text: &str,
+    score: Option<f64>,
+) -> String {
+    let score_s = score
+        .map(|s| format!("{s:.3}"))
+        .unwrap_or_else(|| "none".into());
+    format!(
+        "exact old absent for {:?}; best fuzzy candidate {:?} score {} \
+         (set allow_absent_old / --allow-absent-old to apply)",
+        truncate_str(old, 60),
+        truncate_str(matched_text, 60),
+        score_s
+    )
+}
+
 /// True when `target` is a single identifier-like token (no whitespace).
 ///
 /// Multi-word / snippet targets keep whole-line similarity. Token-like targets

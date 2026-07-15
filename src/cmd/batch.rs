@@ -455,6 +455,7 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
     let mut command_position = false;
     let mut fuzzy = false;
     let mut min_fuzzy_score = None;
+    let mut allow_absent_old = false;
     let mut i = 0usize;
 
     while i < args.len() {
@@ -472,11 +473,13 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
                 | "-i"
                 | "--case-insensitive"
                 | "--min-fuzzy-score"
+                | "--allow-absent-old"
         ) || tok.starts_with("--min-fuzzy-score=");
 
         if is_flag {
             match tok {
                 "--fuzzy" => fuzzy = true,
+                "--allow-absent-old" => allow_absent_old = true,
                 "--if-exists" => if_exists = true,
                 "--require-change" => require_change = true,
                 "--command-position" => command_position = true,
@@ -515,7 +518,7 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
                     return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                         msg: format!(
                             "line {line_num}: unknown replace flag '{other}' \
-                             (supported: --fuzzy, --min-fuzzy-score, --word-boundary/-w, \
+                             (supported: --fuzzy, --allow-absent-old, --min-fuzzy-score, --word-boundary/-w, \
                              --command-position, --require-change, -i/--case-insensitive, --if-exists); \
                              advanced flags (regex, context, nth) need `tx` plan JSON"
                         ),
@@ -536,7 +539,7 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: format!(
                     "line {line_num}: unknown replace flag '{tok}' \
-                     (supported: --fuzzy, --min-fuzzy-score, --word-boundary/-w, \
+                     (supported: --fuzzy, --allow-absent-old, --min-fuzzy-score, --word-boundary/-w, \
                      --command-position, --require-change, -i/--case-insensitive, --if-exists); \
                      advanced flags (regex, context, nth) need `tx` plan JSON"
                 ),
@@ -622,6 +625,7 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
         command_position,
         fuzzy,
         min_fuzzy_score,
+        allow_absent_old,
     })
 }
 

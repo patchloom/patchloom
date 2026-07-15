@@ -305,7 +305,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary, fuzzy, min_fuzzy_score. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). Fuzzy + min_fuzzy_score only reject weak scores; high scores can still rewrite a different live identifier than old—check JSON matched_text and prefer ast_rename for identifiers (#1736). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}"
+        description = "Replace text in a file. Literal by default; set regex=true for regex. Options: nth, insert_before, insert_after, case_insensitive, multiline, if_exists, whole_line, range, word_boundary, fuzzy, min_fuzzy_score, allow_absent_old. Set word_boundary=true to match only whole words (prevents 'SetupFile' matching inside 'BenchSetupFile'). Set whole_line=true to replace entire lines containing a match (use with new=\"\" to delete lines). Fuzzy: when exact old is absent, refuse by default even if score ≥ min_fuzzy_score (#1758); set allow_absent_old=true only for deliberate approximate recovery. Prefer ast_rename for identifiers. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"path\": \"README.md\", \"old\": \"1.0.0\", \"new\": \"2.0.0\"}"
     )]
     async fn replace_text(
         &self,
@@ -404,6 +404,7 @@ impl PatchloomService {
                 command_position: p.command_position,
                 fuzzy: p.fuzzy,
                 min_fuzzy_score: p.min_fuzzy_score,
+                allow_absent_old: p.allow_absent_old,
             };
             let mut tool_result = svc.run_one_op(replace_op, Some(p.strict))?;
 
@@ -511,7 +512,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; JSON reports match_mode (exact/fuzzy/anchored), optional match_score, optional matched_text (actual fuzzy/anchored span; may differ from old—check before treating fuzzy as semantic success, #1736), match_count per change and aggregate (#1674). IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
+        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; when exact old is absent, refuse by default unless allow_absent_old=true (#1758). JSON reports match_mode (exact/fuzzy/anchored), optional match_score, optional matched_text, match_count per change and aggregate (#1674). IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
     )]
     async fn batch_replace(
         &self,
@@ -555,6 +556,7 @@ impl PatchloomService {
                     command_position: p.command_position,
                     fuzzy: p.fuzzy,
                     min_fuzzy_score: p.min_fuzzy_score,
+                    allow_absent_old: p.allow_absent_old,
                 })
                 .collect();
             svc.run_ops(ops, Some(p.strict))

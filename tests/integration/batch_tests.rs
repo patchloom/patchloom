@@ -159,7 +159,7 @@ fn test_batch_replace_fuzzy_min_score() {
     let ops_low = dir.path().join("ops_low.txt");
     fs::write(
         &ops_low,
-        "replace b.txt \"hello world\" \"hello earth\" --fuzzy --min-fuzzy-score 0.5\n",
+        "replace b.txt \"hello world\" \"hello earth\" --fuzzy --allow-absent-old --min-fuzzy-score 0.5\n",
     )
     .unwrap();
     patchloom_in(dir.path())

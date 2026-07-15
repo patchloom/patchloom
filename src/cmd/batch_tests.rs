@@ -198,6 +198,7 @@ mod basic {
             Operation::Replace {
                 fuzzy,
                 min_fuzzy_score: Some(s),
+                allow_absent_old: false,
                 ..
             } => {
                 assert!(fuzzy);

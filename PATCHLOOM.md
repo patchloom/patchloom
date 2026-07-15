@@ -41,13 +41,13 @@
 - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).
 - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).
 - `min_fuzzy_score`: reject fuzzy matches below this floor (0.0..=1.0); exact/anchored unaffected (#1687).
+- `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).
 Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
-**Fuzzy success is not semantic success (#1736):**
-- `min_fuzzy_score` only rejects *weak* similarity. Scores above the floor can still rewrite a *different* live identifier than the `old` string you requested.
-- After any fuzzy apply, read JSON `matched_text` (and re-read the file if needed). If `matched_text` is not the intended typo (for example `old=compute_cheksum` fuzzy-hits `compute_checksum` at score ~0.99), **undo** and use `ast_rename` / exact replace instead.
+**Fuzzy defaults fail closed when exact old is absent (#1758):**
+- If `old` is not present, fuzzy will **not** rewrite a nearby live span by default, even when score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_absent_old=true` only for deliberate approximate recovery.
 - Prefer `ast_rename` / `ast_rename_project` for code identifiers. Fuzzy is a last resort for typos in non-AST text (prose, comments), not a general rename tool.
-- Do not treat `ok` + `match_score >= min_fuzzy_score` alone as "correct target." Distinct from closed whole-line bug #1694.
+- When you opt into `allow_absent_old`, still check JSON `matched_text` before treating the edit as semantic success (#1736).
 
 **Library embedder undo / post-write (Rust hosts, not CLI-only):**
 - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).
@@ -199,7 +199,7 @@ patchloom search --count "old_function_name" src/
 patchloom replace "old_function_name" --new "new_function_name" src/ --apply
 ```
 
-Bad: `replace --fuzzy` with a misspelled `old` that is **not** in the file (e.g. `compute_cheksum` → may rewrite live `compute_checksum` even with `--min-fuzzy-score 0.95`). After fuzzy JSON, check `matched_text` (#1736).
+Default: `replace --fuzzy` with a misspelled `old` that is **not** in the file refuses the write (#1758). Opt in only with `--allow-absent-old` for deliberate approximate recovery, then check `matched_text` (#1736).
 
 ### Delete lines matching a pattern
 
@@ -212,8 +212,8 @@ patchloom replace 'TODO' --whole-line --range 10:200 --new '' notes.md --apply
 
 # Rewrite shell invocable tokens only (not uv pip / pipenv):
 patchloom replace pip --new uv install.sh --command-position --require-change --apply
-patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --apply
-patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --min-fuzzy-score 0.80 --apply
+patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --allow-absent-old --apply
+patchloom replace 'fn proccess_data' --new 'fn process_data' src/ --fuzzy --allow-absent-old --min-fuzzy-score 0.80 --apply
 ```
 
 ### Edit a CI workflow
@@ -359,7 +359,7 @@ dependencies[name=react].version # predicate filter
 
 ## Operations (from schema registry)
 
-- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails). Fuzzy + min_fuzzy_score only reject weak scores; high scores can still rewrite a different live identifier than old—check matched_text and prefer ast.rename for identifiers (#1736).
+- `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails). When exact old is absent, fuzzy refuses by default even above min_fuzzy_score; set allow_absent_old for deliberate approximate recovery (#1758). Prefer ast.rename for identifiers.
 - `file.append`: Append content to an existing file.
 - `file.prepend`: Prepend content to an existing file.
 - `file.create`: Create a new file with specified content.

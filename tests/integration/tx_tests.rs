@@ -8151,6 +8151,7 @@ fn test_tx_replace_fuzzy_pure_in_plan() {
             "old": "fn proccess_data() {}",
             "new": "fn handle_data() {}",
             "fuzzy": true,
+            "allow_absent_old": true,
             "require_change": true
         }]
     });
