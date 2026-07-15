@@ -145,7 +145,7 @@ fn test_read_json_output() {
 }
 
 #[test]
-fn test_read_json_lines_start_past_eof_clamps_metadata() {
+fn test_read_json_lines_start_past_eof_is_no_matches() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("short.txt");
     fs::write(&file, "a\nb\n").unwrap();
@@ -160,12 +160,18 @@ fn test_read_json_lines_start_past_eof_clamps_metadata() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    // Past-EOF must not look like ok:true empty content (agent honesty).
+    assert_eq!(output.status.code(), Some(3));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["content"].as_str().unwrap(), "");
-    assert_eq!(json["total_lines"], 2);
-    assert_eq!(json["start_line"], 0);
-    assert_eq!(json["end_line"], 0);
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "no_matches");
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("line range outside file"),
+        "got: {json}"
+    );
 }
 
 #[test]
