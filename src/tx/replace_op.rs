@@ -39,8 +39,15 @@ fn record_replace_match(
         std::collections::hash_map::Entry::Occupied(mut e) => {
             let prev = e.get().clone();
             let merged = merge_match_modes(Some(prev.mode), mode);
+            // Worst-case confidence: keep the lowest fuzzy score when both exist
+            // (#1747 aggregate rule; do not first-wins via score.or).
             let merged_score = if matches!(merged, MatchMode::Fuzzy) {
-                score.or(prev.score)
+                match (prev.score, score) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (Some(a), None) => Some(a),
+                    (None, Some(b)) => Some(b),
+                    (None, None) => None,
+                }
             } else {
                 None
             };
@@ -537,6 +544,12 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             1,
                             Some(anchor.matched_text.clone()),
                         );
+                        // Parity with single-path arm: surface which strategy applied.
+                        tx.replace_hint = Some(format!(
+                            "fallback matched via {:?} strategy in {}",
+                            anchor.strategy,
+                            crate::files::relative_display(&file_path, tx.cwd).to_string_lossy()
+                        ));
                         total_matches += 1;
                     }
                     Err(_) => {
@@ -1428,6 +1441,7 @@ mod tests {
         let mut f = TxStateFixture::new();
         let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
+        let hint = tx.replace_hint.clone();
         drop(tx);
         assert_eq!(count, 1, "glob fuzzy should rewrite one .rs file");
         let a = dir.path().join("a.rs");
@@ -1435,6 +1449,50 @@ mod tests {
             f.pending[&a].1.contains("handle_data"),
             "glob pure fuzzy must rewrite: {}",
             f.pending[&a].1
+        );
+        assert!(
+            hint.as_deref()
+                .is_some_and(|h| h.contains("fallback matched")),
+            "glob success must set replace_hint like path arm: {hint:?}"
+        );
+    }
+
+    /// Multi-op same path: fuzzy scores merge with min (worst confidence).
+    #[test]
+    fn record_replace_match_merges_min_fuzzy_score() {
+        use crate::api::MatchMode;
+        let dir = TempDir::new().unwrap();
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let path = dir.path().join("a.txt");
+        record_replace_match(
+            &mut tx,
+            &path,
+            MatchMode::Fuzzy,
+            Some(0.95),
+            1,
+            Some("first".into()),
+        );
+        record_replace_match(
+            &mut tx,
+            &path,
+            MatchMode::Fuzzy,
+            Some(0.72),
+            1,
+            Some("second".into()),
+        );
+        let meta = tx.replace_match_meta.get(&path).expect("merged meta");
+        assert_eq!(meta.mode, MatchMode::Fuzzy);
+        assert_eq!(
+            meta.score,
+            Some(0.72),
+            "merged fuzzy score must be min, not first-wins"
+        );
+        assert_eq!(meta.match_count, 2);
+        assert_eq!(
+            meta.matched_text.as_deref(),
+            Some("first"),
+            "first non-null matched_text is kept"
         );
     }
 }
