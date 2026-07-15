@@ -19,6 +19,7 @@ mod output;
 mod replace_op;
 mod search_op;
 mod validate;
+#[cfg(feature = "ast")]
 pub(crate) mod verify;
 
 // Operation handler modules (extracted from the former monofile execute module).
