@@ -1757,6 +1757,11 @@ fn test_replace_cli_json_error_kind_no_matches() {
         v["error_kind"], "no_matches",
         "CLI replace no-match JSON should set error_kind: {v}"
     );
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("no matches") && err.contains("missing"),
+        "pure no-match JSON must include error message: {v}"
+    );
 }
 
 #[test]

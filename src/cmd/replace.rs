@@ -531,14 +531,21 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::FAILURE);
         }
         let similar = similar_targets_for_no_match(&args, global, &cwd);
+        let path_desc = global.path_scope_description(&args.paths);
         // Agents reading `error` (tx parity) should not need to scrape stderr.
-        let error_msg = similar.as_ref().map(|s| {
-            format!(
+        // Always set a message (even without similar_targets) so pure misses are
+        // not error_kind-only empty bodies.
+        let error_msg = match &similar {
+            Some(s) if !s.is_empty() => format!(
                 "no matches for '{}' (did you mean: {}?)",
                 crate::fallback::truncate_str(&args.old, 60),
                 s.join(", ")
-            )
-        });
+            ),
+            _ => format!(
+                "no matches for '{}' in {path_desc}",
+                crate::fallback::truncate_str(&args.old, 60)
+            ),
+        };
         let output = ReplaceOutput {
             ok: false,
             match_count: 0,
@@ -547,7 +554,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             diff: None,
             identity: None,
             error_kind: Some("no_matches"),
-            error: error_msg,
+            error: Some(error_msg),
             match_mode: None,
             match_score: None,
             matched_text: None,
@@ -555,7 +562,6 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         };
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
-            let path_desc = global.path_scope_description(&args.paths);
             eprintln!("no matches for '{}' in {path_desc}", args.old);
             if let Some(ref s) = similar {
                 eprintln!("did you mean: {}?", s.join(", "));

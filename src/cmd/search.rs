@@ -75,6 +75,9 @@ struct SearchOutput {
     /// CLI replace / tx JSON. Omitted on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     error_kind: Option<&'static str>,
+    /// Human/agent diagnostic on soft no-match (path scope). Omitted on success.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -188,6 +191,7 @@ pub(crate) fn format_results(
             matches: results.matches,
             files,
             error_kind: None,
+            error: None,
         };
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
@@ -387,6 +391,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
+        let path_desc = global.path_scope_description(&args.paths);
         let payload = SearchOutput {
             ok: false,
             match_count: 0,
@@ -394,10 +399,13 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             matches: vec![],
             files: vec![],
             error_kind: Some("no_matches"),
+            error: Some(format!(
+                "no matches for '{}' in {path_desc}",
+                crate::fallback::truncate_str(&args.pattern, 60)
+            )),
         };
         global.emit_json(&payload)?;
         if !global.quiet && !global.json && !global.jsonl {
-            let path_desc = global.path_scope_description(&args.paths);
             eprintln!("no matches for '{}' in {path_desc}", args.pattern);
             if args.literal && crate::files::has_regex_metacharacters(&args.pattern) {
                 eprintln!(
