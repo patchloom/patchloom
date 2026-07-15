@@ -5,7 +5,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::render_diffs_colored;
 use crate::exit;
 use crate::ops::replace::{
-    compile_replace_regex, replace_content, replace_whole_lines, replacement_text,
+    compile_replace_regex, count_content_matches, replace_content, replace_whole_lines,
+    replacement_text,
 };
 use crate::tx::engine::WriteSource;
 use clap::Args;
@@ -617,6 +618,37 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 );
             }
             return Ok(exit::SUCCESS);
+        }
+        // --nth past the last match returns applied count 0 (looks like no-match).
+        // Re-count so agents see "nth out of range" instead of "no matches for pattern".
+        if let Some(n) = args.nth {
+            let compiled_re = compile_replace_regex(
+                &args.old,
+                args.regex,
+                args.case_insensitive,
+                args.multiline,
+                args.word_boundary,
+            )?;
+            let cwd = global.resolve_cwd()?;
+            let file_paths =
+                crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+            for path in &file_paths {
+                let Ok(content) = std::fs::read_to_string(path) else {
+                    continue;
+                };
+                let total = count_content_matches(&content, &args.old, compiled_re.as_ref());
+                if total > 0 && n > total {
+                    let display = crate::files::relative_display(path, &cwd)
+                        .to_string_lossy()
+                        .into_owned();
+                    let msg = format!(
+                        "nth {n} is out of range in {display}: pattern matches {total} time{}",
+                        if total == 1 { "" } else { "s" }
+                    );
+                    global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
+            }
         }
         if args.if_exists {
             let output = ReplaceOutput {

@@ -768,6 +768,8 @@ fn test_replace_nth_no_match_when_out_of_range() {
     let file = dir.path().join("test.txt");
     fs::write(&file, "foo bar\n").unwrap();
 
+    // nth past last match is invalid_input (not "no matches for pattern"), so
+    // agents can distinguish out-of-range nth from a missing pattern.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("replace")
@@ -779,10 +781,43 @@ fn test_replace_nth_no_match_when_out_of_range() {
         .arg("--apply")
         .arg(file.to_str().unwrap())
         .assert()
-        .code(3); // NO_MATCHES
+        .code(1)
+        .stderr(predicates::str::contains("nth 5 is out of range"))
+        .stderr(predicates::str::contains("matches 1 time"));
 
     // File unchanged.
     assert_eq!(fs::read_to_string(&file).unwrap(), "foo bar\n");
+}
+
+#[test]
+fn test_replace_nth_out_of_range_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "a\na\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "a",
+            "--new",
+            "X",
+            "--nth",
+            "5",
+            file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "invalid_input");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("nth 5 is out of range") && err.contains("matches 2 times"),
+        "got: {err}"
+    );
 }
 
 #[test]
