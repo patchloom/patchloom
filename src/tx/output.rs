@@ -322,23 +322,23 @@ pub(crate) fn build_tx_output_with_meta(
         }
     }
 
-    // Soft refuses (fuzzy fail-closed #1758, floor reject with recorded
-    // candidate) store honesty in replace_match_meta without a write. Fold
-    // those paths so no_matches JSON still exposes match_mode/score/matched_text.
-    for (path, m) in replace_match_meta {
-        if changes.iter().any(|(c, _, _)| c == path) || deletions.contains(path) {
-            continue;
-        }
-        any_replace_meta = true;
-        agg_mode = Some(merge_match_modes(agg_mode, m.mode));
-        if matches!(m.mode, crate::api::MatchMode::Fuzzy)
-            && let Some(s) = m.score
-        {
-            agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
-        }
-        agg_count = agg_count.saturating_add(m.match_count);
-        if top_matched_text.is_none() {
-            top_matched_text = m.matched_text.clone();
+    // Soft full refuses (fuzzy fail-closed #1758) store honesty without a write.
+    // Fold only when there is no write surface: otherwise refuse meta would poison
+    // success aggregates (e.g. exact multi-file apply + one soft refuse → match_mode
+    // "fuzzy"). Partial refuses are reported via CLI `refused[]` instead.
+    if changes.is_empty() && deletions.is_empty() {
+        for m in replace_match_meta.values() {
+            any_replace_meta = true;
+            agg_mode = Some(merge_match_modes(agg_mode, m.mode));
+            if matches!(m.mode, crate::api::MatchMode::Fuzzy)
+                && let Some(s) = m.score
+            {
+                agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
+            }
+            agg_count = agg_count.saturating_add(m.match_count);
+            if top_matched_text.is_none() {
+                top_matched_text = m.matched_text.clone();
+            }
         }
     }
 
@@ -1023,6 +1023,58 @@ mod tests {
         assert_eq!(out.match_score, Some(0.987));
         assert_eq!(out.matched_text.as_deref(), Some("compute_checksum"));
         assert_eq!(out.match_count, Some(0));
+    }
+
+    /// Partial apply + soft refuse must not report aggregate match_mode=fuzzy.
+    #[test]
+    fn build_full_tx_output_partial_success_ignores_refuse_meta_in_aggregate() {
+        use std::collections::HashMap;
+        let cwd = Path::new("/project");
+        let changed = PathBuf::from("/project/a.txt");
+        let refused = PathBuf::from("/project/b.txt");
+        let mut meta = HashMap::new();
+        meta.insert(
+            changed.clone(),
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Exact,
+                score: None,
+                match_count: 1,
+                matched_text: None,
+            },
+        );
+        meta.insert(
+            refused,
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Fuzzy,
+                score: Some(0.97),
+                match_count: 0,
+                matched_text: Some("helo world".into()),
+            },
+        );
+        let mut result = TxExecResult {
+            changes: vec![(changed, "hello world\n".into(), "hi\n".into())],
+            deletions: HashSet::new(),
+            existed_before: {
+                let mut s = HashSet::new();
+                s.insert(PathBuf::from("/project/a.txt"));
+                s
+            },
+            pending: HashMap::new(),
+            tx_reads: vec![],
+            tx_searches: vec![],
+            tx_lints: vec![],
+            tx_mutations: vec![],
+            no_effective_changes: false,
+            replace_no_matches: false,
+            replace_hint: Some("exact old absent".into()),
+            replace_match_meta: meta,
+            renames: vec![],
+        };
+        let out = build_full_tx_output("success", &mut result, cwd);
+        assert_eq!(out.status, "success");
+        assert_eq!(out.match_mode.as_deref(), Some("exact"));
+        assert!(out.match_score.is_none());
+        assert_eq!(out.match_count, Some(1));
     }
 
     /// Hosts may deserialize older plan/tx JSON that never had match honesty
