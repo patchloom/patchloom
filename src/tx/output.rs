@@ -8,7 +8,12 @@ use std::path::{Path, PathBuf};
 /// Library users can deserialize the JSON string returned by `execute_plan`
 /// into this type for typed access instead of string parsing.
 /// See #805 and the embedding docs.
+///
+/// Marked `non_exhaustive` so new honesty fields can land in minor releases
+/// without breaking external struct literals. Serde deserialization is
+/// unaffected (`#[serde(default)]` on optional fields).
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[non_exhaustive]
 pub struct TxOutput {
     pub ok: bool,
     pub status: String,
@@ -69,7 +74,11 @@ pub struct TxDocMutation {
 }
 
 /// A single file change in a plan/tx report.
+///
+/// Marked `non_exhaustive` so new honesty fields can land in minor releases
+/// without breaking external struct literals.
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[non_exhaustive]
 pub struct TxChange {
     pub path: String,
     pub action: String,
