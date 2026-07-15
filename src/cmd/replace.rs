@@ -171,34 +171,6 @@ struct ReplaceOutput {
     skipped: Option<Vec<String>>,
 }
 
-/// List `--files-from` entries that do not exist on disk (for agent JSON).
-///
-/// Skips when the list is stdin (`-`): that source can only be read once, and
-/// `collect_file_paths_opts` already consumes it for the walk.
-fn files_from_skipped_missing(
-    global: &GlobalFlags,
-    cwd: &std::path::Path,
-) -> anyhow::Result<Option<Vec<String>>> {
-    if global.files_from.as_deref() == Some("-") {
-        return Ok(None);
-    }
-    let Some(files) = global.read_files_from()? else {
-        return Ok(None);
-    };
-    let mut missing = Vec::new();
-    for f in files {
-        let p = cwd.join(&f);
-        if !p.exists() {
-            missing.push(f);
-        }
-    }
-    if missing.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(missing))
-    }
-}
-
 /// Result of processing a single file.
 struct FileReplacement {
     path: String,
@@ -454,7 +426,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // outside the workspace while computing matches (precomputed write-path
     // guard remains defense-in-depth).
     global.check_paths_contained(&cwd, &args.paths)?;
-    let skipped = files_from_skipped_missing(global, &cwd)?;
+    let skipped = crate::files::files_from_missing_entries(global, &cwd)?;
 
     // Context / pure fuzzy: route through the tx engine where the
     // context_filtered_offset and fallback chain live (#1668).

@@ -106,6 +106,35 @@ pub(crate) fn all_scan_targets_missing(
     Ok(all_explicit_paths_missing(paths, root))
 }
 
+/// `--files-from` list entries that do not exist under `cwd` (agent JSON).
+///
+/// Returns `None` when files-from is unset, is stdin (`-`, single-read), or
+/// every listed path exists. Used so soft-skips are visible under `--json`
+/// even when `--quiet` suppresses stderr (#1756).
+#[cfg(feature = "cli")]
+pub(crate) fn files_from_missing_entries(
+    global: &crate::cli::global::GlobalFlags,
+    cwd: &Path,
+) -> anyhow::Result<Option<Vec<String>>> {
+    if global.files_from.as_deref() == Some("-") {
+        return Ok(None);
+    }
+    let Some(files) = global.read_files_from()? else {
+        return Ok(None);
+    };
+    let mut missing = Vec::new();
+    for f in files {
+        if !cwd.join(&f).exists() {
+            missing.push(f);
+        }
+    }
+    if missing.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(missing))
+    }
+}
+
 /// Collect file paths from either `--files-from`, or by walking `paths` with
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
 /// paths are joined with it before walking.  Tidy commands set
