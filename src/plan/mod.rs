@@ -89,7 +89,7 @@ pub struct ForEach {
 }
 
 /// A single verification check parsed from `--verify` or plan `verify` field.
-#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum VerifyCheck {
     /// `{"kind": "function", "attr": "test"}` or `{"kind": "function"}`

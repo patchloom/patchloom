@@ -410,14 +410,19 @@ pub(crate) fn run_parsed_plan(
         return Ok(exit::PARSE_ERROR);
     }
 
-    // Merge --verify CLI args with plan's verify field.
+    // Merge --verify CLI args with plan's verify field (dedupe: CLI + plan often
+    // both pass unique_names and would double-run the same check).
     #[cfg(feature = "ast")]
     let verify_checks = {
         use crate::plan::VerifyCheck;
         let mut checks: Vec<VerifyCheck> = plan.verify.clone().unwrap_or_default();
         for raw in verify {
             match VerifyCheck::parse(raw) {
-                Ok(c) => checks.push(c),
+                Ok(c) => {
+                    if !checks.contains(&c) {
+                        checks.push(c);
+                    }
+                }
                 Err(e) => {
                     let msg = format!("invalid --verify spec '{raw}': {e}");
                     if structured {
