@@ -258,6 +258,11 @@ fn test_search_json_no_match_emits_valid_json() {
         parsed["error_kind"], "no_matches",
         "search --json no-match should set error_kind: {parsed}"
     );
+    let err = parsed["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("no matches") && err.contains("zzz_no_match_zzz"),
+        "search no-match JSON must include error message: {parsed}"
+    );
 }
 
 #[test]
