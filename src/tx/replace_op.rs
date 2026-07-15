@@ -25,6 +25,19 @@ fn record_replace_match(
     match_count: usize,
     matched_text: Option<String>,
 ) {
+    record_replace_match_with_reason(tx, path, mode, score, match_count, matched_text, None);
+}
+
+/// Like [`record_replace_match`], with optional soft-refuse reason for `refused[]`.
+fn record_replace_match_with_reason(
+    tx: &mut TxState<'_>,
+    path: &Path,
+    mode: MatchMode,
+    score: Option<f64>,
+    match_count: usize,
+    matched_text: Option<String>,
+    refuse_reason: Option<&'static str>,
+) {
     use crate::tx::output::ReplaceMatchMeta;
     let entry = tx.replace_match_meta.entry(path.to_path_buf());
     match entry {
@@ -34,6 +47,7 @@ fn record_replace_match(
                 score,
                 match_count,
                 matched_text,
+                refuse_reason,
             });
         }
         std::collections::hash_map::Entry::Occupied(mut e) => {
@@ -53,11 +67,19 @@ fn record_replace_match(
             };
             // Prefer the first non-exact span so multi-op plans keep the fuzzy text.
             let merged_text = prev.matched_text.or(matched_text);
+            // Keep first refuse reason when both soft-refuse the path.
+            let merged_reason = prev.refuse_reason.or(refuse_reason);
             e.insert(ReplaceMatchMeta {
                 mode: merged,
                 score: merged_score,
                 match_count: prev.match_count.saturating_add(match_count),
                 matched_text: merged_text,
+                // Successful write clears soft-refuse reason.
+                refuse_reason: if prev.match_count.saturating_add(match_count) > 0 {
+                    None
+                } else {
+                    merged_reason
+                },
             });
         }
     }
@@ -279,6 +301,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             crate::fallback::truncate_str(old, 60),
                         ));
                         // Soft zero: still honor require_change below (#1748).
+                        // Record candidate so multi-op partial success can list refused[].
+                        record_replace_match_with_reason(
+                            tx,
+                            &file_path,
+                            mode,
+                            score,
+                            0,
+                            Some(anchor.matched_text.clone()),
+                            Some("below_min_fuzzy_score"),
+                        );
                     } else if crate::fallback::should_refuse_fuzzy_absent_old(
                         *fuzzy,
                         mode == MatchMode::Fuzzy,
@@ -292,13 +324,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             score,
                         ));
                         // Surface candidate honesty without counting a write match.
-                        record_replace_match(
+                        record_replace_match_with_reason(
                             tx,
                             &file_path,
                             mode,
                             score,
                             0,
                             Some(anchor.matched_text.clone()),
+                            Some("exact_old_absent"),
                         );
                     } else {
                         let to_text = if let Some(ib) = insert_before {
@@ -542,6 +575,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                                 "fuzzy match score {actual} below min_fuzzy_score {min} for {:?}",
                                 crate::fallback::truncate_str(old, 60),
                             ));
+                            record_replace_match_with_reason(
+                                tx,
+                                &file_path,
+                                mode,
+                                score,
+                                0,
+                                Some(anchor.matched_text.clone()),
+                                Some("below_min_fuzzy_score"),
+                            );
                             // Skip this file; keep scanning (require_change after loop).
                             continue;
                         }
@@ -557,13 +599,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                                     &anchor.matched_text,
                                     score,
                                 ));
-                            record_replace_match(
+                            record_replace_match_with_reason(
                                 tx,
                                 &file_path,
                                 mode,
                                 score,
                                 0,
                                 Some(anchor.matched_text.clone()),
+                                Some("exact_old_absent"),
                             );
                             continue;
                         }

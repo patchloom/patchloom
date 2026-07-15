@@ -193,6 +193,9 @@ pub(crate) struct ReplaceMatchMeta {
     pub match_count: usize,
     /// Fuzzy/anchored span text actually matched (may differ from plan `old`). #1736
     pub matched_text: Option<String>,
+    /// Soft-no-write reason when `match_count` is 0 (`exact_old_absent`,
+    /// `below_min_fuzzy_score`). Used for CLI/tx `refused[]` honesty.
+    pub refuse_reason: Option<&'static str>,
 }
 
 /// Apply mutation summaries onto a [`TxOutput`] (aggregates + list).
@@ -372,11 +375,13 @@ pub(crate) fn build_tx_output_with_meta(
         if m.match_count != 0 || m.matched_text.is_none() {
             continue;
         }
-        let reason = if m.mode == crate::api::MatchMode::Fuzzy {
-            "exact_old_absent"
-        } else {
-            "no_write"
-        };
+        let reason = m
+            .refuse_reason
+            .unwrap_or(if m.mode == crate::api::MatchMode::Fuzzy {
+                "exact_old_absent"
+            } else {
+                "no_write"
+            });
         refused.push(TxRefused {
             path: display_path(path),
             match_mode: Some(match_mode_label(m.mode).to_string()),
@@ -862,6 +867,7 @@ mod tests {
                 score: Some(0.91),
                 match_count: 1,
                 matched_text: Some("proccess".into()),
+                refuse_reason: None,
             },
         );
         let out = build_tx_output_with_meta(
@@ -907,6 +913,7 @@ mod tests {
                 score: Some(0.95),
                 match_count: 1,
                 matched_text: Some("aaa".into()),
+                refuse_reason: None,
             },
         );
         meta.insert(
@@ -916,6 +923,7 @@ mod tests {
                 score: Some(0.80),
                 match_count: 1,
                 matched_text: Some("bbb".into()),
+                refuse_reason: None,
             },
         );
         let out = build_tx_output_with_meta(
@@ -960,6 +968,7 @@ mod tests {
                 score: Some(0.88),
                 match_count: 1,
                 matched_text: Some("live_span".into()),
+                refuse_reason: None,
             },
         );
         let out = build_tx_output_with_meta(
@@ -1049,6 +1058,7 @@ mod tests {
                 score: Some(0.987),
                 match_count: 0,
                 matched_text: Some("compute_checksum".into()),
+                refuse_reason: None,
             },
         );
         let mut result = TxExecResult {
@@ -1089,6 +1099,7 @@ mod tests {
                 score: None,
                 match_count: 1,
                 matched_text: None,
+                refuse_reason: None,
             },
         );
         meta.insert(
@@ -1098,6 +1109,7 @@ mod tests {
                 score: Some(0.97),
                 match_count: 0,
                 matched_text: Some("helo world".into()),
+                refuse_reason: Some("exact_old_absent"),
             },
         );
         let mut result = TxExecResult {

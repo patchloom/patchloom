@@ -386,11 +386,13 @@ fn collect_refused_files(
         if m.match_count != 0 || m.matched_text.is_none() {
             continue;
         }
-        let reason = if m.mode == crate::api::MatchMode::Fuzzy {
-            "exact_old_absent"
-        } else {
-            "no_write"
-        };
+        let reason = m
+            .refuse_reason
+            .unwrap_or(if m.mode == crate::api::MatchMode::Fuzzy {
+                "exact_old_absent"
+            } else {
+                "no_write"
+            });
         out.push(RefuseFileResult {
             path: crate::files::relative_display(path, cwd)
                 .to_string_lossy()

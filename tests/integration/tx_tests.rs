@@ -8274,3 +8274,77 @@ fn test_tx_replace_partial_fuzzy_reports_refused() {
         "refused must name candidate: {json}"
     );
 }
+
+/// Multi-op floor: exact apply must not hide below-min_fuzzy_score on siblings.
+#[test]
+fn test_tx_replace_partial_floor_reports_refused() {
+    let dir = TempDir::new().unwrap();
+    let exact = dir.path().join("exact.txt");
+    let typo = dir.path().join("typo.txt");
+    fs::write(&exact, "hello world\n").unwrap();
+    fs::write(&typo, "helo world\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "replace",
+                "path": "exact.txt",
+                "old": "hello world",
+                "new": "hi",
+                "fuzzy": true,
+                "min_fuzzy_score": 0.99
+            },
+            {
+                "op": "replace",
+                "path": "typo.txt",
+                "old": "hello world",
+                "new": "hi",
+                "fuzzy": true,
+                "min_fuzzy_score": 0.99
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "partial exact apply should succeed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["files_changed"], 1, "{json}");
+    assert_eq!(json["match_mode"], "exact", "{json}");
+    assert_eq!(fs::read_to_string(&exact).unwrap(), "hi\n");
+    assert_eq!(
+        fs::read_to_string(&typo).unwrap(),
+        "helo world\n",
+        "floor reject must not rewrite"
+    );
+    let refused = json["refused"]
+        .as_array()
+        .expect("partial multi-op floor must report refused paths");
+    assert_eq!(refused.len(), 1, "one refused path: {json}");
+    assert_eq!(refused[0]["path"], "typo.txt");
+    assert_eq!(refused[0]["reason"], "below_min_fuzzy_score");
+    assert_eq!(refused[0]["match_mode"], "fuzzy");
+    assert!(
+        refused[0]["matched_text"]
+            .as_str()
+            .is_some_and(|t| t.contains("helo")),
+        "refused must name candidate: {json}"
+    );
+}
