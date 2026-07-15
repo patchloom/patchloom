@@ -143,6 +143,7 @@ impl ExecutionResult {
             &self.exec_result.deletions,
             &self.exec_result.existed_before,
             &self.cwd,
+            &self.exec_result.renames,
         )
         .map_err(|e| anyhow::anyhow!("{}", e.message))
     }
@@ -231,6 +232,7 @@ pub fn execute_precomputed(
         replace_no_matches: false,
         replace_hint: None,
         replace_match_meta: HashMap::new(),
+        renames: Vec::new(),
     };
 
     Ok(ExecutionResult {
@@ -437,6 +439,41 @@ mod tests {
             "nlink must stay > 1 after tx rename, got {}",
             fs::metadata(&c).unwrap().nlink()
         );
+    }
+
+    /// Rename then replace in one plan must still share the hardlink inode.
+    #[cfg(unix)]
+    #[test]
+    fn execute_rename_then_replace_preserves_hardlinks() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "hello world\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        let before_ino = fs::metadata(&a).unwrap().ino();
+
+        let global = GlobalFlags::test_default();
+        let plan = crate::plan::parse_plan(
+            r#"{"ops":[
+              {"op":"file.rename","from":"a.txt","to":"c.txt"},
+              {"op":"replace","path":"c.txt","old":"hello","new":"hi"}
+            ]}"#,
+        )
+        .unwrap();
+        let result =
+            execute_operations(plan.operations, test_options(dir.path(), &global)).unwrap();
+        result.commit().unwrap();
+
+        let c = dir.path().join("c.txt");
+        assert_eq!(fs::read_to_string(&c).unwrap(), "hi world\n");
+        assert_eq!(
+            fs::read_to_string(&b).unwrap(),
+            "hi world\n",
+            "hardlink sibling must see the replace"
+        );
+        assert_eq!(fs::metadata(&c).unwrap().ino(), before_ino);
+        assert!(fs::metadata(&c).unwrap().nlink() > 1);
     }
 
     #[test]

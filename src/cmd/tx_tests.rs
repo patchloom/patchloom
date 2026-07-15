@@ -1358,7 +1358,7 @@ mod integrity {
         let existed_before: HashSet<_> = [f1.clone()].into();
 
         let _guard = RestoreFailGuard::engage();
-        let err = crate::tx::commit_changes(&changes, &deletions, &existed_before, dir.path())
+        let err = crate::tx::commit_changes(&changes, &deletions, &existed_before, dir.path(), &[])
             .unwrap_err();
 
         assert!(!err.rollback_ok, "restore should be reported as failed");
@@ -1384,7 +1384,7 @@ mod integrity {
         let deletions = HashSet::new();
         let existed_before: HashSet<_> = [f1.clone()].into();
 
-        let err = crate::tx::commit_changes(&changes, &deletions, &existed_before, dir.path())
+        let err = crate::tx::commit_changes(&changes, &deletions, &existed_before, dir.path(), &[])
             .unwrap_err();
         assert!(err.rollback_ok, "rollback should succeed");
         assert!(

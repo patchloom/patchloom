@@ -82,6 +82,7 @@ pub(crate) fn commit_changes(
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     cwd: &Path,
+    renames: &[(PathBuf, PathBuf)],
 ) -> Result<Option<String>, CommitError> {
     let mut backup = crate::backup::BackupSession::new(cwd)
         .map_err(|e| commit_error(format!("starting backup session: {e}")))?;
@@ -111,13 +112,25 @@ pub(crate) fn commit_changes(
         .finalize()
         .map_err(|e| commit_error(format!("finalizing backup session: {e}")))?;
 
-    let rename_pairs = detect_pure_renames(changes, deletions, existed_before);
+    // Prefer explicit file.rename records (covers rename-then-edit). Fall back
+    // to content-based pure-rename detection for any remaining pairs.
+    let mut rename_pairs: Vec<(PathBuf, PathBuf)> = renames.to_vec();
+    let mut covered_from: HashSet<PathBuf> = renames.iter().map(|(f, _)| f.clone()).collect();
+    let mut covered_to: HashSet<PathBuf> = renames.iter().map(|(_, t)| t.clone()).collect();
+    for (from, to) in detect_pure_renames(changes, deletions, existed_before) {
+        if covered_from.contains(&from) || covered_to.contains(&to) {
+            continue;
+        }
+        covered_from.insert(from.clone());
+        covered_to.insert(to.clone());
+        rename_pairs.push((from, to));
+    }
     let renamed_from: HashSet<&Path> = rename_pairs.iter().map(|(f, _)| f.as_path()).collect();
     let renamed_to: HashSet<&Path> = rename_pairs.iter().map(|(_, t)| t.as_path()).collect();
 
     let noop_policy = WritePolicy::default();
     let write_result = (|| -> anyhow::Result<()> {
-        // Apply pure renames first via fs::rename (preserves hardlinks #1739).
+        // Apply renames first via fs::rename (preserves hardlinks #1739).
         for (from, to) in &rename_pairs {
             if let Some(parent) = to.parent()
                 && !parent.as_os_str().is_empty()
@@ -130,12 +143,17 @@ pub(crate) fn commit_changes(
         }
 
         for (path, _, new_content) in changes {
-            if renamed_from.contains(path.as_path()) || renamed_to.contains(path.as_path()) {
+            if renamed_from.contains(path.as_path()) {
+                // Source already moved by rename_or_copy.
                 continue;
             }
             if deletions.contains(path) {
                 std::fs::remove_file(path)
                     .with_context(|| format!("deleting {}", path.display()))?;
+            } else if renamed_to.contains(path.as_path()) {
+                // Dest exists after rename; rewrite final content in place so
+                // multi-hardlinked siblings stay in sync (nlink > 1 path).
+                atomic_write(path, new_content, &noop_policy)?;
             } else {
                 if let Some(parent) = path.parent()
                     && !parent.as_os_str().is_empty()

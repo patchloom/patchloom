@@ -230,6 +230,18 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 let _ = read_file_content(tx.pending, tx.existed_before, &dst_path)?;
             }
 
+            // Record pure on-disk renames so commit can use fs::rename and
+            // preserve hardlinks even when a later op edits the dest (#1739
+            // follow-up: rename-then-replace in one plan).
+            if !*force
+                && !case_only
+                && src_path.exists()
+                && src_path.is_file()
+                && !dst_path.exists()
+            {
+                tx.renames.push((src_path.clone(), dst_path.clone()));
+            }
+
             // Write content to destination.
             update_file_content(
                 tx.pending,

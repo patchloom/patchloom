@@ -200,6 +200,7 @@ pub fn execute_plan_direct(
         &result.deletions,
         &result.existed_before,
         &effective_cwd,
+        &result.renames,
     ) {
         Ok(session) => session,
         Err(err) => {

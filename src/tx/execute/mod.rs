@@ -229,6 +229,8 @@ pub(crate) struct TxState<'a> {
     pub(crate) replace_hint: Option<String>,
     /// Per-path replace match honesty (#1674). Accumulated across ops.
     pub(crate) replace_match_meta: &'a mut HashMap<PathBuf, super::output::ReplaceMatchMeta>,
+    /// Explicit `file.rename` pairs `(from, to)` for hardlink-preserving commit.
+    pub(crate) renames: &'a mut Vec<(PathBuf, PathBuf)>,
     pub(crate) cwd: &'a Path,
     pub(crate) quiet: bool,
     pub(crate) structured: bool,
@@ -253,6 +255,7 @@ pub(crate) struct TxStateFixture {
     pub mutations: Vec<TxDocMutation>,
     pub write_targets: HashSet<PathBuf>,
     pub replace_match_meta: HashMap<PathBuf, crate::tx::output::ReplaceMatchMeta>,
+    pub renames: Vec<(PathBuf, PathBuf)>,
 }
 
 #[cfg(test)]
@@ -269,6 +272,7 @@ impl TxStateFixture {
             mutations: Vec::new(),
             write_targets: HashSet::new(),
             replace_match_meta: HashMap::new(),
+            renames: Vec::new(),
         }
     }
 
@@ -285,6 +289,7 @@ impl TxStateFixture {
             write_targets: &mut self.write_targets,
             replace_hint: None,
             replace_match_meta: &mut self.replace_match_meta,
+            renames: &mut self.renames,
             cwd,
             quiet: true,
             structured: false,
@@ -516,6 +521,7 @@ pub(crate) fn execute_and_collect(
     let mut doc_cache: HashMap<PathBuf, CachedDoc> = HashMap::new();
     let mut replace_hint: Option<String> = None;
     let mut replace_match_meta: HashMap<PathBuf, super::output::ReplaceMatchMeta> = HashMap::new();
+    let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
 
     // Upfront PathGuard on declared paths (same contract as execute_plan_inner /
     // execute_plan_direct). CLI `tx` and `batch` call this function directly and
@@ -570,6 +576,7 @@ pub(crate) fn execute_and_collect(
             write_targets: &mut write_targets,
             replace_hint: None,
             replace_match_meta: &mut replace_match_meta,
+            renames: &mut renames,
             cwd,
             quiet,
             structured,
@@ -698,5 +705,6 @@ pub(crate) fn execute_and_collect(
         replace_no_matches,
         replace_hint,
         replace_match_meta,
+        renames,
     })
 }
