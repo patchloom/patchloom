@@ -404,6 +404,41 @@ mod tests {
         assert_eq!(content, "moved content\n");
     }
 
+    /// Plan/tx `file.rename` must keep multi-hardlinked inodes (#1739).
+    #[cfg(unix)]
+    #[test]
+    fn execute_file_rename_preserves_hardlinks() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "shared\n").unwrap();
+        fs::hard_link(&a, &b).unwrap();
+        let before_ino = fs::metadata(&a).unwrap().ino();
+        assert_eq!(fs::metadata(&a).unwrap().nlink(), 2);
+
+        let global = GlobalFlags::test_default();
+        let op = Operation::FileRename {
+            from: "a.txt".to_string(),
+            to: "c.txt".to_string(),
+            force: false,
+        };
+        let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
+        result.commit().unwrap();
+
+        assert!(!a.exists());
+        let c = dir.path().join("c.txt");
+        assert_eq!(fs::read_to_string(&c).unwrap(), "shared\n");
+        assert_eq!(fs::read_to_string(&b).unwrap(), "shared\n");
+        assert_eq!(fs::metadata(&c).unwrap().ino(), before_ino);
+        assert_eq!(fs::metadata(&b).unwrap().ino(), before_ino);
+        assert!(
+            fs::metadata(&c).unwrap().nlink() > 1,
+            "nlink must stay > 1 after tx rename, got {}",
+            fs::metadata(&c).unwrap().nlink()
+        );
+    }
+
     #[test]
     fn execute_single_create_empty_file() {
         let dir = TempDir::new().unwrap();
