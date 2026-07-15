@@ -2966,6 +2966,54 @@ fn replace_in_content_fuzzy_with_if_exists_suppresses_error() {
     assert_eq!(result.match_count, 0);
 }
 
+/// Floor reject must honor if_exists (soft miss), same as resolve failure (#1750).
+#[test]
+fn replace_in_content_min_fuzzy_floor_honors_if_exists() {
+    let content = "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n";
+    let misspelled = "fn process_requets(data: &str) -> Result<()> {";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: Some(1.0),
+        if_exists: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, misspelled, "REPLACED", &opts)
+        .expect("if_exists must soften min_fuzzy_score floor reject");
+    assert!(!result.changed);
+    assert_eq!(result.match_count, 0);
+    assert!(result.match_mode.is_none());
+}
+
+/// Disk path: floor reject + if_exists must not error (#1750).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_min_fuzzy_floor_honors_if_exists() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("src.rs");
+    fs::write(
+        &file,
+        "fn process_request(data: &str) -> Result<()> {\n    Ok(())\n}\n",
+    )
+    .unwrap();
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: Some(1.0),
+        if_exists: true,
+        ..Default::default()
+    };
+    let result = replace_text(
+        &file,
+        "fn process_requets(data: &str) -> Result<()> {",
+        "REPLACED",
+        &opts,
+        ApplyMode::Preview,
+        None,
+    )
+    .expect("if_exists must soften floor reject on disk path");
+    assert!(!result.changed);
+    assert_eq!(result.match_count, 0);
+}
+
 #[test]
 fn replace_in_content_fuzzy_disabled_by_default() {
     // Default ReplaceOptions has fuzzy: false, so a near-miss should fail.
