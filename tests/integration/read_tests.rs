@@ -87,6 +87,40 @@ fn test_read_json_invalid_lines_returns_error_object() {
     );
 }
 
+/// --lines past EOF must not return ok:true with empty content (agents treat that
+/// as a successful empty read).
+#[test]
+fn test_read_lines_beyond_eof_json_no_matches() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("short.txt");
+    fs::write(&file, "a\nb\nc\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .arg("--lines")
+        .arg("5-10")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "expected NO_MATCHES, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "no_matches");
+    let error = json["error"].as_str().unwrap();
+    assert!(
+        error.contains("line range outside file"),
+        "got error: {error}"
+    );
+}
+
 #[test]
 fn test_read_json_output() {
     let dir = TempDir::new().unwrap();
@@ -111,7 +145,7 @@ fn test_read_json_output() {
 }
 
 #[test]
-fn test_read_json_lines_start_past_eof_clamps_metadata() {
+fn test_read_json_lines_start_past_eof_is_no_matches() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("short.txt");
     fs::write(&file, "a\nb\n").unwrap();
@@ -126,12 +160,18 @@ fn test_read_json_lines_start_past_eof_clamps_metadata() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    // Past-EOF must not look like ok:true empty content (agent honesty).
+    assert_eq!(output.status.code(), Some(3));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["content"].as_str().unwrap(), "");
-    assert_eq!(json["total_lines"], 2);
-    assert_eq!(json["start_line"], 0);
-    assert_eq!(json["end_line"], 0);
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "no_matches");
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap()
+            .contains("line range outside file"),
+        "got: {json}"
+    );
 }
 
 #[test]

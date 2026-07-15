@@ -368,6 +368,15 @@ fn batch_unsupported_hint(op: &str) -> Option<&'static str> {
 
 /// Suggest close batch op names for typos and bare names (`create` → `file.create`).
 fn suggest_batch_op(op: &str) -> Option<String> {
+    // Wrong namespace for a bare op: agents invent `file.replace` / `doc.replace`
+    // from `file.create` / `doc.set`. Prefer the real bare name over JW neighbors
+    // like `file.rename` (fixrealloop 2026-07-15).
+    if let Some((_, leaf)) = op.split_once('.')
+        && KNOWN_BATCH_OPS.contains(&leaf)
+    {
+        return Some(leaf.to_string());
+    }
+
     // Bare leaf name: `create` matches `file.create`, `append` matches both file/doc.
     let mut suffix: Vec<&str> = KNOWN_BATCH_OPS
         .iter()

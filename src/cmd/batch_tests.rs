@@ -556,6 +556,18 @@ mod error_handling {
         );
     }
 
+    /// Agents invent `file.replace` from `file.create` / `file.delete`.
+    /// Suggest bare `replace`, not JW neighbors like `file.rename`.
+    #[test]
+    fn parse_line_suggests_replace_for_file_replace() {
+        let err = parse_line(r#"file.replace path.txt old new"#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("did you mean") && msg.contains("replace") && !msg.contains("file.rename"),
+            "expected bare replace suggestion, got: {msg}"
+        );
+    }
+
     // Batch intentionally does not support read, search, and patch.apply.
     // These are tx-only operations. The tests below document this as deliberate
     // and lock the redirect hint in the error message.

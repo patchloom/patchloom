@@ -41,6 +41,66 @@ fn test_ast_list_basic() {
         .stdout(predicates::str::contains("Bar"));
 }
 
+/// `--json` for multi-symbol list must be one parseable JSON array, not
+/// pretty multi-documents (agents use `json.loads` on full stdout).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_json_is_single_array() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "pub fn foo() {}\nstruct Bar;\nfn baz() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "list", "lib.rs", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let val: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("ast list --json must be single JSON document: {e}\n{text}"));
+    let arr = val
+        .as_array()
+        .unwrap_or_else(|| panic!("ast list --json must be a JSON array, got: {val}"));
+    assert!(
+        arr.len() >= 3,
+        "expected at least 3 symbols, got {}",
+        arr.len()
+    );
+    let names: Vec<&str> = arr
+        .iter()
+        .filter_map(|v| v.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert!(names.contains(&"foo"), "missing foo in {names:?}");
+    assert!(names.contains(&"Bar"), "missing Bar in {names:?}");
+    assert!(names.contains(&"baz"), "missing baz in {names:?}");
+}
+
+/// Directory `ast list --json` must still be one array (not one array per file).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_dir_json_is_single_array() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();
+    fs::write(dir.path().join("b.rs"), "fn b() {}\nfn c() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "list", ".", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let val: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("dir list --json must be single JSON: {e}\n{text}"));
+    let arr = val.as_array().expect("dir list --json must be array");
+    assert!(
+        arr.len() >= 3,
+        "expected symbols from both files, got {}",
+        arr.len()
+    );
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_read_basic() {
@@ -103,12 +163,21 @@ fn test_ast_search_basic() {
     let f = dir.path().join("s.rs");
     fs::write(&f, "fn f() { let y = 42; }\n").unwrap();
     // simple structural query for function item
-    patchloom_in(dir.path())
+    let out = patchloom_in(dir.path())
         .args(["ast", "search", "(function_item) @fn", "s.rs", "--json"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("fn f()"))
-        .stdout(predicates::str::contains("let y = 42"));
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("ast search --json must be single JSON: {e}\n{text}"));
+    let arr = v.as_array().expect("ast search --json must be array");
+    assert!(!arr.is_empty());
+    let joined = text;
+    assert!(joined.contains("fn f()"), "{joined}");
+    assert!(joined.contains("let y = 42"), "{joined}");
 }
 
 #[test]
@@ -287,8 +356,33 @@ fn test_ast_validate_json_exit_code_on_invalid_file() {
         .stdout
         .clone();
     let text = String::from_utf8(out).unwrap();
+    // Multi-result commands emit a JSON array (even for a single file).
     let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
-    assert_eq!(v["valid"], serde_json::json!(false));
+    let arr = v.as_array().expect("validate --json must be array");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["valid"], serde_json::json!(false));
+}
+
+/// Multi-file validate --json must be one array, not multi-document JSON.
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_validate_multi_file_json_is_single_array() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.rs"), "fn ok() {}\n").unwrap();
+    fs::write(dir.path().join("also.rs"), "fn also() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "validate", ".", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value = serde_json::from_str(text.trim())
+        .unwrap_or_else(|e| panic!("validate multi --json must be single JSON: {e}\n{text}"));
+    let arr = v.as_array().expect("validate --json must be array");
+    assert!(arr.len() >= 2, "expected both files, got {}", arr.len());
+    assert!(arr.iter().all(|e| e["valid"] == true));
 }
 
 #[test]
