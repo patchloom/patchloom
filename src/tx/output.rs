@@ -147,6 +147,9 @@ pub(crate) struct TxExecResult {
     pub(crate) replace_hint: Option<String>,
     /// Per-path replace match honesty recorded during plan execution (#1674).
     pub(crate) replace_match_meta: HashMap<PathBuf, ReplaceMatchMeta>,
+    /// Explicit `file.rename` pairs `(from, to)` for hardlink-preserving
+    /// commit via `fs::rename` (including rename-then-edit in one plan).
+    pub(crate) renames: Vec<(PathBuf, PathBuf)>,
 }
 
 /// Per-path replace match honesty recorded during plan execution.

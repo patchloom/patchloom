@@ -129,6 +129,7 @@ fn commit_and_finalize(
         &result.deletions,
         &result.existed_before,
         ctx.cwd,
+        &result.renames,
     ) {
         Ok(session) => session,
         Err(err) => {
