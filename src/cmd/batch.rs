@@ -372,7 +372,7 @@ fn suggest_batch_op(op: &str) -> Option<String> {
     // from `file.create` / `doc.set`. Prefer the real bare name over JW neighbors
     // like `file.rename` (fixrealloop 2026-07-15).
     if let Some((_, leaf)) = op.split_once('.')
-        && KNOWN_BATCH_OPS.iter().any(|k| *k == leaf)
+        && KNOWN_BATCH_OPS.contains(&leaf)
     {
         return Some(leaf.to_string());
     }
