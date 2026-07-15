@@ -8399,3 +8399,45 @@ fn test_tx_verify_unique_names_cross_file() {
         "rename must roll back on verification failure"
     );
 }
+
+/// CLI `--verify unique_names` plus plan `verify: [{check: unique_names}]` must
+/// not run the check twice (duplicate error lines confuse agents).
+#[test]
+fn test_tx_verify_cli_and_plan_unique_names_deduped() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn foo() {}\n").unwrap();
+    fs::write(dir.path().join("b.rs"), "fn bar() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "verify": [{"check": "unique_names"}],
+        "operations": [{
+            "op": "ast.rename",
+            "path": "a.rs",
+            "old": "foo",
+            "new": "bar"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--verify")
+        .arg("unique_names")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(6));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let err = json["error"].as_str().unwrap_or("");
+    let count = err.matches("duplicate symbols found").count();
+    assert_eq!(
+        count, 1,
+        "unique_names must appear once when CLI and plan both request it: {err}"
+    );
+}
