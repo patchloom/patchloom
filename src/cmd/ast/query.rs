@@ -2,8 +2,9 @@
 
 use super::common::{
     collect_source_files, display_path, filter_symbols, get_git_file_content, lang_from_str,
-    parse_kind_filter, print_symbols_compact, print_symbols_human, print_symbols_json,
-    resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file,
+    parse_kind_filter, print_symbol_items_json, print_symbols_compact, print_symbols_human,
+    print_symbols_json, resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file,
+    symbol_to_json,
 };
 use crate::ast::symbols::{self, SymbolDef};
 use crate::cli::global::GlobalFlags;
@@ -45,6 +46,10 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
     );
 
     let mut any_output = false;
+    // Structured multi-file output must be one array (or one JSONL stream), not
+    // one pretty document per file/symbol (fixrealloop 2026-07-15).
+    let mut structured_items: Vec<serde_json::Value> = Vec::new();
+    let structured = global.json || global.jsonl;
 
     if target.is_file() {
         let lang = resolve_lang(lang_hint, &target);
@@ -64,7 +69,7 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
         let filtered = filter_symbols(&symbols, &kind_filter);
         if !filtered.is_empty() {
             any_output = true;
-            if global.json || global.jsonl {
+            if structured {
                 print_symbols_json(&args.path, &filtered, global)?;
             } else if args.compact {
                 print_symbols_compact(&args.path, &filtered);
@@ -100,13 +105,18 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
                 continue;
             }
             any_output = true;
-            if global.json || global.jsonl {
-                print_symbols_json(&result.display, &filtered, global)?;
+            if structured {
+                for sym in &filtered {
+                    structured_items.push(symbol_to_json(sym, &result.display));
+                }
             } else if args.compact {
                 print_symbols_compact(&result.display, &filtered);
             } else {
                 print_symbols_human(&result.display, &filtered);
             }
+        }
+        if structured && !structured_items.is_empty() {
+            print_symbol_items_json(&structured_items, global)?;
         }
     } else {
         let msg = format!("path not found: {}", args.path);
@@ -219,17 +229,20 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
             Some(ValidateFileResult { display, result })
         });
 
+    let structured = global.json || global.jsonl;
+    let mut structured_items: Vec<serde_json::Value> = Vec::new();
     for vr in &results {
         if !vr.result.valid {
             all_valid = false;
         }
-        if !global.emit_json(&serde_json::json!({
-            "file": vr.display,
-            "valid": vr.result.valid,
-            "language": vr.result.language,
-            "errors": vr.result.errors,
-        }))? && !global.quiet
-        {
+        if structured {
+            structured_items.push(serde_json::json!({
+                "file": vr.display,
+                "valid": vr.result.valid,
+                "language": vr.result.language,
+                "errors": vr.result.errors,
+            }));
+        } else if !global.quiet {
             if !vr.result.valid {
                 eprintln!("{}: INVALID ({})", vr.display, vr.result.language);
                 for err in &vr.result.errors {
@@ -239,6 +252,10 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
                 eprintln!("{}: OK ({})", vr.display, vr.result.language);
             }
         }
+    }
+    // One array for --json (agent-parseable); one line per file for --jsonl.
+    if structured {
+        global.emit_json_items(&structured_items)?;
     }
 
     if all_valid {
@@ -318,16 +335,20 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
             Some(SearchFileResult { display, matches })
         });
 
+    let structured = global.json || global.jsonl;
+    let mut structured_items: Vec<serde_json::Value> = Vec::new();
     'outer: for result in &file_results {
         for m in &result.matches {
             total_matches += 1;
-            if !global.emit_json(&serde_json::json!({
-                "file": result.display,
-                "line": m.line,
-                "column": m.column,
-                "text": m.text,
-                "captures": m.captures,
-            }))? {
+            if structured {
+                structured_items.push(serde_json::json!({
+                    "file": result.display,
+                    "line": m.line,
+                    "column": m.column,
+                    "text": m.text,
+                    "captures": m.captures,
+                }));
+            } else {
                 println!(
                     "{}:{}:{}: {}",
                     result.display,
@@ -352,6 +373,9 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         global.emit_error_json_kind(Some("no_matches"), &msg)?;
         Ok(exit::NO_MATCHES)
     } else {
+        if structured {
+            global.emit_json_items(&structured_items)?;
+        }
         Ok(exit::SUCCESS)
     }
 }
@@ -443,6 +467,8 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
     crate::verbose!("ast deps: scanning {} files", paths.len());
 
     let mut any_output = false;
+    let structured = global.json || global.jsonl;
+    let mut structured_items: Vec<serde_json::Value> = Vec::new();
 
     if args.reverse {
         // For reverse deps, scan all files and find which ones import
@@ -487,14 +513,14 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
 
         for hit in &hits {
             any_output = true;
-            if global.json || global.jsonl {
+            if structured {
                 for imp in &hit.matching {
-                    global.emit_json(&serde_json::json!({
+                    structured_items.push(serde_json::json!({
                         "file": hit.display,
                         "imports": imp.path,
                         "line": imp.line,
                         "raw": imp.raw,
-                    }))?;
+                    }));
                 }
             } else {
                 for imp in &hit.matching {
@@ -522,10 +548,12 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
 
         for result in &results {
             any_output = true;
-            if !global.emit_json(&serde_json::json!({
-                "file": result.display,
-                "imports": result.imports,
-            }))? {
+            if structured {
+                structured_items.push(serde_json::json!({
+                    "file": result.display,
+                    "imports": result.imports,
+                }));
+            } else {
                 println!("{}", result.display);
                 println!("  imports:");
                 for imp in &result.imports {
@@ -537,6 +565,9 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
     }
 
     if any_output {
+        if structured {
+            global.emit_json_items(&structured_items)?;
+        }
         Ok(exit::SUCCESS)
     } else {
         let msg = format!("no imports found in {}", args.path);

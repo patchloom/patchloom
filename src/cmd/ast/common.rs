@@ -148,15 +148,31 @@ fn print_symbol_compact(sym: &SymbolDef, indent: usize) {
     }
 }
 
+/// Emit symbols in agent-honest structured form.
+///
+/// `--json` prints a single pretty-printed JSON array (one `json.loads` for
+/// the whole stdout). `--jsonl` prints one compact object per line.
+/// Per-symbol `emit_json` was wrong for multi-symbol files: pretty multi-docs
+/// are not a single parseable JSON value (fixrealloop 2026-07-15).
 pub(super) fn print_symbols_json(
     path: &str,
     symbols: &[&SymbolDef],
     global: &GlobalFlags,
 ) -> anyhow::Result<()> {
-    for sym in symbols {
-        let obj = symbol_to_json(sym, path);
-        global.emit_json(&obj)?;
-    }
+    let items: Vec<serde_json::Value> = symbols
+        .iter()
+        .map(|sym| symbol_to_json(sym, path))
+        .collect();
+    global.emit_json_items(&items)?;
+    Ok(())
+}
+
+/// Emit a pre-built list of symbol JSON objects (multi-file list path).
+pub(super) fn print_symbol_items_json(
+    items: &[serde_json::Value],
+    global: &GlobalFlags,
+) -> anyhow::Result<()> {
+    global.emit_json_items(items)?;
     Ok(())
 }
 
