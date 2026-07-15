@@ -301,20 +301,44 @@ pub fn replace_content<'a>(
     }
 }
 
+/// Score how well a content fragment matches a context fragment.
+///
+/// Uses Jaro-Winkler (full-string similarity) and substring containment.
+/// Agents often pass short anchors (`alpha`, `[cache]`) that appear inside
+/// longer lines; pure JW of the whole line vs the short token can fall under
+/// 0.8 even when the anchor is clearly present (fixrealloop 2026-07-15).
+fn context_fragment_score(content_fragment: &str, ctx_fragment: &str) -> f64 {
+    let a = content_fragment.trim();
+    let b = ctx_fragment.trim();
+    if b.is_empty() {
+        return 0.0;
+    }
+    let jw = strsim::jaro_winkler(a, b);
+    // Containment for short anchors inside longer lines (min 2 chars avoids
+    // matching single-character noise like "a" / "x" everywhere).
+    if b.len() >= 2 && a.contains(b) {
+        jw.max(1.0)
+    } else {
+        jw
+    }
+}
+
 /// Filter multiple exact matches by `before_context` / `after_context`.
 ///
 /// When the `old` text occurs more than once in `content` and no `nth` is
 /// specified, this function uses context lines to pick the right occurrence.
 /// It compares up to 3 lines of context (nearest to the match first) using
-/// Jaro-Winkler similarity (threshold >= 0.8). The occurrence with the
-/// highest aggregate score wins. Returns the byte offset of the winning
-/// match, or `None` if no context is provided, only one match exists, or
-/// all scores are zero.
+/// Jaro-Winkler similarity and substring containment (threshold >= 0.8). The
+/// occurrence with the highest aggregate score wins. Returns the byte offset
+/// of the winning match, or `None` if no context is provided, only one match
+/// exists, or all scores are zero.
 ///
 /// For `before_context`, the last N lines are compared against the N lines
-/// preceding the match. For `after_context`, the first N lines are compared
-/// against the N lines following the match. Tie-breaking: first occurrence
-/// (lowest byte offset) wins on equal scores.
+/// preceding the match, and (for single-line `old`) the same-line prefix
+/// before the match is also scored against the nearest context fragment.
+/// For `after_context`, the first N lines following the match are compared,
+/// plus the same-line suffix after a single-line match.
+/// Tie-breaking: first occurrence (lowest byte offset) wins on equal scores.
 pub fn context_filtered_offset(
     content: &str,
     old: &str,
@@ -354,6 +378,8 @@ pub fn context_filtered_offset(
     };
 
     const MAX_CONTEXT_LINES: usize = 3;
+    let old_line_count = old.lines().count().max(1);
+    let single_line_old = old_line_count == 1 && !old.contains('\n');
 
     let mut best: Option<(usize, f64)> = None;
     for &match_off in &offsets {
@@ -367,10 +393,25 @@ pub fn context_filtered_offset(
             let start = ctx_lines.len().saturating_sub(MAX_CONTEXT_LINES);
             let ctx_tail = &ctx_lines[start..];
             for (i, ctx_line) in ctx_tail.iter().rev().enumerate() {
+                // Nearest before-context fragment also scores the same-line
+                // prefix (agents pass anchors that sit on the match line).
+                if i == 0 && single_line_old && match_line < lines.len() {
+                    let line = lines[match_line];
+                    let col = match_off
+                        .saturating_sub(line_starts[match_line])
+                        .min(line.len());
+                    if line.is_char_boundary(col) {
+                        checks += 1;
+                        let sim = context_fragment_score(&line[..col], ctx_line);
+                        if sim >= 0.8 {
+                            score += sim;
+                        }
+                    }
+                }
                 let content_idx = match_line.checked_sub(i + 1);
                 if let Some(ci) = content_idx {
                     checks += 1;
-                    let sim = strsim::jaro_winkler(lines[ci].trim(), ctx_line.trim());
+                    let sim = context_fragment_score(lines[ci], ctx_line);
                     if sim >= 0.8 {
                         score += sim;
                     }
@@ -381,13 +422,27 @@ pub fn context_filtered_offset(
         if let Some(after) = after_context {
             let ctx_lines: Vec<&str> = after.lines().collect();
             let n = ctx_lines.len().min(MAX_CONTEXT_LINES);
-            let old_lines = old.lines().count();
-            let end_line = match_line + old_lines;
+            let end_line = match_line + old_line_count;
             for (i, ctx_line) in ctx_lines[..n].iter().enumerate() {
+                // Same-line suffix for nearest after-context fragment.
+                if i == 0 && single_line_old && match_line < lines.len() {
+                    let line = lines[match_line];
+                    let match_end = match_off.saturating_add(old.len());
+                    let col = match_end
+                        .saturating_sub(line_starts[match_line])
+                        .min(line.len());
+                    if line.is_char_boundary(col) {
+                        checks += 1;
+                        let sim = context_fragment_score(&line[col..], ctx_line);
+                        if sim >= 0.8 {
+                            score += sim;
+                        }
+                    }
+                }
                 let content_idx = end_line + i;
                 if content_idx < lines.len() {
                     checks += 1;
-                    let sim = strsim::jaro_winkler(lines[content_idx].trim(), ctx_line.trim());
+                    let sim = context_fragment_score(lines[content_idx], ctx_line);
                     if sim >= 0.8 {
                         score += sim;
                     }

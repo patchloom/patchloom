@@ -773,6 +773,34 @@ mod context_filter_tests {
         assert_eq!(offset, Some(11)); // "[database]\n" is 11 bytes
     }
 
+    /// Short anchors inside longer previous lines must score (JW alone is <0.8).
+    #[test]
+    fn before_context_short_anchor_inside_long_line() {
+        let content = "prefix alpha foo more\nother foo\n";
+        let offset = context_filtered_offset(content, "foo", Some("alpha"), None);
+        assert_eq!(
+            offset,
+            Some(content.find("foo").unwrap()),
+            "should pick the foo after alpha on the same/prior fragment"
+        );
+    }
+
+    /// Same-line prefix: `--before-context alpha` on `alpha foo` / `beta foo`.
+    #[test]
+    fn before_context_same_line_prefix() {
+        let content = "alpha foo\nbeta foo\n";
+        let offset = context_filtered_offset(content, "foo", Some("alpha"), None);
+        assert_eq!(offset, Some("alpha ".len()));
+    }
+
+    /// Same-line suffix for after-context.
+    #[test]
+    fn after_context_same_line_suffix() {
+        let content = "foo alpha\nfoo beta\n";
+        let offset = context_filtered_offset(content, "foo", None, Some("alpha"));
+        assert_eq!(offset, Some(0));
+    }
+
     #[test]
     fn before_context_picks_correct_occurrence() {
         let content =
