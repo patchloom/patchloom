@@ -2577,3 +2577,45 @@ fn test_replace_context_fail_closed_not_replace_all() {
         "must not rewrite when context fails"
     );
 }
+
+/// Multi-file --nth: fail closed when any file has matches but fewer than nth,
+/// even if another file could apply successfully.
+#[test]
+fn test_replace_multi_file_nth_out_of_range_fail_closed() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("m1.txt"), "a\n").unwrap();
+    fs::write(dir.path().join("m2.txt"), "a\na\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace", "a", "--new", "X", "--nth", "2", "m1.txt", "m2.txt",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("nth 2 is out of range") && err.contains("m1.txt"),
+        "must name the under-matched file: {err}"
+    );
+    // Neither file should change.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("m1.txt")).unwrap(),
+        "a\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("m2.txt")).unwrap(),
+        "a\na\n"
+    );
+}
