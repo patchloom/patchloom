@@ -11,6 +11,58 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.15.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.14.0...patchloom-v0.15.0) (2026-07-16)
+
+
+### Features
+
+* mark edit/tx result types non_exhaustive for 0.15.0 ([#1744](https://github.com/patchloom/patchloom/issues/1744)) ([5be63f8](https://github.com/patchloom/patchloom/commit/5be63f80892f139cdc513e305c07e4d08df81622)), closes [#1735](https://github.com/patchloom/patchloom/issues/1735)
+
+
+### Bug Fixes
+
+* agent JSON honesty for search skipped and fuzzy refuse meta ([#1760](https://github.com/patchloom/patchloom/issues/1760)) ([aad6e64](https://github.com/patchloom/patchloom/commit/aad6e64f4843de2f01c1567c4e42d884e9e46291))
+* agent-honest JSON, context anchors, batch suggestions ([#1766](https://github.com/patchloom/patchloom/issues/1766)) ([b608859](https://github.com/patchloom/patchloom/commit/b6088593d3b21ac07932f9463d48c4d363c82042))
+* always put no_matches diagnostics in replace/search JSON error ([#1755](https://github.com/patchloom/patchloom/issues/1755)) ([e5750f4](https://github.com/patchloom/patchloom/commit/e5750f4c927354265719a895c836219a0af324a2))
+* chain multi-hop file.rename in one plan ([#1743](https://github.com/patchloom/patchloom/issues/1743)) ([fe0e615](https://github.com/patchloom/patchloom/commit/fe0e615ee771493e0609863f6a31a2bb0f334208))
+* **choco:** address Chocolatey moderation guidelines ([#1782](https://github.com/patchloom/patchloom/issues/1782)) ([25abab5](https://github.com/patchloom/patchloom/commit/25abab536b74597b6aae12345aec0f3e3e9a2628))
+* CLI format_failed backup_session + directory invalid_input ([#1779](https://github.com/patchloom/patchloom/issues/1779)) ([20034ee](https://github.com/patchloom/patchloom/commit/20034eedf33502cea1d00f4be899302d56f37699))
+* CLI replace error hints and word_boundary+fuzzy boundary honesty ([#1754](https://github.com/patchloom/patchloom/issues/1754)) ([5d7d4c7](https://github.com/patchloom/patchloom/commit/5d7d4c701158cc9ee88bb2e5d92d272ecc6aab4c))
+* dedupe CLI and plan verify checks ([#1767](https://github.com/patchloom/patchloom/issues/1767)) ([dc15816](https://github.com/patchloom/patchloom/commit/dc15816520feefa087c0d750d93b4689e2a0b533))
+* explain - as stdin; explicit missing paths in skipped ([#1781](https://github.com/patchloom/patchloom/issues/1781)) ([c5f3131](https://github.com/patchloom/patchloom/commit/c5f31315a55e6b5bb26ce0019270ee47489c0201))
+* fail closed when replace context does not disambiguate ([#1765](https://github.com/patchloom/patchloom/issues/1765)) ([4d3d520](https://github.com/patchloom/patchloom/commit/4d3d5208b015293d3fb3e61aa4663cacd99e60e5))
+* force rename hardlinks and TxOutput serde defaults ([#1746](https://github.com/patchloom/patchloom/issues/1746)) ([d22fbc3](https://github.com/patchloom/patchloom/commit/d22fbc328a4f7b0f3cb463604c993342180a3b7f))
+* fuzzy fails closed when exact old is absent ([#1759](https://github.com/patchloom/patchloom/issues/1759)) ([0d46e85](https://github.com/patchloom/patchloom/commit/0d46e859772b817b174ccd0ccd2bb69eb81484ff))
+* honor if_exists on min_fuzzy_score floor reject ([#1750](https://github.com/patchloom/patchloom/issues/1750)) ([4164fef](https://github.com/patchloom/patchloom/commit/4164fef10813f121ce475dbcbcd28a6c55b55e0b))
+* honor require_change after min_fuzzy_score path reject ([#1748](https://github.com/patchloom/patchloom/issues/1748)) ([9b9c659](https://github.com/patchloom/patchloom/commit/9b9c65984a39d2e2a383174fe0d24855c83bc9ab))
+* min fuzzy score on meta merge and glob success hint ([#1749](https://github.com/patchloom/patchloom/issues/1749)) ([2338c48](https://github.com/patchloom/patchloom/commit/2338c4897b5a7730f95430ad9a81095bd758cfa3))
+* multi-file --nth out-of-range fails closed for all paths ([#1772](https://github.com/patchloom/patchloom/issues/1772)) ([a0d0c08](https://github.com/patchloom/patchloom/commit/a0d0c08be78ea51304879fa0cfc4741032b666b4))
+* never walk .git when collecting files (tidy include_hidden) ([#1770](https://github.com/patchloom/patchloom/issues/1770)) ([5326ec4](https://github.com/patchloom/patchloom/commit/5326ec4ecf9f052a766efb7c2e4c3c9e64bba10f))
+* preserve hardlinks for tx rename-then-edit plans ([#1742](https://github.com/patchloom/patchloom/issues/1742)) ([bf2cbbb](https://github.com/patchloom/patchloom/commit/bf2cbbbf1188829ef52624461d7f011e9530014f))
+* preserve hardlinks in atomic_write when nlink &gt; 1 ([#1734](https://github.com/patchloom/patchloom/issues/1734)) ([b7bcb85](https://github.com/patchloom/patchloom/commit/b7bcb855fda698dd7c1238f03034b529901579a8))
+* preserve hardlinks on plain text rename ([#1740](https://github.com/patchloom/patchloom/issues/1740)) ([52a3a37](https://github.com/patchloom/patchloom/commit/52a3a37cd1e0f80962d5a7d72cdd5e0bbd36b035))
+* preserve hardlinks on plan/tx file.rename ([#1741](https://github.com/patchloom/patchloom/issues/1741)) ([cf64190](https://github.com/patchloom/patchloom/commit/cf641908a244f25227d3065a7cdeac90aca6621c)), closes [#1739](https://github.com/patchloom/patchloom/issues/1739)
+* put error_kind and replace_hint on tx no_matches JSON ([#1753](https://github.com/patchloom/patchloom/issues/1753)) ([057a002](https://github.com/patchloom/patchloom/commit/057a0028d066f416f3a314943db1253b36c9eb26))
+* read directory invalid_input + init --json report ([#1780](https://github.com/patchloom/patchloom/issues/1780)) ([cb76ec6](https://github.com/patchloom/patchloom/commit/cb76ec633c8d0eb712fb39eb62047bf10c1614df))
+* reject --verify without ast feature instead of silent no-op ([#1763](https://github.com/patchloom/patchloom/issues/1763)) ([0478aa0](https://github.com/patchloom/patchloom/commit/0478aa0ac2bed8300b5634853052752a11d138ef))
+* report applied changes on non-strict format/validate failure ([#1778](https://github.com/patchloom/patchloom/issues/1778)) ([a08f1b3](https://github.com/patchloom/patchloom/commit/a08f1b3a2a44c145e7fc5a7cea151b716b930fcc))
+* report matched_text for fuzzy replace and document semantic check ([#1737](https://github.com/patchloom/patchloom/issues/1737)) ([72a8d29](https://github.com/patchloom/patchloom/commit/72a8d29722d5c7f3cd06c435e4801e8248829b25))
+* report missing --files-from paths in replace JSON skipped ([#1757](https://github.com/patchloom/patchloom/issues/1757)) ([c524d4d](https://github.com/patchloom/patchloom/commit/c524d4d4469b35624077a7233eaa55c2d7e849ac))
+* report nth out of range instead of false no-match ([#1768](https://github.com/patchloom/patchloom/issues/1768)) ([46ec98f](https://github.com/patchloom/patchloom/commit/46ec98f414125270b2c3f1d166e0fc596945b966))
+* report refused fuzzy paths on multi-file partial apply ([#1761](https://github.com/patchloom/patchloom/issues/1761)) ([4cdc8df](https://github.com/patchloom/patchloom/commit/4cdc8df79d57ace08df08c1c670690cb946d48d5))
+* search truncated honesty for count modes and agent docs ([#1775](https://github.com/patchloom/patchloom/issues/1775)) ([262d83a](https://github.com/patchloom/patchloom/commit/262d83a4be4b09622b8e245fc44e7313a0a6e07a))
+* set error_kind no_matches for unknown undo --session ([#1776](https://github.com/patchloom/patchloom/issues/1776)) ([e0e6cf0](https://github.com/patchloom/patchloom/commit/e0e6cf000db7a4e8d38914b0d2713185b57c9910))
+* set replace_hint when glob fuzzy floor rejects ([#1745](https://github.com/patchloom/patchloom/issues/1745)) ([e23eb43](https://github.com/patchloom/patchloom/commit/e23eb43c7682f357376d324290caf2c49fa0b68b))
+* set truncated when search --max-results caps matches ([#1773](https://github.com/patchloom/patchloom/issues/1773)) ([e306273](https://github.com/patchloom/patchloom/commit/e306273a78243bd3c34afcc7c76c4db03047c037))
+* skip MCP exact pre-validation when fuzzy or context set ([#1751](https://github.com/patchloom/patchloom/issues/1751)) ([a82a60d](https://github.com/patchloom/patchloom/commit/a82a60d2a99653b67e85025d5b8bf0ead6cb7809))
+* surface replace_hint on glob require_change no-match ([#1752](https://github.com/patchloom/patchloom/issues/1752)) ([038f8f0](https://github.com/patchloom/patchloom/commit/038f8f0fa3b8a00df80232cdb551c549334ac1b6))
+* surface soft replace no-match in multi-op refused[] ([#1774](https://github.com/patchloom/patchloom/issues/1774)) ([9bbe096](https://github.com/patchloom/patchloom/commit/9bbe09637073c91013e42655e80f03380a28abb7))
+* treat empty JSON as {} for doc parse/set ([#1771](https://github.com/patchloom/patchloom/issues/1771)) ([27357ce](https://github.com/patchloom/patchloom/commit/27357cebe4cadf25d6fad9ecaa4a739ad52f7a14))
+* unique_names verify catches cross-file symbol collisions ([#1764](https://github.com/patchloom/patchloom/issues/1764)) ([82560c7](https://github.com/patchloom/patchloom/commit/82560c76ed87773ecc20ab950e3cbff6120fd4fb))
+* whole-line nth honesty (lines, range) and agent-rules ([#1769](https://github.com/patchloom/patchloom/issues/1769)) ([30d2de6](https://github.com/patchloom/patchloom/commit/30d2de67c2abf385687ee1ea80a0a18fcdb813f2))
+* worst-case fuzzy score min and matched_text meta gate ([#1747](https://github.com/patchloom/patchloom/issues/1747)) ([1d3ecb5](https://github.com/patchloom/patchloom/commit/1d3ecb56148fd5c7dcd1485adfd041785c460716))
+* wrap schema --format prompt under global --json ([#1777](https://github.com/patchloom/patchloom/issues/1777)) ([406ddff](https://github.com/patchloom/patchloom/commit/406ddff73b632e2da9a366e2c86da5e53156040f))
+
 ## [0.14.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.13.0...patchloom-v0.14.0) (2026-07-14)
 
 
