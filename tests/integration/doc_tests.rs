@@ -2815,3 +2815,27 @@ fn test_doc_set_multi_document_apply_preserves_separators() {
         .code(0)
         .stdout(predicates::str::contains("demo-svc"));
 }
+
+/// Empty JSON file should bootstrap like empty YAML/TOML for doc set.
+#[test]
+fn test_doc_set_empty_json_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("empty.json");
+    fs::write(&file, "").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["doc", "set", "empty.json", "a", "1", "--apply"])
+        .assert()
+        .code(0)
+        .stdout(
+            predicates::str::contains(r#""ok":true"#)
+                .or(predicates::str::contains(r#""ok": true"#)),
+        );
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v, serde_json::json!({"a": 1}));
+}

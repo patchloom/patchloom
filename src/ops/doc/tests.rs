@@ -54,6 +54,15 @@ mod basic {
     }
 
     #[test]
+    fn parse_empty_json_is_empty_object() {
+        assert_eq!(parse_doc("", &FileFormat::Json).unwrap(), json!({}));
+        assert_eq!(
+            parse_doc("   \n\t  ", &FileFormat::Json).unwrap(),
+            json!({})
+        );
+    }
+
+    #[test]
     fn parse_and_serialize_yaml_roundtrip() {
         let input = "a: 1\n";
         let val = parse_doc(input, &crate::ops::doc::FileFormat::Yaml).unwrap();
