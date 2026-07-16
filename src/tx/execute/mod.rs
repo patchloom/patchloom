@@ -44,6 +44,12 @@ pub(crate) fn read_file_content<'a>(
         Entry::Vacant(entry) => {
             // Callers pass already-resolved paths (cwd.join(rel_path)),
             // so read directly without double-joining (#385).
+            if path.exists() && !path.is_file() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {}", path.display()),
+                }
+                .into());
+            }
             let content = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
             existed_before.insert(path.to_path_buf());
@@ -64,6 +70,12 @@ pub(crate) fn read_and_probe(
 ) -> anyhow::Result<bool> {
     if pending.contains_key(path) {
         return Ok(true); // already loaded, not binary
+    }
+    if path.exists() && !path.is_file() {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("target is not a file: {}", path.display()),
+        }
+        .into());
     }
     let bytes =
         std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -650,7 +662,10 @@ pub(crate) fn execute_and_collect(
                     return Err(crate::exit::ChangesDetectedError { msg }.into());
                 }
                 if crate::exit::is_format_failed(&e) {
-                    return Err(crate::exit::FormatFailedError { msg }.into());
+                    let backup = crate::exit::format_failed_backup_session(&e).map(str::to_string);
+                    return Err(crate::exit::FormatFailedError::new(msg)
+                        .with_backup_session(backup)
+                        .into());
                 }
                 anyhow::bail!("{msg}");
             }

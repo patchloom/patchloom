@@ -2677,8 +2677,48 @@ fn test_doc_set_format_failure_json_error_kind() {
         "doc write path must not drop FormatFailedError: {json}"
     );
     assert!(
+        json["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "format_failed after write must expose backup_session for undo: {json}"
+    );
+    assert!(
         fs::read_to_string(&file).unwrap().contains('2'),
         "doc set must still write before format failure"
+    );
+}
+
+/// Doc set on a directory must set error_kind (not a bare generic failure).
+#[test]
+fn test_doc_set_on_directory_json_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("not_a_file");
+    fs::create_dir(&sub).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "doc",
+            "set",
+            sub.to_str().unwrap(),
+            "a",
+            "1",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "directory target must be invalid_input (not missing error_kind): {json}"
+    );
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("not a file"),
+        "error should say target is not a file: {json}"
     );
 }
 

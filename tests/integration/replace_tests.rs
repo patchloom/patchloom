@@ -1487,6 +1487,19 @@ fn test_replace_format_failure_json_error_kind() {
         parsed["error_kind"], "format_failed",
         "standalone replace --format failure should set error_kind: {parsed}"
     );
+    assert!(
+        parsed["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "format_failed after write must expose backup_session for undo: {parsed}"
+    );
+    assert!(
+        parsed["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("backup session"),
+        "error text should mention backup session: {parsed}"
+    );
     // Write still applied before format failure.
     assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
 }

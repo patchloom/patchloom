@@ -19,6 +19,53 @@ use crate::tx::engine::ExecutionResult;
 use serde::Serialize;
 use std::path::Path;
 
+/// Commit staged changes, then run `--format`. On format failure after a
+/// successful commit, attach the backup session so agent JSON can undo.
+fn commit_then_format(
+    result: ExecutionResult,
+    global: &GlobalFlags,
+    cwd: &Path,
+) -> anyhow::Result<()> {
+    let backup = result.commit()?;
+    if let Err(e) = crate::write::run_format_command(global, cwd) {
+        return Err(attach_format_backup(e, backup));
+    }
+    Ok(())
+}
+
+/// Apply callback write, then run `--format` with the same backup attachment.
+fn apply_then_format(
+    mut apply_fn: impl FnMut() -> anyhow::Result<()>,
+    global: &GlobalFlags,
+    cwd: &Path,
+) -> anyhow::Result<()> {
+    apply_fn()?;
+    // Binary/case-only rename paths do not return a session id from the
+    // callback; still map format failures to FormatFailedError for JSON.
+    if let Err(e) = crate::write::run_format_command(global, cwd) {
+        return Err(attach_format_backup(e, None));
+    }
+    Ok(())
+}
+
+fn attach_format_backup(err: anyhow::Error, backup: Option<String>) -> anyhow::Error {
+    // Prefer peeling an existing FormatFailedError so we keep its message.
+    if exit::is_format_failed(&err) {
+        let msg = err
+            .chain()
+            .find_map(|c| {
+                c.downcast_ref::<exit::FormatFailedError>()
+                    .map(|f| f.msg.clone())
+            })
+            .unwrap_or_else(|| err.to_string());
+        let existing = exit::format_failed_backup_session(&err).map(str::to_string);
+        return exit::FormatFailedError::new(msg)
+            .with_backup_session(backup.or(existing))
+            .into();
+    }
+    err
+}
+
 /// Phase indicator passed to the output constructor so each command can map
 /// it to its own `applied` field semantics.
 #[derive(Debug, Clone, Copy)]
@@ -151,8 +198,7 @@ where
         }
         WriteMode::Apply => {
             let diffs = result.build_diffs();
-            result.commit()?;
-            crate::write::run_format_command(global, cwd)?;
+            commit_then_format(result, global, cwd)?;
             let diff_text = if global.diff {
                 Some(render_diffs_plain(&diffs))
             } else {
@@ -172,8 +218,7 @@ where
             (cb.after_preview_emit)(global);
             let applied = global.should_apply();
             if applied {
-                result.commit()?;
-                crate::write::run_format_command(global, cwd)?;
+                commit_then_format(result, global, cwd)?;
                 (cb.after_preview_apply)(global);
             }
             Ok(write_exit_code(has_changes, applied))
@@ -202,8 +247,7 @@ pub fn finalize_execution_result<T: Serialize>(
         }
         WriteMode::Apply => {
             let diffs = result.build_diffs();
-            result.commit()?;
-            crate::write::run_format_command(global, cwd)?;
+            commit_then_format(result, global, cwd)?;
             let diff_text = if global.diff {
                 Some(render_diffs_plain(&diffs))
             } else {
@@ -228,8 +272,7 @@ pub fn finalize_execution_result<T: Serialize>(
             let diff_text = plain_diff_opt(&diffs);
             let applied = global.should_apply();
             if applied {
-                result.commit()?;
-                crate::write::run_format_command(global, cwd)?;
+                commit_then_format(result, global, cwd)?;
             }
             let output = make_output(WritePhase::Confirmed(applied), diff_text);
             global.emit_json(&output)?;
@@ -252,8 +295,7 @@ pub fn finalize_execution_result<T: Serialize>(
             }
             let applied = global.should_apply();
             if applied {
-                result.commit()?;
-                crate::write::run_format_command(global, cwd)?;
+                commit_then_format(result, global, cwd)?;
                 if let Some(msg) = msgs.post_confirm
                     && global.show_status()
                 {
@@ -288,8 +330,7 @@ pub fn finalize_callback_write<T: Serialize>(
             Ok(write_exit_code(has_changes, false))
         }
         WriteMode::Apply => {
-            apply_fn()?;
-            crate::write::run_format_command(global, cwd)?;
+            apply_then_format(&mut apply_fn, global, cwd)?;
             let diff_text = if global.diff {
                 diff_fn.map(|f| f(false))
             } else {
@@ -311,8 +352,7 @@ pub fn finalize_callback_write<T: Serialize>(
             let diff_text = diff_fn.map(|f| f(false));
             let applied = global.should_apply();
             if applied {
-                apply_fn()?;
-                crate::write::run_format_command(global, cwd)?;
+                apply_then_format(&mut apply_fn, global, cwd)?;
             }
             let output = make_output(WritePhase::Confirmed(applied), diff_text);
             global.emit_json(&output)?;
@@ -330,8 +370,7 @@ pub fn finalize_callback_write<T: Serialize>(
             }
             let applied = global.should_apply();
             if applied {
-                apply_fn()?;
-                crate::write::run_format_command(global, cwd)?;
+                apply_then_format(&mut apply_fn, global, cwd)?;
                 if let Some(msg) = msgs.post_confirm
                     && global.show_status()
                 {

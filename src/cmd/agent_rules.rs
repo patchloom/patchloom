@@ -527,7 +527,7 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              invalid search/replace regex patterns (unclosed groups, etc.), \
              and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, \
              md.move_section before/after, search invert_match+multiline), \
-             `format_failed` (post-write `--format` command non-zero exit or format-timeout; file may already be written, use `undo` or re-run the formatter). Doc type mismatches set \
+             `format_failed` (post-write `--format` command non-zero exit or format-timeout; file may already be written; JSON includes `backup_session` when a session was created so agents can `patchloom undo --session <id>`, or re-run the formatter). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type, library doc mutation type errors). \
              Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.\n\n\
              **JSON `error_kind` (exit 4):** Batch line parse failures, `explain` plan parse failures, \
