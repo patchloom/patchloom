@@ -118,6 +118,10 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     struct RenameOut {
         ok: bool,
         files_changed: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        applied: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        backup_session: Option<String>,
     }
 
     let check_msg = format!("would rename in {files_changed} file(s)");
@@ -126,9 +130,13 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
         global,
         &cwd,
         result,
-        |_phase, _diff| RenameOut {
+        |phase, _diff, backup| RenameOut {
             ok: true,
+            // On preview/check this is "would change" count; agents must also
+            // read `applied` (#1812). After apply, it is writes that landed.
             files_changed,
+            applied: phase.applied_flag(),
+            backup_session: backup,
         },
         WriteMessages {
             check: &check_msg,
@@ -177,6 +185,9 @@ struct AstReplaceOutput {
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
+    /// Backup session id after a successful apply (#1802).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -203,12 +214,13 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
     match run_write_op(
         op,
         global,
-        |phase, diff| AstReplaceOutput {
+        |phase, diff, _backup| AstReplaceOutput {
             ok: true,
             symbol: symbol.clone(),
             replacements: None, // tx engine doesn't expose count
             diff,
             applied: phase.applied_flag(),
+            backup_session: _backup,
         },
         &check_msg,
         &apply_msg,

@@ -35,6 +35,9 @@ struct CreateOutput {
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
+    /// Backup session id after a successful apply (#1802).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -89,11 +92,12 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     execute_via_engine(
         op,
         global,
-        |phase, diff| CreateOutput {
+        |phase, diff, _backup| CreateOutput {
             ok: true,
             path: args.file.clone(),
             diff,
             applied: phase.applied_flag(),
+            backup_session: _backup,
         },
         &check_msg,
         &apply_msg,

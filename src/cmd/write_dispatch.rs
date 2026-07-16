@@ -11,7 +11,7 @@ pub use crate::cmd::write_mode::{WriteMessages, WritePhase};
 pub fn execute_write<T: Serialize>(
     global: &GlobalFlags,
     cwd: &Path,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     diff_fn: Option<&dyn Fn(bool) -> String>,
     apply_fn: impl FnMut() -> anyhow::Result<()>,
     msgs: WriteMessages<'_>,
@@ -33,7 +33,11 @@ mod tests {
         phase: String,
     }
 
-    fn make_test_output(phase: WritePhase, diff: Option<String>) -> TestOutput {
+    fn make_test_output(
+        phase: WritePhase,
+        diff: Option<String>,
+        _backup: Option<String>,
+    ) -> TestOutput {
         let phase_str = match phase {
             WritePhase::Check(_) => "check".to_string(),
             WritePhase::Applied => "applied".to_string(),

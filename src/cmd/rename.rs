@@ -35,6 +35,8 @@ struct RenameOutput {
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -92,9 +94,9 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
-
             diff: None,
-            applied: None,
+            applied: Some(false),
+            backup_session: None,
         };
         if !global.emit_json(&output)? && !global.quiet {
             println!("source and destination are the same: {}", args.from);
@@ -153,13 +155,14 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     execute_via_engine(
         op,
         global,
-        |phase, diff| RenameOutput {
+        |phase, diff, _backup| RenameOutput {
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
 
             diff,
             applied: phase.applied_flag(),
+            backup_session: _backup,
         },
         &check_msg,
         &apply_msg,
@@ -245,13 +248,14 @@ fn run_direct_rename(
     execute_write(
         global,
         cwd,
-        |phase, diff| RenameOutput {
+        |phase, diff, _backup| RenameOutput {
             ok: true,
             from: args.from.clone(),
             to: Some(args.to.clone()),
 
             diff,
             applied: phase.applied_flag(),
+            backup_session: _backup,
         },
         Some(&|_| {
             if let Some(ref body) = content_for_diff {

@@ -50,7 +50,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     execute_via_engine_no_preview_diffs(
         op,
         global,
-        |phase, _diff| DeleteOutput {
+        |phase, _diff, _backup| DeleteOutput {
             ok: true,
             path: args.file.clone(),
             applied: phase.applied_flag().unwrap_or(false),

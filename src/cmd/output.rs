@@ -25,7 +25,7 @@ pub use crate::cmd::write_mode::WritePhase;
 pub fn run_write<T: Serialize>(
     source: WriteSource,
     global: &GlobalFlags,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     msgs: WriteMessages<'_>,
     render: RenderPolicy,
 ) -> anyhow::Result<u8> {
@@ -40,7 +40,7 @@ pub fn run_write<T: Serialize>(
 pub fn run_write_op<T: Serialize>(
     op: crate::plan::Operation,
     global: &GlobalFlags,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
@@ -61,7 +61,7 @@ pub fn run_write_op<T: Serialize>(
 pub fn run_write_op_no_preview_diffs<T: Serialize>(
     op: crate::plan::Operation,
     global: &GlobalFlags,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
@@ -105,7 +105,7 @@ pub fn stage_for_write(
 pub fn execute_via_engine<T: Serialize>(
     op: crate::plan::Operation,
     global: &GlobalFlags,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
@@ -118,7 +118,7 @@ pub fn execute_via_engine<T: Serialize>(
 pub fn execute_via_engine_no_preview_diffs<T: Serialize>(
     op: crate::plan::Operation,
     global: &GlobalFlags,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
@@ -155,7 +155,7 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |phase, _diff| TestOutput {
+            |phase, _diff, _backup| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
                 applied: phase.applied_flag(),
@@ -187,7 +187,7 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |phase, _diff| TestOutput {
+            |phase, _diff, _backup| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
                 applied: phase.applied_flag(),
@@ -216,7 +216,7 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |phase, _diff| TestOutput {
+            |phase, _diff, _backup| TestOutput {
                 ok: true,
                 path: "del.txt".to_string(),
                 applied: phase.applied_flag(),
@@ -246,7 +246,7 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |phase, _diff| TestOutput {
+            |phase, _diff, _backup| TestOutput {
                 ok: true,
                 path: "a.txt".to_string(),
                 applied: phase.applied_flag(),
@@ -274,7 +274,7 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |phase, _diff| TestOutput {
+            |phase, _diff, _backup| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
                 applied: phase.applied_flag(),
@@ -307,7 +307,7 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |phase, _diff| TestOutput {
+            |phase, _diff, _backup| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
                 applied: phase.applied_flag(),
@@ -337,7 +337,7 @@ mod tests {
         let code = execute_via_engine(
             op,
             &global,
-            |phase, _diff| TestOutput {
+            |phase, _diff, _backup| TestOutput {
                 ok: true,
                 path: "existing.txt".to_string(),
                 applied: phase.applied_flag(),

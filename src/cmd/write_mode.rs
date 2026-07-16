@@ -22,11 +22,13 @@ use std::path::Path;
 /// Commit staged changes, then run `--format`. On format failure after a
 /// successful commit, attach the backup session and written paths so agent
 /// JSON can undo and re-validate without re-scanning disk (#1795).
+/// Commit staged changes, run `--format`, return the backup session id when
+/// one was created (#1802 success JSON).
 fn commit_then_format(
     result: ExecutionResult,
     global: &GlobalFlags,
     cwd: &Path,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     let written: Vec<String> = result
         .exec_result
         .changes
@@ -41,7 +43,7 @@ fn commit_then_format(
     if let Err(e) = crate::write::run_format_command(global, cwd) {
         return Err(attach_format_backup(e, backup, written));
     }
-    Ok(())
+    Ok(backup)
 }
 
 /// Apply callback write, then run `--format` with the same backup attachment.
@@ -49,14 +51,14 @@ fn apply_then_format(
     mut apply_fn: impl FnMut() -> anyhow::Result<()>,
     global: &GlobalFlags,
     cwd: &Path,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     apply_fn()?;
     // Binary/case-only rename paths do not return a session id from the
     // callback; still map format failures to FormatFailedError for JSON.
     if let Err(e) = crate::write::run_format_command(global, cwd) {
         return Err(attach_format_backup(e, None, Vec::new()));
     }
-    Ok(())
+    Ok(None)
 }
 
 fn attach_format_backup(
@@ -111,14 +113,16 @@ pub enum WritePhase {
 }
 
 impl WritePhase {
-    /// Agent-facing `applied` for success JSON: `Some(true)` after `--apply`,
-    /// `Some(confirmed)` after confirm+json, `None` for check/preview (omit).
+    /// Agent-facing `applied` for success JSON (#1808, #1810, #1812).
+    ///
+    /// Always `Some` so preview/`--check` cannot be mistaken for a completed
+    /// write when agents only parse stdout JSON (`applied: false` vs `true`).
     #[must_use]
     pub fn applied_flag(self) -> Option<bool> {
         match self {
             WritePhase::Applied => Some(true),
             WritePhase::Confirmed(a) => Some(a),
-            WritePhase::Check(_) | WritePhase::Preview => None,
+            WritePhase::Check(_) | WritePhase::Preview => Some(false),
         }
     }
 }
@@ -216,7 +220,9 @@ pub struct FinalizeCallbacks<OnCheck, OnApply, OnPreview, AfterEmit, AfterApply>
 ///
 /// `on_check` receives built diffs (for commands that list changed files in
 /// check mode). Prefer [`finalize_execution_result`] for standard
-/// `make_output(WritePhase, diff)` schemas (ConfirmJson emits *after* apply).
+/// `make_output(WritePhase, diff, backup_session)` schemas (ConfirmJson emits
+/// *after* apply). `on_apply` receives the backup session id when one was
+/// created (#1802).
 pub fn finalize_report<OnCheck, OnApply, OnPreview, AfterEmit, AfterApply>(
     global: &GlobalFlags,
     cwd: &Path,
@@ -226,7 +232,13 @@ pub fn finalize_report<OnCheck, OnApply, OnPreview, AfterEmit, AfterApply>(
 ) -> anyhow::Result<u8>
 where
     OnCheck: FnMut(&GlobalFlags, bool, &[FileDiff]) -> anyhow::Result<()>,
-    OnApply: FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
+    OnApply: FnMut(
+        &GlobalFlags,
+        bool,
+        &[FileDiff],
+        Option<String>,
+        Option<String>,
+    ) -> anyhow::Result<()>,
     OnPreview: FnMut(&GlobalFlags, bool, &[FileDiff], Option<String>) -> anyhow::Result<()>,
     AfterEmit: FnMut(&GlobalFlags),
     AfterApply: FnMut(&GlobalFlags),
@@ -240,16 +252,38 @@ where
         }
         WriteMode::Apply => {
             let diffs = result.build_diffs();
-            commit_then_format(result, global, cwd)?;
+            let backup = commit_then_format(result, global, cwd)?;
             let diff_text = if global.diff {
                 Some(render_diffs_plain(&diffs))
             } else {
                 None
             };
-            (cb.on_apply)(global, has_changes, &diffs, diff_text)?;
+            (cb.on_apply)(global, has_changes, &diffs, diff_text, backup)?;
             Ok(write_exit_code(has_changes, true))
         }
-        WriteMode::ConfirmJson | WriteMode::Preview => {
+        WriteMode::ConfirmJson => {
+            // Prompt first, then commit, then emit once with applied + backup
+            // (parity with finalize_execution_result; #1802 / #1808).
+            let diffs = if preview_diffs {
+                result.build_diffs()
+            } else {
+                Vec::new()
+            };
+            let diff_text = plain_diff_opt(&diffs);
+            let applied = global.should_apply();
+            let backup = if applied {
+                commit_then_format(result, global, cwd)?
+            } else {
+                None
+            };
+            if applied {
+                (cb.on_apply)(global, has_changes, &diffs, diff_text, backup)?;
+            } else {
+                (cb.on_preview)(global, has_changes, &diffs, diff_text)?;
+            }
+            Ok(write_exit_code(has_changes, applied))
+        }
+        WriteMode::Preview => {
             let diffs = if preview_diffs {
                 result.build_diffs()
             } else {
@@ -260,7 +294,7 @@ where
             (cb.after_preview_emit)(global);
             let applied = global.should_apply();
             if applied {
-                commit_then_format(result, global, cwd)?;
+                let _backup = commit_then_format(result, global, cwd)?;
                 (cb.after_preview_apply)(global);
             }
             Ok(write_exit_code(has_changes, applied))
@@ -269,19 +303,22 @@ where
 }
 
 /// Finalize a staged [`ExecutionResult`] under global write flags with a
-/// standard phase-based JSON schema (`make_output(phase, diff)`).
+/// standard phase-based JSON schema (`make_output(phase, diff, backup_session)`).
+///
+/// `backup_session` is `Some` after a successful apply that created a backup
+/// (#1802); `None` for check/preview and apply with no backup.
 pub fn finalize_execution_result<T: Serialize>(
     global: &GlobalFlags,
     cwd: &Path,
     result: ExecutionResult,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     msgs: WriteMessages<'_>,
     render: RenderPolicy,
 ) -> anyhow::Result<u8> {
     let has_changes = result.has_changes;
     match classify_write_mode(global) {
         WriteMode::Check => {
-            let output = make_output(WritePhase::Check(has_changes), None);
+            let output = make_output(WritePhase::Check(has_changes), None, None);
             if !global.emit_json(&output)? && !global.quiet && has_changes {
                 println!("{}", msgs.check);
             }
@@ -289,13 +326,13 @@ pub fn finalize_execution_result<T: Serialize>(
         }
         WriteMode::Apply => {
             let diffs = result.build_diffs();
-            commit_then_format(result, global, cwd)?;
+            let backup = commit_then_format(result, global, cwd)?;
             let diff_text = if global.diff {
                 Some(render_diffs_plain(&diffs))
             } else {
                 None
             };
-            let output = make_output(WritePhase::Applied, diff_text);
+            let output = make_output(WritePhase::Applied, diff_text, backup);
             if !global.emit_json(&output)? && has_changes {
                 if global.diff {
                     print!("{}", render_diffs_colored(&diffs, global.should_color()));
@@ -313,10 +350,12 @@ pub fn finalize_execution_result<T: Serialize>(
             };
             let diff_text = plain_diff_opt(&diffs);
             let applied = global.should_apply();
-            if applied {
-                commit_then_format(result, global, cwd)?;
-            }
-            let output = make_output(WritePhase::Confirmed(applied), diff_text);
+            let backup = if applied {
+                commit_then_format(result, global, cwd)?
+            } else {
+                None
+            };
+            let output = make_output(WritePhase::Confirmed(applied), diff_text, backup);
             global.emit_json(&output)?;
             Ok(write_exit_code(has_changes, applied))
         }
@@ -327,7 +366,7 @@ pub fn finalize_execution_result<T: Serialize>(
                 Vec::new()
             };
             let diff_text = plain_diff_opt(&diffs);
-            let output = make_output(WritePhase::Preview, diff_text);
+            let output = make_output(WritePhase::Preview, diff_text, None);
             if !global.emit_json(&output)? {
                 if !diffs.is_empty() {
                     print!("{}", render_diffs_colored(&diffs, global.should_color()));
@@ -337,7 +376,7 @@ pub fn finalize_execution_result<T: Serialize>(
             }
             let applied = global.should_apply();
             if applied {
-                commit_then_format(result, global, cwd)?;
+                let _backup = commit_then_format(result, global, cwd)?;
                 if let Some(msg) = msgs.post_confirm
                     && global.show_status()
                 {
@@ -358,27 +397,27 @@ pub fn finalize_callback_write<T: Serialize>(
     global: &GlobalFlags,
     cwd: &Path,
     has_changes: bool,
-    make_output: impl Fn(WritePhase, Option<String>) -> T,
+    make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     diff_fn: Option<&dyn Fn(bool) -> String>,
     mut apply_fn: impl FnMut() -> anyhow::Result<()>,
     msgs: WriteMessages<'_>,
 ) -> anyhow::Result<u8> {
     match classify_write_mode(global) {
         WriteMode::Check => {
-            let output = make_output(WritePhase::Check(has_changes), None);
+            let output = make_output(WritePhase::Check(has_changes), None, None);
             if !global.emit_json(&output)? && !global.quiet && has_changes {
                 println!("{}", msgs.check);
             }
             Ok(write_exit_code(has_changes, false))
         }
         WriteMode::Apply => {
-            apply_then_format(&mut apply_fn, global, cwd)?;
+            let _backup = apply_then_format(&mut apply_fn, global, cwd)?;
             let diff_text = if global.diff {
                 diff_fn.map(|f| f(false))
             } else {
                 None
             };
-            let output = make_output(WritePhase::Applied, diff_text);
+            let output = make_output(WritePhase::Applied, diff_text, None);
             if !global.emit_json(&output)? {
                 if global.diff {
                     if let Some(f) = diff_fn {
@@ -394,15 +433,15 @@ pub fn finalize_callback_write<T: Serialize>(
             let diff_text = diff_fn.map(|f| f(false));
             let applied = global.should_apply();
             if applied {
-                apply_then_format(&mut apply_fn, global, cwd)?;
+                let _backup = apply_then_format(&mut apply_fn, global, cwd)?;
             }
-            let output = make_output(WritePhase::Confirmed(applied), diff_text);
+            let output = make_output(WritePhase::Confirmed(applied), diff_text, None);
             global.emit_json(&output)?;
             Ok(write_exit_code(has_changes, applied))
         }
         WriteMode::Preview => {
             let diff_text = diff_fn.map(|f| f(false));
-            let output = make_output(WritePhase::Preview, diff_text);
+            let output = make_output(WritePhase::Preview, diff_text, None);
             if !global.emit_json(&output)? {
                 if let Some(f) = diff_fn {
                     print!("{}", f(global.should_color()));
@@ -412,7 +451,7 @@ pub fn finalize_callback_write<T: Serialize>(
             }
             let applied = global.should_apply();
             if applied {
-                apply_then_format(&mut apply_fn, global, cwd)?;
+                let _backup = apply_then_format(&mut apply_fn, global, cwd)?;
                 if let Some(msg) = msgs.post_confirm
                     && global.show_status()
                 {
@@ -441,8 +480,10 @@ mod tests {
         assert_eq!(WritePhase::Applied.applied_flag(), Some(true));
         assert_eq!(WritePhase::Confirmed(true).applied_flag(), Some(true));
         assert_eq!(WritePhase::Confirmed(false).applied_flag(), Some(false));
-        assert_eq!(WritePhase::Preview.applied_flag(), None);
-        assert_eq!(WritePhase::Check(true).applied_flag(), None);
+        // Preview/check must emit applied:false so agents do not treat them
+        // as successful writes when ignoring exit codes (#1808, #1810, #1812).
+        assert_eq!(WritePhase::Preview.applied_flag(), Some(false));
+        assert_eq!(WritePhase::Check(true).applied_flag(), Some(false));
     }
 
     #[test]
@@ -513,7 +554,11 @@ mod tests {
                     checks.fetch_add(1, Ordering::SeqCst);
                     Ok(())
                 },
-                on_apply: |_g: &GlobalFlags, _: bool, _: &[FileDiff], _: Option<String>| {
+                on_apply: |_g: &GlobalFlags,
+                           _: bool,
+                           _: &[FileDiff],
+                           _: Option<String>,
+                           _backup: Option<String>| {
                     panic!("apply must not run")
                 },
                 on_preview: |_g: &GlobalFlags, _: bool, _: &[FileDiff], _: Option<String>| {
@@ -560,7 +605,8 @@ mod tests {
                 on_apply: |_g: &GlobalFlags,
                            has: bool,
                            diffs: &[FileDiff],
-                           _plain: Option<String>| {
+                           _plain: Option<String>,
+                           _backup: Option<String>| {
                     assert!(has);
                     assert!(!diffs.is_empty());
                     applied_hook.store(true, Ordering::SeqCst);
@@ -607,7 +653,11 @@ mod tests {
             true,
             FinalizeCallbacks {
                 on_check: |_g: &GlobalFlags, _: bool, _: &[FileDiff]| panic!("check must not run"),
-                on_apply: |_g: &GlobalFlags, _: bool, _: &[FileDiff], _: Option<String>| {
+                on_apply: |_g: &GlobalFlags,
+                           _: bool,
+                           _: &[FileDiff],
+                           _: Option<String>,
+                           _backup: Option<String>| {
                     panic!("apply must not run")
                 },
                 on_preview: |_g: &GlobalFlags, has: bool, _d: &[FileDiff], _p: Option<String>| {

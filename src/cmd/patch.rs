@@ -475,7 +475,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             on_apply: |g: &GlobalFlags,
                        _has: bool,
                        diffs: &[crate::diff::FileDiff],
-                       _plain: Option<String>| {
+                       _plain: Option<String>,
+                       _backup: Option<String>| {
                 let files = build_file_results(diffs, "applied");
                 emit_patch_files_output(g, true, &files)?;
                 Ok(())

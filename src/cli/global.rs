@@ -76,6 +76,8 @@ pub struct GlobalFlags {
     pub ignore_file: Vec<String>,
 
     /// Read file list from a file or stdin (`-`), one path per line.
+    /// Blank lines and lines whose first non-whitespace character is `#` are
+    /// comments and are ignored (#1811).
     #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub files_from: Option<String>,
 
@@ -586,12 +588,24 @@ impl GlobalFlags {
             let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
             content
                 .lines()
-                .map(|l| l.trim())
-                .filter(|l| !l.is_empty())
-                .map(String::from)
+                .filter_map(normalize_files_from_line)
                 .collect()
         };
         Ok(Some(lines))
+    }
+}
+
+/// Normalize one `--files-from` line: trim, drop blanks and `#` comments (#1811).
+///
+/// Lines whose first non-whitespace character is `#` are comments (gitignore-
+/// style). A path that literally starts with `#` is not supported; document
+/// that agents must not emit comment lines if they need such a path.
+fn normalize_files_from_line(line: &str) -> Option<String> {
+    let l = line.trim();
+    if l.is_empty() || l.starts_with('#') {
+        None
+    } else {
+        Some(l.to_string())
     }
 }
 
@@ -615,9 +629,8 @@ fn collect_files_from_line_results(
         {
             l = stripped.to_string();
         }
-        let l = l.trim();
-        if !l.is_empty() {
-            out.push(l.to_string());
+        if let Some(path) = normalize_files_from_line(&l) {
+            out.push(path);
         }
     }
     Ok(out)

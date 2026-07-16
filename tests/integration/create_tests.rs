@@ -234,7 +234,10 @@ fn test_create_check_json_output() {
     assert_eq!(json["path"], file.to_str().unwrap());
     // diff field should be absent in --check mode
     assert!(json.get("diff").is_none());
-    assert!(json.get("applied").is_none());
+    assert_eq!(
+        json["applied"], false,
+        "check must set applied:false: {json}"
+    );
 
     assert!(
         !file.exists(),

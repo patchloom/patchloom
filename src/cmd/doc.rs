@@ -268,6 +268,9 @@ struct DocWriteOutput {
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
+    /// Backup session id after a successful apply (#1802).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 /// Convert a write [`DocAction`] into the corresponding [`Operation`] variant.
@@ -810,13 +813,14 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 global,
                 &cwd,
                 result,
-                |phase, diff| DocWriteOutput {
+                |phase, diff, _backup| DocWriteOutput {
                     ok: true,
                     path: path_clone.clone(),
                     changed,
                     removed,
                     diff,
                     applied: phase.applied_flag(),
+                    backup_session: _backup,
                 },
                 crate::cmd::write_mode::WriteMessages {
                     check: &check_msg,
