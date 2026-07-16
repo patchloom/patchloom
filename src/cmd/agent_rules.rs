@@ -143,7 +143,8 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
              - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)\n\
              - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts; always check `matched_text` (#1687, #1694, #1736)\n\
-             **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). When some paths write and others soft-refuse, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent` or `below_min_fuzzy_score`) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).\n\n\
+             **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). When some paths write and others soft-refuse or soft-miss, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent`, `below_min_fuzzy_score`, or `no_matches` for exact soft miss) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).\n\
+             **Search max_results:** CLI/MCP/tx `search` with `max_results` keeps full `match_count` but may cap the detailed `matches` array; when capped, JSON sets `truncated: true` (omitted when complete). Count and files-with-matches modes never set `truncated` (they do not build the matches array). Do not treat `matches.len()` as total coverage when `truncated` is true.\n\n\
              **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / \
              `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` \
              (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect \
@@ -436,7 +437,7 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
                  - `fuzzy`: similarity fallback when exact match fails (also with before_context/after_context).\n\
                  Example: `{\"op\":\"replace\",\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
                  \"command_position\":true,\"require_change\":true}`\n\
-                 Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`), optional `matched_text` for fuzzy/anchored spans, and `match_count` on replace-backed changes plus worst-case aggregate mode and sum of counts when any replace matched (#1674, #1736). Partial soft-refuses list `refused[]` with reason (`exact_old_absent` / `below_min_fuzzy_score`); do not treat ok/success alone as full multi-path coverage.\n\n");
+                 Successful plan/tx and `batch_replace` JSON includes `match_mode` (`exact`/`fuzzy`/`anchored`), optional `matched_text` for fuzzy/anchored spans, and `match_count` on replace-backed changes plus worst-case aggregate mode and sum of counts when any replace matched (#1674, #1736). Partial soft-refuses list `refused[]` with reason (`exact_old_absent` / `below_min_fuzzy_score` / `no_matches`); do not treat ok/success alone as full multi-path coverage. Tx search with `max_results` may set `truncated: true` on search results when the matches array was capped.\n\n");
         }
     }
 
@@ -823,8 +824,10 @@ mod tests {
                 && mcp.contains("allow_absent_old")
                 && mcp.contains("fail closed")
                 && mcp.contains("refused[]")
-                && mcp.contains("below_min_fuzzy_score"),
-            "MCP-only agent-rules must document replace_text flags, fuzzy fail-closed, and refused[]"
+                && mcp.contains("below_min_fuzzy_score")
+                && mcp.contains("no_matches")
+                && mcp.contains("truncated"),
+            "MCP-only agent-rules must document replace_text flags, fuzzy fail-closed, refused[], and search truncated"
         );
     }
 
