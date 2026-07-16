@@ -415,8 +415,18 @@ fn try_preserve_yaml_array(
 
 pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {
     match format {
-        FileFormat::Json => serde_json::from_str(content)
-            .map_err(|e| anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })),
+        // Empty / whitespace-only files: treat as empty object so `doc set`
+        // can bootstrap a new document (YAML/TOML already accept empty input;
+        // serde_json rejects EOF — fixrealloop 2026-07-15).
+        FileFormat::Json => {
+            if content.trim().is_empty() {
+                Ok(serde_json::json!({}))
+            } else {
+                serde_json::from_str(content).map_err(|e| {
+                    anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
+                })
+            }
+        }
         FileFormat::Yaml => {
             if is_multi_document_yaml(content) {
                 parse_multi_document_yaml(content).map_err(|e| {
