@@ -54,7 +54,7 @@ pub(crate) use execute::TxStateFixture;
 pub(crate) use execute::{path_err, read_and_probe, read_file_content, update_file_content};
 
 // lifecycle.rs
-pub use lifecycle::{CommitError, RestoreFailGuard, execute_plan_direct};
+pub use lifecycle::{CommitError, RestoreFailGuard, WriteFailGuard, execute_plan_direct};
 pub(crate) use lifecycle::{
     commit_changes, rollback_strict, run_lifecycle, validate_and_prepare_plan,
 };

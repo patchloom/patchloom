@@ -314,46 +314,84 @@ fn test_create_json_confirm_output_reports_applied_false_on_tty_eof() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_create_check_fails_if_parent_missing() {
+fn test_create_check_allows_missing_parent() {
+    // --apply creates parent dirs; --check must not reject missing parents
+    // (parity restored after brief parent-must-exist check was removed).
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("nonexistent").join("sub").join("file.txt");
 
-    let output = Command::cargo_bin("patchloom")
+    Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
         .arg(&file)
         .arg("--content")
         .arg("hello\n")
         .arg("--check")
-        .output()
-        .unwrap();
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("would create"));
 
-    assert!(
-        !output.status.success(),
-        "create --check should fail when parent dir doesn't exist"
-    );
+    assert!(!file.exists(), "check mode must not create the file");
 }
 
 #[test]
-fn test_create_check_force_skips_parent_verification() {
+fn test_create_apply_creates_missing_parent_dirs() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("nonexistent").join("sub").join("file.txt");
 
-    let output = Command::cargo_bin("patchloom")
+    Command::cargo_bin("patchloom")
         .unwrap()
         .arg("create")
         .arg(&file)
         .arg("--content")
         .arg("hello\n")
-        .arg("--force")
-        .arg("--check")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn test_create_rejects_parent_that_is_a_file() {
+    let dir = TempDir::new().unwrap();
+    let blocking = dir.path().join("notdir");
+    fs::write(&blocking, "i am a file\n").unwrap();
+    let child = blocking.join("child.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("create")
+        .arg(&child)
+        .arg("--content")
+        .arg("x\n")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
         .output()
         .unwrap();
 
-    assert_eq!(
-        output.status.code(),
-        Some(2),
-        "create --check --force should succeed even if parent doesn't exist"
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not a directory"),
+        "error should mention not a directory: {json}"
+    );
+
+    assert!(!child.exists());
+    assert!(blocking.is_file());
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not leave a backup session for an unwritten create"
     );
 }
 

@@ -65,6 +65,10 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
+    if let Err(e) = crate::ops::file::ensure_parent_components_are_directories(&dst) {
+        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
+        return Ok(crate::exit::FAILURE);
+    }
     if dst.exists() && !dst.is_file() {
         let msg = format!("destination is not a file: {}", args.to);
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;

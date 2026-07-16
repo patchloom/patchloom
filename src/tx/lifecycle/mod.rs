@@ -10,7 +10,7 @@ mod commit;
 mod plan_exec;
 mod steps;
 
-pub use commit::{CommitError, RestoreFailGuard};
+pub use commit::{CommitError, RestoreFailGuard, WriteFailGuard};
 pub use plan_exec::execute_plan_direct;
 
 pub(crate) use commit::{commit_changes, restore_after_failed_commit};

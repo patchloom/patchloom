@@ -85,6 +85,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 }
                 .into());
             }
+            // Reject ancestors that exist as files before staging so commit
+            // does not leave a bare tempfile error or a backup for an unwritten path.
+            crate::ops::file::ensure_parent_components_are_directories(&file_path)?;
             if force.unwrap_or(false) {
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
                     let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
@@ -189,6 +192,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 }
                 .into());
             }
+            crate::ops::file::ensure_parent_components_are_directories(&dst_path)?;
 
             // If source and destination resolve to the same file, no-op.
             // Allow case-only renames on case-insensitive filesystems (#1167).

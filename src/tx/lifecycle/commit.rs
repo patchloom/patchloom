@@ -37,6 +37,11 @@ thread_local! {
     /// Per-thread test hook; never set in production.
     pub(crate) static FORCE_RESTORE_FAIL: std::sync::atomic::AtomicBool =
         const { std::sync::atomic::AtomicBool::new(false) };
+    /// When set, commit write fails for any path whose display string contains
+    /// this fragment. Used by mid-commit rollback tests (parent-as-file can no
+    /// longer reach commit: create/rename stage reject that case).
+    pub(crate) static FORCE_WRITE_FAIL_CONTAINS: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// RAII guard that forces restore failure on the current thread only.
@@ -54,6 +59,41 @@ impl Drop for RestoreFailGuard {
     fn drop(&mut self) {
         FORCE_RESTORE_FAIL.with(|flag| flag.store(false, std::sync::atomic::Ordering::SeqCst));
     }
+}
+
+/// RAII guard that fails commit writes for paths containing `fragment`.
+#[doc(hidden)]
+pub struct WriteFailGuard;
+
+impl WriteFailGuard {
+    pub fn fail_paths_containing(fragment: &str) -> Self {
+        FORCE_WRITE_FAIL_CONTAINS.with(|c| {
+            *c.borrow_mut() = Some(fragment.to_string());
+        });
+        Self
+    }
+}
+
+impl Drop for WriteFailGuard {
+    fn drop(&mut self) {
+        FORCE_WRITE_FAIL_CONTAINS.with(|c| {
+            *c.borrow_mut() = None;
+        });
+    }
+}
+
+fn injected_write_failure(path: &Path) -> anyhow::Result<()> {
+    FORCE_WRITE_FAIL_CONTAINS.with(|c| {
+        if let Some(ref frag) = *c.borrow()
+            && path.to_string_lossy().contains(frag.as_str())
+        {
+            return Err(anyhow::anyhow!(
+                "injected write failure for {}",
+                path.display()
+            ));
+        }
+        Ok(())
+    })
 }
 
 /// Restore files from a backup session after a failed commit. Returns `true`
@@ -148,11 +188,13 @@ pub(crate) fn commit_changes(
                 continue;
             }
             if deletions.contains(path) {
+                injected_write_failure(path)?;
                 std::fs::remove_file(path)
                     .with_context(|| format!("deleting {}", path.display()))?;
             } else if renamed_to.contains(path.as_path()) {
                 // Dest exists after rename; rewrite final content in place so
                 // multi-hardlinked siblings stay in sync (nlink > 1 path).
+                injected_write_failure(path)?;
                 atomic_write(path, new_content, &noop_policy)?;
             } else {
                 if let Some(parent) = path.parent()
@@ -162,6 +204,7 @@ pub(crate) fn commit_changes(
                     std::fs::create_dir_all(parent)
                         .with_context(|| format!("creating directory {}", parent.display()))?;
                 }
+                injected_write_failure(path)?;
                 if !existed_before.contains(path) {
                     atomic_create_new(path, new_content, &noop_policy)?;
                 } else {

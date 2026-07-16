@@ -64,6 +64,12 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
+    // Reject file-as-parent before the engine so --json gets error_kind and
+    // apply does not create a backup for a path that was never written.
+    if let Err(e) = crate::ops::file::ensure_parent_components_are_directories(&path) {
+        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
+        return Ok(crate::exit::FAILURE);
+    }
     // Catch exists before the engine so --json gets error_kind (apply and
     // preview). --force continues into FileCreate overwrite.
     if !args.force && path.exists() {
@@ -460,5 +466,53 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::FAILURE);
+    }
+
+    #[test]
+    fn create_rejects_when_parent_is_a_file() {
+        let dir = TempDir::new().unwrap();
+        let blocking = dir.path().join("notdir");
+        fs::write(&blocking, "i am a file\n").unwrap();
+        let child = blocking.join("child.txt");
+
+        let args = CreateArgs {
+            file: child.to_string_lossy().into_owned(),
+            content: Some("x\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        // No backup session for a path that was never written.
+        assert!(
+            !dir.path().join(".patchloom/backups").exists(),
+            "must not create a backup when parent is not a directory"
+        );
+        assert!(!child.exists());
+        assert!(blocking.is_file());
+    }
+
+    #[test]
+    fn create_creates_missing_parent_dirs_on_apply() {
+        let dir = TempDir::new().unwrap();
+        let nested = dir.path().join("a").join("b").join("c.txt");
+
+        let args = CreateArgs {
+            file: nested.to_string_lossy().into_owned(),
+            content: Some("nested\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(fs::read_to_string(&nested).unwrap(), "nested\n");
     }
 }
