@@ -1,5 +1,4 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
 use crate::cmd::write_dispatch::{WriteMessages, execute_write};
 use crate::exit;
@@ -160,10 +159,7 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             to: Some(args.to.clone()),
 
             diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
+            applied: phase.applied_flag(),
         },
         &check_msg,
         &apply_msg,
@@ -255,10 +251,7 @@ fn run_direct_rename(
             to: Some(args.to.clone()),
 
             diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
+            applied: phase.applied_flag(),
         },
         Some(&|_| {
             if let Some(ref body) = content_for_diff {

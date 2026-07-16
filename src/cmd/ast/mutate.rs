@@ -2,7 +2,7 @@
 
 use super::common::{resolve_lang, setup_multi_file};
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::{WritePhase, run_write_op, stage_for_write};
+use crate::cmd::output::{run_write_op, stage_for_write};
 use crate::cmd::write_mode::{RenderPolicy, WriteMessages, finalize_execution_result};
 use crate::exit;
 use crate::plan::Operation;
@@ -208,10 +208,7 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
             symbol: symbol.clone(),
             replacements: None, // tx engine doesn't expose count
             diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
+            applied: phase.applied_flag(),
         },
         &check_msg,
         &apply_msg,

@@ -1,5 +1,4 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
 use crate::plan::Operation;
 use clap::Args;
@@ -94,10 +93,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             ok: true,
             path: args.file.clone(),
             diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
+            applied: phase.applied_flag(),
         },
         &check_msg,
         &apply_msg,
@@ -514,5 +510,26 @@ mod tests {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(fs::read_to_string(&nested).unwrap(), "nested\n");
+    }
+
+    #[test]
+    fn create_apply_json_includes_applied_true() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("applied.txt");
+        let args = CreateArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("x\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        global.json = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        // applied_flag() must surface Apply as applied:true (parity with delete).
+        assert!(file.exists());
     }
 }

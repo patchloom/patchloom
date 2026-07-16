@@ -158,10 +158,7 @@ mod tests {
             |phase, _diff| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
-                },
+                applied: phase.applied_flag(),
             },
             "would create new.txt",
             "created new.txt",
@@ -193,10 +190,7 @@ mod tests {
             |phase, _diff| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
-                },
+                applied: phase.applied_flag(),
             },
             "would create new.txt",
             "created new.txt",
@@ -225,10 +219,7 @@ mod tests {
             |phase, _diff| TestOutput {
                 ok: true,
                 path: "del.txt".to_string(),
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
-                },
+                applied: phase.applied_flag(),
             },
             "would delete del.txt",
             "deleted del.txt",
@@ -258,10 +249,7 @@ mod tests {
             |phase, _diff| TestOutput {
                 ok: true,
                 path: "a.txt".to_string(),
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
-                },
+                applied: phase.applied_flag(),
             },
             "would append",
             "appended",
@@ -289,10 +277,7 @@ mod tests {
             |phase, _diff| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
-                },
+                applied: phase.applied_flag(),
             },
             "would create new.txt",
             "created new.txt",
@@ -325,10 +310,7 @@ mod tests {
             |phase, _diff| TestOutput {
                 ok: true,
                 path: "new.txt".to_string(),
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
-                },
+                applied: phase.applied_flag(),
             },
             "would create new.txt",
             "created new.txt",
@@ -358,10 +340,7 @@ mod tests {
             |phase, _diff| TestOutput {
                 ok: true,
                 path: "existing.txt".to_string(),
-                applied: match phase {
-                    WritePhase::Confirmed(a) => Some(a),
-                    _ => None,
-                },
+                applied: phase.applied_flag(),
             },
             "would append",
             "appended",

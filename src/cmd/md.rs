@@ -204,10 +204,7 @@ fn execute_md_op(
                 _ => None,
             },
             diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
+            applied: phase.applied_flag(),
         },
         check_msg,
         apply_msg,
@@ -492,10 +489,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                                 _ => None,
                             },
                             diff,
-                            applied: match phase {
-                                WritePhase::Confirmed(a) => Some(a),
-                                _ => None,
-                            },
+                            applied: phase.applied_flag(),
                         },
                         &format!("would modify {file}"),
                         &format!("modified {file}"),

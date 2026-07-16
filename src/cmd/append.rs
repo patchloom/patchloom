@@ -1,5 +1,4 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
 use crate::plan::Operation;
 use clap::Args;
@@ -119,10 +118,7 @@ pub(crate) fn run_content_inject(
             ok: true,
             path: file_owned.clone(),
             diff,
-            applied: match phase {
-                WritePhase::Confirmed(a) => Some(a),
-                _ => None,
-            },
+            applied: phase.applied_flag(),
         },
         &check_msg,
         &apply_msg,

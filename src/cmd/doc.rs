@@ -1,5 +1,4 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
 use crate::exit;
 use crate::ops::doc::{detect_format, diff_values, flatten_value, parse_doc, parse_value};
 use crate::plan::Operation;
@@ -817,10 +816,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     changed,
                     removed,
                     diff,
-                    applied: match phase {
-                        WritePhase::Confirmed(a) => Some(a),
-                        _ => None,
-                    },
+                    applied: phase.applied_flag(),
                 },
                 crate::cmd::write_mode::WriteMessages {
                     check: &check_msg,
