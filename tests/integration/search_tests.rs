@@ -1369,6 +1369,33 @@ fn test_search_count_with_max_results_not_truncated() {
     );
 }
 
+/// --jsonl + --max-results must emit a summary trailer when the stream is
+/// capped so agents can see match_count without switching to --json.
+#[test]
+fn test_search_jsonl_max_results_emits_summary_trailer() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("many.txt");
+    fs::write(&file, "hit\nhit\nhit\nhit\nhit\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--jsonl", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hit", "many.txt", "--max-results", "2"])
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 3, "2 matches + 1 summary: {stdout}");
+    let summary: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+    assert_eq!(summary["type"], "summary", "{summary}");
+    assert_eq!(summary["truncated"], true, "{summary}");
+    assert_eq!(summary["match_count"], 5, "{summary}");
+    assert_eq!(summary["match_emitted"], 2, "{summary}");
+}
+
 /// files-with-matches also leaves matches empty; same truncated false positive.
 #[test]
 fn test_search_files_with_matches_max_results_not_truncated() {
