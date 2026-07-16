@@ -291,13 +291,24 @@ fn build_replacement(args: &ReplaceArgs) -> String {
 ///
 /// Includes identity matches (`new == old`) so callers can enforce `--unique`
 /// and distinguish "pattern found" from "pattern absent" before filtering.
+///
+/// Second return value is exact zero-match `refused[]` for explicit file lists
+/// (#1792), built from the same path walk so `--files-from -` is not re-read.
 fn collect_replacements(
     args: &ReplaceArgs,
     global: &GlobalFlags,
-) -> anyhow::Result<Vec<FileReplacement>> {
+) -> anyhow::Result<(Vec<FileReplacement>, Option<Vec<RefuseFileResult>>)> {
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+    // Empty --files-from is an input error, not a pattern miss (#1796).
+    // Detected here (single read of stdin) before soft no_matches handling.
+    if global.files_from.is_some() && file_paths.is_empty() {
+        return Err(crate::exit::InvalidInputError {
+            msg: "empty --files-from path list (no files to scan)".into(),
+        }
+        .into());
+    }
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
     let replacement = build_replacement(args);
     let quiet = global.quiet;
@@ -358,9 +369,11 @@ fn collect_replacements(
         });
 
     replacements.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+    let zero_match_refused =
+        exact_zero_match_refused_from_paths(args, global, &cwd, &file_paths, &replacements);
     // Caller runs unique against this list (including identity matches), then
     // filters identity so writes/diffs only cover real content changes.
-    Ok(replacements)
+    Ok((replacements, zero_match_refused))
 }
 
 fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult> {
@@ -387,8 +400,12 @@ fn collect_refused_files(
         if changes.iter().any(|(c, _, _)| c == path) {
             continue;
         }
-        // Only surface candidates that were found but not applied (count 0).
-        if m.match_count != 0 || m.matched_text.is_none() {
+        // Soft refuse: zero writes. Include exact no-match meta (no span) when
+        // refuse_reason is set (#1792); fuzzy candidates keep matched_text.
+        if m.match_count != 0 {
+            continue;
+        }
+        if m.matched_text.is_none() && m.refuse_reason.is_none() {
             continue;
         }
         let reason = m
@@ -409,6 +426,81 @@ fn collect_refused_files(
         });
     }
     if out.is_empty() { None } else { Some(out) }
+}
+
+/// Zero-match existing paths for explicit file lists (#1792). Directory walks
+/// are not expanded into mass `refused[]` (would be huge and noisy).
+///
+/// Uses the already-collected `file_paths` so `--files-from -` is not re-read.
+fn exact_zero_match_refused_from_paths(
+    args: &ReplaceArgs,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+    file_paths: &[std::path::PathBuf],
+    replacements: &[FileReplacement],
+) -> Option<Vec<RefuseFileResult>> {
+    // Explicit path list: --files-from, or no directory roots among positionals.
+    // Missing paths are not dirs (soft-skip via skipped[]); do not disable
+    // refused[] for co-listed zero-match files (#1792 + #1793).
+    let explicit_files = if global.files_from.is_some() {
+        true
+    } else if args.paths.is_empty() {
+        false
+    } else {
+        args.paths.iter().all(|p| !cwd.join(p).is_dir())
+    };
+    if !explicit_files {
+        return None;
+    }
+    let matched: std::collections::HashSet<&str> =
+        replacements.iter().map(|r| r.path.as_str()).collect();
+    let mut refused = Vec::new();
+    for path in file_paths {
+        let path_s = path.to_string_lossy();
+        if matched.contains(path_s.as_ref()) {
+            continue;
+        }
+        // Readable text with zero matches (skip binary / unreadable).
+        if crate::files::read_text_file(path).is_none() {
+            continue;
+        }
+        refused.push(RefuseFileResult {
+            path: crate::files::relative_display(path, cwd)
+                .to_string_lossy()
+                .into_owned(),
+            match_mode: Some("exact"),
+            match_score: None,
+            matched_text: None,
+            reason: "no_matches",
+        });
+    }
+    if refused.is_empty() {
+        None
+    } else {
+        refused.sort_by(|a, b| a.path.cmp(&b.path));
+        Some(refused)
+    }
+}
+
+fn merge_refused(
+    a: Option<Vec<RefuseFileResult>>,
+    b: Option<Vec<RefuseFileResult>>,
+) -> Option<Vec<RefuseFileResult>> {
+    match (a, b) {
+        (None, None) => None,
+        (Some(x), None) | (None, Some(x)) => Some(x),
+        (Some(mut x), Some(y)) => {
+            let mut seen: std::collections::HashSet<String> =
+                x.iter().map(|r| r.path.clone()).collect();
+            for r in y {
+                if seen.insert(r.path.clone()) {
+                    x.push(r);
+                }
+            }
+            x.sort_by(|a, b| a.path.cmp(&b.path));
+            Some(x)
+        }
+    }
 }
 
 /// Candidate honesty from soft refuses (no write): fuzzy fail-closed (#1758)
@@ -543,7 +635,17 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Phase 1: Parallel file scan to identify files with matches (includes identity).
-    let mut replacements = collect_replacements(&args, global)?;
+    // Also builds exact zero-match refused for explicit path lists (#1792) from
+    // the same path walk so --files-from - is only read once (#1796).
+    let (mut replacements, zero_match_refused) = match collect_replacements(&args, global) {
+        Ok(r) => r,
+        Err(e) if crate::exit::is_invalid_input(&e) => {
+            let msg = e.to_string();
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(exit::FAILURE);
+        }
+        Err(e) => return Err(e),
+    };
     let raw_match_count: usize = replacements.iter().map(|r| r.match_count).sum();
 
     // Unique check: fail if any file has more than one match (before identity
@@ -772,12 +874,15 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         file_count,
         &cwd,
         skipped,
+        zero_match_refused,
     )
 }
 
 /// Handle output rendering and commit/check/preview for replace via the engine.
 ///
 /// Mode/exit owned by [`crate::cmd::write_mode::finalize_report`].
+/// `zero_match_refused` is the exact multi-path soft-miss list (#1792).
+#[allow(clippy::too_many_arguments)]
 fn replace_output(
     global: &GlobalFlags,
     result: crate::tx::engine::ExecutionResult,
@@ -786,14 +891,16 @@ fn replace_output(
     file_count: usize,
     cwd: &std::path::Path,
     skipped: Option<Vec<String>>,
+    zero_match_refused: Option<Vec<RefuseFileResult>>,
 ) -> anyhow::Result<u8> {
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
-    let refused = collect_refused_files(
+    let refused_meta = collect_refused_files(
         cwd,
         &result.exec_result.changes,
         &result.exec_result.replace_match_meta,
     );
+    let refused = merge_refused(refused_meta, zero_match_refused);
     let (agg_mode, agg_score) = aggregate_match_meta(files);
     let build_output = |diff: Option<String>| ReplaceOutput {
         ok: true,
@@ -932,6 +1039,12 @@ fn run_context_replace(
     };
     let file_paths = crate::collect_file_paths_opts(&paths, global, false, Some(cwd))?;
     if file_paths.is_empty() {
+        // Empty --files-from is input error on fuzzy/context path too (#1796).
+        if global.files_from.is_some() {
+            let msg = "empty --files-from path list (no files to scan)";
+            global.emit_error_json_kind(Some("invalid_input"), msg)?;
+            return Ok(exit::FAILURE);
+        }
         if crate::files::all_scan_targets_missing(global, &paths, Some(cwd))? {
             let msg = format!(
                 "no such file or directory: {}",
@@ -1134,6 +1247,7 @@ fn run_context_replace(
         file_count,
         &cwd,
         skipped,
+        None, // exact zero-match refused collected only on precomputed path (#1792)
     )
 }
 

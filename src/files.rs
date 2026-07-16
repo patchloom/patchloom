@@ -213,11 +213,14 @@ pub(crate) fn collect_file_paths_opts(
     }
     // Warn about nonexistent user-supplied paths so typos are visible
     // instead of silently producing an empty result set (exit 3 / soft success).
+    // Under --json/--jsonl, callers list soft-misses in `skipped[]`; skip the
+    // human stderr line so agents that merge streams do not treat it as a hard
+    // failure (#1797).
     // Callers that want a hard not_found should also check
     // [`all_explicit_paths_missing`].
     for p in effective {
         let resolved = resolve(p);
-        if !resolved.exists() {
+        if !resolved.exists() && !global.json && !global.jsonl {
             eprintln!(
                 "patchloom: {}: No such file or directory",
                 resolved.display()

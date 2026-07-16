@@ -547,6 +547,7 @@ fn test_replace_empty_files_from_does_not_mutate_workspace() {
     fs::write(&file, "unique_replace_token\n").unwrap();
     fs::write(dir.path().join("empty.txt"), "").unwrap();
 
+    // Empty path list is invalid_input (exit 1), not pattern no_matches (#1796).
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--cwd")
@@ -559,12 +560,91 @@ fn test_replace_empty_files_from_does_not_mutate_workspace() {
         .arg("CHANGED")
         .arg("--apply")
         .assert()
-        .code(3);
+        .code(1);
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
         "unique_replace_token\n",
         "empty files-from must not fall back to walking workspace"
+    );
+}
+
+/// #1796: empty --files-from must not claim pattern no_matches.
+#[test]
+fn test_replace_empty_files_from_json_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.txt"), "a=1\n").unwrap();
+    fs::write(dir.path().join("empty.txt"), "").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "--files-from",
+            "empty.txt",
+            "replace",
+            "a=1",
+            "--new",
+            "a=2",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("empty --files-from"),
+        "must blame empty list, not pattern: {v}"
+    );
+}
+
+/// #1796: empty stdin --files-from - is the same invalid_input contract.
+#[test]
+fn test_replace_empty_files_from_stdin_json_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.txt"), "a=1\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "--files-from",
+            "-",
+            "replace",
+            "a=1",
+            "--new",
+            "a=2",
+            "--apply",
+        ])
+        .write_stdin("")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("empty --files-from"),
+        "{v}"
     );
 }
 
@@ -1500,8 +1580,58 @@ fn test_replace_format_failure_json_error_kind() {
             .contains("backup session"),
         "error text should mention backup session: {parsed}"
     );
-    // Write still applied before format failure.
+    // Write still applied before format failure (#1795).
     assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
+    assert_eq!(parsed["write_applied"], true, "{parsed}");
+    assert_eq!(parsed["files_changed"], 1, "{parsed}");
+    let files = parsed["files"]
+        .as_array()
+        .expect("files list on format_failed");
+    assert!(
+        files.iter().any(|f| f["path"].as_str() == Some("f.txt")),
+        "format_failed must list written paths: {parsed}"
+    );
+}
+
+/// #1795: multi-file format_failed JSON lists every written path.
+#[test]
+fn test_replace_format_failure_json_lists_multi_file_paths() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "a=1\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "a=1\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args([
+            "--json", "replace", "a=1", "--new", "a=2", "a.txt", "b.txt", "--apply", "--format",
+            "false",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(parsed["error_kind"], "format_failed", "{parsed}");
+    assert!(
+        parsed["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "{parsed}"
+    );
+    assert_eq!(parsed["write_applied"], true, "{parsed}");
+    assert_eq!(parsed["files_changed"], 2, "{parsed}");
+    let files = parsed["files"].as_array().expect("files");
+    let paths: Vec<&str> = files.iter().filter_map(|f| f["path"].as_str()).collect();
+    assert!(paths.contains(&"a.txt"), "{parsed}");
+    assert!(paths.contains(&"b.txt"), "{parsed}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "a=2\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "a=2\n"
+    );
 }
 
 #[test]
@@ -2358,6 +2488,146 @@ fn test_replace_explicit_missing_path_reported_in_json() {
         "expected missing.txt in skipped: {v}"
     );
     assert_eq!(fs::read_to_string(&a).unwrap(), "hi\n");
+}
+
+/// #1797: under --json, soft-missing paths in skipped[] must not also print
+/// a human stderr "No such file" line (agents merge streams).
+#[test]
+fn test_replace_json_missing_path_quiet_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.txt"), "x=1\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "x=1",
+            "--new",
+            "x=2",
+            "only.txt",
+            "missing.txt",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("No such file or directory"),
+        "stderr must not duplicate skipped[] under --json: {stderr}"
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let skipped = v["skipped"].as_array().expect("skipped");
+    assert!(
+        skipped.iter().any(|s| s.as_str() == Some("missing.txt")),
+        "{v}"
+    );
+}
+
+/// #1792: CLI multi-file exact replace must list zero-match paths in refused[].
+#[test]
+fn test_replace_multi_exact_partial_reports_refused() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.env"), "foo=1\n").unwrap();
+    fs::write(dir.path().join("b.env"), "bar=1\n").unwrap();
+    fs::write(dir.path().join("c.env"), "foo=1\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace", "foo=1", "--new", "foo=9", "a.env", "b.env", "c.env", "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["match_count"], 2, "{v}");
+    let refused = v["refused"]
+        .as_array()
+        .expect("partial multi-file exact must report refused paths");
+    assert_eq!(refused.len(), 1, "{v}");
+    assert_eq!(refused[0]["path"], "b.env", "{v}");
+    assert_eq!(refused[0]["reason"], "no_matches", "{v}");
+    assert_eq!(refused[0]["match_mode"], "exact", "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.env")).unwrap(),
+        "foo=9\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.env")).unwrap(),
+        "bar=1\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("c.env")).unwrap(),
+        "foo=9\n"
+    );
+}
+
+/// #1792 + #1793: missing path in skipped[] must not suppress refused[] for a
+/// co-listed existing zero-match file.
+#[test]
+fn test_replace_multi_exact_refused_with_skipped_missing() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.env"), "foo=1\n").unwrap();
+    fs::write(dir.path().join("b.env"), "bar=1\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "foo=1",
+            "--new",
+            "foo=9",
+            "a.env",
+            "b.env",
+            "missing.env",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["match_count"], 1, "{v}");
+    let skipped = v["skipped"].as_array().expect("skipped");
+    assert!(
+        skipped.iter().any(|s| s.as_str() == Some("missing.env")),
+        "{v}"
+    );
+    let refused = v["refused"]
+        .as_array()
+        .expect("zero-match b.env must still appear in refused when missing co-listed");
+    assert!(
+        refused.iter().any(|r| {
+            r["path"].as_str() == Some("b.env") && r["reason"].as_str() == Some("no_matches")
+        }),
+        "{v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.env")).unwrap(),
+        "foo=9\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.env")).unwrap(),
+        "bar=1\n"
+    );
 }
 
 /// #1756: --files-from missing paths must appear in JSON under --quiet.

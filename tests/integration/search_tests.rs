@@ -1343,10 +1343,38 @@ fn test_search_json_omits_truncated_when_complete() {
     );
 }
 
-/// Count mode never builds the matches array; --max-results must not set
-/// truncated (false positive after #1773 when matches is empty).
+/// #1798: --count + --max-results caps the files list and sets truncated when
+/// more files matched; match_count / file_count stay full.
 #[test]
-fn test_search_count_with_max_results_not_truncated() {
+fn test_search_count_with_max_results_caps_files() {
+    let dir = TempDir::new().unwrap();
+    for i in 1..=5 {
+        fs::write(dir.path().join(format!("c{i}.txt")), format!("hit {i}\n")).unwrap();
+    }
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hit", ".", "--count", "--max-results", "2"])
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["match_count"], 5, "full match total: {v}");
+    assert_eq!(v["file_count"], 5, "full file inventory: {v}");
+    assert_eq!(
+        v["files"].as_array().unwrap().len(),
+        2,
+        "files list capped: {v}"
+    );
+    assert_eq!(v["truncated"], true, "must flag file-list truncation: {v}");
+}
+
+/// Single-file count under --max-results does not set truncated (list fits).
+#[test]
+fn test_search_count_with_max_results_not_truncated_when_fits() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("many.txt");
     fs::write(&file, "hit\nhit\nhit\n").unwrap();
@@ -1363,9 +1391,10 @@ fn test_search_count_with_max_results_not_truncated() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["match_count"], 3, "count is full: {v}");
     assert_eq!(v["files"][0]["count"], 3, "{v}");
+    assert_eq!(v["files"].as_array().unwrap().len(), 1, "{v}");
     assert!(
         v.get("truncated").is_none() || v["truncated"] == false,
-        "count mode must not report truncated: {v}"
+        "single-file count fits max-results: {v}"
     );
 }
 
@@ -1396,9 +1425,9 @@ fn test_search_jsonl_max_results_emits_summary_trailer() {
     assert_eq!(summary["match_emitted"], 2, "{summary}");
 }
 
-/// files-with-matches also leaves matches empty; same truncated false positive.
+/// #1798: --files-with-matches + --max-results caps the files list.
 #[test]
-fn test_search_files_with_matches_max_results_not_truncated() {
+fn test_search_files_with_matches_max_results_caps_files() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.txt"), "hit\n").unwrap();
     fs::write(dir.path().join("b.txt"), "hit\n").unwrap();
@@ -1421,9 +1450,11 @@ fn test_search_files_with_matches_max_results_not_truncated() {
 
     assert_eq!(out.status.code(), Some(0));
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["file_count"], 3, "{v}");
-    assert!(
-        v.get("truncated").is_none() || v["truncated"] == false,
-        "files-with-matches must not report truncated: {v}"
+    assert_eq!(v["file_count"], 3, "full inventory: {v}");
+    assert_eq!(
+        v["files"].as_array().unwrap().len(),
+        1,
+        "files list capped: {v}"
     );
+    assert_eq!(v["truncated"], true, "{v}");
 }

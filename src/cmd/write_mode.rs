@@ -20,15 +20,26 @@ use serde::Serialize;
 use std::path::Path;
 
 /// Commit staged changes, then run `--format`. On format failure after a
-/// successful commit, attach the backup session so agent JSON can undo.
+/// successful commit, attach the backup session and written paths so agent
+/// JSON can undo and re-validate without re-scanning disk (#1795).
 fn commit_then_format(
     result: ExecutionResult,
     global: &GlobalFlags,
     cwd: &Path,
 ) -> anyhow::Result<()> {
+    let written: Vec<String> = result
+        .exec_result
+        .changes
+        .iter()
+        .map(|(p, _, _)| {
+            crate::files::relative_display(p, cwd)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
     let backup = result.commit()?;
     if let Err(e) = crate::write::run_format_command(global, cwd) {
-        return Err(attach_format_backup(e, backup));
+        return Err(attach_format_backup(e, backup, written));
     }
     Ok(())
 }
@@ -43,12 +54,16 @@ fn apply_then_format(
     // Binary/case-only rename paths do not return a session id from the
     // callback; still map format failures to FormatFailedError for JSON.
     if let Err(e) = crate::write::run_format_command(global, cwd) {
-        return Err(attach_format_backup(e, None));
+        return Err(attach_format_backup(e, None, Vec::new()));
     }
     Ok(())
 }
 
-fn attach_format_backup(err: anyhow::Error, backup: Option<String>) -> anyhow::Error {
+fn attach_format_backup(
+    err: anyhow::Error,
+    backup: Option<String>,
+    written: Vec<String>,
+) -> anyhow::Error {
     // Prefer peeling an existing FormatFailedError so we keep its message.
     if exit::is_format_failed(&err) {
         let msg = err
@@ -59,8 +74,22 @@ fn attach_format_backup(err: anyhow::Error, backup: Option<String>) -> anyhow::E
             })
             .unwrap_or_else(|| err.to_string());
         let existing = exit::format_failed_backup_session(&err).map(str::to_string);
+        let existing_files = exit::format_failed_written_files(&err);
+        let files = if written.is_empty() {
+            existing_files
+        } else {
+            written
+        };
         return exit::FormatFailedError::new(msg)
             .with_backup_session(backup.or(existing))
+            .with_written_files(files)
+            .into();
+    }
+    // Plain errors after a commit still need the agent envelope (#1795).
+    if !written.is_empty() || backup.is_some() {
+        return exit::FormatFailedError::new(err.to_string())
+            .with_backup_session(backup)
+            .with_written_files(written)
             .into();
     }
     err

@@ -24,6 +24,10 @@ pub enum Segment {
 /// "jobs[id=test].timeout-minutes" → [Key("jobs"), Predicate{…}, Key("timeout-minutes")]
 /// ```
 pub fn parse(input: &str) -> Result<Selector, String> {
+    // JSON Pointer habit: agents pass `/feature_flag` for root keys. A single
+    // leading slash means "from root" and is stripped so it does not create a
+    // literal key named `/feature_flag` (#1794). Only one slash is removed.
+    let input = input.strip_prefix('/').unwrap_or(input);
     let mut segments = Vec::new();
     let bytes = input.as_bytes();
     let len = bytes.len();
@@ -193,6 +197,22 @@ mod tests {
     #[test]
     fn parse_leading_dot_is_ignored() {
         assert_eq!(parse(".name").unwrap(), vec![Segment::Key("name".into())]);
+    }
+
+    #[test]
+    fn parse_leading_slash_is_root_and_stripped() {
+        // Agents often emit JSON Pointer style `/feature_flag` (#1794).
+        assert_eq!(
+            parse("/feature_flag").unwrap(),
+            vec![Segment::Key("feature_flag".into())]
+        );
+        assert_eq!(
+            parse("/server.port").unwrap(),
+            vec![Segment::Key("server".into()), Segment::Key("port".into())]
+        );
+        // Only one leading slash is special.
+        assert_eq!(parse("//a").unwrap(), vec![Segment::Key("/a".into())]);
+        assert!(parse("/").unwrap().is_empty());
     }
 
     #[test]

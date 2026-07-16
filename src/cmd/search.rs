@@ -61,7 +61,9 @@ pub struct SearchArgs {
     pub assert_count: Option<usize>,
 
     /// Maximum number of detailed match results to return (0 = unlimited).
-    /// Primarily affects non-count output modes. Matches library SearchOptions.max_results behavior.
+    /// Also caps the file list in `--count` / `--files-with-matches` (#1798).
+    /// `match_count` / total file inventory counts stay full; JSON sets
+    /// `truncated: true` when a list was cut.
     #[arg(long, default_value_t = 0)]
     pub max_results: usize,
 }
@@ -175,7 +177,11 @@ pub(crate) fn format_results(
     let mut out = String::new();
 
     if global.json {
-        let files: Vec<SearchFileEntry> = if args.files_with_matches {
+        let match_count: usize = results.file_match_counts.values().sum();
+        let full_file_count = results.file_match_counts.len();
+        // Cap file lists in count / files-with-matches when --max-results > 0
+        // so agents get one pagination budget across modes (#1798).
+        let mut files: Vec<SearchFileEntry> = if args.files_with_matches {
             results
                 .file_match_counts
                 .keys()
@@ -196,19 +202,28 @@ pub(crate) fn format_results(
         } else {
             Vec::new()
         };
-        let match_count: usize = results.file_match_counts.values().sum();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        let files_truncated = if args.max_results > 0
+            && (args.count || args.files_with_matches)
+            && files.len() > args.max_results
+        {
+            files.truncate(args.max_results);
+            true
+        } else {
+            false
+        };
         // match_count is always full; detailed matches may be capped by
-        // --max-results. Count / files-with-matches modes never populate the
-        // matches array, so they must not report truncated (false positive
-        // after #1773 when max_results > 0 and matches is empty).
-        let truncated = args.max_results > 0
-            && !args.count
-            && !args.files_with_matches
-            && results.matches.len() < match_count;
+        // --max-results. Count modes set truncated when the file list was cut.
+        let truncated = if args.count || args.files_with_matches {
+            files_truncated
+        } else {
+            args.max_results > 0 && results.matches.len() < match_count
+        };
         let payload = SearchOutput {
             ok: true,
             match_count,
-            file_count: results.file_match_counts.len(),
+            // Full inventory size even when `files` is capped (#1798).
+            file_count: full_file_count,
             matches: results.matches,
             files,
             truncated,
@@ -219,19 +234,36 @@ pub(crate) fn format_results(
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
     } else if global.jsonl {
-        if args.files_with_matches {
-            // count_only mode: matches is empty, emit one line per file.
-            for path in results.file_match_counts.keys() {
-                out.push_str(&serde_json::to_string(
-                    &serde_json::json!({"path": &**path}),
-                )?);
+        if args.files_with_matches || args.count {
+            // Cap file streams under --max-results (#1798) and trailer when cut.
+            let mut paths: Vec<(String, usize)> = results
+                .file_match_counts
+                .iter()
+                .map(|(p, c)| (p.to_string(), *c))
+                .collect();
+            paths.sort_by(|a, b| a.0.cmp(&b.0));
+            let full_file_count = paths.len();
+            let truncated = args.max_results > 0 && paths.len() > args.max_results;
+            if truncated {
+                paths.truncate(args.max_results);
+            }
+            for (path, count) in &paths {
+                if args.files_with_matches {
+                    out.push_str(&serde_json::to_string(&serde_json::json!({"path": path}))?);
+                } else {
+                    out.push_str(&serde_json::to_string(
+                        &serde_json::json!({"path": path, "count": count}),
+                    )?);
+                }
                 out.push('\n');
             }
-        } else if args.count {
-            for (path, count) in &results.file_match_counts {
-                out.push_str(&serde_json::to_string(
-                    &serde_json::json!({"path": &**path, "count": count}),
-                )?);
+            if truncated {
+                out.push_str(&serde_json::to_string(&serde_json::json!({
+                    "type": "summary",
+                    "file_count": full_file_count,
+                    "file_emitted": paths.len(),
+                    "truncated": true,
+                }))?);
                 out.push('\n');
             }
         } else {

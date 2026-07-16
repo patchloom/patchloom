@@ -470,10 +470,11 @@ pub(crate) fn build_full_tx_output(
     output.searches = std::mem::take(&mut result.tx_searches);
     output.lints = std::mem::take(&mut result.tx_lints);
     attach_mutations(&mut output, std::mem::take(&mut result.tx_mutations));
-    // Soft no-match replaces still set status=no_matches with ok=true (exit 3).
-    // Surface error_kind + replace_hint so agents see floor / did-you-mean
-    // diagnostics that path/glob arms already computed (#1753).
+    // Soft no-match replaces: status=no_matches, exit 3. Agents and MCP hosts
+    // branch on `ok` first (#1791); keep ok:false so MCP is_error and body agree
+    // with CLI --json replace. Still surface error_kind + replace_hint (#1753).
     if status == "no_matches" {
+        output.ok = false;
         output.error_kind = Some("no_matches".to_string());
         let detail = result
             .replace_hint
@@ -1070,6 +1071,10 @@ mod tests {
         };
         let out = build_full_tx_output("no_matches", &mut result, cwd);
         assert_eq!(out.status, "no_matches");
+        assert!(
+            !out.ok,
+            "no_matches must set ok:false so MCP/CLI agents agree (#1791)"
+        );
         assert_eq!(out.error_kind.as_deref(), Some("no_matches"));
         assert!(
             out.error
@@ -1078,6 +1083,7 @@ mod tests {
             "hint must appear in error: {:?}",
             out.error
         );
+        assert_eq!(exit_code_from_tx_output(&out), exit::NO_MATCHES);
     }
 
     /// Soft refuse (#1758) records replace_match_meta without a write; no_matches

@@ -89,7 +89,7 @@ These flags shape how written content is normalized before it reaches disk.
 - **What it does:** Runs a shell command after every successful `--apply` write. Intended for formatters (e.g. `prettier --write .`, `cargo fmt`).
 - **Use when:** The repo has an autoformatter and you want Patchloom to invoke it after each mutation so files stay formatted.
 - **Prefer instead:** Omit when the formatter is already run separately, or when using `--diff`/`--check` modes (the command only fires on `--apply`).
-- **Failure behavior:** Non-zero exit or timeout exits **1** with `error_kind: "format_failed"` under `--json`/`--jsonl`. The write may already be on disk; use `undo` or re-run the formatter.
+- **Failure behavior:** Non-zero exit or timeout exits **1** with `error_kind: "format_failed"` under `--json`/`--jsonl`. The write may already be on disk; JSON includes `backup_session` when a session was created, plus `write_applied: true`, `files_changed`, and `files[].path` for written paths (#1795). Use `undo` or re-run the formatter.
 
 <!-- ref:write-flag:format-timeout -->
 ### `--format-timeout`
@@ -220,7 +220,8 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Performs mechanical string replacement across one or many text files, with literal or regex matching. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You are doing a rename, version bump, boilerplate rewrite, or another string level change where plain text semantics are enough. For AI agents doing single-file replacements, native search_replace tools are typically faster; use patchloom `replace` inside `tx` plans when batching multiple file edits.
 - **Prefer instead:** Use `doc` for structured data, `md` for heading aware markdown, or `patch` when you already have a unified diff.
-- **Failure behavior:** Soft pattern miss exits `3` with `error_kind: "no_matches"`; `--unique` multi-match exits `5` with `ambiguous`. All-explicit-path-missing (or all-missing `--files-from` list) exits `1` with `not_found`. Validation failures and invalid regex patterns use `invalid_input`.
+- **Failure behavior:** Soft pattern miss exits `3` with `error_kind: "no_matches"`; `--unique` multi-match exits `5` with `ambiguous`. All-explicit-path-missing (or all-missing `--files-from` list) exits `1` with `not_found`. Empty `--files-from` (empty list file or empty stdin) exits `1` with `invalid_input` (not pattern miss; #1796). Validation failures and invalid regex patterns use `invalid_input`.
+- **Multi-path honesty:** Explicit multi-file lists report zero-match paths under `refused[]` with `reason: no_matches` while applying matches on other paths (#1792). Missing explicit paths soft-skip under `skipped[]` on CLI (partial apply); MCP `batch_replace` hard-fails missing paths and rolls back (#1793). Under `--json`/`--jsonl`, missing-path stderr lines are suppressed when paths are already in `skipped[]` (#1797).
 - **Related:** `search`, `tx`
 
 <!-- ref:command:patch -->
@@ -495,9 +496,9 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:search-mode:max-results -->
 ### `search --max-results`
 
-- **What it does:** Caps the detailed `matches` array under `--json` (and line-oriented output) while `match_count` stays the full total. When the array is capped, JSON sets `truncated: true` (omitted when complete). Count and files-with-matches modes do not set `truncated` (they never build the matches array). Tx plan search results use the same `truncated` field.
-- **Use when:** Agents need a bounded sample of hits without discarding the true total for budgeting or pagination.
-- **Prefer instead:** Omit `--max-results` when you need every match line, or use `--count` / `--files-with-matches` when you only need totals or path membership.
+- **What it does:** Caps the detailed `matches` array under `--json` (and line-oriented output) while `match_count` stays the full total. Also caps the `files` list in `--count` and `--files-with-matches` modes (`file_count` stays full). When a list is capped, JSON sets `truncated: true` (omitted when complete). Tx plan search results use the same `truncated` field for content matches.
+- **Use when:** Agents need a bounded sample of hits or file paths without discarding the true total for budgeting or pagination (#1798).
+- **Prefer instead:** Omit `--max-results` when you need every match line or the full file inventory.
 
 <!-- ref:replace-mode:regex -->
 ### `replace --regex`
@@ -736,6 +737,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 - **What it does:** Sets or creates a value at a selector path.
 - **Use when:** One exact selector path should be updated deterministically.
 - **Prefer instead:** Use `doc merge` for multi field updates, or `doc ensure` when existing values should be preserved.
+- **Leading slash:** A single leading `/` is stripped (JSON Pointer habit). `/feature_flag` sets key `feature_flag`, not a key named `/feature_flag` (#1794). Prefer bare keys in agent prompts.
 
 <!-- ref:doc-action:delete -->
 ### `doc delete`

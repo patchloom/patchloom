@@ -216,6 +216,9 @@ pub struct FormatFailedError {
     pub msg: String,
     /// Backup session created for the write that preceded format failure.
     pub backup_session: Option<String>,
+    /// Paths already written before format failed (#1795). Agents need this
+    /// without re-reading disk or parsing English `error` text.
+    pub written_files: Vec<String>,
 }
 
 impl FormatFailedError {
@@ -225,6 +228,7 @@ impl FormatFailedError {
         Self {
             msg: msg.into(),
             backup_session: None,
+            written_files: Vec::new(),
         }
     }
 
@@ -232,6 +236,13 @@ impl FormatFailedError {
     #[must_use]
     pub fn with_backup_session(mut self, session: Option<String>) -> Self {
         self.backup_session = session.filter(|s| !s.is_empty());
+        self
+    }
+
+    /// Paths that were committed before the format hook failed.
+    #[must_use]
+    pub fn with_written_files(mut self, files: Vec<String>) -> Self {
+        self.written_files = files;
         self
     }
 }
@@ -267,6 +278,18 @@ pub fn format_failed_backup_session(err: &anyhow::Error) -> Option<&str> {
     })
 }
 
+/// Written file paths from the first [`FormatFailedError`] in the chain (#1795).
+#[must_use]
+pub fn format_failed_written_files(err: &anyhow::Error) -> Vec<String> {
+    err.chain()
+        .find_map(|cause| {
+            cause
+                .downcast_ref::<FormatFailedError>()
+                .map(|f| f.written_files.clone())
+        })
+        .unwrap_or_default()
+}
+
 /// True when any cause is an IO `IsADirectory` (path exists but is a directory).
 #[must_use]
 pub fn is_io_is_a_directory(err: &anyhow::Error) -> bool {
@@ -296,6 +319,17 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
     }
     if let Some(bs) = format_failed_backup_session(err) {
         output["backup_session"] = serde_json::Value::String(bs.to_string());
+    }
+    let written = format_failed_written_files(err);
+    if !written.is_empty() {
+        output["write_applied"] = serde_json::Value::Bool(true);
+        output["files_changed"] = serde_json::Value::Number(written.len().into());
+        output["files"] = serde_json::Value::Array(
+            written
+                .into_iter()
+                .map(|path| serde_json::json!({ "path": path }))
+                .collect(),
+        );
     }
     (output, code)
 }
@@ -377,6 +411,25 @@ mod tests {
                 .unwrap_or("")
                 .contains("backup session 123_0"),
             "display should mention undo session: {payload}"
+        );
+    }
+
+    #[test]
+    fn structured_error_payload_includes_format_written_files() {
+        let err: anyhow::Error = FormatFailedError::new("format command failed (false)")
+            .with_backup_session(Some("123_0".into()))
+            .with_written_files(vec!["a.txt".into(), "b.txt".into()])
+            .into();
+        let (payload, code) = structured_error_payload(&err);
+        assert_eq!(code, FAILURE);
+        assert_eq!(payload["error_kind"], "format_failed");
+        assert_eq!(payload["write_applied"], true);
+        assert_eq!(payload["files_changed"], 2);
+        assert_eq!(payload["files"][0]["path"], "a.txt");
+        assert_eq!(payload["files"][1]["path"], "b.txt");
+        assert_eq!(
+            format_failed_written_files(&err),
+            vec!["a.txt".to_string(), "b.txt".to_string()]
         );
     }
 
