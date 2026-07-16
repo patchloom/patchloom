@@ -2879,3 +2879,55 @@ fn test_doc_set_empty_json_file() {
     let v: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(v, serde_json::json!({"a": 1}));
 }
+
+/// #1794: leading slash is JSON Pointer habit; strip one leading `/` so
+/// empty-file first write does not create a key literally named `/feature_flag`.
+#[test]
+fn test_doc_set_leading_slash_selector_strips_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, "").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "config.json",
+            "/feature_flag",
+            "true",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v, serde_json::json!({"feature_flag": true}));
+    assert!(
+        v.get("/feature_flag").is_none(),
+        "must not create slash-prefixed key: {v}"
+    );
+
+    // Nested path after leading slash.
+    let file2 = dir.path().join("nested.json");
+    fs::write(&file2, "{}").unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "nested.json",
+            "/server.port",
+            "8080",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+    let v2: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file2).unwrap()).unwrap();
+    assert_eq!(v2, serde_json::json!({"server": {"port": 8080}}));
+}

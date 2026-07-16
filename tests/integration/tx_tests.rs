@@ -3016,6 +3016,10 @@ fn test_tx_json_check_replace_no_match_exits_3_with_no_matches_payload() {
         serde_json::from_str(stdout.trim()).expect("tx --json should emit JSON on no-match");
     assert_eq!(v["status"], "no_matches", "status should be no_matches");
     assert_eq!(
+        v["ok"], false,
+        "no_matches must set ok:false for MCP/CLI parity (#1791): {stdout}"
+    );
+    assert_eq!(
         v["error_kind"], "no_matches",
         "agents need error_kind on soft no_matches: {stdout}"
     );

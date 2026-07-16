@@ -2077,6 +2077,60 @@ async fn test_mcp_replace_text_fuzzy_reports_engine_match_mode() {
     client.cancel().await.unwrap();
 }
 
+/// #1791: fuzzy fail-closed refuse must set ok:false so MCP is_error and body agree.
+#[tokio::test]
+async fn test_mcp_replace_text_fuzzy_fail_closed_ok_false() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("token.txt"), "hello_world_v2\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "token.txt",
+            "old": "hello_world_v1",
+            "new": "hello_earth",
+            "fuzzy": true
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "MCP host is_error must be true on soft refuse: {val}"
+    );
+    assert_eq!(
+        val["ok"], false,
+        "body ok must be false (was true before #1791): {val}"
+    );
+    assert_eq!(val["status"], "no_matches", "{val}");
+    assert_eq!(val["error_kind"], "no_matches", "{val}");
+    assert_eq!(val["files_changed"], 0, "{val}");
+    assert_eq!(val["match_mode"], "fuzzy", "{val}");
+    assert!(
+        val["matched_text"]
+            .as_str()
+            .is_some_and(|t| t.contains("hello_world_v2")),
+        "candidate span for agent retry: {val}"
+    );
+    let refused = val["refused"].as_array().expect("refused");
+    assert!(
+        refused
+            .iter()
+            .any(|r| r["reason"].as_str() == Some("exact_old_absent")),
+        "{val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("token.txt")).unwrap(),
+        "hello_world_v2\n",
+        "disk must not change"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_batch_replace_command_position() {
     if !has_mcp_support() {
