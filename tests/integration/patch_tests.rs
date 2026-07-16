@@ -175,6 +175,41 @@ fn test_patch_apply_json_parse_error_returns_error_object() {
     assert_patch_apply_error_object(&output, 4, "patch: parse error:");
 }
 
+/// Missing patch file must be not_found (exit 1), not parse_error (exit 4).
+/// Agents branch on error_kind; parse_error implies malformed content.
+#[test]
+fn test_patch_apply_missing_file_json_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("missing.diff");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&missing)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "missing patch file exit: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("failed to read")),
+        "{v}"
+    );
+}
+
 #[test]
 fn test_patch_apply_json_stale_error_returns_error_object() {
     let dir = TempDir::new().unwrap();
