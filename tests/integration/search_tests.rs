@@ -1342,3 +1342,61 @@ fn test_search_json_omits_truncated_when_complete() {
         "no truncation flag when complete: {v}"
     );
 }
+
+/// Count mode never builds the matches array; --max-results must not set
+/// truncated (false positive after #1773 when matches is empty).
+#[test]
+fn test_search_count_with_max_results_not_truncated() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("many.txt");
+    fs::write(&file, "hit\nhit\nhit\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hit", "many.txt", "--count", "--max-results", "1"])
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["match_count"], 3, "count is full: {v}");
+    assert_eq!(v["files"][0]["count"], 3, "{v}");
+    assert!(
+        v.get("truncated").is_none() || v["truncated"] == false,
+        "count mode must not report truncated: {v}"
+    );
+}
+
+/// files-with-matches also leaves matches empty; same truncated false positive.
+#[test]
+fn test_search_files_with_matches_max_results_not_truncated() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hit\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "hit\n").unwrap();
+    fs::write(dir.path().join("c.txt"), "hit\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "search",
+            "hit",
+            ".",
+            "--files-with-matches",
+            "--max-results",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["file_count"], 3, "{v}");
+    assert!(
+        v.get("truncated").is_none() || v["truncated"] == false,
+        "files-with-matches must not report truncated: {v}"
+    );
+}

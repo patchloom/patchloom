@@ -194,8 +194,14 @@ pub(crate) fn format_results(
             Vec::new()
         };
         let match_count: usize = results.file_match_counts.values().sum();
-        // match_count is always full; matches may be capped by --max-results.
-        let truncated = args.max_results > 0 && results.matches.len() < match_count;
+        // match_count is always full; detailed matches may be capped by
+        // --max-results. Count / files-with-matches modes never populate the
+        // matches array, so they must not report truncated (false positive
+        // after #1773 when max_results > 0 and matches is empty).
+        let truncated = args.max_results > 0
+            && !args.count
+            && !args.files_with_matches
+            && results.matches.len() < match_count;
         let payload = SearchOutput {
             ok: true,
             match_count,
