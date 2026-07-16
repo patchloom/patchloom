@@ -288,8 +288,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         } else if let Some((n, total)) = (*nth).and_then(|n| {
             // nth past last match: applied count is 0 but pattern may still match.
             // Do not report soft no_matches (agents confuse this with missing pattern).
-            let total =
-                crate::ops::replace::count_content_matches(content, old, compiled_re.as_ref());
+            let total = crate::ops::replace::count_nth_candidates(
+                content,
+                old,
+                compiled_re.as_ref(),
+                *whole_line,
+                parsed_range,
+            );
             if total > 0 && n > total {
                 Some((n, total))
             } else {
@@ -590,8 +595,13 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 );
                 record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
             } else if let Some((n, total)) = (*nth).and_then(|n| {
-                let total =
-                    crate::ops::replace::count_content_matches(&content, old, compiled_re.as_ref());
+                let total = crate::ops::replace::count_nth_candidates(
+                    &content,
+                    old,
+                    compiled_re.as_ref(),
+                    *whole_line,
+                    parsed_range,
+                );
                 if total > 0 && n > total {
                     Some((n, total))
                 } else {

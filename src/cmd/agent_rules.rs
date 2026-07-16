@@ -143,7 +143,11 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
              - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)\n\
              - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts; always check `matched_text` (#1687, #1694, #1736)\n\
-             **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). When some paths write and others soft-refuse, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent` or `below_min_fuzzy_score`) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).\n\n",
+             **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). When some paths write and others soft-refuse, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent` or `below_min_fuzzy_score`) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).\n\n\
+             **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / \
+             `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` \
+             (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect \
+             concatenated pretty multi-documents for `--json`.\n\n",
         );
     }
     if show_cli {
@@ -512,7 +516,9 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set \
              `already_exists` (create/rename without force, create race), `not_found` (delete/append/prepend/rename missing source, \
              missing `--files-from`/batch input, missing plan file, missing git blob for AST, \
-             or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, \
+             or `read` when every path fails), `invalid_input` (bad flags, non-file target, malformed `read --lines` \
+             (0-based or end before start; past-EOF range is `no_matches` exit 3), replace `--nth` past the last \
+             match with live match count in the message, \
              `status` outside a git repo, AST map non-dir, doc merge flag conflicts, invalid `normalize_eol`, \
              md table-append row/table failures, bad selector/for_each templates, MCP bind/TLS config, \
              CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, \
