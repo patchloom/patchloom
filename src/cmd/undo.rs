@@ -116,12 +116,19 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Resolve session across nested backup roots (#1695).
-    let (backup_root, timestamp, session) = match resolve_session(&cwd, args.session.as_deref())? {
-        Some(v) => v,
-        None => {
+    let (backup_root, timestamp, session) = match resolve_session(&cwd, args.session.as_deref()) {
+        Ok(Some(v)) => v,
+        Ok(None) => {
             global.emit_error_json_kind(Some("no_matches"), "no backup sessions found")?;
             return Ok(exit::NO_MATCHES);
         }
+        // Named session miss: return Ok(NO_MATCHES) so human CLI exit is 3
+        // (not bare Err → exit 1) and --json always has error_kind.
+        Err(e) if crate::exit::is_no_match(&e) => {
+            global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
+            return Ok(exit::NO_MATCHES);
+        }
+        Err(e) => return Err(e),
     };
 
     if !args.apply {
@@ -224,10 +231,14 @@ fn resolve_session(
             }
         }
         // Named session missing (whether or not any other sessions exist).
-        // Match restore_session wording; generic anyhow → exit 1.
-        return Err(anyhow::anyhow!(
-            "no backup session found for {ts} (use `patchloom undo --list` to see available sessions)"
-        ));
+        // Typed no_matches so --json sets error_kind (MPI 2026-07-16: bare
+        // anyhow lost error_kind and agents could not branch).
+        return Err(crate::exit::NoMatchError {
+            msg: format!(
+                "no backup session found for {ts} (use `patchloom undo --list` to see available sessions)"
+            ),
+        }
+        .into());
     }
     if sessions.is_empty() {
         return Ok(None);
@@ -440,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn nonexistent_session_errors() {
+    fn nonexistent_session_exits_no_matches() {
         let dir = TempDir::new().unwrap();
         create_backup(dir.path(), "e.txt", "content");
         let mut global = GlobalFlags::test_default();
@@ -451,8 +462,8 @@ mod tests {
             session: Some("99999999".to_string()),
             apply: false,
         };
-        let result = run(args, &global);
-        result.expect_err("expected error");
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
     }
 
     #[test]
