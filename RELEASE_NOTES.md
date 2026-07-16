@@ -1,119 +1,124 @@
 # Patchloom 0.15.0
 
-Agent JSON you can branch on, hardlinks that stay linked, and fuzzy replace that
-fails closed when the old text is gone. About 47 commits since 0.14.0, with
-about 91 new tests.
+Clearer machine-readable results for agents and scripts, safer fuzzy replace,
+and hardlink-friendly writes. About 47 commits since 0.14.0, with about 91 new
+tests.
 
 ## Highlights
 
-Hosts and CLI agents get structured failure metadata across write, search,
-replace, undo, and schema: `error_kind`, `backup_session` after post-write
-format failure, `skipped` for missing paths, `refused` for soft multi-path
-misses, and accurate `truncated` on search caps. Unix hardlinks no longer break
-when Patchloom rewrites or renames a multi-linked file. Fuzzy and context
-replace refuse weak or ambiguous edits instead of writing the wrong span.
-Public edit/tx result structs are `non_exhaustive` so minor releases can add
-fields without a major bump for library embedders.
+When something fails or only partly succeeds, `--json` output now includes
+stable fields such as `error_kind`, so a caller can decide the next step from
+structured data instead of parsing English error text. If a write succeeds but
+`--format` fails afterward, the response includes `backup_session` so you can
+undo. Paths that were not found show up in `skipped`. Paths that were scanned
+but did not match (so nothing was written there) show up in `refused` on
+multi-file replace.
+
+On Unix, when a file has hardlinks, Patchloom updates the shared content so
+sibling link names keep pointing at the same data after a write or rename.
+
+Fuzzy and context-based replace are stricter by default: if the exact old
+string is missing, or context still matches more than one place, Patchloom
+refuses the edit instead of guessing.
+
+Public library result types (`EditResult`, plan/tx outputs, and related
+structs) are marked `non_exhaustive`, so minor releases can add fields without
+a major version bump for Rust embedders.
 
 ## New features
 
-- **Library results marked `non_exhaustive`.** `EditResult`, content-edit
-  results, and tx `TxOutput` / `TxChange` can gain honesty fields in minor
-  releases without forcing embedders through a major. (#1744)
-- **`matched_text` on fuzzy replace.** JSON and library results report the
-  actual matched span when it differs from the requested `old` string, so
-  agents can verify what changed. (#1737)
-- **Explain from stdin like `tx`.** `patchloom explain -` reads a plan from
-  stdin (same as `tx -` / `batch -` / `explain --stdin`). (#1781)
+- **Library result types are `non_exhaustive`.** Embedders should treat
+  `EditResult`, content-edit results, and tx `TxOutput` / `TxChange` as
+  extensible in minor releases (prefer Patchloom constructors over hand-built
+  struct literals). (#1744)
+- **`matched_text` on fuzzy replace.** When fuzzy matching rewrites a span that
+  is not identical to the `old` string you passed, JSON and library results
+  include the actual matched text so you can check what changed. (#1737)
+- **`explain -` reads a plan from stdin.** Same pattern as `tx -` and
+  `batch -` (you can still use `explain --stdin`). (#1781)
 
 ## Bug fixes
 
-### Agent JSON and exit honesty
+### JSON and exit codes for agents and scripts
 
-- **Post-write `--format` failure includes `backup_session`.** When Apply
-  writes files then the format command fails, CLI `--json` exposes the undo
-  session id and a restore hint so agents do not treat `ok: false` as “nothing
-  wrote.” Non-strict tx format/validate failures report applied changes and
-  backup the same way. (#1778, #1779)
-- **Directory targets are `invalid_input`, not `not_found`.** `read` and
-  `doc set` on a directory set `error_kind: invalid_input` so agents do not
-  retry as create-missing. (#1779, #1780)
-- **`init --json` returns a structured setup report** instead of human status
-  text on stdout. (#1780)
-- **Search `--max-results` truncation is accurate.** Content search sets
-  `truncated` when the match list is capped; count / files-with-matches modes
-  do not claim truncation incorrectly. (#1773, #1775)
-- **Soft multi-op no-match surfaces in `refused[]`.** Multi-file or multi-op
-  replace that applies some paths and soft-misses others lists refused paths
-  (including fuzzy floor rejects) so partial apply is not mistaken for full
-  coverage. (#1774, #1761)
-- **Missing paths appear in JSON `skipped`.** Explicit CLI paths and
-  `--files-from` entries that do not exist are listed under `skipped` for
-  replace, search, and tidy (not only stderr under `--quiet`). (#1757, #1781,
-  #1760)
-- **No-match JSON always carries `error` with `error_kind`.** Replace and
-  search soft failures put the diagnostic in the JSON envelope so agents that
-  only read stdout still see the message. (#1755)
-- **Tx no-match JSON includes `error_kind` and `replace_hint`.** Plan/tx
-  soft-miss payloads stay machine-readable. (#1753)
-- **Unknown `undo --session` is `no_matches`.** Agents can branch on kind
-  instead of scraping English. (#1776)
-- **`schema --format prompt` under global `--json` wraps markdown** in a JSON
-  envelope instead of dumping raw text. (#1777)
+- **After Apply, a failing `--format` still reports the write.** The JSON
+  includes `error_kind: format_failed` and `backup_session` (when a backup was
+  created), so `ok: false` does not mean “no files changed.” Non-strict plan
+  format/validate failures report applied changes the same way. (#1778, #1779)
+- **Using a directory where a file is required returns `invalid_input`.**
+  `read` and `doc set` on a directory no longer look like a missing file
+  (`not_found`). (#1779, #1780)
+- **`init --json` prints a JSON setup report**, not human-only status lines on
+  stdout. (#1780)
+- **Search `--max-results` sets `truncated` only when matches were cut off.**
+  Count and files-with-matches modes no longer set a misleading truncation
+  flag. (#1773, #1775)
+- **Partial multi-file replace lists what was refused.** If some paths apply
+  and others soft-miss (including weak fuzzy scores), those paths appear under
+  `refused[]` so a successful overall status is not treated as “every path
+  changed.” (#1774, #1761)
+- **Missing input paths appear under `skipped`.** Explicit paths and
+  `--files-from` entries that do not exist are listed in JSON for replace,
+  search, and tidy (not only on stderr). (#1757, #1781, #1760)
+- **No-match responses include both `error` and `error_kind`.** Replace and
+  search soft failures put the message in the JSON body for callers that only
+  read stdout. (#1755)
+- **Plan/tx no-match JSON includes `error_kind` and `replace_hint`.** (#1753)
+- **Unknown `undo --session` uses `error_kind: no_matches`.** (#1776)
+- **`schema --format prompt` with global `--json` returns a JSON object** that
+  wraps the prompt text, instead of raw markdown alone. (#1777)
 
-### Fuzzy, context, and replace fail-closed
+### Stricter fuzzy and context replace
 
-- **Fuzzy refuses when the exact old string is absent** unless you opt into
-  inventing a match; weak similarity no longer rewrites the wrong token by
-  default. (#1759, #1762)
-- **Context anchors fail closed when they do not disambiguate.** Before/after
-  context that still matches multiple sites no longer picks one silently.
-  (#1765, #1766)
-- **`require_change`, `if_exists`, and `min_fuzzy_score` interact correctly**
-  on glob and multi-file paths: floor rejects, soft skips, and forced
-  failure modes stay consistent, with `replace_hint` when useful. (#1745,
-  #1748–#1752, #1747, #1749)
-- **MCP skips exact pre-validation when fuzzy or context is set**, so agents
-  are not blocked by a false exact miss before the fuzzy path runs. (#1751)
-- **Word-boundary + fuzzy and CLI replace error hints** report what agents
-  need to fix the call (flags, context, or pattern). (#1754)
-- **`--nth` honesty.** Out-of-range `--nth` fails with a live match count
-  instead of a false no-match; multi-file applies the rule to every path;
-  whole-line + range/`--lines` reporting stays consistent. (#1768, #1772,
-  #1769)
+- **Fuzzy does not invent a match when the exact old string is missing**,
+  unless you explicitly allow that path; weak similarity alone no longer
+  rewrites the wrong token by default. (#1759, #1762)
+- **Before/after context that still matches multiple places fails** instead of
+  picking one site silently. (#1765, #1766)
+- **`require_change`, `if_exists`, and `min_fuzzy_score` behave consistently**
+  on globs and multi-file runs, with `replace_hint` when a better flag or
+  pattern would help. (#1745, #1748–#1752, #1747, #1749)
+- **MCP no longer blocks fuzzy/context replace with a false exact-only check**
+  before the fuzzy path runs. (#1751)
+- **Clearer CLI errors for word-boundary + fuzzy and related flag mistakes.**
+  (#1754)
+- **`--nth` reports out-of-range clearly.** You get a real match count instead
+  of a fake “no matches”; multi-file applies the rule on every path; whole-line
+  and range reporting stay consistent. (#1768, #1772, #1769)
 
 ### Hardlinks and renames
 
-- **Atomic write preserves Unix hardlinks** when `nlink > 1`, updating the
-  shared inode so sibling link paths see the new content. (#1734)
-- **Text rename, plan/tx `file.rename`, multi-hop rename chains, and
-  rename-then-edit plans** keep hardlinks intact instead of breaking them
-  with rename-over. Force rename and related paths cover the same contract.
-  (#1740–#1743, #1746)
+- **Unix hardlinks stay linked through atomic write** when a path has more than
+  one link name: content is updated in place so every name sees the new bytes.
+  (#1734)
+- **Rename (CLI text rename, plan/tx `file.rename`, multi-hop chains, and
+  rename-then-edit plans) keeps hardlinks** instead of breaking them with
+  rename-over. (#1740–#1743, #1746)
 
-### Document, verify, and workspace hygiene
+### Documents, verify, and workspace scans
 
-- **Empty JSON files parse as `{}` for doc read/set**, matching agent
-  expectations for create-then-fill workflows. (#1771)
-- **`--verify` without the `ast` feature fails closed** instead of silently
-  doing nothing. (#1763)
-- **`unique_names` verify catches cross-file symbol collisions.** (#1764)
-- **CLI and plan verify checks no longer double-run** the same checks. (#1767)
-- **Tidy with include-hidden never walks `.git`**, avoiding binary object
-  noise and slow scans. (#1770)
+- **Empty `.json` files are treated as `{}` for doc get/set**, which matches
+  create-then-fill workflows. (#1771)
+- **`--verify` without the `ast` feature errors** instead of ignoring the
+  flag. (#1763)
+- **`unique_names` verify detects the same symbol name in different files.**
+  (#1764)
+- **CLI and plan verify no longer run the same checks twice.** (#1767)
+- **Tidy does not walk `.git` even when hidden files are included**, which
+  avoids binary object noise and slow scans. (#1770)
 
 ### Packaging
 
-- **Chocolatey package metadata** adds a CDN package icon and separates
-  project home (docs) from source URL for Community Repository guidelines.
-  First listing remains under moderation until approved; later versions
-  publish after that. (#1782)
+- **Chocolatey package metadata** adds a package icon URL and uses the docs
+  site for the project home while keeping GitHub as the source URL (Community
+  Repository guidelines). The first community listing may still be under
+  moderation. (#1782)
 
 ## Documentation
 
-- Agent-rules and help text for fail-closed fuzzy defaults, format_failed +
-  backup_session, search truncation, and related JSON fields.
-- Hardlink and rename contracts covered in tests and release host notes.
+- Agent-rules and help text cover format failure + backup session, search
+  truncation, fuzzy defaults, and related JSON fields.
+- Hardlink and rename behavior is locked by regression tests.
 
 ## Numbers
 
@@ -126,7 +131,7 @@ fields without a major bump for library embedders.
 | Commits since v0.14.0 | -- | 47 | -- |
 
 Counts are `#[test]` / `#[tokio::test]` attributes in `src/` and `tests/`
-at each tag (same method as internal hygiene scans).
+at each tag.
 
 ## Upgrading
 
@@ -146,17 +151,16 @@ brew upgrade patchloom
 scoop update patchloom
 ```
 
-**Library embedders:** public result structs are now `non_exhaustive`. Continue
-to construct them only via Patchloom APIs (or update struct literals if you
-built them by hand). Expect new optional fields in minor releases without a
-major version bump.
+**Rust library users:** result structs are `non_exhaustive`. Prefer Patchloom
+APIs to build results; hand-written struct literals may need a `..` update when
+new fields appear in a minor release.
 
-**Agents:** prefer branching on `error_kind`, `backup_session`, `skipped`,
-`refused`, and `truncated` rather than English error text. After
-`format_failed` with a backup session, use `patchloom undo` (or
-`undo --session <id>`) if you need to restore.
+**Automation and agents:** prefer fields such as `error_kind`,
+`backup_session`, `skipped`, `refused`, and `truncated` over free-form error
+strings. If you see `format_failed` with a `backup_session`, restore with
+`patchloom undo` or `undo --session <id>` when needed.
 
-**Chocolatey:** community package `0.13.0` may still be in moderation; do not
-assume `choco install patchloom` is globally listed until that listing is
-approved. Other channels (crates, GitHub Releases, Homebrew, npm, Scoop) are
-the primary install paths for 0.15.0.
+**Chocolatey:** package version `0.13.0` may still be in community moderation.
+Do not assume `choco install patchloom` is listed globally until that version
+is approved. For 0.15.0, prefer crates, GitHub Releases, Homebrew, npm, or
+Scoop.
