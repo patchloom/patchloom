@@ -237,6 +237,11 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(exit::FAILURE);
     }
+    // Sole explicit binary: do not report vacuous "clean" (never scanned).
+    if let Some(err) = crate::ops::file::single_explicit_binary_target(paths, &cwd) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
     let skipped = crate::files::scan_missing_entries(global, &cwd, paths)?;
     let issues = collect_issues(paths, global)?;
     if !global.quiet || global.json || global.jsonl {

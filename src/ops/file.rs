@@ -85,6 +85,33 @@ pub fn ensure_not_binary_file(
     Ok(())
 }
 
+/// When the user names exactly one existing file and it is binary, return that
+/// display path. Directory walks and multi-path lists still soft-skip binaries.
+pub fn single_explicit_binary_target(
+    paths: &[String],
+    cwd: &Path,
+) -> Option<crate::exit::InvalidInputError> {
+    if paths.len() != 1 {
+        return None;
+    }
+    let display = paths[0].as_str();
+    if display.is_empty() {
+        return None;
+    }
+    let path = {
+        let p = Path::new(display);
+        if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            cwd.join(p)
+        }
+    };
+    if !path.is_file() {
+        return None;
+    }
+    ensure_not_binary_file(&path, display).err()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,5 +240,26 @@ mod tests {
     fn ensure_not_binary_missing_path_ok() {
         let dir = TempDir::new().unwrap();
         ensure_not_binary_file(&dir.path().join("nope"), "nope").unwrap();
+    }
+
+    #[test]
+    fn single_explicit_binary_detects_sole_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("b.bin");
+        fs::write(&path, b"x\x00y").unwrap();
+        let err = single_explicit_binary_target(&["b.bin".into()], dir.path()).unwrap();
+        assert!(err.msg.contains("binary"));
+    }
+
+    #[test]
+    fn single_explicit_binary_none_for_text_or_multi() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("t.txt"), "hi\n").unwrap();
+        fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
+        assert!(single_explicit_binary_target(&["t.txt".into()], dir.path()).is_none());
+        assert!(
+            single_explicit_binary_target(&["t.txt".into(), "b.bin".into()], dir.path()).is_none()
+        );
+        assert!(single_explicit_binary_target(&[".".into()], dir.path()).is_none());
     }
 }
