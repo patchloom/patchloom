@@ -926,3 +926,18 @@ ssl = true
         assert_eq!(offset, Some(expected));
     }
 }
+
+mod nth_count_tests {
+    use crate::ops::replace::{
+        count_content_matches, count_nth_candidates, count_whole_line_matches,
+    };
+
+    #[test]
+    fn count_nth_candidates_whole_line_vs_substring() {
+        let content = "a a\na\n";
+        assert_eq!(count_content_matches(content, "a", None), 3);
+        assert_eq!(count_whole_line_matches(content, "a", None), 2);
+        assert_eq!(count_nth_candidates(content, "a", None, false), 3);
+        assert_eq!(count_nth_candidates(content, "a", None, true), 2);
+    }
+}

@@ -820,6 +820,44 @@ fn test_replace_nth_out_of_range_json() {
     );
 }
 
+/// Whole-line mode counts matching lines, not substring occurrences.
+#[test]
+fn test_replace_whole_line_nth_out_of_range_counts_lines() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    // Two lines contain "a", but three substring occurrences.
+    fs::write(&file, "a a\na\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "replace",
+            "a",
+            "--new",
+            "X",
+            "-L",
+            "--nth",
+            "3",
+            file.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("nth 3 is out of range") && err.contains("matches 2 times"),
+        "whole-line nth must count lines not substrings: {err}"
+    );
+}
+
 #[test]
 fn test_replace_insert_before() {
     let dir = TempDir::new().unwrap();

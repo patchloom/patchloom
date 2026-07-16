@@ -5,7 +5,7 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::render_diffs_colored;
 use crate::exit;
 use crate::ops::replace::{
-    compile_replace_regex, count_content_matches, replace_content, replace_whole_lines,
+    compile_replace_regex, count_nth_candidates, replace_content, replace_whole_lines,
     replacement_text,
 };
 use crate::tx::engine::WriteSource;
@@ -636,7 +636,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 let Ok(content) = std::fs::read_to_string(path) else {
                     continue;
                 };
-                let total = count_content_matches(&content, &args.old, compiled_re.as_ref());
+                let total = count_nth_candidates(
+                    &content,
+                    &args.old,
+                    compiled_re.as_ref(),
+                    args.whole_line,
+                );
                 if total > 0 && n > total {
                     let display = crate::files::relative_display(path, &cwd)
                         .to_string_lossy()

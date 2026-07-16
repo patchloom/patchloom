@@ -222,6 +222,39 @@ pub fn count_content_matches(content: &str, from: &str, compiled_re: Option<&Reg
     }
 }
 
+/// Count lines that match for whole-line replace (one match per matching line).
+///
+/// Differs from [`count_content_matches`] when a line contains the pattern more
+/// than once: whole-line mode still counts that line once.
+pub fn count_whole_line_matches(content: &str, from: &str, compiled_re: Option<&Regex>) -> usize {
+    content
+        .lines()
+        .filter(|line| {
+            if let Some(re) = compiled_re {
+                re.is_match(line)
+            } else if from.is_empty() {
+                false
+            } else {
+                line.contains(from)
+            }
+        })
+        .count()
+}
+
+/// Matches available for `--nth` under the active replace mode.
+pub fn count_nth_candidates(
+    content: &str,
+    from: &str,
+    compiled_re: Option<&Regex>,
+    whole_line: bool,
+) -> usize {
+    if whole_line {
+        count_whole_line_matches(content, from, compiled_re)
+    } else {
+        count_content_matches(content, from, compiled_re)
+    }
+}
+
 pub fn replace_content<'a>(
     content: &'a str,
     from: &str,
