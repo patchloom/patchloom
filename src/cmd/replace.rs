@@ -69,7 +69,9 @@ pub struct ReplaceArgs {
     #[arg(long, short = 'w')]
     pub word_boundary: bool,
     // ref:replace-mode:range
-    /// Restrict matching to a line range (e.g. '10:50' or '10-50'). 1-based, inclusive.
+    /// Restrict matching to a line range (e.g. '10:50' or '10-50'). 1-based,
+    /// inclusive. Requires `--whole-line` (substring replace within a range is
+    /// not supported).
     #[arg(long, short = 'R')]
     pub range: Option<String>,
     // ref:replace-mode:before-context
