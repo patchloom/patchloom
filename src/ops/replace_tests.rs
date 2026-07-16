@@ -936,8 +936,14 @@ mod nth_count_tests {
     fn count_nth_candidates_whole_line_vs_substring() {
         let content = "a a\na\n";
         assert_eq!(count_content_matches(content, "a", None), 3);
-        assert_eq!(count_whole_line_matches(content, "a", None), 2);
-        assert_eq!(count_nth_candidates(content, "a", None, false), 3);
-        assert_eq!(count_nth_candidates(content, "a", None, true), 2);
+        assert_eq!(count_whole_line_matches(content, "a", None, None), 2);
+        assert_eq!(count_nth_candidates(content, "a", None, false, None), 3);
+        assert_eq!(count_nth_candidates(content, "a", None, true, None), 2);
+        // Range 2:4 on "a\nb\na\na\nc\n" has two whole-line hits (lines 3-4).
+        let ranged = "a\nb\na\na\nc\n";
+        assert_eq!(
+            count_nth_candidates(ranged, "a", None, true, Some((2, Some(4)))),
+            2
+        );
     }
 }

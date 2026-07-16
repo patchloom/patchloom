@@ -319,6 +319,7 @@ fn replace_write(
                 &old,
                 compiled_re.as_ref(),
                 whole_line,
+                parsed_range,
             );
             if total > 0 && n > total {
                 return Err(anyhow::Error::new(crate::exit::InvalidInputError {
@@ -593,6 +594,7 @@ pub fn replace_in_content(
             from,
             compiled_re.as_ref(),
             opts.whole_line,
+            parsed_range,
         );
         if total > 0 && n > total {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {

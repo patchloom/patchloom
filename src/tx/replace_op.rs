@@ -293,6 +293,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 old,
                 compiled_re.as_ref(),
                 *whole_line,
+                parsed_range,
             );
             if total > 0 && n > total {
                 Some((n, total))
@@ -599,6 +600,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     old,
                     compiled_re.as_ref(),
                     *whole_line,
+                    parsed_range,
                 );
                 if total > 0 && n > total {
                     Some((n, total))
