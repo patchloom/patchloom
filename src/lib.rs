@@ -432,20 +432,10 @@ fn clap_usage_error_message(err: &clap::Error) -> String {
 /// Build the JSON error envelope and exit code for a dispatch `Err` under
 /// `--json` / `--jsonl`. Typed exit kinds (`NoMatchError`, `AmbiguousError`,
 /// `InvalidInputError`, `ParseErrorError`, …) get `error_kind` and exit codes.
+/// Post-write format failures also expose `backup_session` when known.
 #[cfg(feature = "cli")]
 fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
-    let (kind, code) = match exit::classify_typed_error(err) {
-        Some((k, c)) => (Some(k), c),
-        None => (None, exit::FAILURE),
-    };
-    let mut output = serde_json::json!({
-        "ok": false,
-        "error": format!("{err:#}")
-    });
-    if let Some(k) = kind {
-        output["error_kind"] = serde_json::Value::String(k.to_string());
-    }
-    (output, code)
+    exit::structured_error_payload(err)
 }
 
 #[cfg(test)]
@@ -526,14 +516,14 @@ mod tests {
     #[cfg(feature = "cli")]
     #[test]
     fn structured_dispatch_error_maps_format_failed() {
-        let err: anyhow::Error = exit::FormatFailedError {
-            msg: "format command failed (false)".into(),
-        }
-        .into();
+        let err: anyhow::Error = exit::FormatFailedError::new("format command failed (false)")
+            .with_backup_session(Some("99_0".into()))
+            .into();
         let err = err.context("files were written but formatting failed");
         let (payload, code) = structured_dispatch_error(&err);
         assert_eq!(code, exit::FAILURE);
         assert_eq!(payload["error_kind"], "format_failed");
+        assert_eq!(payload["backup_session"], "99_0");
     }
 
     #[test]

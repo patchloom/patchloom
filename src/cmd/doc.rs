@@ -834,19 +834,13 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             Err(e) => {
                 // Prefer shared classification so new typed kinds (e.g.
                 // format_failed) cannot be dropped here while present in
-                // global --json dispatch.
-                match exit::classify_typed_error(&e) {
-                    Some((kind, code)) => {
-                        global.emit_error_json_kind(Some(kind), &e.to_string())?;
-                        return Ok(code);
-                    }
-                    None => {
-                        // Unknown engine failures stay generic failure without
-                        // a misleading type_error label.
-                        global.emit_error_json_kind(None, &e.to_string())?;
-                        return Ok(exit::FAILURE);
-                    }
+                // global --json dispatch. Also peels backup_session for
+                // post-write format failures.
+                let (payload, code) = exit::structured_error_payload(&e);
+                if !global.emit_json(&payload)? && !global.quiet {
+                    eprintln!("{}", e);
                 }
+                return Ok(code);
             }
         }
     }

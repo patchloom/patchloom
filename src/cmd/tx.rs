@@ -183,9 +183,18 @@ fn commit_and_finalize(
 
     if let Err(e) = run_format_command(global, ctx.cwd) {
         // The commit already succeeded; files are written but unformatted.
-        // Warn with a recovery hint instead of a bare error (#1159).
-        let hint = "files were written but formatting failed; run `patchloom undo` to restore";
-        return Err(e.context(hint));
+        // Attach backup_session so --json agents can undo without listing
+        // sessions (parity with non-strict lifecycle format_failed).
+        let msg = e
+            .chain()
+            .find_map(|c| {
+                c.downcast_ref::<exit::FormatFailedError>()
+                    .map(|f| f.msg.clone())
+            })
+            .unwrap_or_else(|| e.to_string());
+        return Err(exit::FormatFailedError::new(msg)
+            .with_backup_session(apply_backup_session)
+            .into());
     }
 
     if show_diffs && !result.changes.is_empty() {

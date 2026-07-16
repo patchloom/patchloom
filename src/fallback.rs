@@ -940,7 +940,7 @@ mod tests {
             classify_error(&e as &(dyn Error + 'static)),
             Some(EditErrorKind::NoMatch)
         );
-        let e = crate::exit::FormatFailedError { msg: "fmt".into() };
+        let e = crate::exit::FormatFailedError::new("fmt");
         assert_eq!(
             classify_error(&e as &(dyn Error + 'static)),
             Some(EditErrorKind::FormatFailed)
@@ -982,10 +982,8 @@ mod tests {
         .into();
         assert_eq!(edit_error_kind(&exists), Some(EditErrorKind::InvalidInput));
 
-        let format_failed: anyhow::Error = crate::exit::FormatFailedError {
-            msg: "format command failed".into(),
-        }
-        .into();
+        let format_failed: anyhow::Error =
+            crate::exit::FormatFailedError::new("format command failed").into();
         assert_eq!(
             edit_error_kind(&format_failed),
             Some(EditErrorKind::FormatFailed)

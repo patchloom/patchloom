@@ -522,6 +522,18 @@ impl GlobalFlags {
         Ok(())
     }
 
+    /// Emit the shared agent error envelope for an `anyhow::Error` (kind +
+    /// optional `backup_session` for post-write format failures).
+    ///
+    /// Returns the exit code from [`crate::exit::structured_error_payload`].
+    pub fn emit_error_from_anyhow(&self, err: &anyhow::Error) -> anyhow::Result<u8> {
+        let (payload, code) = crate::exit::structured_error_payload(err);
+        if !self.emit_json(&payload)? && !self.quiet {
+            eprintln!("{err}");
+        }
+        Ok(code)
+    }
+
     /// Emit a collection of items in structured format.
     ///
     /// In `--json` mode, emits a pretty-printed JSON array of all items.

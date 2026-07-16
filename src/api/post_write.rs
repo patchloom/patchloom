@@ -85,21 +85,17 @@ pub fn run_post_write_validation_with_session(
                 match restore {
                     Ok(true) => {}
                     Ok(false) => {
-                        return Err(FormatFailedError {
-                            msg: format!(
-                                "{e}; also failed to revert {}: no backup session for path",
-                                path.display()
-                            ),
-                        }
+                        return Err(FormatFailedError::new(format!(
+                            "{e}; also failed to revert {}: no backup session for path",
+                            path.display()
+                        ))
                         .into());
                     }
                     Err(restore_err) => {
-                        return Err(FormatFailedError {
-                            msg: format!(
-                                "{e}; also failed to revert {}: {restore_err}",
-                                path.display()
-                            ),
-                        }
+                        return Err(FormatFailedError::new(format!(
+                            "{e}; also failed to revert {}: {restore_err}",
+                            path.display()
+                        ))
                         .into());
                     }
                 }
@@ -111,20 +107,17 @@ pub fn run_post_write_validation_with_session(
 }
 
 fn run_hook_cmd(cmd: &str, timeout_secs: u64, cwd: &Path, label: &str) -> anyhow::Result<()> {
-    let result =
-        crate::exec::run_with_timeout(cmd, timeout_secs, cwd).map_err(|e| FormatFailedError {
-            msg: format!("{label} command failed ({cmd}): {e}"),
-        })?;
+    let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)
+        .map_err(|e| FormatFailedError::new(format!("{label} command failed ({cmd}): {e}")))?;
     if !result.status.success() {
         let stderr = if result.stderr_head.is_empty() {
             String::new()
         } else {
             format!(": {}", result.stderr_head)
         };
-        return Err(FormatFailedError {
-            msg: format!("{label} command failed ({cmd}){stderr}"),
-        }
-        .into());
+        return Err(
+            FormatFailedError::new(format!("{label} command failed ({cmd}){stderr}")).into(),
+        );
     }
     Ok(())
 }

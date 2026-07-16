@@ -207,14 +207,45 @@ pub fn is_changes_detected(err: &anyhow::Error) -> bool {
 /// Matches plan/tx lifecycle `format_failed` kind so agents can branch without
 /// scraping "format command failed" English. Exit stays 1 (not 9): files may
 /// already be written; recovery is `undo` or re-run the formatter.
+///
+/// When writes already committed, [`Self::backup_session`] carries the undo
+/// session id so CLI `--json` can expose `backup_session` (same honesty as
+/// non-strict tx format/validate failures).
 #[derive(Debug)]
 pub struct FormatFailedError {
     pub msg: String,
+    /// Backup session created for the write that preceded format failure.
+    pub backup_session: Option<String>,
+}
+
+impl FormatFailedError {
+    /// Format failure without a known backup session.
+    #[must_use]
+    pub fn new(msg: impl Into<String>) -> Self {
+        Self {
+            msg: msg.into(),
+            backup_session: None,
+        }
+    }
+
+    /// Attach a backup session (files already on disk; agent can `undo`).
+    #[must_use]
+    pub fn with_backup_session(mut self, session: Option<String>) -> Self {
+        self.backup_session = session.filter(|s| !s.is_empty());
+        self
+    }
 }
 
 impl std::fmt::Display for FormatFailedError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.msg)
+        match &self.backup_session {
+            Some(ts) => write!(
+                f,
+                "{} (backup session {ts}; run `patchloom undo` to restore)",
+                self.msg
+            ),
+            None => f.write_str(&self.msg),
+        }
     }
 }
 
@@ -224,6 +255,49 @@ impl std::error::Error for FormatFailedError {}
 pub fn is_format_failed(err: &anyhow::Error) -> bool {
     err.chain()
         .any(|cause| cause.downcast_ref::<FormatFailedError>().is_some())
+}
+
+/// First [`FormatFailedError::backup_session`] found in the error chain.
+#[must_use]
+pub fn format_failed_backup_session(err: &anyhow::Error) -> Option<&str> {
+    err.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<FormatFailedError>()
+            .and_then(|f| f.backup_session.as_deref())
+    })
+}
+
+/// True when any cause is an IO `IsADirectory` (path exists but is a directory).
+#[must_use]
+pub fn is_io_is_a_directory(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::IsADirectory)
+    })
+}
+
+/// Build the shared JSON error envelope + exit code for agent `--json` paths.
+///
+/// Includes `error_kind` when classifiable and `backup_session` when a
+/// post-write format failure carries one.
+#[must_use]
+pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) {
+    let (kind, code) = match classify_typed_error(err) {
+        Some((k, c)) => (Some(k), c),
+        None => (None, FAILURE),
+    };
+    let mut output = serde_json::json!({
+        "ok": false,
+        "error": format!("{err:#}")
+    });
+    if let Some(k) = kind {
+        output["error_kind"] = serde_json::Value::String(k.to_string());
+    }
+    if let Some(bs) = format_failed_backup_session(err) {
+        output["backup_session"] = serde_json::Value::String(bs.to_string());
+    }
+    (output, code)
 }
 
 /// Classify a typed error for JSON `error_kind` + exit code.
@@ -240,6 +314,10 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
         Some(("invalid_input", FAILURE))
     } else if is_io_not_found(err) {
         Some(("not_found", FAILURE))
+    } else if is_io_is_a_directory(err) {
+        // Path exists but is a directory (or non-file). Not not_found: agents
+        // must not retry as create; use invalid_input like API file ops.
+        Some(("invalid_input", FAILURE))
     } else if is_already_exists(err) {
         Some(("already_exists", FAILURE))
     } else if is_type_error(err) {
@@ -276,14 +354,40 @@ mod tests {
 
     #[test]
     fn classify_typed_error_maps_format_failed() {
-        let err: anyhow::Error = FormatFailedError {
-            msg: "format command failed".into(),
-        }
-        .into();
+        let err: anyhow::Error = FormatFailedError::new("format command failed").into();
         let wrapped = err.context("files were written but formatting failed");
         assert_eq!(
             classify_typed_error(&wrapped),
             Some(("format_failed", FAILURE))
+        );
+    }
+
+    #[test]
+    fn structured_error_payload_includes_format_backup_session() {
+        let err: anyhow::Error = FormatFailedError::new("format command failed (false)")
+            .with_backup_session(Some("123_0".into()))
+            .into();
+        let (payload, code) = structured_error_payload(&err);
+        assert_eq!(code, FAILURE);
+        assert_eq!(payload["error_kind"], "format_failed");
+        assert_eq!(payload["backup_session"], "123_0");
+        assert!(
+            payload["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("backup session 123_0"),
+            "display should mention undo session: {payload}"
+        );
+    }
+
+    #[test]
+    fn classify_typed_error_maps_is_a_directory() {
+        let err: anyhow::Error =
+            std::io::Error::new(std::io::ErrorKind::IsADirectory, "is a directory").into();
+        let wrapped = err.context("failed to read /tmp/dir");
+        assert_eq!(
+            classify_typed_error(&wrapped),
+            Some(("invalid_input", FAILURE))
         );
     }
 
@@ -345,8 +449,13 @@ mod tests {
                 CHANGES_DETECTED,
             ),
             (
-                FormatFailedError { msg: "fmt".into() }.into(),
+                FormatFailedError::new("fmt").into(),
                 "format_failed",
+                FAILURE,
+            ),
+            (
+                std::io::Error::new(std::io::ErrorKind::IsADirectory, "dir").into(),
+                "invalid_input",
                 FAILURE,
             ),
         ];
