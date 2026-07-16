@@ -1,3 +1,6 @@
+//! size-waiver: accepted single-domain bulk (policy #1408). CLI search collect,
+//! format (JSON/JSONL/human), assert_count, and agent honesty for truncated /
+//! skipped paths is one unit; do not split for LOC alone.
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::ops::search::{self as ops_search, SearchMatch, SearchResults};
@@ -232,8 +235,23 @@ pub(crate) fn format_results(
                 out.push('\n');
             }
         } else {
+            let match_count: usize = results.file_match_counts.values().sum();
+            let emitted = results.matches.len();
+            let truncated = args.max_results > 0 && emitted < match_count;
             for m in &results.matches {
                 out.push_str(&serde_json::to_string(m)?);
+                out.push('\n');
+            }
+            // Trailer when --max-results capped the stream (fixrealloop):
+            // agents using --jsonl cannot infer total from match lines alone.
+            if truncated {
+                out.push_str(&serde_json::to_string(&serde_json::json!({
+                    "type": "summary",
+                    "match_count": match_count,
+                    "match_emitted": emitted,
+                    "file_count": results.file_match_counts.len(),
+                    "truncated": true,
+                }))?);
                 out.push('\n');
             }
         }

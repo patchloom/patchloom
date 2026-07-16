@@ -8,7 +8,9 @@ use super::steps::{
 use crate::cli::global::GlobalFlags;
 use crate::plan::{self, Plan};
 use crate::tx::execute::execute_and_collect;
-use crate::tx::output::{TxOutput, build_error_output, build_full_tx_output};
+use crate::tx::output::{
+    TxOutput, build_applied_with_error_output, build_error_output, build_full_tx_output,
+};
 use crate::tx::validate::validate_plan_operations;
 #[cfg(feature = "ast")]
 use crate::tx::verify;
@@ -242,7 +244,15 @@ pub fn execute_plan_direct(
             let msg = format!("strict mode -- all changes reverted ({})", err.message);
             return Ok(build_error_output("rollback", &msg, None));
         }
-        return Ok(build_error_output(err.kind, &err.message, None));
+        // Non-strict: writes already committed. Report applied changes so
+        // agents do not see files_changed=0 while the working tree changed.
+        return Ok(build_applied_with_error_output(
+            err.kind,
+            &err.message,
+            &mut result,
+            &effective_cwd,
+            apply_backup_session.as_deref(),
+        ));
     }
 
     let mut output = build_full_tx_output("success", &mut result, &effective_cwd);

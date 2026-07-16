@@ -3,8 +3,8 @@ use crate::diff::{DiffResult, format_diff_result_colored, unified_diff};
 use crate::exit;
 use crate::plan::{self, Plan};
 use crate::tx::{
-    CommitError, TxArgs, TxExecResult, TxOutput, build_error_output, build_full_tx_output,
-    format_error_with_backup_hint, run_lifecycle,
+    CommitError, TxArgs, TxExecResult, TxOutput, build_applied_with_error_output,
+    build_error_output, build_full_tx_output, format_error_with_backup_hint, run_lifecycle,
 };
 use crate::write::run_format_command;
 
@@ -168,7 +168,7 @@ fn commit_and_finalize(
         result.deletions.len(),
         ctx.strict
     );
-    let _apply_backup_session = match crate::tx::commit_changes(
+    let apply_backup_session = match crate::tx::commit_changes(
         &result.changes,
         &result.deletions,
         &result.existed_before,
@@ -222,8 +222,16 @@ fn commit_and_finalize(
             eprintln!("tx: {rollback_msg}");
             return Ok(exit::ROLLBACK);
         }
+        // Non-strict: writes kept. Report applied changes + backup for undo.
         if ctx.structured {
-            let ok = emit_error_json(err.kind, &err.message, None, ctx.compact);
+            let output = build_applied_with_error_output(
+                err.kind,
+                &err.message,
+                result,
+                ctx.cwd,
+                apply_backup_session.as_deref(),
+            );
+            let ok = emit_output_json(&output, ctx.compact);
             return Ok(exit_after_emit(ok, exit::VALIDATION_FAILED));
         }
         return Ok(exit::VALIDATION_FAILED);
