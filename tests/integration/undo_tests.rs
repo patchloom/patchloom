@@ -436,13 +436,48 @@ fn test_undo_list_no_sessions_quiet_suppresses_stderr() {
 }
 
 #[test]
-fn test_undo_invalid_session_apply_exits_1() {
+fn test_undo_invalid_session_apply_exits_3() {
     let dir = TempDir::new().unwrap();
 
+    // Unknown session id is no_matches (exit 3), same family as empty list.
     patchloom_in(dir.path())
         .args(["undo", "--session", "BOGUS_TIMESTAMP", "--apply", "--cwd"])
         .arg(dir.path())
         .assert()
-        .code(1)
+        .code(3)
         .stderr(predicates::str::contains("no backup session found"));
+}
+
+/// Unknown --session must set error_kind so agents can branch (MPI 2026-07-16).
+#[test]
+fn test_undo_json_invalid_session_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "undo",
+            "--session",
+            "BOGUS_TIMESTAMP",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "no_matches",
+        "unknown session must set error_kind: {parsed}"
+    );
+    assert!(
+        parsed["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("no backup session found")),
+        "{parsed}"
+    );
 }
