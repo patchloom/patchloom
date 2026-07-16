@@ -28,6 +28,20 @@ fn record_replace_match(
     record_replace_match_with_reason(tx, path, mode, score, match_count, matched_text, None);
 }
 
+/// Soft exact no-match (zero writes) for multi-op honesty. Listed in
+/// `refused[]` with reason `no_matches` when other ops still succeed.
+fn record_soft_no_match(tx: &mut TxState<'_>, path: &Path) {
+    record_replace_match_with_reason(
+        tx,
+        path,
+        MatchMode::Exact,
+        None,
+        0,
+        None,
+        Some("no_matches"),
+    );
+}
+
 /// Like [`record_replace_match`], with optional soft-refuse reason for `refused[]`.
 fn record_replace_match_with_reason(
     tx: &mut TxState<'_>,
@@ -415,6 +429,11 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .unwrap_or_else(|| format!("no matches for {old:?} in {p}"));
                 return Err(crate::exit::NoMatchError { msg }.into());
             }
+            // Soft miss: keep plan success for other ops, but surface path in
+            // refused[] so agents do not treat multi-op ok as full coverage.
+            if !if_exists {
+                record_soft_no_match(tx, &file_path);
+            }
             Ok(0)
         } else {
             if !regex_mode {
@@ -435,6 +454,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .clone()
                     .unwrap_or_else(|| format!("no matches for {old:?} in {p}"));
                 return Err(crate::exit::NoMatchError { msg }.into());
+            }
+            if !if_exists {
+                record_soft_no_match(tx, &file_path);
             }
             Ok(0)
         }
