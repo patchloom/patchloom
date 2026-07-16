@@ -53,6 +53,38 @@ pub fn ensure_parent_components_are_directories(
     Ok(())
 }
 
+/// Reject on-disk binary targets for text-oriented file ops (append/prepend).
+///
+/// NUL bytes are valid UTF-8, so `read_to_string` succeeds and used to rewrite
+/// binaries as text. Matches replace/search skip policy (`is_binary` on the
+/// first 8 KiB). `display` is the path shown in the error (CLI arg or op path).
+pub fn ensure_not_binary_file(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    use std::io::Read;
+
+    if !path.exists() {
+        return Ok(());
+    }
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        // Existence was checked by the caller; open errors surface on full read.
+        Err(_) => return Ok(()),
+    };
+    let mut buf = [0u8; 8192];
+    let n = match file.read(&mut buf) {
+        Ok(n) => n,
+        Err(_) => return Ok(()),
+    };
+    if crate::files::is_binary(&buf[..n]) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("target is a binary file: {display}"),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +189,29 @@ mod tests {
         let path = blocking.join("b").join("c.txt");
         let err = ensure_parent_components_are_directories(&path).unwrap_err();
         assert!(err.msg.contains("not a directory"), "got: {}", err.msg);
+    }
+
+    #[test]
+    fn ensure_not_binary_ok_for_text() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.txt");
+        fs::write(&path, "hello\n").unwrap();
+        ensure_not_binary_file(&path, "t.txt").unwrap();
+    }
+
+    #[test]
+    fn ensure_not_binary_rejects_nul() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("b.bin");
+        fs::write(&path, b"hello\x00world").unwrap();
+        let err = ensure_not_binary_file(&path, "b.bin").unwrap_err();
+        assert!(err.msg.contains("binary file"), "got: {}", err.msg);
+        assert!(err.msg.contains("b.bin"));
+    }
+
+    #[test]
+    fn ensure_not_binary_missing_path_ok() {
+        let dir = TempDir::new().unwrap();
+        ensure_not_binary_file(&dir.path().join("nope"), "nope").unwrap();
     }
 }

@@ -95,6 +95,12 @@ pub(crate) fn run_content_inject(
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
+    // Fail before the engine so --json gets error_kind and binaries are not
+    // rewritten as text (NUL is valid UTF-8).
+    if let Err(e) = crate::ops::file::ensure_not_binary_file(&path, file) {
+        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
+        return Ok(crate::exit::FAILURE);
+    }
 
     let op = match position {
         ContentPosition::Append => Operation::FileAppend {
@@ -261,5 +267,46 @@ mod tests {
 
         let code = run(args, &GlobalFlags::default()).unwrap();
         assert_eq!(code, exit::FAILURE);
+    }
+
+    #[test]
+    fn append_rejects_binary_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("data.bin");
+        fs::write(&file, b"hello\x00world").unwrap();
+
+        let args = AppendArgs {
+            file: file.to_string_lossy().into_owned(),
+            content: Some("evil\n".into()),
+            stdin: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
+    }
+
+    #[test]
+    fn prepend_rejects_binary_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("data.bin");
+        fs::write(&file, b"hello\x00world").unwrap();
+
+        let code = run_content_inject(
+            &file.to_string_lossy(),
+            Some("evil\n"),
+            false,
+            ContentPosition::Prepend,
+            &GlobalFlags {
+                apply: true,
+                ..GlobalFlags::test_with_cwd(dir.path())
+            },
+        )
+        .unwrap();
+        assert_eq!(code, exit::FAILURE);
+        assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
     }
 }

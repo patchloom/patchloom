@@ -301,6 +301,54 @@ fn file_prepend_to_deleted_file_errors() {
     );
 }
 
+/// append/prepend must not rewrite binary (NUL) files as text.
+#[test]
+fn file_append_rejects_binary_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.bin");
+    std::fs::write(&file, b"hello\x00world").unwrap();
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+
+    let op = Operation::FileAppend {
+        path: "data.bin".into(),
+        content: "evil\n".into(),
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError, got: {err:#}"
+    );
+    assert!(
+        err.to_string().contains("binary file"),
+        "message should name binary: {err}"
+    );
+    assert!(
+        f.pending.is_empty(),
+        "must not stage a write for a binary append"
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), b"hello\x00world");
+}
+
+#[test]
+fn file_prepend_rejects_binary_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.bin");
+    std::fs::write(&file, b"hello\x00world").unwrap();
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+
+    let op = Operation::FilePrepend {
+        path: "data.bin".into(),
+        content: "evil\n".into(),
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(crate::exit::is_invalid_input(&err), "got: {err:#}");
+    assert_eq!(std::fs::read(&file).unwrap(), b"hello\x00world");
+}
+
 /// file.create through a path component that is a file must fail with
 /// InvalidInputError before staging (no bare tempfile / false backup).
 #[test]

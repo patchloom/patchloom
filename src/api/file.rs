@@ -125,6 +125,7 @@ fn file_write(
                 )
                 .into());
             }
+            crate::ops::file::ensure_not_binary_file(path, &path_str)?;
             let original = std::fs::read_to_string(path)
                 .with_context(|| format!("failed to read {}", path.display()))?;
             let combined = if is_append {

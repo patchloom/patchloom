@@ -596,3 +596,97 @@ fn test_append_json_not_found_sets_error_kind() {
         "append --json missing file should set error_kind: {parsed}"
     );
 }
+
+#[test]
+fn test_append_rejects_binary_file_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.bin");
+    fs::write(&file, b"hello\x00world").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "append",
+            "data.bin",
+            "--content",
+            "evil\n",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("binary file"),
+        "error should name binary: {json}"
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
+}
+
+#[test]
+fn test_prepend_rejects_binary_file_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.bin");
+    fs::write(&file, b"hello\x00world").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "prepend",
+            "data.bin",
+            "--content",
+            "evil\n",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
+}
+
+#[test]
+fn test_tx_append_rejects_binary_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.bin"), b"hello\x00world").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.append", "path": "data.bin", "content": "evil\n"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tx"])
+        .arg(&plan_file)
+        .args(["--apply", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("binary"),
+        "tx append binary: {json}"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("data.bin")).unwrap(),
+        b"hello\x00world"
+    );
+}

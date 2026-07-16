@@ -29,6 +29,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 )
                 .into());
             }
+            // On-disk binary only (in-tx text create then append is fine).
+            if !tx.pending.contains_key(&file_path) {
+                crate::ops::file::ensure_not_binary_file(&file_path, path)?;
+            }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::append_content(existing, content);
             update_file_content(
@@ -61,6 +65,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     format!("file does not exist: {path}"),
                 )
                 .into());
+            }
+            if !tx.pending.contains_key(&file_path) {
+                crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::prepend_content(existing, content);
