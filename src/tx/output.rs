@@ -541,6 +541,30 @@ pub(crate) fn build_error_output(
     }
 }
 
+/// Non-strict lifecycle failure after commit: files are already on disk.
+///
+/// Agents must see `files_changed` / `changes` / `backup_session` so they do
+/// not treat `ok: false` as "nothing wrote" (fixrealloop 2026-07-16).
+pub(crate) fn build_applied_with_error_output(
+    error_kind: &str,
+    error: &str,
+    result: &mut TxExecResult,
+    cwd: &Path,
+    backup_session: Option<&str>,
+) -> TxOutput {
+    let mut output = build_full_tx_output("error", result, cwd);
+    output.ok = false;
+    output.error_kind = Some(error_kind.to_string());
+    output.error = Some(format!(
+        "{error_kind}: {}",
+        format_error_with_backup_hint(error, backup_session)
+    ));
+    if output.backup_session.is_none() {
+        output.backup_session = backup_session.map(str::to_string);
+    }
+    output
+}
+
 /// Map a `TxOutput` (PlanReport) to the traditional exit code for CLI/MCP compat.
 pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
     if report.ok {
@@ -1153,6 +1177,64 @@ mod tests {
         assert_eq!(out.refused[0].match_mode.as_deref(), Some("fuzzy"));
         assert_eq!(out.refused[0].reason, "exact_old_absent");
         assert_eq!(out.refused[0].matched_text.as_deref(), Some("helo world"));
+    }
+
+    /// Non-strict format/validation failure after commit must list applied
+    /// changes (not empty files_changed=0).
+    #[test]
+    fn build_applied_with_error_output_includes_changes_and_backup() {
+        use std::collections::HashMap;
+        let cwd = Path::new("/project");
+        let path = PathBuf::from("/project/a.txt");
+        let mut meta = HashMap::new();
+        meta.insert(
+            path.clone(),
+            ReplaceMatchMeta {
+                mode: crate::api::MatchMode::Exact,
+                score: None,
+                match_count: 1,
+                matched_text: None,
+                refuse_reason: None,
+            },
+        );
+        let mut result = TxExecResult {
+            changes: vec![(path, "hello\n".into(), "world\n".into())],
+            deletions: HashSet::new(),
+            existed_before: {
+                let mut s = HashSet::new();
+                s.insert(PathBuf::from("/project/a.txt"));
+                s
+            },
+            pending: HashMap::new(),
+            tx_reads: vec![],
+            tx_searches: vec![],
+            tx_lints: vec![],
+            tx_mutations: vec![],
+            no_effective_changes: false,
+            replace_no_matches: false,
+            replace_hint: None,
+            replace_match_meta: meta,
+            renames: vec![],
+        };
+        let out = build_applied_with_error_output(
+            "format_failed",
+            "format step failed (step 1, exit code 1, cwd: .)",
+            &mut result,
+            cwd,
+            Some("123_0"),
+        );
+        assert!(!out.ok);
+        assert_eq!(out.error_kind.as_deref(), Some("format_failed"));
+        assert_eq!(out.files_changed, 1);
+        assert_eq!(out.changes.len(), 1);
+        assert_eq!(out.backup_session.as_deref(), Some("123_0"));
+        assert!(
+            out.error
+                .as_deref()
+                .is_some_and(|e| e.contains("backup session") && e.contains("undo")),
+            "{:?}",
+            out.error
+        );
     }
 
     /// Multi-op success with an exact soft no-match must list refused[] so

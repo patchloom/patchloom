@@ -5169,6 +5169,26 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     assert!(error.contains("format_failed"));
     assert!(error.contains("format step failed (step 1, exit code 1, cwd: .)"));
     assert!(!error.contains(secret));
+    // Non-strict format failure keeps writes: agents must see the change list
+    // and a backup session for undo (fixrealloop 2026-07-16).
+    assert_eq!(
+        json["files_changed"], 1,
+        "must report applied writes on non-strict format_failed: {json}"
+    );
+    assert!(
+        json["changes"].as_array().is_some_and(|c| !c.is_empty()),
+        "changes must list applied files: {json}"
+    );
+    assert!(
+        json["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "backup_session required for undo after non-strict format_failed: {json}"
+    );
+    assert!(
+        error.contains("backup session") || error.contains("undo"),
+        "error should hint undo: {error}"
+    );
 }
 
 #[test]
