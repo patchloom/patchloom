@@ -690,3 +690,76 @@ fn test_tx_append_rejects_binary_file() {
         b"hello\x00world"
     );
 }
+
+#[test]
+fn test_replace_sole_binary_target_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.bin"), b"hello\x00world").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json", "replace", "hello", "only.bin", "--new", "hi", "--apply", "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("binary"),
+        "replace sole binary: {json}"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("only.bin")).unwrap(),
+        b"hello\x00world"
+    );
+}
+
+#[test]
+fn test_tidy_check_sole_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.bin"), b"a\x00b  \n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tidy", "check", "only.bin", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input");
+}
+
+#[test]
+fn test_tidy_fix_sole_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.bin"), b"a\x00b  \n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "tidy",
+            "fix",
+            "only.bin",
+            "--trim-trailing-whitespace",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(
+        fs::read(dir.path().join("only.bin")).unwrap(),
+        b"a\x00b  \n"
+    );
+}

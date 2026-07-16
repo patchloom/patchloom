@@ -250,6 +250,11 @@ pub(super) fn run_fix(
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
+        // Sole explicit binary: soft-skip would look like "already tidy".
+        if let Some(err) = crate::ops::file::single_explicit_binary_target(&paths, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         emit_tidy_fix_output(global, &[], None, skipped)?;
         return Ok(exit::SUCCESS);
     }
