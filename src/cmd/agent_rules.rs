@@ -512,7 +512,9 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set \
              `already_exists` (create/rename without force, create race), `not_found` (delete/append/prepend/rename missing source, \
              missing `--files-from`/batch input, missing plan file, missing git blob for AST, \
-             or `read` when every path fails), `invalid_input` (bad flags, non-file target, bad `read --lines`, \
+             or `read` when every path fails), `invalid_input` (bad flags, non-file target, malformed `read --lines` \
+             (0-based or end before start; past-EOF range is `no_matches` exit 3), replace `--nth` past the last \
+             match with live match count in the message, \
              `status` outside a git repo, AST map non-dir, doc merge flag conflicts, invalid `normalize_eol`, \
              md table-append row/table failures, bad selector/for_each templates, MCP bind/TLS config, \
              CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, \
