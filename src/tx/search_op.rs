@@ -234,6 +234,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
     }
 
     // Cap after assertion check. Append order matches walk order.
+    let truncated = *max_results > 0 && all_matches.len() > *max_results;
     if *max_results > 0 {
         all_matches.truncate(*max_results);
     }
@@ -243,6 +244,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         pattern: pattern.clone(),
         match_count: total_match_count,
         matches: all_matches,
+        truncated,
     });
     Ok(())
 }
@@ -524,6 +526,10 @@ mod tests {
         assert_eq!(f.searches[0].match_count, 5);
         // matches vec is truncated to max_results
         assert_eq!(f.searches[0].matches.len(), 2);
+        assert!(
+            f.searches[0].truncated,
+            "agents must see truncated when matches are capped"
+        );
     }
 
     #[test]
