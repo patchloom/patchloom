@@ -60,6 +60,8 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts; always check `matched_text` (#1687, #1694, #1736)
 **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). When some paths write and others soft-refuse, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent` or `below_min_fuzzy_score`) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).
 
+**Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect concatenated pretty multi-documents for `--json`.
+
 Use patchloom when:
 - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)
 - Editing markdown sections, bullets, or tables by heading
