@@ -534,7 +534,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // outside the workspace while computing matches (precomputed write-path
     // guard remains defense-in-depth).
     global.check_paths_contained(&cwd, &args.paths)?;
-    let skipped = crate::files::files_from_missing_entries(global, &cwd)?;
+    let skipped = crate::files::scan_missing_entries(global, &cwd, &args.paths)?;
 
     // Context / pure fuzzy: route through the tx engine where the
     // context_filtered_offset and fallback chain live (#1668).

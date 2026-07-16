@@ -2319,6 +2319,47 @@ fn test_replace_word_boundary_fuzzy_does_not_partial_match() {
     }
 }
 
+/// Explicit missing paths (not only --files-from) must appear in JSON `skipped`.
+#[test]
+fn test_replace_explicit_missing_path_reported_in_json() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    fs::write(&a, "hello\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--quiet", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "hello",
+            "--new",
+            "hi",
+            "a.txt",
+            "missing.txt",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["match_count"], 1, "{v}");
+    let skipped = v["skipped"]
+        .as_array()
+        .expect("skipped array for explicit missing path");
+    assert!(
+        skipped.iter().any(|s| s.as_str() == Some("missing.txt")),
+        "expected missing.txt in skipped: {v}"
+    );
+    assert_eq!(fs::read_to_string(&a).unwrap(), "hi\n");
+}
+
 /// #1756: --files-from missing paths must appear in JSON under --quiet.
 #[test]
 fn test_replace_files_from_missing_reported_in_json() {

@@ -122,16 +122,49 @@ pub(crate) fn files_from_missing_entries(
     let Some(files) = global.read_files_from()? else {
         return Ok(None);
     };
+    Ok(missing_paths_under(cwd, &files))
+}
+
+/// Explicit CLI path args that do not exist under `cwd` (agent JSON `skipped`).
+///
+/// Mirrors [`files_from_missing_entries`] for positional paths so partial
+/// multi-path replace/search is not `ok: true` with only stderr warnings.
+/// Returns `None` when `paths` is empty (directory walk) or every path exists.
+#[cfg(feature = "cli")]
+#[must_use]
+pub(crate) fn explicit_paths_missing_entries(cwd: &Path, paths: &[String]) -> Option<Vec<String>> {
+    if paths.is_empty() {
+        return None;
+    }
+    missing_paths_under(cwd, paths)
+}
+
+/// Prefer `--files-from` missing entries when set; otherwise explicit path args.
+#[cfg(feature = "cli")]
+pub(crate) fn scan_missing_entries(
+    global: &crate::cli::global::GlobalFlags,
+    cwd: &Path,
+    paths: &[String],
+) -> anyhow::Result<Option<Vec<String>>> {
+    if global.files_from.is_some() {
+        files_from_missing_entries(global, cwd)
+    } else {
+        Ok(explicit_paths_missing_entries(cwd, paths))
+    }
+}
+
+#[cfg(feature = "cli")]
+fn missing_paths_under(cwd: &Path, paths: &[String]) -> Option<Vec<String>> {
     let mut missing = Vec::new();
-    for f in files {
-        if !cwd.join(&f).exists() {
-            missing.push(f);
+    for f in paths {
+        if !cwd.join(f).exists() {
+            missing.push(f.clone());
         }
     }
     if missing.is_empty() {
-        Ok(None)
+        None
     } else {
-        Ok(Some(missing))
+        Some(missing)
     }
 }
 

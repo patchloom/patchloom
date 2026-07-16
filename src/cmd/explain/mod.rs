@@ -16,9 +16,10 @@ use describe::describe_operation;
 EXAMPLES:
   patchloom explain plan.json
   cat plan.json | patchloom explain --stdin
+  cat plan.json | patchloom explain -
   patchloom explain plan.yaml --json")]
 pub struct ExplainArgs {
-    /// Path to a tx plan file (JSON, YAML, or TOML).
+    /// Path to a tx plan file (JSON, YAML, or TOML). Use `-` for stdin (same as `tx -` / `--stdin`).
     #[arg(required_unless_present = "stdin")]
     pub path: Option<String>,
 
@@ -38,7 +39,9 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.stdin,
         args.format
     );
-    let (input, path) = if args.stdin {
+    // Path `-` means stdin (parity with `tx -` and `batch -`).
+    let from_stdin = args.stdin || args.path.as_deref() == Some("-");
+    let (input, path) = if from_stdin {
         let mut buf = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
         (buf, None)
