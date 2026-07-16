@@ -200,6 +200,8 @@ pub(crate) fn collect_file_paths_opts(
     if include_hidden {
         builder.hidden(false);
     }
+    // Never enter .git or .patchloom (even when hidden files are included).
+    builder.filter_entry(|e| !should_skip_walk_dirname(e.file_name()));
     // Support advanced layered ignores (e.g. .agentignore) for parity with library
     // `collect_file_paths_with_ignores` and `api::SearchOptions` (#821).
     for name in &global.ignore_file {
@@ -233,8 +235,10 @@ pub(crate) fn collect_file_paths_opts(
             let Ok(entry) = result else {
                 return WalkState::Continue;
             };
-            // Skip .patchloom directory (internal backup storage, #1349).
-            if entry.file_name() == ".patchloom" {
+            // Skip VCS / internal dirs even when include_hidden=true (tidy).
+            // .git: objects are binary; walking them emits invalid-UTF-8 noise
+            // (fixrealloop 2026-07-15). .patchloom: backup storage (#1349).
+            if should_skip_walk_dirname(entry.file_name()) {
                 return WalkState::Skip;
             }
             if entry.file_type().is_some_and(|ft| ft.is_file()) {
@@ -533,6 +537,15 @@ fn apply_exclude_globs(
     Ok(())
 }
 
+/// Directory basenames we never descend into when walking the tree.
+///
+/// Applied even with `include_hidden=true` (tidy needs dotfiles but not VCS
+/// object stores or Patchloom backup sessions).
+#[cfg(any(feature = "cli", feature = "files"))]
+fn should_skip_walk_dirname(name: &std::ffi::OsStr) -> bool {
+    name == ".git" || name == ".patchloom"
+}
+
 /// Collect files while respecting .gitignore + custom ignore files (e.g. .agentignore)
 /// + additional exclude globs.
 ///
@@ -549,15 +562,13 @@ pub fn collect_file_paths_with_ignores(
     if include_hidden {
         builder.hidden(false);
     }
+    // Do not enter .git / .patchloom (filter before build so children are never visited).
+    builder.filter_entry(|e| !should_skip_walk_dirname(e.file_name()));
     for name in custom_ignore_filenames {
         builder.add_custom_ignore_filename(name);
     }
     let mut paths: Vec<PathBuf> = Vec::new();
     for entry in builder.build().filter_map(Result::ok) {
-        // Skip .patchloom directory (internal backup storage, #1349).
-        if entry.file_name() == ".patchloom" {
-            continue;
-        }
         if entry.file_type().is_some_and(|ft| ft.is_file()) {
             paths.push(entry.into_path());
         }
@@ -1039,6 +1050,41 @@ mod tests {
         assert!(
             !rels.iter().any(|r| r.contains(".patchloom")),
             ".patchloom files should be excluded even with include_hidden=true: {rels:?}"
+        );
+    }
+
+    /// tidy uses include_hidden=true so .env is checked; .git must still be skipped
+    /// (otherwise binary objects cause invalid-UTF-8 skip noise on stderr).
+    #[test]
+    #[cfg(feature = "cli")]
+    fn collect_file_paths_opts_skips_git_directory_when_hidden() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("real.txt"), "hello\n").unwrap();
+        fs::create_dir_all(root.join(".git/objects/ab")).unwrap();
+        // Invalid UTF-8 "object" that would trip the text reader if walked.
+        fs::write(root.join(".git/objects/ab/cdef"), [0xffu8, 0xfe, 0x00]).unwrap();
+        fs::write(root.join(".env"), "SECRET=1\n").unwrap();
+
+        let global = GlobalFlags::test_with_cwd(root);
+        let paths = collect_file_paths_opts(&[".".to_string()], &global, true, Some(root)).unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| p.strip_prefix(root).unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(
+            rels.iter()
+                .any(|r| r == "real.txt" || r.ends_with("real.txt")),
+            "real.txt should be collected: {rels:?}"
+        );
+        assert!(
+            rels.iter().any(|r| r == ".env" || r.ends_with(".env")),
+            ".env should be collected with include_hidden: {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.contains(".git")),
+            ".git must not be walked with include_hidden=true: {rels:?}"
         );
     }
 

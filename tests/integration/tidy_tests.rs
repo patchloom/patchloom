@@ -673,3 +673,49 @@ fn test_tidy_fix_files_from_missing_reports_skipped() {
     assert_eq!(skipped.len(), 1, "{parsed}");
     assert_eq!(skipped[0], "missing.txt");
 }
+
+/// tidy check on a git repo must not walk .git/objects (invalid-UTF-8 noise).
+#[test]
+fn test_tidy_check_skips_git_directory() {
+    let dir = TempDir::new().unwrap();
+    // Minimal git-like layout (no real git required).
+    fs::create_dir_all(dir.path().join(".git/objects/ab")).unwrap();
+    fs::write(
+        dir.path().join(".git/objects/ab/cdef"),
+        [0xffu8, 0xfe, 0x00],
+    )
+    .unwrap();
+    fs::write(dir.path().join("tw.txt"), "x  \n").unwrap();
+    fs::write(dir.path().join(".env"), "A=1  \n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tidy", "check", "."])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains(".git"),
+        "tidy must not touch .git: {stderr}"
+    );
+    assert!(
+        !stderr.contains("invalid UTF-8"),
+        "no invalid-UTF-8 noise from .git objects: {stderr}"
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    // Should still find issues in real files including hidden .env
+    assert!(
+        parsed["issue_count"].as_u64().unwrap_or(0) >= 1,
+        "expected issues in tw.txt/.env: {parsed}"
+    );
+    let issues = parsed["issues"].as_array().unwrap();
+    assert!(
+        !issues
+            .iter()
+            .any(|i| i["path"].as_str().unwrap_or("").contains(".git")),
+        "issues must not list .git paths: {parsed}"
+    );
+}
