@@ -237,7 +237,7 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let skipped = crate::files::files_from_missing_entries(global, &cwd)?;
+    let skipped = crate::files::scan_missing_entries(global, &cwd, paths)?;
     let issues = collect_issues(paths, global)?;
     if !global.quiet || global.json || global.jsonl {
         render_issues(&issues, global, skipped)?;

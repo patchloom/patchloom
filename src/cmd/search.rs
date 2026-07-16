@@ -372,7 +372,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let results = collect_matches(&args, global)?;
     let cwd = global.resolve_cwd()?;
-    let skipped = crate::files::files_from_missing_entries(global, &cwd)?;
+    let skipped = crate::files::scan_missing_entries(global, &cwd, &args.paths)?;
 
     // --assert-count mode: succeed only if total count equals N.
     // JSON matches MCP search_files: ok == matched; mismatch sets

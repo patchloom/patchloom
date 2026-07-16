@@ -233,6 +233,19 @@ fn test_explain_stdin() {
         .stdout(predicates::str::contains("Delete file x.txt"));
 }
 
+/// Path `-` is stdin (parity with `tx -` / `batch -`).
+#[test]
+fn test_explain_dash_path_reads_stdin() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "explain", "-"])
+        .write_stdin(r#"{"version": 1, "operations": [{"op": "file.delete", "path": "x.txt"}]}"#)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(r#""ok": true"#))
+        .stdout(predicates::str::contains("file.delete"));
+}
+
 #[test]
 fn test_explain_stdin_takes_precedence_over_path() {
     let dir = TempDir::new().unwrap();
