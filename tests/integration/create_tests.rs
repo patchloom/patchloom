@@ -778,3 +778,30 @@ fn test_create_json_already_exists_sets_error_kind() {
         "create --json existing file should set error_kind: {parsed}"
     );
 }
+
+#[test]
+fn test_create_apply_json_reports_applied_true() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("new.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("create")
+        .arg(&file)
+        .arg("--content")
+        .arg("hello\n")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(
+        json["applied"], true,
+        "create --apply --json must set applied:true for agent parity with delete: {json}"
+    );
+}

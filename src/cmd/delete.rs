@@ -1,5 +1,4 @@
 use crate::cli::global::GlobalFlags;
-use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine_no_preview_diffs;
 use crate::plan::Operation;
 use clap::Args;
@@ -54,7 +53,7 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         |phase, _diff| DeleteOutput {
             ok: true,
             path: args.file.clone(),
-            applied: matches!(phase, WritePhase::Applied | WritePhase::Confirmed(true)),
+            applied: phase.applied_flag().unwrap_or(false),
         },
         &check_msg,
         &apply_msg,

@@ -81,6 +81,19 @@ pub enum WritePhase {
     Preview,
 }
 
+impl WritePhase {
+    /// Agent-facing `applied` for success JSON: `Some(true)` after `--apply`,
+    /// `Some(confirmed)` after confirm+json, `None` for check/preview (omit).
+    #[must_use]
+    pub fn applied_flag(self) -> Option<bool> {
+        match self {
+            WritePhase::Applied => Some(true),
+            WritePhase::Confirmed(a) => Some(a),
+            WritePhase::Check(_) | WritePhase::Preview => None,
+        }
+    }
+}
+
 /// How a write command should behave given the global flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WriteMode {
@@ -393,6 +406,15 @@ fn plain_diff_opt(diffs: &[FileDiff]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn applied_flag_maps_phases() {
+        assert_eq!(WritePhase::Applied.applied_flag(), Some(true));
+        assert_eq!(WritePhase::Confirmed(true).applied_flag(), Some(true));
+        assert_eq!(WritePhase::Confirmed(false).applied_flag(), Some(false));
+        assert_eq!(WritePhase::Preview.applied_flag(), None);
+        assert_eq!(WritePhase::Check(true).applied_flag(), None);
+    }
 
     #[test]
     fn classify_priority_check_over_apply() {
