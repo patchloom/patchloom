@@ -48,6 +48,7 @@ fn file_write(
                     msg: format!("target is not a file: {}", path.display()),
                 }));
             }
+            crate::ops::file::ensure_parent_components_are_directories(path)?;
             let original = if path.exists() {
                 std::fs::read_to_string(path)
                     .with_context(|| format!("failed to read {}", path.display()))?

@@ -647,7 +647,7 @@ fn test_rename_creates_parent_dirs() {
 }
 
 // ---------------------------------------------------------------------------
-// create --check parent directory verification
+// rename backup session
 // ---------------------------------------------------------------------------
 
 #[test]

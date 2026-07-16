@@ -483,72 +483,60 @@ fn test_tx_rollback_preserves_original_content() {
 
 #[test]
 fn test_tx_mid_commit_failure_rolls_back() {
+    // Parent-as-file is rejected at stage time (invalid_input). Inject write
+    // failure in-process so the second path fails only during commit.
     let dir = TempDir::new().unwrap();
-    let good = dir.path().join("good.txt");
+    let good = dir.path().join("a_good.txt");
     fs::write(&good, "original\n").unwrap();
-    let blocker = dir.path().join("blocker");
-    fs::write(&blocker, "not-a-directory").unwrap();
 
-    let plan = serde_json::json!({
+    let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
         "version": 1,
         "operations": [
-            {"op": "file.create", "path": "good.txt", "content": "changed\n", "force": true},
-            {"op": "file.create", "path": "blocker/child.txt", "content": "fail\n"}
+            {"op": "file.create", "path": "a_good.txt", "content": "changed\n", "force": true},
+            {"op": "file.create", "path": "z_fail/child.txt", "content": "fail\n"}
         ]
-    });
-    let plan_file = dir.path().join("plan.json");
-    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+    }))
+    .unwrap();
 
-    let output = Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("--json")
-        .arg("tx")
-        .arg(&plan_file)
-        .arg("--apply")
-        .output()
-        .unwrap();
+    let _write_fail = patchloom::cmd::tx::WriteFailGuard::fail_paths_containing("z_fail");
+    let (code, json_str) = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
 
-    assert_eq!(output.status.code(), Some(7)); // ROLLBACK after mid-commit failure
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        code, 7,
+        "ROLLBACK after mid-commit failure; json: {json_str}"
+    );
+    let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
     assert_eq!(json["error_kind"], "rollback");
     assert!(json["backup_session"].is_string());
     assert_eq!(fs::read_to_string(&good).unwrap(), "original\n");
-    assert!(!dir.path().join("blocker/child.txt").exists());
+    assert!(!dir.path().join("z_fail/child.txt").exists());
 }
 
 /// End-to-end tx path when mid-commit restore cannot complete (exit 1,
 /// `rollback_failed`). Uses [`patchloom::cmd::tx::RestoreFailGuard`] because
 /// racing filesystem permissions against restore is unreliable.
 ///
-/// This test is unrelated to library embedding (#792); it exists to cover
-/// internal tx rollback error paths. The "z_blocker" / "a_good" naming
-/// ensures a successful write precedes the failing one (lexical sort),
-/// making the restore-fail case reliably hit across platforms / temp dirs.
+/// Mid-commit write failure is injected via [`WriteFailGuard`] (parent-as-file
+/// no longer reaches commit after stage-time parent validation).
 
 #[test]
 fn test_tx_rollback_failed_when_restore_incomplete() {
     let dir = TempDir::new().unwrap();
-    // Use names so lexical sort in changes puts the successful write first,
-    // ensuring a real on-disk change exists before the failing write attempt.
-    // This makes restore path (and rollback_failed case) reliably exercised
-    // independent of temp dir internals / macOS symlink behavior in /tmp etc.
+    // Lexical sort: successful write (a_good) before failing write (z_fail).
     let good = dir.path().join("a_good.txt");
     fs::write(&good, "original\n").unwrap();
-    let blocker = dir.path().join("z_blocker");
-    fs::write(&blocker, "not-a-directory").unwrap();
 
     let plan: patchloom::plan::Plan = serde_json::from_value(serde_json::json!({
         "version": 1,
         "operations": [
             {"op": "file.create", "path": "a_good.txt", "content": "changed\n", "force": true},
-            {"op": "file.create", "path": "z_blocker/child.txt", "content": "fail\n"}
+            {"op": "file.create", "path": "z_fail/child.txt", "content": "fail\n"}
         ]
     }))
     .unwrap();
 
-    let _guard = patchloom::cmd::tx::RestoreFailGuard::engage();
+    let _write_fail = patchloom::cmd::tx::WriteFailGuard::fail_paths_containing("z_fail");
+    let _restore_fail = patchloom::cmd::tx::RestoreFailGuard::engage();
     let (code, json_str) = patchloom::cmd::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
 
     assert_eq!(code, 1, "json: {json_str}");

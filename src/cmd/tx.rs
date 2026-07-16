@@ -97,7 +97,7 @@ fn print_human_replace_honesty(result: &TxExecResult, cwd: &Path, quiet: bool) {
 // Direct execution (MCP / in-process callers)
 // ---------------------------------------------------------------------------
 
-pub use crate::tx::RestoreFailGuard;
+pub use crate::tx::{RestoreFailGuard, WriteFailGuard};
 
 fn handle_commit_error(err: CommitError, structured: bool, compact: bool) -> anyhow::Result<u8> {
     let error_kind = if err.rollback_ok {

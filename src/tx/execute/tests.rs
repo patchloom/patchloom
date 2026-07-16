@@ -301,6 +301,37 @@ fn file_prepend_to_deleted_file_errors() {
     );
 }
 
+/// file.create through a path component that is a file must fail with
+/// InvalidInputError before staging (no bare tempfile / false backup).
+#[test]
+fn file_create_rejects_parent_that_is_a_file() {
+    let dir = TempDir::new().unwrap();
+    let blocking = dir.path().join("notdir");
+    std::fs::write(&blocking, "file\n").unwrap();
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+
+    let op = Operation::FileCreate {
+        path: "notdir/child.txt".into(),
+        content: "x\n".into(),
+        force: None,
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError, got: {err:#}"
+    );
+    assert!(
+        err.to_string().contains("not a directory"),
+        "message should name the problem: {err}"
+    );
+    assert!(
+        f.pending.is_empty(),
+        "must not stage a write when parent is not a directory"
+    );
+}
+
 #[test]
 fn md_move_section_same_file_by_path_equality() {
     // Regression: MdMoveSection with to=Some(same_path) must detect
