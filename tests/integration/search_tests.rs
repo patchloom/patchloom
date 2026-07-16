@@ -1294,3 +1294,51 @@ fn test_search_files_from_missing_reported_in_json() {
         "expected missing.txt in skipped: {v}"
     );
 }
+
+/// --max-results caps the matches array while match_count stays full.
+/// Agents need truncated=true so they do not treat matches as complete.
+#[test]
+fn test_search_max_results_json_sets_truncated() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("many.txt");
+    fs::write(&file, "hit\nhit\nhit\nhit\nhit\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hit", "many.txt", "--max-results", "2"])
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["match_count"], 5, "full count: {v}");
+    assert_eq!(v["matches"].as_array().unwrap().len(), 2, "{v}");
+    assert_eq!(v["truncated"], true, "must flag truncation: {v}");
+}
+
+#[test]
+fn test_search_json_omits_truncated_when_complete() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("few.txt");
+    fs::write(&file, "hit\nhit\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hit", "few.txt"])
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["match_count"], 2);
+    assert_eq!(v["matches"].as_array().unwrap().len(), 2);
+    assert!(
+        v.get("truncated").is_none() || v["truncated"] == false,
+        "no truncation flag when complete: {v}"
+    );
+}

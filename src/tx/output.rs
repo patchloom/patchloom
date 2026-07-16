@@ -141,6 +141,10 @@ pub struct TxSearchResult {
     pub pattern: String,
     pub match_count: usize,
     pub matches: Vec<TxSearchMatch>,
+    /// True when `matches` was capped by `max_results` while `match_count` is
+    /// the full total (same honesty as CLI `search --json` truncated).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
 }
 
 /// A file read result in the tx output.

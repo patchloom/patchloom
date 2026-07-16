@@ -71,6 +71,11 @@ struct SearchOutput {
     files: Vec<SearchFileEntry>,
     match_count: usize,
     file_count: usize,
+    /// True when `matches` was capped by `--max-results` while `match_count`
+    /// is the full total. Agents must not treat `matches.len()` as complete
+    /// coverage when this is set (fixrealloop 2026-07-16).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    truncated: bool,
     /// Machine-readable failure kind for agents (`no_matches`), aligned with
     /// CLI replace / tx JSON. Omitted on success.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -188,12 +193,16 @@ pub(crate) fn format_results(
         } else {
             Vec::new()
         };
+        let match_count: usize = results.file_match_counts.values().sum();
+        // match_count is always full; matches may be capped by --max-results.
+        let truncated = args.max_results > 0 && results.matches.len() < match_count;
         let payload = SearchOutput {
             ok: true,
-            match_count: results.file_match_counts.values().sum(),
+            match_count,
             file_count: results.file_match_counts.len(),
             matches: results.matches,
             files,
+            truncated,
             error_kind: None,
             error: None,
             skipped,
@@ -405,6 +414,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             file_count: 0,
             matches: vec![],
             files: vec![],
+            truncated: false,
             error_kind: Some("no_matches"),
             error: Some(format!(
                 "no matches for '{}' in {path_desc}",
