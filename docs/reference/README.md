@@ -492,6 +492,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** An agent or CI pipeline needs to verify an invariant (e.g. "exactly 18 markers exist") in one call instead of searching and then comparing the count manually.
 - **Prefer instead:** Use plain `search --count` when you want to see counts without a pass/fail assertion.
 
+<!-- ref:search-mode:max-results -->
+### `search --max-results`
+
+- **What it does:** Caps the detailed `matches` array under `--json` (and line-oriented output) while `match_count` stays the full total. When the array is capped, JSON sets `truncated: true` (omitted when complete). Count and files-with-matches modes do not set `truncated` (they never build the matches array). Tx plan search results use the same `truncated` field.
+- **Use when:** Agents need a bounded sample of hits without discarding the true total for budgeting or pagination.
+- **Prefer instead:** Omit `--max-results` when you need every match line, or use `--count` / `--files-with-matches` when you only need totals or path membership.
+
 <!-- ref:replace-mode:regex -->
 ### `replace --regex`
 

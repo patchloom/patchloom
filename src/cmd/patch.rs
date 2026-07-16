@@ -271,12 +271,19 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::PARSE_ERROR);
         }
         Err(DiffReadError::IoError(path, e)) => {
+            // Missing patch file is not a parse failure; agents branch on
+            // error_kind (MPI 2026-07-16: parse_error misclassified NotFound).
+            let (kind, code) = if e.kind() == std::io::ErrorKind::NotFound {
+                ("not_found", exit::FAILURE)
+            } else {
+                ("parse_error", exit::PARSE_ERROR)
+            };
             emit_error(
                 global,
                 &format!("patch: failed to read '{path}': {e}"),
-                "parse_error",
+                kind,
             )?;
-            return Ok(exit::PARSE_ERROR);
+            return Ok(code);
         }
         Err(DiffReadError::StdinError(e)) => {
             emit_error(
