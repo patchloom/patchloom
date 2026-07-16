@@ -83,6 +83,32 @@ fn test_schema_prompt_output() {
     assert!(stdout.contains("replace"));
 }
 
+/// Global --json must wrap --format prompt as JSON (agents always pass --json).
+#[test]
+fn test_schema_prompt_with_global_json_is_valid_envelope() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "schema", "--format", "prompt", "--tier", "weak"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+        panic!(
+            "stdout must be JSON under --json, got parse error {e}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["format"], "prompt", "{v}");
+    let content = v["content"].as_str().expect("content string");
+    assert!(
+        content.contains("# Patchloom Operations"),
+        "prompt body missing: {}",
+        &content[..content.len().min(120)]
+    );
+}
+
 #[test]
 fn test_schema_tier_filtering() {
     let weak_output = Command::cargo_bin("patchloom")
