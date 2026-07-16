@@ -33,13 +33,23 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     let auto_yes = args.yes;
     let quiet = global.quiet;
+    let structured = global.json || global.jsonl;
 
-    // Helper: print to stderr unless --quiet.
+    // Helper: print to stderr unless --quiet or structured (JSON owns stdout).
     macro_rules! status {
         ($($arg:tt)*) => {
-            if !quiet { eprintln!($($arg)*); }
+            if !quiet && !structured { eprintln!($($arg)*); }
         };
     }
+
+    #[derive(Default)]
+    struct InitReport {
+        agent_rules: String,
+        agent_rules_path: Option<String>,
+        completions: String,
+        gitignore: String,
+    }
+    let mut report = InitReport::default();
 
     // 1. Generate and write agent rules.
     let rules = generate_agent_rules(&AgentRulesArgs {
@@ -55,13 +65,16 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let rel_target = target_path
         .strip_prefix(&cwd)
         .unwrap_or(&target_path)
-        .display();
+        .display()
+        .to_string();
+    report.agent_rules_path = Some(rel_target.clone());
 
     if action == "append" {
         // Check if patchloom rules are already present.
         let content = std::fs::read_to_string(&target_path)
             .with_context(|| format!("reading existing {}", target_path.display()))?;
         if content.contains(AGENT_RULES_GENERATED_MARKER) {
+            report.agent_rules = "skipped_already_present".into();
             status!("{rel_target} already contains patchloom rules, skipping.");
         } else if auto_yes || confirm(&format!("Append patchloom rules to {rel_target}?")) {
             let mut content = content;
@@ -72,15 +85,19 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             content.push_str(&rules);
             std::fs::write(&target_path, content)
                 .with_context(|| format!("writing {}", target_path.display()))?;
+            report.agent_rules = "appended".into();
             status!("appended patchloom rules to {rel_target}");
         } else {
+            report.agent_rules = "skipped".into();
             status!("skipped {rel_target}");
         }
     } else if auto_yes || confirm(&format!("Create {rel_target}?")) {
         std::fs::write(&target_path, &rules)
             .with_context(|| format!("writing {}", target_path.display()))?;
+        report.agent_rules = "created".into();
         status!("created {rel_target}");
     } else {
+        report.agent_rules = "skipped".into();
         status!("skipped {rel_target}");
     }
 
@@ -96,6 +113,7 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             });
             if let Err(e) = parent_ready {
+                report.completions = format!("failed:{e}");
                 status!("failed to prepare completion directory: {e}");
                 let cmd = completion_command(&shell);
                 status!("\nshell completions ({shell}):");
@@ -108,35 +126,56 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 ))
             {
                 match generate_completions(&shell, &target) {
-                    Ok(()) => status!("installed {shell} completions to {}", target.display()),
-                    Err(e) => status!("failed to install completions: {e}"),
+                    Ok(()) => {
+                        report.completions = format!("installed:{shell}");
+                        status!("installed {shell} completions to {}", target.display());
+                    }
+                    Err(e) => {
+                        report.completions = format!("failed:{e}");
+                        status!("failed to install completions: {e}");
+                    }
                 }
             } else {
+                report.completions = format!("hint:{shell}");
                 let cmd = completion_command(&shell);
                 status!("\nshell completions ({shell}):");
                 status!("  {cmd}");
             }
         } else {
+            report.completions = format!("hint:{shell}");
             let cmd = completion_command(&shell);
             status!("\nshell completions ({shell}):");
             status!("  {cmd}");
         }
-    } else if !quiet {
-        eprintln!("\nshell completions:");
-        eprintln!("  patchloom completions <bash|zsh|fish|elvish>");
+    } else {
+        report.completions = "hint:all".into();
+        if !quiet && !structured {
+            eprintln!("\nshell completions:");
+            eprintln!("  patchloom completions <bash|zsh|fish|elvish>");
+        }
     }
 
     // 3. Keep undo backups out of git noise (pairs with `status` filtering).
     match ensure_gitignore_patchloom(&cwd) {
-        Ok(GitignorePatchloom::Created) => status!("created .gitignore with .patchloom/"),
-        Ok(GitignorePatchloom::Appended) => status!("appended .patchloom/ to .gitignore"),
+        Ok(GitignorePatchloom::Created) => {
+            report.gitignore = "created".into();
+            status!("created .gitignore with .patchloom/");
+        }
+        Ok(GitignorePatchloom::Appended) => {
+            report.gitignore = "appended".into();
+            status!("appended .patchloom/ to .gitignore");
+        }
         Ok(GitignorePatchloom::AlreadyPresent) => {
+            report.gitignore = "already_present".into();
             status!(".gitignore already ignores .patchloom/");
         }
-        Err(e) => status!("could not update .gitignore: {e}"),
+        Err(e) => {
+            report.gitignore = format!("error:{e}");
+            status!("could not update .gitignore: {e}");
+        }
     }
 
-    if !quiet {
+    if !quiet && !structured {
         // 4. MCP setup hint.
         eprintln!();
         if cfg!(feature = "mcp") {
@@ -164,6 +203,28 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         eprintln!();
         eprintln!("setup complete.");
+    }
+
+    if structured {
+        #[derive(serde::Serialize)]
+        struct InitJson<'a> {
+            ok: bool,
+            agent_rules: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            agent_rules_path: Option<&'a str>,
+            completions: &'a str,
+            gitignore: &'a str,
+            mcp_available: bool,
+        }
+        let payload = InitJson {
+            ok: true,
+            agent_rules: &report.agent_rules,
+            agent_rules_path: report.agent_rules_path.as_deref(),
+            completions: &report.completions,
+            gitignore: &report.gitignore,
+            mcp_available: cfg!(feature = "mcp"),
+        };
+        global.emit_json(&payload)?;
     }
     Ok(exit::SUCCESS)
 }

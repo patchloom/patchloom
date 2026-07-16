@@ -356,6 +356,33 @@ fn test_read_json_all_fail_returns_error_object() {
     );
 }
 
+/// Directory targets are not missing files: agents must not retry as create.
+#[test]
+fn test_read_directory_json_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("is_dir");
+    fs::create_dir(&sub).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "read"])
+        .arg(&sub)
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "directory read must be invalid_input, not not_found: {json}"
+    );
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("not a file"),
+        "error should say not a file: {json}"
+    );
+}
+
 #[test]
 fn test_read_jsonl_all_fail_returns_error_object() {
     let output = Command::cargo_bin("patchloom")

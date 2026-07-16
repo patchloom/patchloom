@@ -143,6 +143,37 @@ fn test_init_quiet_suppresses_output() {
     assert!(stderr.is_empty(), "stderr should be empty with --quiet");
 }
 
+/// Global --json must not leave agents with human text on stdout.
+#[test]
+fn test_init_json_emits_structured_report() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "init", "--yes", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+        panic!(
+            "init --json must be JSON ({e}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["agent_rules"], "created", "{json}");
+    assert_eq!(json["agent_rules_path"], "AGENTS.md", "{json}");
+    assert!(
+        json["gitignore"].as_str().is_some_and(|s| !s.is_empty()),
+        "gitignore field required: {json}"
+    );
+    assert!(dir.path().join("AGENTS.md").exists());
+}
+
 #[test]
 fn test_init_falls_back_to_completion_command_when_completion_dir_creation_fails() {
     let dir = TempDir::new().unwrap();

@@ -31,8 +31,48 @@ struct ReadOutput {
 
 pub(crate) use crate::ops::read::{LineRange, parse_line_range, select_lines};
 
-fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, String> {
-    let content = fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+/// Per-path read failure with a stable agent `error_kind`.
+#[derive(Debug, Clone)]
+struct ReadFail {
+    kind: &'static str,
+    msg: String,
+}
+
+impl std::fmt::Display for ReadFail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, ReadFail> {
+    let p = std::path::Path::new(path);
+    if p.exists() && !p.is_file() {
+        return Err(ReadFail {
+            kind: "invalid_input",
+            msg: format!("{path}: target is not a file"),
+        });
+    }
+    let content = fs::read_to_string(path).map_err(|e| {
+        let kind = if e.kind() == std::io::ErrorKind::NotFound {
+            "not_found"
+        } else if e.kind() == std::io::ErrorKind::IsADirectory {
+            "invalid_input"
+        } else {
+            // Permission denied and other IO: still surface as not_found for
+            // historical single-path "all failed" envelope? Prefer generic
+            // invalid_input only for directory-like cases; keep not_found for
+            // missing paths and leave other IO as not_found-ish for agents.
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                "invalid_input"
+            } else {
+                "not_found"
+            }
+        };
+        ReadFail {
+            kind,
+            msg: format!("{path}: {e}"),
+        }
+    })?;
 
     // Fast path: no line range requested, skip split/join (#169).
     if lines.is_none() {
@@ -54,10 +94,13 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
     // (fixrealloop 2026-07-15).
     if selected.start_line == 0 {
         let n = selected.total_lines;
-        return Err(format!(
-            "{path}: line range outside file ({n} line{})",
-            if n == 1 { "" } else { "s" }
-        ));
+        return Err(ReadFail {
+            kind: "no_matches",
+            msg: format!(
+                "{path}: line range outside file ({n} line{})",
+                if n == 1 { "" } else { "s" }
+            ),
+        });
     }
 
     Ok(ReadOutput {
@@ -68,6 +111,28 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Str
         total_lines: selected.total_lines,
         content: selected.content,
     })
+}
+
+/// Pick a single envelope kind when every path failed (or for partial skipped).
+fn classify_read_failures(errors: &[ReadFail]) -> (&'static str, u8) {
+    if errors.is_empty() {
+        return ("not_found", exit::FAILURE);
+    }
+    if errors.iter().all(|e| e.kind == "no_matches") {
+        return ("no_matches", exit::NO_MATCHES);
+    }
+    if errors.iter().all(|e| e.kind == "invalid_input") {
+        return ("invalid_input", exit::FAILURE);
+    }
+    if errors.iter().all(|e| e.kind == "not_found") {
+        return ("not_found", exit::FAILURE);
+    }
+    // Mixed failures (e.g. missing + directory): prefer invalid_input so agents
+    // do not treat a directory path as create-missing.
+    if errors.iter().any(|e| e.kind == "invalid_input") {
+        return ("invalid_input", exit::FAILURE);
+    }
+    ("not_found", exit::FAILURE)
 }
 
 pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -92,7 +157,7 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let multi = args.files.len() > 1;
     let mut outputs: Vec<ReadOutput> = Vec::new();
-    let mut errors: Vec<String> = Vec::new();
+    let mut errors: Vec<ReadFail> = Vec::new();
 
     for (i, path) in args.files.iter().enumerate() {
         let resolved = cwd.join(path);
@@ -124,16 +189,14 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if errors.len() == args.files.len() {
-        let msg = errors.join("\n");
-        // Prefer no_matches when every path failed only because --lines is past EOF.
-        let all_range_outside = errors.iter().all(|e| e.contains("line range outside file"));
-        if all_range_outside {
-            global.emit_error_json_kind(Some("no_matches"), &msg)?;
-            return Ok(exit::NO_MATCHES);
-        }
-        // Prefer not_found when every path failed (typical: missing files).
-        global.emit_error_json_kind(Some("not_found"), &msg)?;
-        return Ok(exit::FAILURE);
+        let msg = errors
+            .iter()
+            .map(|e| e.msg.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (kind, code) = classify_read_failures(&errors);
+        global.emit_error_json_kind(Some(kind), &msg)?;
+        return Ok(code);
     }
 
     if global.json {
@@ -150,12 +213,12 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 error_kind: &'static str,
                 error: String,
             }
-            // Errors are "{path}: {io}"; keep full diagnostic string.
+            let (kind, _) = classify_read_failures(&errors);
             let report = PartialReadReport {
                 ok: false,
                 files: outputs,
-                skipped: errors.clone(),
-                error_kind: "not_found",
+                skipped: errors.iter().map(|e| e.msg.clone()).collect(),
+                error_kind: kind,
                 error: format!("partial read failure: {} path(s) failed", errors.len()),
             };
             global.emit_json(&report)?;
@@ -337,8 +400,9 @@ mod tests {
             "empty file with --lines must not look like success: {result:?}"
         );
         let err = result.unwrap_err();
+        assert_eq!(err.kind, "no_matches");
         assert!(
-            err.contains("line range outside file"),
+            err.msg.contains("line range outside file"),
             "expected outside-file error, got: {err}"
         );
     }
@@ -351,8 +415,9 @@ mod tests {
         let result = read_one_file(file.to_str().unwrap(), Some((5, Some(10))));
         assert!(result.is_err(), "expected error, got Ok: {result:?}");
         let err = result.unwrap_err();
+        assert_eq!(err.kind, "no_matches");
         assert!(
-            err.contains("line range outside file") && err.contains("3 lines"),
+            err.msg.contains("line range outside file") && err.msg.contains("3 lines"),
             "got: {err}"
         );
     }
@@ -361,6 +426,17 @@ mod tests {
     fn read_one_file_nonexistent_returns_error() {
         let result = read_one_file("/tmp/does-not-exist-patchloom-test.txt", None);
         assert!(result.is_err(), "expected error, got Ok: {result:?}");
+        let err = result.unwrap_err();
+        assert_eq!(err.kind, "not_found");
+    }
+
+    #[test]
+    fn read_one_file_directory_is_invalid_input() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let result = read_one_file(dir.path().to_str().unwrap(), None);
+        let err = result.expect_err("directory must fail");
+        assert_eq!(err.kind, "invalid_input");
+        assert!(err.msg.contains("not a file"), "got: {err}");
     }
 
     #[test]
