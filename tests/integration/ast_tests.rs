@@ -969,3 +969,76 @@ fn test_ast_list_whitespace_only_path_rejected() {
         .code(1)
         .stderr(predicate::str::contains("path must not be empty"));
 }
+
+// ---------------------------------------------------------------------------
+// ast validate must not vacuous-succeed on unsupported / empty targets
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_validate_unsupported_language_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notes.txt"), "not source code\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "ast", "validate", "notes.txt"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "unsupported language must not exit 0; stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "no_matches");
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Unsupported language"),
+        "error should name unsupported language: {json}"
+    );
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_validate_empty_dir_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("empty")).unwrap();
+    fs::write(dir.path().join("empty/readme.md"), "# no grammar\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "ast", "validate", "empty"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "dir with no source files must not vacuous-succeed; stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "no_matches");
+}
+
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_validate_ok_rust_still_succeeds() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.rs"), "fn main() {}\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "ast", "validate", "ok.rs"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let arr = json.as_array().expect("validate --json is an array");
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["valid"], true);
+}
