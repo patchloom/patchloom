@@ -5,10 +5,10 @@
 $packageName = $env:ChocolateyPackageName
 $toolsDir = "$(Split-Path -Parent $MyInvocation.MyCommand.Definition)"
 
-$url64 = 'https://github.com/patchloom/patchloom/releases/download/patchloom-v0.13.0/patchloom-x86_64-pc-windows-msvc.zip'
-$checksum64 = 'b194104e93904c82a9ffd30b5a6f9125b1ca41848b24c63353ec4bd775c332f1'
-$urlArm64 = 'https://github.com/patchloom/patchloom/releases/download/patchloom-v0.13.0/patchloom-aarch64-pc-windows-msvc.zip'
-$checksumArm64 = '1e96356a395d74c86eac9e1ef63617bd2e87f755cb6cd158e97cabc0f1a8dc5d'
+$url64 = 'https://github.com/patchloom/patchloom/releases/download/patchloom-v0.14.0/patchloom-x86_64-pc-windows-msvc.zip'
+$checksum64 = '6fa31bea8c934840723d02070658e798bc121a5f82ea1f70f5630808a2a9b41d'
+$urlArm64 = 'https://github.com/patchloom/patchloom/releases/download/patchloom-v0.14.0/patchloom-aarch64-pc-windows-msvc.zip'
+$checksumArm64 = '480f5cb567fc0503d14c8d2b0ef11f134cdd08389d66c8d2ccaf0567174ed064'
 $packageArgs = @{
     packageName    = $packageName
     unzipLocation  = $toolsDir

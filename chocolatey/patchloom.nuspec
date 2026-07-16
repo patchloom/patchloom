@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>patchloom</id>
-    <version>0.13.0</version>
+    <version>0.14.0</version>
     <title>Patchloom</title>
     <authors>Sebastien Tardif</authors>
     <owners>SebTardif</owners>
@@ -17,15 +17,18 @@
       This package downloads the portable Windows zip from GitHub Releases and places
       `patchloom.exe` on the PATH via Chocolatey shims.
     </description>
-    <projectUrl>https://github.com/patchloom/patchloom</projectUrl>
+    <!-- projectUrl: product home; projectSourceUrl: source tree (CPMR0041). -->
+    <projectUrl>https://patchloom.github.io/patchloom/</projectUrl>
     <projectSourceUrl>https://github.com/patchloom/patchloom</projectSourceUrl>
     <packageSourceUrl>https://github.com/patchloom/patchloom/tree/main/chocolatey</packageSourceUrl>
     <docsUrl>https://patchloom.github.io/patchloom/</docsUrl>
     <bugTrackerUrl>https://github.com/patchloom/patchloom/issues</bugTrackerUrl>
     <licenseUrl>https://github.com/patchloom/patchloom/blob/main/LICENSE</licenseUrl>
+    <!-- CDN-backed icon (CPMR0033); 128x128 PNG under repo control. -->
+    <iconUrl>https://cdn.jsdelivr.net/gh/patchloom/patchloom@main/assets/logo-128.png</iconUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <tags>cli mcp ai-agents rust yaml toml json markdown patchloom</tags>
-    <releaseNotes>https://github.com/patchloom/patchloom/releases</releaseNotes>
+    <releaseNotes>https://github.com/patchloom/patchloom/releases/tag/patchloom-v0.14.0</releaseNotes>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />
