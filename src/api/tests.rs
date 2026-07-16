@@ -1539,6 +1539,44 @@ fn replace_text_nth_match() {
 }
 
 #[test]
+fn replace_text_nth_out_of_range_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "foo bar foo\n").unwrap();
+
+    let opts = ReplaceOptions {
+        nth: Some(5),
+        ..ReplaceOptions::default()
+    };
+    let err = replace_text(&file, "foo", "qux", &opts, ApplyMode::Preview, None).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("nth 5 is out of range") && msg.contains("matches 2 times"),
+        "got: {msg}"
+    );
+    assert_eq!(
+        crate::api::edit_error_kind(&err),
+        Some(crate::api::EditErrorKind::InvalidInput)
+    );
+}
+
+#[test]
+fn replace_in_content_nth_out_of_range() {
+    let opts = ReplaceOptions {
+        nth: Some(3),
+        whole_line: true,
+        ..ReplaceOptions::default()
+    };
+    // Two matching lines; three substring "a"s.
+    let err = replace_in_content("a a\na\n", "a", "X", &opts).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("nth 3 is out of range") && msg.contains("matches 2 times"),
+        "got: {msg}"
+    );
+}
+
+#[test]
 fn replace_text_insert_after() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");

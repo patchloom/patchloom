@@ -310,6 +310,26 @@ fn replace_write(
             }));
         }
 
+        // nth past last match: applied count is 0 but pattern may still match.
+        if count == 0
+            && let Some(n) = nth
+        {
+            let total = ops::replace::count_nth_candidates(
+                &original,
+                &old,
+                compiled_re.as_ref(),
+                whole_line,
+            );
+            if total > 0 && n > total {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!(
+                        "nth {n} is out of range: pattern matches {total} time{}",
+                        if total == 1 { "" } else { "s" }
+                    ),
+                }));
+            }
+        }
+
         // Fuzzy/context fallback: when exact match fails and fuzzy or context
         // is enabled, try resolve_with_fallback for anchor/similarity matching
         // (mirrors tx engine fallback in replace_op.rs).
@@ -564,6 +584,25 @@ pub fn replace_in_content(
     } else {
         ops::replace::replace_content(content, from, &replacement, compiled_re.as_ref(), opts.nth)
     };
+
+    if count == 0
+        && let Some(n) = opts.nth
+    {
+        let total = ops::replace::count_nth_candidates(
+            content,
+            from,
+            compiled_re.as_ref(),
+            opts.whole_line,
+        );
+        if total > 0 && n > total {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!(
+                    "nth {n} is out of range: pattern matches {total} time{}",
+                    if total == 1 { "" } else { "s" }
+                ),
+            }));
+        }
+    }
 
     // Context disambiguation (#1315): when multiple exact matches and context
     // is provided, select the match nearest to the context instead of
