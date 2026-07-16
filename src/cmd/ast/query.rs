@@ -208,6 +208,30 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
     let lang_hint = args.lang.as_deref();
     crate::verbose!("ast validate: target={}", args.path);
 
+    // Empty directory / no grammar files: fail closed (not vacuous success).
+    if paths.is_empty() {
+        let msg = format!("no source files to validate in {}", args.path);
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
+        return Ok(exit::NO_MATCHES);
+    }
+
+    // Single explicit path with no grammar: same honesty as `ast list` so agents
+    // do not treat `[]` + exit 0 as "validated OK".
+    if paths.len() == 1 {
+        let lang = resolve_lang(lang_hint, &paths[0]);
+        if !lang.has_grammar() {
+            let msg = format!(
+                "Unsupported language: {} (detected from {}). \
+                 Supported: Rust, Python, TypeScript, JavaScript, Go, Java, \
+                 C#, Ruby, PHP, Swift, Kotlin, C, C++, HCL, XML, Protobuf, \
+                 TOML, YAML, JSON, Shell.",
+                lang, args.path,
+            );
+            global.emit_error_json_kind(Some("no_matches"), &msg)?;
+            return Ok(exit::NO_MATCHES);
+        }
+    }
+
     let mut all_valid = true;
     crate::verbose!("ast validate: checking {} files", paths.len());
 
@@ -228,6 +252,15 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
             let display = display_path(path, &cwd);
             Some(ValidateFileResult { display, result })
         });
+
+    // Directory walk can include only non-grammar files filtered inside the
+    // loop, or every validate_file call can fail. Do not report success with
+    // zero checks performed.
+    if results.is_empty() {
+        let msg = format!("no source files to validate in {}", args.path);
+        global.emit_error_json_kind(Some("no_matches"), &msg)?;
+        return Ok(exit::NO_MATCHES);
+    }
 
     let structured = global.json || global.jsonl;
     let mut structured_items: Vec<serde_json::Value> = Vec::new();
