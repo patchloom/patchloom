@@ -1,3 +1,6 @@
+//! size-waiver: accepted single-domain bulk (policy #1408). CLI search collect,
+//! format (JSON/JSONL/human), assert_count, and agent honesty for truncated /
+//! skipped paths is one unit; do not split for LOC alone.
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::ops::search::{self as ops_search, SearchMatch, SearchResults};
