@@ -408,7 +408,9 @@ fn test_rename_json_output() {
     assert_eq!(json["applied"], true, "{json}");
     // Direct rename creates a backup; agents need the session id for undo.
     assert!(
-        json["backup_session"].as_str().is_some_and(|s| !s.is_empty()),
+        json["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
         "rename --apply must include backup_session: {json}"
     );
     assert!(!src.exists());
