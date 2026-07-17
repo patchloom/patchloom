@@ -83,6 +83,22 @@ mod basic {
     }
 
     #[test]
+    fn parse_file_create_expands_newline_escapes() {
+        let op = parse_line(
+            r#"file.create main.rs "fn main() {\n    println!(\"hi\");\n}""#,
+            1,
+        )
+        .unwrap();
+        match op {
+            Operation::FileCreate { path, content, .. } => {
+                assert_eq!(path, "main.rs");
+                assert_eq!(content, "fn main() {\n    println!(\"hi\");\n}");
+            }
+            other => panic!("expected FileCreate, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_json_value_number() {
         let v = parse_json_value("42").unwrap();
         assert_eq!(v, serde_json::json!(42));
