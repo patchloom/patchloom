@@ -28,7 +28,7 @@ mutate, matching apply preview instead of looking "clean" with exit 0.
   Preview and `--check` still omit it or leave applied false. (#1788)
 - **No-op applies do not look like successful edits.** Identity `doc ensure` /
   `doc set`, empty append/prepend, identical md section bodies, and similar
-  paths set `applied: false` (and related `files_changed` honesty for AST
+  paths set `applied: false` (and related `files_changed` reporting for AST
   rename). (#1816)
 - **Delete and rename JSON include `backup_session`.** After `--apply`, the
   session id is in the success payload so agents can call
