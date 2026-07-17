@@ -256,8 +256,9 @@ success lines are the full path list.\n\n\
                  md.upsert_bullet CHANGELOG.md \"## Changes\" \"- Bumped to 2.0.0\"\n\
                  EOF\n\
                  ```\n\n\
-                 One line per operation. Double-quote values with spaces. Escapes in quotes: only `\\\"` and `\\\\` \
-                 (literal `\\n` is not a newline; use `tx`/MCP JSON for multi-line content).\n\
+                 One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays \
+                 (`file.create f.json {\"x\":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, \
+                 `\\n` `\\t` `\\r` `\\\\` `\\\"` expand (multi-line content on one batch line).\n\
                  Batch `replace` accepts optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, \
                  `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, \
                  `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.\n\n",
@@ -277,8 +278,8 @@ success lines are the full path list.\n\n\
             );
             if !show_linux {
                 out.push_str(
-                    "One line per operation in the file. Double-quote values with spaces. Escapes: only `\\\"` and `\\\\` \
-                     (use `tx`/MCP for multi-line content).\n\n",
+                    "One line per operation in the file. Double-quote values with spaces. Unquoted JSON objects \
+                     keep inner quotes. In `file.create`/`append`/`prepend` content, `\\n` `\\t` `\\r` expand.\n\n",
                 );
             }
         }
