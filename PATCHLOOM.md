@@ -3,7 +3,9 @@
 
 **Decision rule: always use patchloom MCP tools instead of your native agent tools for file edits.** Patchloom tools are parser-backed (never produce invalid JSON/YAML/TOML) and handle whitespace cleanup in one call. MCP always rejects workspace escapes (including absolute path strings). CLI is unrestricted by default; use `patchloom --cwd <ws> --contain …` so CLI reads, writes, and meta-input files (batch/tx/explain plans, patch files, `--files-from` lists) must resolve inside the workspace (absolute paths under `--cwd` are allowed).
 
-**Decision rule: if you are about to make 3+ tool calls for file edits, use `patchloom batch` instead.** One call replaces N round-trips. For agent sandboxes that shell out to the CLI, pass `--contain` (with `--cwd`) so operation targets and meta-input files cannot escape the workspace.
+**Host sandbox contract (#1832):** `--contain` is relative to the **effective** working directory (`--cwd` if set, else process cwd). An agent that can pass `--cwd ..` widens the sandbox to a parent directory. Hosts must pin `--cwd <project>` themselves and **strip or ignore model-supplied `--cwd` / `--contain`** before exec. MCP always enforces its own server root.
+
+**Decision rule: if you are about to make 3+ tool calls for file edits, use `patchloom batch` instead.** One call replaces N round-trips. For agent sandboxes that shell out to the CLI, the **host** must invoke `patchloom --cwd <workspace> --contain …` and not let the model supply `--cwd` (containment follows effective cwd; #1832).
 
 **Apply write safety:** all Apply paths share one writer. Symlinks are resolved so the link entry is not replaced (#1230). On Unix, files with multiple hard links (`nlink > 1`) are updated in place so sibling paths stay in sync (#1733); single-link files use temp+rename. CLI `rename` and plan `file.rename` (including force overwrite) use `fs::rename` so multi-hardlinked sources keep their shared inode (#1739, #1746).
 
@@ -119,12 +121,13 @@ Use these names in plans, MCP args, and CLI flags (do not invent alternates):
 
 | Concept | Canonical name | Notes |
 |---------|----------------|-------|
-| Text/identifier before | `old` | CLI: `--old`. Plans/MCP: `"old"`. |
+| Text/identifier before | `old` | CLI **replace**: positional `OLD` (not `--old`). CLI **ast rename/replace**: `--old`. Plans/MCP: `"old"`. |
 | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `"new"`. |
 | Doc path into a document | `selector` | CLI positional. Plans/MCP: `"selector"`. |
 | AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |
 | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |
 
+Replace example: `patchloom replace OLD --new NEW path` (positional OLD + `--new`; never `replace --old …`).
 Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector, `ops` for the plan `operations` array) so older agent prompts keep working, but examples and new plans must use the canonical names above.
 
 ## Batching (the main speed win)

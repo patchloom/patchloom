@@ -34,6 +34,9 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let auto_yes = args.yes;
     let quiet = global.quiet;
     let structured = global.json || global.jsonl;
+    // Agent/CI structured runs: do not leave ok:true with agent_rules=skipped
+    // when AGENTS.md was never written (#1833). Interactive TTY still prompts.
+    let auto_agent_rules = auto_yes || structured;
 
     // Helper: print to stderr unless --quiet or structured (JSON owns stdout).
     macro_rules! status {
@@ -76,7 +79,7 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if content.contains(AGENT_RULES_GENERATED_MARKER) {
             report.agent_rules = "skipped_already_present".into();
             status!("{rel_target} already contains patchloom rules, skipping.");
-        } else if auto_yes || confirm(&format!("Append patchloom rules to {rel_target}?")) {
+        } else if auto_agent_rules || confirm(&format!("Append patchloom rules to {rel_target}?")) {
             let mut content = content;
             if !content.ends_with('\n') {
                 content.push('\n');
@@ -91,7 +94,7 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             report.agent_rules = "skipped".into();
             status!("skipped {rel_target}");
         }
-    } else if auto_yes || confirm(&format!("Create {rel_target}?")) {
+    } else if auto_agent_rules || confirm(&format!("Create {rel_target}?")) {
         std::fs::write(&target_path, &rules)
             .with_context(|| format!("writing {}", target_path.display()))?;
         report.agent_rules = "created".into();

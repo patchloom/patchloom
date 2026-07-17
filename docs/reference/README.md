@@ -398,7 +398,8 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **What it does:** Sets up patchloom in the current project: creates `AGENTS.md` if needed, otherwise appends the rules to an existing agent instructions file, prints shell completion instructions, detects MCP configuration opportunities, and ensures `.gitignore` ignores `.patchloom/` (undo backups). When `.vscode/` or `.cursor/` already exists, it prints ready-to-copy `.vscode/mcp.json` or `.cursor/mcp.json` snippets.
 - **Use when:** You just installed patchloom and want a single command to configure a project instead of running `agent-rules`, `completions`, and MCP setup separately.
 - **Notable flags:**
-  - `-y, --yes`: Skip confirmation prompts and auto-accept all actions.
+  - `-y, --yes`: Skip confirmation prompts and auto-accept all actions (agent rules + shell completions install).
+  - With global `--json` / `--jsonl`: agent-rules create/append is auto-accepted without `-y` so agent bootstrap does not report `ok: true` with `agent_rules: skipped` (#1833). Shell completion install still requires `-y` / interactive confirm.
 - **Prefer instead:** `agent-rules` if you only need the rules text, or `completions` if you only need shell completions.
 - **Related:** `agent-rules`, `completions`, `mcp-server`, `status`, `undo`
 

@@ -333,6 +333,11 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
                 .map(|path| serde_json::json!({ "path": path }))
                 .collect(),
         );
+    } else if matches!(kind, Some("no_matches") | Some("ambiguous")) {
+        // Pre-write hard failures never mutate disk (#1835). Engine/context
+        // paths that surface via AmbiguousError/NoMatchError still need the
+        // field so agents can branch on applied alone.
+        output["applied"] = serde_json::Value::Bool(false);
     }
     (output, code)
 }
@@ -440,6 +445,33 @@ mod tests {
         assert_eq!(
             format_failed_written_files(&err),
             vec!["a.txt".to_string(), "b.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn structured_error_payload_prewrite_no_matches_and_ambiguous_set_applied_false() {
+        let no_match: anyhow::Error = NoMatchError {
+            msg: "no matches".into(),
+        }
+        .into();
+        let (p, code) = structured_error_payload(&no_match);
+        assert_eq!(code, NO_MATCHES);
+        assert_eq!(p["error_kind"], "no_matches");
+        assert_eq!(
+            p["applied"], false,
+            "pre-write no_matches must set applied:false (#1835): {p}"
+        );
+
+        let amb: anyhow::Error = AmbiguousError {
+            msg: "many matches".into(),
+        }
+        .into();
+        let (p, code) = structured_error_payload(&amb);
+        assert_eq!(code, AMBIGUOUS);
+        assert_eq!(p["error_kind"], "ambiguous");
+        assert_eq!(
+            p["applied"], false,
+            "pre-write ambiguous must set applied:false (#1835): {p}"
         );
     }
 
