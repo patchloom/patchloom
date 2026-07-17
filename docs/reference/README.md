@@ -865,6 +865,7 @@ Use these when markdown structure matters more than raw text matching.
 - **What it does:** Removes duplicate headings.
 - **Use when:** Generated markdown or hand edited docs have accumulated repeated sections that should collapse to one.
 - **Prefer instead:** Use `md lint-agents` when the goal is diagnosis rather than mutation.
+- **JSON:** Object with `ok`, `path`, `removed` (heading strings), `applied` (false for preview/check), and `backup_session` after a real apply. JSONL still emits one JSON string per removed heading.
 
 <!-- ref:md-action:lint-agents -->
 ### `md lint-agents`
