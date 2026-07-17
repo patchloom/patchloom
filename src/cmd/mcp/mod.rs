@@ -344,17 +344,39 @@ fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, M
         crate::cmd::doc::execute_with_mode(action, crate::cmd::doc::OutputMode::Json)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     // CHANGES_DETECTED (2) is a valid success for doc diff (differences found).
-    // NO_MATCHES (3) with non-empty output is a valid answer (e.g. "has"
-    // returning "false", "len" returning "0"). Only treat it as an error
-    // when the output is empty (genuinely no result).
-    let effective = if code == exit::CHANGES_DETECTED
-        || (code == exit::NO_MATCHES && !output.trim().is_empty())
-    {
+    // After #1843, doc has always exits 0 for true/false, so do not promote
+    // NO_MATCHES (real get/keys/len misses) to success.
+    let effective = if code == exit::CHANGES_DETECTED {
         exit::SUCCESS
     } else {
         code
     };
-    exit_code_to_result(effective, &output, "No results.")
+    // CLI --json uses an ok/value envelope (#1838). MCP tools keep returning
+    // the bare value so existing agent prompts and tests stay stable.
+    let text = if effective == exit::SUCCESS {
+        peel_doc_query_success_value(&output)
+    } else {
+        output
+    };
+    exit_code_to_result(effective, &text, "No results.")
+}
+
+/// If `output` is a successful CLI doc-query envelope, return pretty `value`.
+/// Otherwise return the original string (errors, doc diff, already-bare).
+fn peel_doc_query_success_value(output: &str) -> String {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(output) else {
+        return output.to_string();
+    };
+    if v.get("ok").and_then(|o| o.as_bool()) != Some(true) {
+        return output.to_string();
+    }
+    let Some(value) = v.get("value") else {
+        return output.to_string();
+    };
+    match serde_json::to_string_pretty(value) {
+        Ok(s) => s,
+        Err(_) => output.to_string(),
+    }
 }
 
 fn make_plan_strict(operations: Vec<Operation>, strict: Option<bool>) -> Plan {

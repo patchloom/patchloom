@@ -150,7 +150,7 @@ fn test_doc_has_json_missing_exit_0_envelope() {
 }
 
 #[test]
-fn test_doc_keys_jsonl_outputs_one_key_per_line() {
+fn test_doc_keys_jsonl_success_envelope() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
     fs::write(&file, r#"{"scripts":{"build":"tsc","lint":"eslint"}}"#).unwrap();
@@ -1490,7 +1490,7 @@ fn test_doc_diff_shows_changes() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_doc_flatten_jsonl_outputs_path_value_objects() {
+fn test_doc_flatten_jsonl_success_envelope() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
     fs::write(&file, r#"{"a":1,"b":{"c":2}}"#).unwrap();

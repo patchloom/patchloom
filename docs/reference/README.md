@@ -709,6 +709,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Reads the value at a selector path from a JSON, YAML, or TOML file.
 - **Use when:** You need one precise value without mutating the document.
+- **JSON success (#1838):** Under `--json`/`--jsonl`, success is `{"ok":true,"value":...,"path":...,"selector":...}` (not a bare JSON value). Text mode stays bare. Missing selector is `error_kind: no_matches` (exit 3).
 - **Prefer instead:** Use `doc flatten` when you are exploring an unfamiliar file and need a broader map of its contents.
 
 <!-- ref:doc-action:has -->
@@ -716,6 +717,8 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Checks whether a selector path exists.
 - **Use when:** A script or workflow needs a presence check before choosing a later action.
+- **Exit codes (#1843):** Always exits **0** for a valid document when the answer is `true` or `false`. Missing key is not `no_matches`. Real failures (missing file, parse error) still fail non-zero.
+- **JSON success (#1838):** `{"ok":true,"value":true|false,"path":...,"selector":...}` under `--json`/`--jsonl`.
 - **Prefer instead:** Use `doc ensure` when the real goal is to create the value if it is missing.
 
 <!-- ref:doc-action:keys -->
@@ -1165,6 +1168,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Applies tidy normalization inside a transaction.
 - **Use when:** Text cleanup should be part of the same atomic success criteria as other edits.
+- **Defaults (#1840):** When the op omits write-policy fields, matches bare CLI `tidy fix`: trim trailing whitespace and ensure final newline (`normalize_eol` stays keep unless set). Explicit op fields or plan `write_policy` still override.
 - **Related:** top level `tidy fix`
 
 <!-- ref:tx-op:file.append -->

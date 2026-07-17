@@ -986,6 +986,20 @@ mod tests {
     }
 
     #[test]
+    fn agent_rules_documents_doc_query_envelope_and_has_exit() {
+        // #1838 / #1843 lock strings for CLI agent hosts.
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("Doc query") && out.contains("\"ok\":true") && out.contains("value"),
+            "must document doc query JSON success envelope"
+        );
+        assert!(
+            out.contains("doc has") && out.contains("#1843"),
+            "must document doc has exit 0 for missing key"
+        );
+    }
+
+    #[test]
     fn agent_rules_includes_canonical_parameter_names() {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
         assert!(
