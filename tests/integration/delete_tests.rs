@@ -61,6 +61,14 @@ fn test_delete_json_apply_output() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["applied"], true);
     assert!(json["path"].as_str().unwrap().contains("doomed.txt"));
+    // Agents need backup_session to undo without --list (#1802 parity).
+    let session = json["backup_session"]
+        .as_str()
+        .expect("delete --apply must include backup_session");
+    assert!(
+        !session.is_empty(),
+        "backup_session must be non-empty: {json}"
+    );
 }
 
 #[cfg(unix)]

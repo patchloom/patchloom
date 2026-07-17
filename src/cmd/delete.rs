@@ -21,6 +21,9 @@ struct DeleteOutput {
     ok: bool,
     path: String,
     applied: bool,
+    /// Backup session id after a successful apply (#1802).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
@@ -50,10 +53,11 @@ pub fn run(args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     execute_via_engine_no_preview_diffs(
         op,
         global,
-        |phase, _diff, _backup| DeleteOutput {
+        |phase, _diff, backup| DeleteOutput {
             ok: true,
             path: args.file.clone(),
             applied: phase.applied_flag().unwrap_or(false),
+            backup_session: backup,
         },
         &check_msg,
         &apply_msg,

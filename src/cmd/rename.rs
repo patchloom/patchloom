@@ -284,9 +284,9 @@ fn run_direct_rename(
             {
                 fs::create_dir_all(parent)?;
             }
-            backup.finalize()?;
+            let session = backup.finalize()?;
             rename_or_copy(src, dst)?;
-            Ok(())
+            Ok(session)
         },
         WriteMessages {
             check: &check_msg,
