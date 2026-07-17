@@ -1,3 +1,4 @@
+// size-waiver: single-domain agent-rules generator + honesty contracts; do not split for LOC alone #1408
 use clap::{Args, ValueEnum};
 
 use crate::exit;

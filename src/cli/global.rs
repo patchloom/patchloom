@@ -55,10 +55,10 @@ pub struct GlobalFlags {
     pub cwd: Option<String>,
 
     /// Reject paths that escape the **effective** working directory
-    /// (`--cwd` if set, else process cwd) via `../`, absolute paths outside
-    /// that root, or outside symlinks. Applies to reads, writes, and
-    /// meta-input files (plans, batch ops, patch files, `--files-from`).
-    /// Absolute paths under the workspace root are allowed.
+    /// (`--cwd` if set, else process cwd) via `../`, absolute paths that
+    /// resolve outside the workspace, or outside symlinks for reads, writes,
+    /// and meta-input files (plans, batch ops, patch files, `--files-from`
+    /// lists). Absolute paths under the workspace are allowed.
     ///
     /// Default CLI mode is unrestricted. For agent sandboxes: the **host**
     /// must pin `--cwd <project> --contain` and strip model-supplied `--cwd`
