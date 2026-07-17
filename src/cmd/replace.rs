@@ -685,7 +685,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     }],
                     diff: None,
                     identity: None,
-                    applied: None,
+                    // No write on ambiguous (#1835); keep field present for agents.
+                    applied: Some(false),
                     backup_session: None,
                     error_kind: Some("ambiguous"),
                     error: None,
@@ -844,7 +845,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             files: vec![],
             diff: None,
             identity: None,
-            applied: None,
+            // No write on hard no_matches (#1835); keep field present for agents.
+            applied: Some(false),
             backup_session: None,
             error_kind: Some("no_matches"),
             error: Some(error_msg),

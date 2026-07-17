@@ -2059,6 +2059,10 @@ fn test_replace_cli_json_error_kind_no_matches() {
         v["error_kind"], "no_matches",
         "CLI replace no-match JSON should set error_kind: {v}"
     );
+    assert_eq!(
+        v["applied"], false,
+        "hard no_matches must include applied:false (#1835): {v}"
+    );
     let err = v["error"].as_str().unwrap_or("");
     assert!(
         err.contains("no matches") && err.contains("missing"),
@@ -2120,6 +2124,10 @@ fn test_replace_cli_json_error_kind_ambiguous() {
     assert_eq!(
         v["error_kind"], "ambiguous",
         "CLI replace unique multi-match JSON should set error_kind: {v}"
+    );
+    assert_eq!(
+        v["applied"], false,
+        "ambiguous must include applied:false (#1835): {v}"
     );
 }
 

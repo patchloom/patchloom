@@ -174,6 +174,43 @@ fn test_init_json_emits_structured_report() {
     assert!(dir.path().join("AGENTS.md").exists());
 }
 
+/// #1833: `init --json` without `--yes` must still create AGENTS.md (agent bootstrap).
+#[test]
+fn test_init_json_without_yes_creates_agents_md() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "init", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+        panic!(
+            "init --json must be JSON ({e}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(
+        json["agent_rules"], "created",
+        "structured init must not skip AGENTS.md without --yes (#1833): {json}"
+    );
+    assert!(
+        dir.path().join("AGENTS.md").exists(),
+        "AGENTS.md must exist after init --json without --yes"
+    );
+    let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
+    assert!(
+        content.contains("patchloom") || content.len() > 100,
+        "AGENTS.md should contain generated rules"
+    );
+}
+
 #[test]
 fn test_init_falls_back_to_completion_command_when_completion_dir_creation_fails() {
     let dir = TempDir::new().unwrap();

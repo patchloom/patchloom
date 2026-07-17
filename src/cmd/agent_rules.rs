@@ -69,15 +69,21 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              workspace escapes (including absolute path strings). CLI is unrestricted by \
              default; use `patchloom --cwd <ws> --contain …` so CLI reads, writes, and \
              meta-input files (batch/tx/explain plans, patch files, `--files-from` lists) \
-             must resolve inside the workspace (absolute paths under `--cwd` are allowed).\n\n",
+             must resolve inside the workspace (absolute paths under `--cwd` are allowed).\n\n\
+             **Host sandbox contract (#1832):** `--contain` is relative to the **effective** \
+             working directory (`--cwd` if set, else process cwd). An agent that can pass \
+             `--cwd ..` widens the sandbox to a parent directory. Hosts must pin \
+             `--cwd <project>` themselves and **strip or ignore model-supplied `--cwd` / \
+             `--contain`** before exec. MCP always enforces its own server root.\n\n",
         );
     }
     if show_cli {
         out.push_str(
             "**Decision rule: if you are about to make 3+ tool calls for file edits, use \
              `patchloom batch` instead.** One call replaces N round-trips. For agent sandboxes \
-             that shell out to the CLI, pass `--contain` (with `--cwd`) so operation targets \
-             and meta-input files cannot escape the workspace.\n\n",
+             that shell out to the CLI, the **host** must invoke \
+             `patchloom --cwd <workspace> --contain …` and not let the model supply `--cwd` \
+             (containment follows effective cwd; #1832).\n\n",
         );
     }
 
@@ -232,11 +238,12 @@ success lines are the full path list.\n\n\
          Use these names in plans, MCP args, and CLI flags (do not invent alternates):\n\n\
          | Concept | Canonical name | Notes |\n\
          |---------|----------------|-------|\n\
-         | Text/identifier before | `old` | CLI: `--old`. Plans/MCP: `\"old\"`. |\n\
+         | Text/identifier before | `old` | CLI **replace**: positional `OLD` (not `--old`). CLI **ast rename/replace**: `--old`. Plans/MCP: `\"old\"`. |\n\
          | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `\"new\"`. |\n\
          | Doc path into a document | `selector` | CLI positional. Plans/MCP: `\"selector\"`. |\n\
          | AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |\n\
          | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |\n\n\
+         Replace example: `patchloom replace OLD --new NEW path` (positional OLD + `--new`; never `replace --old …`).\n\
          Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector, \
          `ops` for the plan `operations` array) so older agent prompts keep working, but examples and new plans \
          must use the canonical names above.\n\n",
@@ -691,6 +698,10 @@ mod tests {
             out.contains("absolute paths under `--cwd` are allowed"),
             "must document AllowIfContained: absolute under workspace OK on CLI"
         );
+        assert!(
+            out.contains("Host sandbox contract") || out.contains("#1832"),
+            "must document host must pin cwd and strip model --cwd (#1832)"
+        );
     }
 
     #[test]
@@ -699,6 +710,10 @@ mod tests {
         assert!(
             out.contains("--contain"),
             "CLI-only rules must mention --contain for agent sandboxes"
+        );
+        assert!(
+            out.contains("#1832") || out.contains("model-supplied") || out.contains("effective"),
+            "CLI rules must warn hosts not to forward agent --cwd under --contain (#1832)"
         );
     }
 
@@ -919,6 +934,14 @@ mod tests {
             "missing Canonical parameter names section"
         );
         assert!(out.contains("| `old` |"), "must document canonical old");
+        assert!(
+            out.contains("positional `OLD`") && out.contains("not `--old`"),
+            "replace CLI must document positional OLD, not --old (#1834)"
+        );
+        assert!(
+            !out.contains("| `old` | CLI: `--old`."),
+            "must not claim replace uses CLI --old (#1834)"
+        );
         assert!(out.contains("| `new` |"), "must document canonical new");
         assert!(
             out.contains("| `selector` |"),
@@ -927,6 +950,10 @@ mod tests {
         assert!(
             out.contains("`weak` / `medium` / `strong`"),
             "must document schema tier names"
+        );
+        assert!(
+            out.contains("#1832") && (out.contains("model-supplied") || out.contains("strip")),
+            "must document host sandbox contract for --contain/#1832"
         );
         // Present in both CLI and MCP-only modes (not CLI-only prose).
         let mcp_only = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
