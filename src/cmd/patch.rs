@@ -210,7 +210,8 @@ fn emit_patch_files_output(
     } else if !global.quiet {
         for r in results {
             let label = match r.status {
-                "clean" => "clean",
+                "clean" | "unchanged" => "clean",
+                "would_change" => "would change",
                 "stale" => "STALE",
                 "missing" => "MISSING",
                 "error" => "ERROR",
@@ -222,7 +223,7 @@ fn emit_patch_files_output(
                 eprintln!("patch check: {} -- {}: {}", r.path, label, err);
             } else if let Some(n) = r.conflicts {
                 eprintln!("patch check: {} -- {} ({} conflicts)", r.path, label, n);
-            } else if r.status != "clean" && r.status != "applied" {
+            } else if r.status != "clean" && r.status != "unchanged" && r.status != "applied" {
                 eprintln!("patch check: {} -- {}", r.path, label);
             }
         }
@@ -321,7 +322,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     );
 
     if matches!(args.action, PatchAction::Check { .. }) {
-        let mut all_clean = true;
+        // Agent honesty: "clean" used to mean "patch applies without fuzz"
+        // (git apply --check), which agents misread as "nothing to do" while
+        // `patch apply` preview correctly reported would_change + exit 2.
+        // Align check with apply preview: would_change + CHANGES_DETECTED when
+        // content would change; stale/missing/error stay fail-closed.
+        let mut any_would_change = false;
+        let mut any_problem = false;
         let mut results = Vec::new();
         for pf in &patch_files {
             let file_path = cwd.join(&pf.path);
@@ -339,7 +346,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             error: Some(msg.clone()),
                             conflicts: None,
                         });
-                        all_clean = false;
+                        any_problem = true;
                         continue;
                     }
                 }
@@ -354,32 +361,54 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     if !global.json && !global.jsonl && !global.quiet {
                         eprintln!("patch check: {} -- READ ERROR: {}", pf.path, msg);
                     }
-                    all_clean = false;
+                    any_problem = true;
                     continue;
                 }
             };
-            if apply_hunks(&original, &pf.hunks).is_ok() {
-                results.push(PatchFileResult {
-                    path: pf.path.clone(),
-                    status: "clean",
-                    error: None,
-                    conflicts: None,
-                });
-            } else {
-                all_clean = false;
-                results.push(PatchFileResult {
-                    path: pf.path.clone(),
-                    status: "stale",
-                    error: None,
-                    conflicts: None,
-                });
+            match apply_hunks(&original, &pf.hunks) {
+                Ok(new_content) if new_content == original => {
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "unchanged",
+                        error: None,
+                        conflicts: None,
+                    });
+                }
+                Ok(_) => {
+                    any_would_change = true;
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "would_change",
+                        error: None,
+                        conflicts: None,
+                    });
+                }
+                Err(_) => {
+                    any_problem = true;
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "stale",
+                        error: None,
+                        conflicts: None,
+                    });
+                }
             }
         }
-        emit_patch_files_output(global, all_clean, &results, Some(false), None)?;
-        return Ok(if all_clean {
-            exit::SUCCESS
-        } else {
+        let ok = !any_problem;
+        emit_patch_files_output(global, ok, &results, Some(false), None)?;
+        if !global.json && !global.jsonl && !global.quiet && any_would_change && !any_problem {
+            let n = results
+                .iter()
+                .filter(|r| r.status == "would_change")
+                .count();
+            println!("{n} file(s) would change");
+        }
+        return Ok(if any_problem {
             exit::AMBIGUOUS
+        } else if any_would_change {
+            exit::CHANGES_DETECTED
+        } else {
+            exit::SUCCESS
         });
     }
 
