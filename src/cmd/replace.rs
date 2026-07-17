@@ -764,7 +764,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files: vec![],
                 diff: None,
                 identity: Some(true),
-                applied: None,
+                // No bytes written even under --apply (#1808 consistency).
+                applied: Some(false),
                 backup_session: None,
                 error_kind: None,
                 error: None,
@@ -792,7 +793,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files: vec![],
                 diff: None,
                 identity: None,
-                applied: None,
+                applied: Some(false),
                 backup_session: None,
                 error_kind: None,
                 error: None,
@@ -1065,12 +1066,13 @@ fn replace_output(
                 Ok(())
             },
             on_apply: |g: &GlobalFlags,
-                       _has: bool,
+                       has: bool,
                        diffs: &[crate::diff::FileDiff],
                        diff_text: Option<String>,
                        backup: Option<String>| {
+                // has == bytes written (false for identity-only / no-op apply).
                 if g.json {
-                    g.emit_json(&build_output(diff_text, Some(true), backup))?;
+                    g.emit_json(&build_output(diff_text, Some(has), backup))?;
                 } else if g.jsonl {
                     emit_replace_jsonl(
                         g,
@@ -1079,7 +1081,7 @@ fn replace_output(
                         skipped.as_ref(),
                         total_matches,
                         file_count,
-                        Some(true),
+                        Some(has),
                         backup,
                     )?;
                 } else if g.diff {
@@ -1193,7 +1195,8 @@ fn run_context_replace(
             files: vec![],
             diff: None,
             identity: None,
-            applied: None,
+            // No write on empty scan (including soft if_exists success).
+            applied: Some(false),
             backup_session: None,
             error_kind: if args.if_exists {
                 None
@@ -1282,7 +1285,8 @@ fn run_context_replace(
             files: vec![],
             diff: None,
             identity: None,
-            applied: None,
+            // Engine found no effective write (if_exists soft success or refuse).
+            applied: Some(false),
             backup_session: None,
             error_kind: if args.if_exists {
                 None

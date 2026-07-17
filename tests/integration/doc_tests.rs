@@ -1096,9 +1096,18 @@ fn test_doc_ensure_json_existing_key_reports_changed_false() {
     let v: serde_json::Value = serde_json::from_slice(&stdout).expect("valid json");
     assert_eq!(v["ok"], true);
     assert_eq!(v["changed"], false, "payload: {v}");
+    // No bytes written under --apply: applied must be false (agent honesty).
+    assert_eq!(
+        v["applied"], false,
+        "no-op ensure must not claim applied: {v}"
+    );
     assert!(
         v.get("removed").is_none(),
         "ensure must not emit removed: {v}"
+    );
+    assert!(
+        v.get("backup_session").is_none(),
+        "no-op ensure must not create a backup: {v}"
     );
     let content: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();

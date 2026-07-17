@@ -117,12 +117,28 @@ impl WritePhase {
     ///
     /// Always `Some` so preview/`--check` cannot be mistaken for a completed
     /// write when agents only parse stdout JSON (`applied: false` vs `true`).
+    ///
+    /// Finalize helpers must not pass [`WritePhase::Applied`] when
+    /// `has_changes` is false: commit is a no-op for identity ensure, empty
+    /// append, and similar, and agents must see `applied: false`.
     #[must_use]
     pub fn applied_flag(self) -> Option<bool> {
         match self {
             WritePhase::Applied => Some(true),
             WritePhase::Confirmed(a) => Some(a),
             WritePhase::Check(_) | WritePhase::Preview => Some(false),
+        }
+    }
+
+    /// Phase for Apply-mode finalize: `Applied` only when bytes were written.
+    #[must_use]
+    pub fn for_apply(has_changes: bool) -> Self {
+        if has_changes {
+            WritePhase::Applied
+        } else {
+            // --apply with no effective changes: same agent signal as identity
+            // replace (applied:false). Commit is already a no-op.
+            WritePhase::Confirmed(false)
         }
     }
 }
@@ -258,8 +274,9 @@ where
             } else {
                 None
             };
+            // has_changes is the agent-facing applied flag (commit no-ops when false).
             (cb.on_apply)(global, has_changes, &diffs, diff_text, backup)?;
-            Ok(write_exit_code(has_changes, true))
+            Ok(write_exit_code(has_changes, has_changes))
         }
         WriteMode::ConfirmJson => {
             // Prompt first, then commit, then emit once with applied + backup
@@ -270,13 +287,15 @@ where
                 Vec::new()
             };
             let diff_text = plain_diff_opt(&diffs);
-            let applied = global.should_apply();
-            let backup = if applied {
+            let confirmed = global.should_apply();
+            let backup = if confirmed {
                 commit_then_format(result, global, cwd)?
             } else {
                 None
             };
-            if applied {
+            let applied = confirmed && has_changes;
+            if confirmed {
+                // Pass has_changes so hooks emit applied:true only when bytes written.
                 (cb.on_apply)(global, has_changes, &diffs, diff_text, backup)?;
             } else {
                 (cb.on_preview)(global, has_changes, &diffs, diff_text)?;
@@ -332,7 +351,7 @@ pub fn finalize_execution_result<T: Serialize>(
             } else {
                 None
             };
-            let output = make_output(WritePhase::Applied, diff_text, backup);
+            let output = make_output(WritePhase::for_apply(has_changes), diff_text, backup);
             if !global.emit_json(&output)? && has_changes {
                 if global.diff {
                     print!("{}", render_diffs_colored(&diffs, global.should_color()));
@@ -340,7 +359,8 @@ pub fn finalize_execution_result<T: Serialize>(
                     println!("{}", msgs.apply);
                 }
             }
-            Ok(write_exit_code(has_changes, true))
+            // Exit SUCCESS for no-op apply; CHANGES_DETECTED never for Apply mode.
+            Ok(write_exit_code(has_changes, has_changes))
         }
         WriteMode::ConfirmJson => {
             let diffs = if render.preview_diffs {
@@ -349,12 +369,14 @@ pub fn finalize_execution_result<T: Serialize>(
                 Vec::new()
             };
             let diff_text = plain_diff_opt(&diffs);
-            let applied = global.should_apply();
-            let backup = if applied {
+            let confirmed = global.should_apply();
+            let backup = if confirmed {
                 commit_then_format(result, global, cwd)?
             } else {
                 None
             };
+            // applied means bytes written (confirm accepted *and* has_changes).
+            let applied = confirmed && has_changes;
             let output = make_output(WritePhase::Confirmed(applied), diff_text, backup);
             global.emit_json(&output)?;
             Ok(write_exit_code(has_changes, applied))
@@ -484,6 +506,8 @@ mod tests {
         // as successful writes when ignoring exit codes (#1808, #1810, #1812).
         assert_eq!(WritePhase::Preview.applied_flag(), Some(false));
         assert_eq!(WritePhase::Check(true).applied_flag(), Some(false));
+        assert_eq!(WritePhase::for_apply(true).applied_flag(), Some(true));
+        assert_eq!(WritePhase::for_apply(false).applied_flag(), Some(false));
     }
 
     #[test]

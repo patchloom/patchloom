@@ -362,7 +362,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
         MdAction::DedupeHeadings { file } => {
             crate::verbose!("md: dedupe-headings file={}", file);
-            // Pre-read to compute removed headings for side-channel output,
+            // Pre-read to compute removed headings for structured output,
             // then route the actual write through the engine.
             let cwd = global.resolve_cwd()?;
             global.check_paths_contained(&cwd, [&file])?;
@@ -371,39 +371,89 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
             let (_new, removed) = dedupe_headings_in(&original);
 
-            // Emit removed headings as side-channel output.
-            if !removed.is_empty() && !global.emit_json_items(&removed)? && !global.quiet {
-                for h in &removed {
-                    eprintln!("md: removed duplicate: {h}");
+            // Human / JSONL: one line (or item) per removed heading.
+            // --json uses a single object with applied (see finalize below).
+            if !removed.is_empty() {
+                if global.jsonl {
+                    global.emit_json_items(&removed)?;
+                } else if !global.json && !global.quiet {
+                    for h in &removed {
+                        eprintln!("md: removed duplicate: {h}");
+                    }
                 }
             }
 
-            // Side-channel headings already emitted; no second JSON schema body.
             let op = Operation::MdDedupeHeadings { path: file.clone() };
             let (cwd, result) = crate::cmd::output::stage_for_write(
                 crate::tx::engine::WriteSource::Operations(vec![op]),
                 global,
             )?;
             use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
+            let path_for_json = file.clone();
+            let removed_for_json = removed.clone();
+            #[derive(serde::Serialize)]
+            struct DedupeOut {
+                ok: bool,
+                path: String,
+                removed: Vec<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                applied: Option<bool>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                backup_session: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                diff: Option<String>,
+            }
             finalize_report(
                 global,
                 &cwd,
                 result,
                 true,
                 FinalizeCallbacks {
-                    on_check: |_g: &GlobalFlags, _has: bool, _diffs: &[crate::diff::FileDiff]| {
+                    on_check: |g: &GlobalFlags, has: bool, _diffs: &[crate::diff::FileDiff]| {
+                        if g.json {
+                            g.emit_json(&DedupeOut {
+                                ok: true,
+                                path: path_for_json.clone(),
+                                removed: removed_for_json.clone(),
+                                applied: Some(false),
+                                backup_session: None,
+                                diff: None,
+                            })?;
+                        }
+                        let _ = has;
                         Ok(())
                     },
-                    on_apply: |_g: &GlobalFlags,
-                               _has: bool,
+                    on_apply: |g: &GlobalFlags,
+                               has: bool,
                                _diffs: &[crate::diff::FileDiff],
-                               _plain: Option<String>,
-                               _backup: Option<String>| Ok(()),
+                               plain: Option<String>,
+                               backup: Option<String>| {
+                        if g.json {
+                            g.emit_json(&DedupeOut {
+                                ok: true,
+                                path: path_for_json.clone(),
+                                removed: removed_for_json.clone(),
+                                applied: Some(has),
+                                backup_session: backup,
+                                diff: plain,
+                            })?;
+                        }
+                        Ok(())
+                    },
                     on_preview: |g: &GlobalFlags,
-                                 _has: bool,
+                                 has: bool,
                                  diffs: &[crate::diff::FileDiff],
-                                 _plain: Option<String>| {
-                        if !diffs.is_empty() && !g.json && !g.jsonl {
+                                 plain: Option<String>| {
+                        if g.json {
+                            g.emit_json(&DedupeOut {
+                                ok: true,
+                                path: path_for_json.clone(),
+                                removed: removed_for_json.clone(),
+                                applied: Some(false),
+                                backup_session: None,
+                                diff: plain,
+                            })?;
+                        } else if !diffs.is_empty() && !g.jsonl && !g.quiet {
                             let dr = crate::diff::DiffResult {
                                 diffs: diffs.to_vec(),
                             };
@@ -412,6 +462,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                                 crate::diff::format_diff_result_colored(&dr, g.should_color())
                             );
                         }
+                        let _ = has;
                         Ok(())
                     },
                     after_preview_emit: |_: &GlobalFlags| {},

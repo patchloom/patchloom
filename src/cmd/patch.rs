@@ -115,6 +115,12 @@ struct PatchFileResult {
 struct PatchFilesOutput {
     ok: bool,
     files: Vec<PatchFileResult>,
+    /// Whether bytes were written (#1812). `false` for preview/`--check`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
+    /// Backup session id after a successful apply (#1802).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 fn patch_file_result(path: &str, applied: &ApplyHunksResult) -> PatchFileResult {
@@ -188,11 +194,15 @@ fn emit_patch_files_output(
     global: &GlobalFlags,
     ok: bool,
     results: &[PatchFileResult],
+    applied: Option<bool>,
+    backup_session: Option<String>,
 ) -> anyhow::Result<()> {
     if global.json {
         let output = PatchFilesOutput {
             ok,
             files: results.to_vec(),
+            applied,
+            backup_session,
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
@@ -365,7 +375,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 });
             }
         }
-        emit_patch_files_output(global, all_clean, &results)?;
+        emit_patch_files_output(global, all_clean, &results, Some(false), None)?;
         return Ok(if all_clean {
             exit::SUCCESS
         } else {
@@ -409,7 +419,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
         }
-        emit_patch_files_output(global, all_ok, &results)?;
+        emit_patch_files_output(global, all_ok, &results, Some(false), None)?;
         let has_errors = results.iter().any(|r| r.status == "error");
         let has_conflicts = results.iter().any(|r| r.status == "conflict");
         return Ok(if has_errors {
@@ -462,10 +472,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         true,
         FinalizeCallbacks {
             on_check: |g: &GlobalFlags, _has: bool, diffs: &[crate::diff::FileDiff]| {
-                let files = build_file_results(diffs, "changed");
+                let files = build_file_results(diffs, "would_change");
                 let changed = files.len();
                 if changed > 0 {
-                    emit_patch_files_output(g, true, &files)?;
+                    emit_patch_files_output(g, true, &files, Some(false), None)?;
                     if !(g.json || g.jsonl || g.quiet) {
                         println!("{changed} file(s) would change");
                     }
@@ -473,12 +483,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Ok(())
             },
             on_apply: |g: &GlobalFlags,
-                       _has: bool,
+                       has: bool,
                        diffs: &[crate::diff::FileDiff],
                        _plain: Option<String>,
-                       _backup: Option<String>| {
-                let files = build_file_results(diffs, "applied");
-                emit_patch_files_output(g, true, &files)?;
+                       backup: Option<String>| {
+                let status = if has { "applied" } else { "unchanged" };
+                let files = build_file_results(diffs, status);
+                emit_patch_files_output(g, true, &files, Some(has), backup)?;
                 Ok(())
             },
             on_preview: |g: &GlobalFlags,
@@ -486,8 +497,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                          diffs: &[crate::diff::FileDiff],
                          _plain: Option<String>| {
                 if g.json || g.jsonl {
-                    let files = build_file_results(diffs, "changed");
-                    emit_patch_files_output(g, true, &files)?;
+                    let files = build_file_results(diffs, "would_change");
+                    emit_patch_files_output(g, true, &files, Some(false), None)?;
                 } else {
                     print!(
                         "{}",

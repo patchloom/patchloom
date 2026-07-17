@@ -372,9 +372,45 @@ fn test_md_dedupe_headings_json_output() {
 
     assert!(output.status.success());
     let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let arr = parsed.as_array().unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(
+        parsed["applied"], true,
+        "apply must set applied:true: {parsed}"
+    );
+    assert!(parsed.get("backup_session").is_some(), "{parsed}");
+    let arr = parsed["removed"].as_array().unwrap();
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0].as_str().unwrap(), "## Dup");
+}
+
+/// Preview/check must not claim applied when duplicates would be removed.
+#[test]
+fn test_md_dedupe_headings_json_preview_applied_false() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.md");
+    fs::write(&file, "# Title\n\n## Dup\n\nFirst\n\n## Dup\n\nSecond\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("md")
+        .arg("dedupe-headings")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(
+        parsed["applied"], false,
+        "preview must set applied:false: {parsed}"
+    );
+    assert_eq!(parsed["removed"][0], "## Dup");
+    // File unchanged.
+    assert_eq!(
+        fs::read_to_string(&file).unwrap().matches("## Dup").count(),
+        2
+    );
 }
 
 #[test]

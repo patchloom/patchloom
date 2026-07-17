@@ -75,7 +75,7 @@ Binary / case-only renames cannot use the UTF-8 tx engine. They use
 | replace (scan + context) | `stage_for_write` | `finalize_report` via `replace_output` hooks |
 | tidy fix | `stage_for_write(Operations)` | `finalize_report` via `tidy_fix_output` hooks |
 | patch apply | `stage_for_write(Operations)` | `finalize_report` hooks |
-| md dedupe-headings | `stage_for_write` | `finalize_report` (side-channel headings first; no 2nd JSON body) |
+| md dedupe-headings | `stage_for_write` | `finalize_report` (`--json` object with `removed`+`applied`; JSONL one string per heading) |
 | rename binary/case-only | n/a | `execute_write` / `finalize_callback_write` |
 
 ## Adding a write command

@@ -461,7 +461,8 @@ fn substitute_single_pass(template: &str, vars: &[(&str, String)]) -> String {
 /// substitute template variables into each operation, and flatten the result into
 /// `plan.operations`. After this call, `plan.for_each` is `None`.
 ///
-/// Template variables: `{path}`, `{dir}`, `{stem}`, `{ext}`, `{name}`.
+/// Template variables: `{path}`, `{item}` (alias of `{path}`), `{dir}`,
+/// `{stem}`, `{ext}`, `{name}`.
 ///
 /// Doubled braces (`{{` / `}}`) are treated as escape sequences and produce
 /// literal `{` / `}` in the output. For example, `{{path}}` becomes the
@@ -578,8 +579,10 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         // file path contains a literal "{name}", sequential .replace() would
         // double-substitute it. Single-pass scans the template once and
         // replaces each placeholder from the original template text.
+        // `{item}` is a path alias agents often invent (for_each "item" loops).
         let vars: &[(&str, String)] = &[
             ("{path}", json_escape(&rel_str)),
+            ("{item}", json_escape(&rel_str)),
             ("{dir}", json_escape(&dir)),
             ("{stem}", json_escape(&stem)),
             ("{ext}", json_escape(&ext)),
@@ -592,6 +595,19 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
             .replace("\x00LBRACE\x00", "{")
             .replace("\x00RBRACE\x00", "}");
 
+        // Fail closed on path fields that are still a lone `{placeholder}`
+        // (unknown name, or escaped `{{path}}` used by mistake). Without this,
+        // agents get opaque not_found for a file literally named `{item}`.
+        if let Some(bad) = unsubstituted_path_template(&substituted) {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!(
+                    "for_each: unsubstituted template '{bad}' in a path field \
+                     (valid: {{path}}, {{item}}, {{dir}}, {{stem}}, {{ext}}, {{name}}; \
+                     double braces like {{{{path}}}} produce a literal {{path}})"
+                ),
+            }));
+        }
+
         let file_ops: Vec<Operation> = serde_json::from_str(&substituted).map_err(|e| {
             anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: format!("for_each: template expansion failed: {e}"),
@@ -602,6 +618,37 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
 
     plan.operations = expanded;
     Ok(())
+}
+
+/// Detect `"path":"{placeholder}"` (and `from`/`to`) after for_each expansion.
+/// Returns the raw `{name}` token when found.
+#[cfg(feature = "cli")]
+fn unsubstituted_path_template(ops_json: &str) -> Option<String> {
+    // Match common path-like string fields that are still a single `{ident}`.
+    // Keep the scan intentional and local: full JSON path walking is overkill.
+    const KEYS: &[&str] = &["\"path\":\"", "\"from\":\"", "\"to\":\""];
+    for key in KEYS {
+        let mut rest = ops_json;
+        while let Some(idx) = rest.find(key) {
+            let after = &rest[idx + key.len()..];
+            if let Some(end) = after.find('"') {
+                let value = &after[..end];
+                if value.len() >= 3
+                    && value.starts_with('{')
+                    && value.ends_with('}')
+                    && value[1..value.len() - 1]
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    return Some(value.to_string());
+                }
+                rest = &after[end + 1..];
+            } else {
+                break;
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

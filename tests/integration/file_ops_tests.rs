@@ -597,6 +597,46 @@ fn test_append_json_not_found_sets_error_kind() {
     );
 }
 
+/// Empty append under --apply writes nothing: applied must be false.
+#[test]
+fn test_append_empty_apply_json_applied_false() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "append",
+            "a.txt",
+            "--content",
+            "",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(
+        parsed["applied"], false,
+        "empty append must not claim applied: {parsed}"
+    );
+    assert!(
+        parsed.get("backup_session").is_none(),
+        "empty append must not create a backup: {parsed}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
 #[test]
 fn test_append_rejects_binary_file_json() {
     let dir = TempDir::new().unwrap();

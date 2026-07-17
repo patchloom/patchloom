@@ -8552,3 +8552,58 @@ fn test_tx_apply_json_includes_backup_session() {
         "tx success must expose backup_session: {v}"
     );
 }
+
+/// for_each `{item}` is a path alias; unknown `{file}` is invalid_input.
+#[test]
+fn test_tx_for_each_item_alias_and_unknown_placeholder() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "x\n").unwrap();
+    let plan_ok = serde_json::json!({
+        "version": 1,
+        "for_each": {"glob": "a.txt"},
+        "operations": [{"op": "replace", "path": "{item}", "old": "x", "new": "y"}]
+    });
+    let plan_file = dir.path().join("ok.json");
+    fs::write(&plan_file, serde_json::to_string(&plan_ok).unwrap()).unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "ok.json", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "y\n");
+
+    let plan_bad = serde_json::json!({
+        "version": 1,
+        "for_each": {"glob": "a.txt"},
+        "operations": [{"op": "replace", "path": "{file}", "old": "y", "new": "z"}]
+    });
+    fs::write(
+        dir.path().join("bad.json"),
+        serde_json::to_string(&plan_bad).unwrap(),
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "bad.json", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "parse_error", "{v}");
+    assert!(v["error"].as_str().unwrap_or("").contains("{file}"), "{v}");
+}

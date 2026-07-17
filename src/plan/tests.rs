@@ -424,6 +424,60 @@ fn for_each_escape_mixed_literal_and_template() {
 
 #[cfg(feature = "cli")]
 #[test]
+fn for_each_item_alias_substitutes_path() {
+    // Agents often write {item}; treat it as {path}.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.txt" },
+            "operations": [
+                {"op": "replace", "path": "{item}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    expand_for_each(&mut plan, dir.path()).unwrap();
+    assert_eq!(plan.operations.len(), 1);
+    let op_json = serde_json::to_string(&plan.operations[0]).unwrap();
+    assert!(
+        op_json.contains("hello.txt"),
+        "item alias should expand to path: {op_json}"
+    );
+    assert!(
+        !op_json.contains("{item}"),
+        "item placeholder must not remain: {op_json}"
+    );
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn for_each_unknown_path_template_is_invalid_input() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.txt" },
+            "operations": [
+                {"op": "replace", "path": "{file}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("unsubstituted template") && msg.contains("{file}"),
+        "message should name the bad placeholder: {msg}"
+    );
+}
+
+#[cfg(feature = "cli")]
+#[test]
 fn for_each_unescaped_braces_still_substitute() {
     // Verify that normal (unescaped) template variables still work.
     let dir = tempfile::tempdir().unwrap();
