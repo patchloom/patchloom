@@ -98,19 +98,28 @@ impl std::fmt::Display for ReplaceValidationError {
                 )
             }
             Self::Mode(e) => match e {
+                // Name CLI flags first so agents do not retry with --to (#1829).
+                // Plan/MCP still accept field aliases new/to and insert_*.
                 ReplaceModeError::MissingMode => {
                     write!(
                         f,
-                        "one of 'to', 'insert_before', or 'insert_after' must be provided"
+                        "one of --new, --insert-before, or --insert-after must be provided \
+                         (plan fields: new/to, insert_before, insert_after); \
+                         replacement text is not positional — use: replace OLD --new NEW path"
                     )
                 }
                 ReplaceModeError::BothInsertModes => {
-                    write!(f, "'insert_before' and 'insert_after' cannot be combined")
+                    write!(
+                        f,
+                        "--insert-before and --insert-after cannot be combined \
+                         (plan fields: insert_before, insert_after)"
+                    )
                 }
                 ReplaceModeError::ToWithInsert => {
                     write!(
                         f,
-                        "'to' cannot be combined with 'insert_before' or 'insert_after'"
+                        "--new cannot be combined with --insert-before or --insert-after \
+                         (plan fields: new/to, insert_before, insert_after)"
                     )
                 }
             },

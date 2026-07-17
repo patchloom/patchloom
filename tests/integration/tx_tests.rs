@@ -3059,6 +3059,58 @@ fn test_tx_replace_if_exists_no_match_succeeds() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "foo bar\n");
 }
 
+/// #1823: plan if_exists soft-skips missing paths (not only pattern misses).
+#[test]
+fn test_tx_replace_if_exists_missing_path_soft_skips_sibling() {
+    let dir = TempDir::new().unwrap();
+    let exists = dir.path().join("exists.txt");
+    fs::write(&exists, "found\n").unwrap();
+    let missing = dir.path().join("missing.txt");
+    // Do not create missing.
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "replace",
+                "path": portable_path_str(&exists),
+                "old": "found",
+                "new": "done"
+            },
+            {
+                "op": "replace",
+                "path": portable_path_str(&missing),
+                "old": "nope",
+                "new": "x",
+                "if_exists": true
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["files_changed"], 1, "{json}");
+    assert_eq!(fs::read_to_string(&exists).unwrap(), "done\n");
+    assert!(!missing.exists(), "if_exists must not create missing path");
+}
+
 #[test]
 fn test_tx_replace_if_exists_still_replaces_when_found() {
     let dir = TempDir::new().unwrap();
@@ -4704,7 +4756,10 @@ fn test_tx_json_output_on_replace_missing_mode_invalid_input() {
     assert_eq!(json["error_kind"], "invalid_input");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("invalid_input"));
-    assert!(error.contains("one of 'to', 'insert_before', or 'insert_after' must be provided"));
+    assert!(
+        error.contains("--new") && error.contains("--insert-before"),
+        "CLI-first mode error (#1829): {error}"
+    );
 }
 
 #[test]
@@ -4743,7 +4798,12 @@ fn test_tx_json_output_on_replace_conflict_invalid_input() {
     assert_eq!(json["error_kind"], "invalid_input");
     let error = json["error"].as_str().unwrap();
     assert!(error.contains("invalid_input"));
-    assert!(error.contains("'insert_before' and 'insert_after' cannot be combined"));
+    assert!(
+        error.contains("--insert-before")
+            && error.contains("--insert-after")
+            && error.contains("cannot be combined"),
+        "insert conflict error: {error}"
+    );
 }
 
 #[test]

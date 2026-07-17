@@ -322,6 +322,9 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
     }
     let written = format_failed_written_files(err);
     if !written.is_empty() {
+        // Canonical with other mutators (#1831 / #1788): agents branch on
+        // `applied`. Keep `write_applied` as a deprecated alias for one release.
+        output["applied"] = serde_json::Value::Bool(true);
         output["write_applied"] = serde_json::Value::Bool(true);
         output["files_changed"] = serde_json::Value::Number(written.len().into());
         output["files"] = serde_json::Value::Array(
@@ -423,7 +426,14 @@ mod tests {
         let (payload, code) = structured_error_payload(&err);
         assert_eq!(code, FAILURE);
         assert_eq!(payload["error_kind"], "format_failed");
-        assert_eq!(payload["write_applied"], true);
+        assert_eq!(
+            payload["applied"], true,
+            "format_failed must set applied when write landed (#1831): {payload}"
+        );
+        assert_eq!(
+            payload["write_applied"], true,
+            "write_applied kept as deprecated alias: {payload}"
+        );
         assert_eq!(payload["files_changed"], 2);
         assert_eq!(payload["files"][0]["path"], "a.txt");
         assert_eq!(payload["files"][1]["path"], "b.txt");

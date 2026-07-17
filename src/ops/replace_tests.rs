@@ -72,10 +72,16 @@ mod replace_tests {
                     .to_string()
                     .contains("whole_line and multiline")
             );
+            let missing = ReplaceValidationError::Mode(ReplaceModeError::MissingMode).to_string();
             assert!(
-                ReplaceValidationError::Mode(ReplaceModeError::MissingMode)
-                    .to_string()
-                    .contains("'to', 'insert_before', or 'insert_after'")
+                missing.contains("--new")
+                    && missing.contains("--insert-before")
+                    && missing.contains("--insert-after"),
+                "CLI flags first (#1829): {missing}"
+            );
+            assert!(
+                missing.contains("not positional"),
+                "hint for replace OLD NEW path: {missing}"
             );
         }
 

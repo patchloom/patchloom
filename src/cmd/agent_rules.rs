@@ -147,7 +147,7 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              **Missing paths CLI vs MCP (#1793):** CLI multi-path `replace` soft-skips missing explicit paths under `skipped[]` and still applies the rest. Plan/batch path ops hard-fail missing files with `not_found` and roll back (atomic) unless `if_exists` / `--if-exists` is set, which soft-skips the missing path like CLI. Soft zero-match on existing paths still applies matches and lists `refused[]` with overall success. Under `--json`/`--jsonl`, CLI does not also print a human stderr \"No such file\" line for paths already in `skipped[]` (#1797).\n\
              **Empty `--files-from`:** An empty list file or empty stdin (`--files-from -`) is `error_kind: invalid_input` (exit 1), not pattern `no_matches`. Fix the path list; do not widen the replace pattern (#1796).\n\
              **`--files-from` comments (#1811):** Lines whose first non-whitespace character is `#` are comments and are ignored (gitignore-style). Blank lines are ignored. Do not emit markdown headers as path lines.\n\
-             **Do not branch on `ok` alone (#1804):** Prefer `applied: true` (CLI write JSON) or MCP/tx `files_changed > 0` with `status: success` for \"edit landed.\" Soft refuse / no match uses `error_kind`/`status: no_matches` (and `applied: false` / `files_changed: 0`). Partial multi-path: read `refused[]` / `skipped[]`. Format failure: `error_kind: format_failed` means write may already be on disk.\n\
+             **Do not branch on `ok` alone (#1804):** Prefer `applied: true` (CLI write JSON) or MCP/tx `files_changed > 0` with `status: success` for \"edit landed.\" Soft refuse / no match uses `error_kind`/`status: no_matches` (and `applied: false` / `files_changed: 0`). Partial multi-path: read `refused[]` / `skipped[]`. Format failure: `error_kind: format_failed` with `applied: true` means the write already landed on disk (also `write_applied` for one release; prefer `applied`; #1831).\n\
              **`applied: false` with no write:** When a write was requested but no bytes change (doc ensure/set identity, empty append/prepend, identity replace), JSON still sets `applied: false` and omits `backup_session`. Do not treat success alone as a write.\n\
              **`identity: true` (#1801):** Replace JSON when the pattern matched but every replacement was identical (`old == new`); `match_count > 0` but `file_count: 0` / empty `files` and no write.\n\
              **`require_change` + `if_exists` (#1800):** When both are set, `if_exists` wins: zero matches → success (`ok: true`, `match_count: 0`), not fail-closed `no_matches`.\n\
@@ -183,9 +183,13 @@ success lines are the full path list.\n\n\
              - Batching edits across multiple files in one call\n\
              - You need atomic rollback if any edit fails\n\n\
              **CLI undo (dry-run by default):** `patchloom undo` only previews the most recent \
-             backup and exits 2. Restore with `patchloom undo --apply` (optional \
-             `--session <timestamp>`). List sessions with `patchloom undo --list`. There is no \
-             `--latest` flag.\n\n",
+             backup and exits 2 with `applied: false` and `status: changes_detected`. Restore with \
+             `patchloom undo --apply` (optional `--session <timestamp>`), which sets `applied: true` \
+             and `status: restored` (#1830). List sessions with `patchloom undo --list`. There is no \
+             `--latest` flag.\n\
+             **Replace mode flags (#1829):** CLI replacement text is `--new` (not positional NEW and not \
+             `--to`). Missing mode errors name `--new` / `--insert-before` / `--insert-after` first; \
+             plan/MCP still accept field aliases `new`/`to`.\n\n",
         );
         if !show_mcp {
             out.push_str(
@@ -554,7 +558,7 @@ success lines are the full path list.\n\n\
              invalid search/replace regex patterns (unclosed groups, etc.), \
              and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, \
              md.move_section before/after, search invert_match+multiline), \
-             `format_failed` (post-write `--format` command non-zero exit or format-timeout; write may already be on disk; JSON includes `backup_session` when a session was created so agents can `patchloom undo --session <id>`, plus `write_applied: true`, `files_changed`, and `files[].path` for every path already written so agents need not re-scan disk (#1795); re-run the formatter or undo). Empty `--files-from` is `invalid_input` (not `no_matches`; #1796). Doc type mismatches set \
+             `format_failed` (post-write `--format` command non-zero exit or format-timeout; write may already be on disk; JSON includes `backup_session` when a session was created so agents can `patchloom undo --session <id>`, plus `applied: true` (canonical; #1831), `write_applied: true` (deprecated alias), `files_changed`, and `files[].path` for every path already written so agents need not re-scan disk (#1795); re-run the formatter or undo). Empty `--files-from` is `invalid_input` (not `no_matches`; #1796). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type, library doc mutation type errors). \
              Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.\n\n\
              **JSON `error_kind` (exit 4):** Batch line parse failures, `explain` plan parse failures, \
@@ -803,6 +807,17 @@ mod tests {
         assert!(
             out.contains("For undo, re-run with `--apply`"),
             "exit code 2 row must mention undo --apply"
+        );
+        assert!(
+            out.contains("applied: false")
+                && out.contains("status: changes_detected")
+                && out.contains("applied: true")
+                && out.contains("status: restored"),
+            "undo JSON must document applied (#1830): missing applied/status guidance"
+        );
+        assert!(
+            out.contains("--new") && out.contains("#1829"),
+            "replace mode error guidance must name --new (#1829)"
         );
     }
 

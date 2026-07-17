@@ -1127,9 +1127,42 @@ fn test_replace_insert_before_and_to_conflict() {
         .arg("--apply")
         .assert()
         .code(1)
-        .stderr(predicate::str::contains(
-            "'to' cannot be combined with 'insert_before' or 'insert_after'",
-        ));
+        .stderr(
+            predicate::str::contains("--new").and(predicate::str::contains(
+                "cannot be combined with --insert-before",
+            )),
+        );
+}
+
+/// #1829: missing replacement mode names CLI flags, not internal field 'to'.
+#[test]
+fn test_replace_missing_mode_error_names_cli_new_flag() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "a=1\n").unwrap();
+
+    // Classic agent habit: positional OLD NEW PATH (NEW is not a mode).
+    let output = patchloom_in(dir.path())
+        .args(["--json", "replace", "a=1", "a=2", "f.txt", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(parsed["error_kind"], "invalid_input", "{parsed}");
+    let err = parsed["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("--new") && err.contains("--insert-before") && err.contains("--insert-after"),
+        "must name CLI flags (#1829): {err}"
+    );
+    assert!(
+        !err.contains("one of 'to'"),
+        "must not lead with internal field 'to': {err}"
+    );
+    assert!(
+        err.contains("not positional") || err.contains("--new NEW"),
+        "should hint correct usage: {err}"
+    );
 }
 
 #[test]
@@ -1585,9 +1618,16 @@ fn test_replace_format_failure_json_error_kind() {
             .contains("backup session"),
         "error text should mention backup session: {parsed}"
     );
-    // Write still applied before format failure (#1795).
+    // Write still applied before format failure (#1795 / #1831).
     assert_eq!(fs::read_to_string(&file).unwrap(), "bbb\n");
-    assert_eq!(parsed["write_applied"], true, "{parsed}");
+    assert_eq!(
+        parsed["applied"], true,
+        "canonical applied when write landed: {parsed}"
+    );
+    assert_eq!(
+        parsed["write_applied"], true,
+        "deprecated alias retained: {parsed}"
+    );
     assert_eq!(parsed["files_changed"], 1, "{parsed}");
     let files = parsed["files"]
         .as_array()
@@ -1623,7 +1663,14 @@ fn test_replace_format_failure_json_lists_multi_file_paths() {
             .is_some_and(|s| !s.is_empty()),
         "{parsed}"
     );
-    assert_eq!(parsed["write_applied"], true, "{parsed}");
+    assert_eq!(
+        parsed["applied"], true,
+        "canonical applied when write landed (#1831): {parsed}"
+    );
+    assert_eq!(
+        parsed["write_applied"], true,
+        "deprecated alias retained: {parsed}"
+    );
     assert_eq!(parsed["files_changed"], 2, "{parsed}");
     let files = parsed["files"].as_array().expect("files");
     let paths: Vec<&str> = files.iter().filter_map(|f| f["path"].as_str()).collect();

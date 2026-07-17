@@ -65,6 +65,9 @@ struct UndoPreviewOutput {
     status: &'static str,
     /// Always set on dry-run so agents do not treat exit 2 as a completed restore.
     hint: &'static str,
+    /// False on dry-run: matches write mutators (#1830 / #1788). Agents that
+    /// only branch on `ok` + `applied` must not treat preview as a restore.
+    applied: bool,
     session: String,
     project_root: String,
     file_count: usize,
@@ -150,6 +153,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             ok: true,
             status: "changes_detected",
             hint: UNDO_DRY_RUN_HINT,
+            applied: false,
             session: timestamp.clone(),
             project_root: display_root(&cwd, &backup_root),
             file_count: entries.len(),
@@ -186,6 +190,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if !global.emit_json(&serde_json::json!({
         "ok": true,
         "status": "restored",
+        "applied": true,
         "session": timestamp,
         "project_root": display_root(&cwd, &backup_root),
         "file_count": restored,
@@ -396,6 +401,7 @@ mod tests {
             ok: true,
             status: "changes_detected",
             hint: UNDO_DRY_RUN_HINT,
+            applied: false,
             session: "t".into(),
             project_root: ".".into(),
             file_count: 1,
@@ -403,6 +409,10 @@ mod tests {
         };
         let v = serde_json::to_value(&preview).unwrap();
         assert_eq!(v["status"], "changes_detected");
+        assert_eq!(
+            v["applied"], false,
+            "dry-run must set applied:false (#1830): {v}"
+        );
         assert!(
             v["hint"].as_str().unwrap().contains("--apply"),
             "JSON preview must include hint: {v}"

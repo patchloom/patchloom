@@ -18,13 +18,20 @@ fn test_undo_restores_replaced_file() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "goodbye world\n");
 
     // Undo should restore the original.
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["undo", "--apply", "--cwd"])
+        .args(["--json", "undo", "--apply", "--cwd"])
         .arg(dir.path())
-        .assert()
-        .code(0);
-
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["status"], "restored", "{json}");
+    assert_eq!(
+        json["applied"], true,
+        "successful restore must set applied:true (#1830): {json}"
+    );
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello world\n");
 }
 
@@ -201,6 +208,10 @@ fn test_undo_dry_run_json_output() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["status"], "changes_detected");
+    assert_eq!(
+        json["applied"], false,
+        "dry-run must not claim restore completed (#1830): {json}"
+    );
     assert!(json["session"].is_string());
     assert_eq!(json["file_count"], 1);
     assert_eq!(json["entries"][0]["path"], "test.txt");
@@ -237,6 +248,10 @@ fn test_undo_dry_run_jsonl_output() {
     let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["status"], "changes_detected");
+    assert_eq!(
+        json["applied"], false,
+        "dry-run jsonl must set applied:false (#1830): {json}"
+    );
     assert_eq!(json["entries"][0]["path"], "test.txt");
     assert_eq!(json["entries"][0]["action"], "restore original");
 }
