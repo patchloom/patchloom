@@ -510,9 +510,9 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:replace-mode:if-exists -->
 ### `replace --if-exists`
 
-- **What it does:** Returns success even when no matches are found.
-- **Use when:** The replacement is intentionally idempotent and should not fail if the repo is already in the desired state.
-- **Prefer instead:** Use default replace behavior when a missing match should be treated as drift or an error.
+- **What it does:** Returns success when no content matches are found, and soft-skips missing explicit paths (CLI `skipped[]`; plan/batch path ops succeed with zero matches instead of hard `not_found`).
+- **Use when:** The replacement is intentionally idempotent and should not fail if the file or pattern is already gone or never present (for example optional config files in a batch).
+- **Prefer instead:** Use default replace behavior when a missing match or missing path should be treated as drift or an error.
 
 <!-- ref:replace-mode:nth -->
 ### `replace --nth`
