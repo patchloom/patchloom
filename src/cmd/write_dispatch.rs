@@ -13,7 +13,7 @@ pub fn execute_write<T: Serialize>(
     cwd: &Path,
     make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     diff_fn: Option<&dyn Fn(bool) -> String>,
-    apply_fn: impl FnMut() -> anyhow::Result<()>,
+    apply_fn: impl FnMut() -> anyhow::Result<Option<String>>,
     msgs: WriteMessages<'_>,
 ) -> anyhow::Result<u8> {
     // Callback paths are only entered when a change is known to be needed.
@@ -73,7 +73,7 @@ mod tests {
             Some(&|_color| "diff".to_string()),
             || {
                 applied = true;
-                Ok(())
+                Ok(None)
             },
             test_msgs(),
         )
@@ -97,7 +97,7 @@ mod tests {
             Some(&|_color| "diff".to_string()),
             || {
                 applied = true;
-                Ok(())
+                Ok(None)
             },
             test_msgs(),
         )
@@ -120,7 +120,7 @@ mod tests {
             Some(&|_color| "diff".to_string()),
             || {
                 applied = true;
-                Ok(())
+                Ok(None)
             },
             test_msgs(),
         )
@@ -140,7 +140,7 @@ mod tests {
             dir.path(),
             make_test_output,
             None::<&dyn Fn(bool) -> String>,
-            || Ok(()),
+            || Ok(None),
             WriteMessages {
                 check: "would delete foo.txt",
                 apply: "deleted foo.txt",
@@ -170,7 +170,7 @@ mod tests {
             Some(&|_color| "diff".to_string()),
             || {
                 applied = true;
-                Ok(())
+                Ok(None)
             },
             test_msgs(),
         )

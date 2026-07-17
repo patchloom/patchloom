@@ -47,18 +47,20 @@ fn commit_then_format(
 }
 
 /// Apply callback write, then run `--format` with the same backup attachment.
+///
+/// `apply_fn` returns the backup session id when one was created (rename
+/// direct path, etc.). That id is passed through to agent JSON and format
+/// failure envelopes (#1802).
 fn apply_then_format(
-    mut apply_fn: impl FnMut() -> anyhow::Result<()>,
+    mut apply_fn: impl FnMut() -> anyhow::Result<Option<String>>,
     global: &GlobalFlags,
     cwd: &Path,
 ) -> anyhow::Result<Option<String>> {
-    apply_fn()?;
-    // Binary/case-only rename paths do not return a session id from the
-    // callback; still map format failures to FormatFailedError for JSON.
+    let backup = apply_fn()?;
     if let Err(e) = crate::write::run_format_command(global, cwd) {
-        return Err(attach_format_backup(e, None, Vec::new()));
+        return Err(attach_format_backup(e, backup, Vec::new()));
     }
-    Ok(None)
+    Ok(backup)
 }
 
 fn attach_format_backup(
@@ -421,7 +423,7 @@ pub fn finalize_callback_write<T: Serialize>(
     has_changes: bool,
     make_output: impl Fn(WritePhase, Option<String>, Option<String>) -> T,
     diff_fn: Option<&dyn Fn(bool) -> String>,
-    mut apply_fn: impl FnMut() -> anyhow::Result<()>,
+    mut apply_fn: impl FnMut() -> anyhow::Result<Option<String>>,
     msgs: WriteMessages<'_>,
 ) -> anyhow::Result<u8> {
     match classify_write_mode(global) {
@@ -433,13 +435,13 @@ pub fn finalize_callback_write<T: Serialize>(
             Ok(write_exit_code(has_changes, false))
         }
         WriteMode::Apply => {
-            let _backup = apply_then_format(&mut apply_fn, global, cwd)?;
+            let backup = apply_then_format(&mut apply_fn, global, cwd)?;
             let diff_text = if global.diff {
                 diff_fn.map(|f| f(false))
             } else {
                 None
             };
-            let output = make_output(WritePhase::Applied, diff_text, None);
+            let output = make_output(WritePhase::for_apply(has_changes), diff_text, backup);
             if !global.emit_json(&output)? {
                 if global.diff {
                     if let Some(f) = diff_fn {
@@ -449,15 +451,18 @@ pub fn finalize_callback_write<T: Serialize>(
                     println!("{}", msgs.apply);
                 }
             }
-            Ok(write_exit_code(has_changes, true))
+            Ok(write_exit_code(has_changes, has_changes))
         }
         WriteMode::ConfirmJson => {
             let diff_text = diff_fn.map(|f| f(false));
-            let applied = global.should_apply();
-            if applied {
-                let _backup = apply_then_format(&mut apply_fn, global, cwd)?;
-            }
-            let output = make_output(WritePhase::Confirmed(applied), diff_text, None);
+            let confirmed = global.should_apply();
+            let backup = if confirmed {
+                apply_then_format(&mut apply_fn, global, cwd)?
+            } else {
+                None
+            };
+            let applied = confirmed && has_changes;
+            let output = make_output(WritePhase::Confirmed(applied), diff_text, backup);
             global.emit_json(&output)?;
             Ok(write_exit_code(has_changes, applied))
         }
@@ -480,7 +485,7 @@ pub fn finalize_callback_write<T: Serialize>(
                     eprintln!("{msg}");
                 }
             }
-            Ok(write_exit_code(has_changes, applied))
+            Ok(write_exit_code(has_changes, applied && has_changes))
         }
     }
 }
