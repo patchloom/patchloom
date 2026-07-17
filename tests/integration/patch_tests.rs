@@ -239,7 +239,7 @@ fn test_patch_apply_json_stale_error_returns_error_object() {
 }
 
 #[test]
-fn test_patch_check_exits_0_when_clean() {
+fn test_patch_check_exits_2_when_would_change() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "line1\nold line\nline3\n").unwrap();
@@ -251,6 +251,7 @@ fn test_patch_check_exits_0_when_clean() {
     )
     .unwrap();
 
+    // Applicable patch that mutates content is CHANGES_DETECTED (2), not SUCCESS.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--cwd")
@@ -259,7 +260,8 @@ fn test_patch_check_exits_0_when_clean() {
         .arg("check")
         .arg(&patch_file)
         .assert()
-        .code(0);
+        .code(2)
+        .stdout(predicates::str::contains("would change"));
 }
 
 #[test]
@@ -311,7 +313,7 @@ fn test_patch_apply_check_counts_only_changed_files() {
 }
 
 #[test]
-fn test_patch_check_json_output_clean() {
+fn test_patch_check_json_output_would_change() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
     fs::write(&file, "line1\nold line\nline3\n").unwrap();
@@ -334,12 +336,20 @@ fn test_patch_check_json_output_clean() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    // Align with patch apply preview: applicable patch that mutates content
+    // is would_change + exit 2, not "clean"/0 (agents misread that as done).
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
+    assert_eq!(json["applied"], false);
     assert!(json["files"].is_array());
-    assert_eq!(json["files"][0]["status"], "clean");
+    assert_eq!(json["files"][0]["status"], "would_change");
 }
 
 #[test]
@@ -384,7 +394,11 @@ fn test_patch_check_jsonl_output() {
         .output()
         .unwrap();
 
-    assert!(output.status.success());
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "jsonl check should report changes_detected"
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<serde_json::Value> = stdout
@@ -395,7 +409,7 @@ fn test_patch_check_jsonl_output() {
 
     assert_eq!(lines.len(), 1, "should have one JSONL line per patch file");
     assert_eq!(lines[0]["path"], "test.txt");
-    assert_eq!(lines[0]["status"], "clean");
+    assert_eq!(lines[0]["status"], "would_change");
 }
 
 #[test]
