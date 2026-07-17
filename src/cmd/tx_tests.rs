@@ -773,10 +773,15 @@ mod error_handling {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "replace: one of 'to', 'insert_before', or 'insert_after' must be provided"
+        let err = validate_operation(&plan.operations[0])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.starts_with("replace: ")
+                && err.contains("--new")
+                && err.contains("--insert-before")
+                && err.contains("--insert-after"),
+            "CLI-first mode error (#1829): {err}"
         );
     }
 
@@ -795,10 +800,15 @@ mod error_handling {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "replace: 'insert_before' and 'insert_after' cannot be combined"
+        let err = validate_operation(&plan.operations[0])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.starts_with("replace: ")
+                && err.contains("--insert-before")
+                && err.contains("--insert-after")
+                && err.contains("cannot be combined"),
+            "insert conflict error: {err}"
         );
     }
 
@@ -817,10 +827,15 @@ mod error_handling {
         .to_string();
         let plan = plan::parse_plan(&plan_json).unwrap();
 
-        let err = validate_operation(&plan.operations[0]).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "replace: 'to' cannot be combined with 'insert_before' or 'insert_after'"
+        let err = validate_operation(&plan.operations[0])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.starts_with("replace: ")
+                && err.contains("--new")
+                && err.contains("--insert-before")
+                && err.contains("cannot be combined"),
+            "to+insert conflict error (#1829): {err}"
         );
     }
 

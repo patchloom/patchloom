@@ -377,7 +377,12 @@ fn test_md_dedupe_headings_json_output() {
         parsed["applied"], true,
         "apply must set applied:true: {parsed}"
     );
-    assert!(parsed.get("backup_session").is_some(), "{parsed}");
+    assert!(
+        parsed["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "apply must expose non-empty backup_session: {parsed}"
+    );
     let arr = parsed["removed"].as_array().unwrap();
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0].as_str().unwrap(), "## Dup");

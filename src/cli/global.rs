@@ -1159,6 +1159,36 @@ mod tests {
         assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
     }
 
+    /// #1811: gitignore-style `#` comment lines are dropped, not treated as paths.
+    #[test]
+    fn read_files_from_strips_hash_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        std::fs::write(
+            &list,
+            "# header comment\nsrc/main.rs\n  # indented comment\nlib.rs\n#\n",
+        )
+        .unwrap();
+        let flags = GlobalFlags {
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
+    }
+
+    #[test]
+    fn normalize_files_from_line_drops_comments_and_blanks() {
+        assert_eq!(normalize_files_from_line(""), None);
+        assert_eq!(normalize_files_from_line("   "), None);
+        assert_eq!(normalize_files_from_line("# comment"), None);
+        assert_eq!(normalize_files_from_line("  # indented"), None);
+        assert_eq!(
+            normalize_files_from_line("  path/with spaces.txt  ").as_deref(),
+            Some("path/with spaces.txt")
+        );
+    }
+
     #[test]
     fn read_files_from_resolves_relative_list_under_cwd_flag() {
         let dir = tempfile::tempdir().unwrap();

@@ -5344,7 +5344,11 @@ fn list_sessions_under_finds_nested_backup_roots() {
         None,
     )
     .unwrap();
-    assert!(r.backup_session.is_some());
+    assert!(
+        r.backup_session.as_deref().is_some_and(|s| !s.is_empty()),
+        "apply must expose non-empty backup_session: {:?}",
+        r.backup_session
+    );
 
     // Workspace-root list is empty (session lives under file parent).
     let root_sessions = list_sessions(workspace.path()).unwrap();
@@ -5470,7 +5474,11 @@ fn post_write_hooks_on_replace_apply_and_preview() {
     };
     let ok = replace_text(&file, "before", "after", &ok_opts, ApplyMode::Apply, None).unwrap();
     assert!(ok.applied);
-    assert!(ok.backup_session.is_some());
+    assert!(
+        ok.backup_session.as_deref().is_some_and(|s| !s.is_empty()),
+        "apply must expose non-empty backup_session: {:?}",
+        ok.backup_session
+    );
     assert_eq!(fs::read_to_string(&file).unwrap(), "after\n");
 
     // Apply + failing hook with Revert restores prior content.
@@ -5712,7 +5720,11 @@ fn fuzzy_identifier_typo_disk_apply_preserves_syntax() {
     )
     .unwrap();
     assert!(r.applied);
-    assert!(r.backup_session.is_some());
+    assert!(
+        r.backup_session.as_deref().is_some_and(|s| !s.is_empty()),
+        "apply must expose non-empty backup_session: {:?}",
+        r.backup_session
+    );
     let on_disk = fs::read_to_string(&file).unwrap();
     assert!(
         on_disk.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),

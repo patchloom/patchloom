@@ -89,7 +89,7 @@ These flags shape how written content is normalized before it reaches disk.
 - **What it does:** Runs a shell command after every successful `--apply` write. Intended for formatters (e.g. `prettier --write .`, `cargo fmt`).
 - **Use when:** The repo has an autoformatter and you want Patchloom to invoke it after each mutation so files stay formatted.
 - **Prefer instead:** Omit when the formatter is already run separately, or when using `--diff`/`--check` modes (the command only fires on `--apply`).
-- **Failure behavior:** Non-zero exit or timeout exits **1** with `error_kind: "format_failed"` under `--json`/`--jsonl`. The write may already be on disk; JSON includes `backup_session` when a session was created, plus `write_applied: true`, `files_changed`, and `files[].path` for written paths (#1795). Use `undo` or re-run the formatter.
+- **Failure behavior:** Non-zero exit or timeout exits **1** with `error_kind: "format_failed"` under `--json`/`--jsonl`. The write may already be on disk; JSON includes `backup_session` when a session was created, plus `applied: true` (canonical; #1831), `write_applied: true` (deprecated alias), `files_changed`, and `files[].path` for written paths (#1795). Use `undo` or re-run the formatter.
 
 <!-- ref:write-flag:format-timeout -->
 ### `--format-timeout`

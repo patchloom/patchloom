@@ -202,6 +202,48 @@ fn test_batch_comment_only_input_succeeds() {
         .stderr(predicates::str::contains("no operations found"));
 }
 
+/// #1823: batch replace with --if-exists soft-skips missing paths so sibling
+/// ops still apply (CLI replace --if-exists parity; fixrealloop R12).
+#[test]
+fn test_batch_replace_if_exists_missing_path_soft_skips_sibling() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("exists.txt"), "found\n").unwrap();
+    // Do not create missing.txt.
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["batch", "--apply"])
+        .write_stdin(
+            "replace exists.txt found done\n\
+             replace missing.txt nope x --if-exists\n",
+        )
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["status"], "success", "{json}");
+    assert_eq!(json["files_changed"], 1, "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("exists.txt")).unwrap(),
+        "done\n",
+        "sibling replace must still apply when missing path uses --if-exists"
+    );
+    assert!(
+        !dir.path().join("missing.txt").exists(),
+        "if_exists must not create the missing path"
+    );
+}
+
 #[test]
 fn test_batch_json_empty_input_returns_structured_success() {
     let dir = TempDir::new().unwrap();
