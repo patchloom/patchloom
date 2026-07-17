@@ -3164,3 +3164,61 @@ fn test_replace_identity_json_applied_false() {
     assert_eq!(v["applied"], false, "identity write is a no-op: {v}");
     assert_eq!(v["match_count"], 1, "{v}");
 }
+
+/// if_exists soft success (including fuzzy path) must set applied:false.
+#[test]
+fn test_replace_if_exists_json_applied_false() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("s.txt"), "hello\n").unwrap();
+
+    let exact = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "missing",
+            "--new",
+            "x",
+            "s.txt",
+            "--if-exists",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(exact.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&exact.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        v["applied"], false,
+        "if_exists exact no-match must not claim applied: {v}"
+    );
+
+    let fuzzy = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "zzznomatch",
+            "--new",
+            "x",
+            "s.txt",
+            "--fuzzy",
+            "--if-exists",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(fuzzy.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&fuzzy.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        v["applied"], false,
+        "if_exists fuzzy soft success must set applied:false: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("s.txt")).unwrap(),
+        "hello\n"
+    );
+}

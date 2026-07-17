@@ -1195,7 +1195,8 @@ fn run_context_replace(
             files: vec![],
             diff: None,
             identity: None,
-            applied: None,
+            // No write on empty scan (including soft if_exists success).
+            applied: Some(false),
             backup_session: None,
             error_kind: if args.if_exists {
                 None
@@ -1284,7 +1285,8 @@ fn run_context_replace(
             files: vec![],
             diff: None,
             identity: None,
-            applied: None,
+            // Engine found no effective write (if_exists soft success or refuse).
+            applied: Some(false),
             backup_session: None,
             error_kind: if args.if_exists {
                 None
