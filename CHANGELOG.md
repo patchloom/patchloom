@@ -11,6 +11,26 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.15.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.0...patchloom-v0.15.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* agent JSON honesty for Bline consumers ([#1791](https://github.com/patchloom/patchloom/issues/1791)-[#1798](https://github.com/patchloom/patchloom/issues/1798)) ([#1814](https://github.com/patchloom/patchloom/issues/1814)) ([7c04653](https://github.com/patchloom/patchloom/commit/7c0465354a17f08430e332e9391395bd18a29f65)), closes [#1792](https://github.com/patchloom/patchloom/issues/1792) [#1793](https://github.com/patchloom/patchloom/issues/1793) [#1794](https://github.com/patchloom/patchloom/issues/1794) [#1795](https://github.com/patchloom/patchloom/issues/1795) [#1796](https://github.com/patchloom/patchloom/issues/1796) [#1797](https://github.com/patchloom/patchloom/issues/1797)
+* agent JSON honesty for no-op apply and related write paths ([#1816](https://github.com/patchloom/patchloom/issues/1816)) ([f378253](https://github.com/patchloom/patchloom/commit/f378253ba50fbfd6d0f7bd5bbaa20e09dde77f1d))
+* agent JSON honesty for preview backup and multi-file jsonl ([#1815](https://github.com/patchloom/patchloom/issues/1815)) ([7ce6eba](https://github.com/patchloom/patchloom/commit/7ce6eba88ba697bf5d695d3351d98bd662b2d842))
+* ast validate fails closed on unsupported or empty targets ([#1787](https://github.com/patchloom/patchloom/issues/1787)) ([84b74ef](https://github.com/patchloom/patchloom/commit/84b74efd98eca9fee8a685e30fa834d72b66f2d6))
+* batch file.create preserves unquoted JSON content ([#1820](https://github.com/patchloom/patchloom/issues/1820)) ([18f414d](https://github.com/patchloom/patchloom/commit/18f414def64b6c211aff0d9cb9f743d04c4dd360))
+* batch/tx replace if_exists soft-skips missing paths ([#1823](https://github.com/patchloom/patchloom/issues/1823)) ([302f02f](https://github.com/patchloom/patchloom/commit/302f02f6602b3ba286fc330e3e04315534722139))
+* delete and rename JSON include backup_session ([#1817](https://github.com/patchloom/patchloom/issues/1817)) ([93504dc](https://github.com/patchloom/patchloom/commit/93504dc8d0354f90f6c1fc6cabaec6c35f4ed78f))
+* expand newline escapes in batch file content ([#1821](https://github.com/patchloom/patchloom/issues/1821)) ([38d444a](https://github.com/patchloom/patchloom/commit/38d444a8f05cb6a69d4a373a90a28a440a91aa4f))
+* fail closed on sole explicit binary replace/tidy target ([#1790](https://github.com/patchloom/patchloom/issues/1790)) ([99a71e4](https://github.com/patchloom/patchloom/commit/99a71e4f4e6fe0367048ed8916abde9c3127eb39))
+* patch check reports would_change like apply preview ([#1818](https://github.com/patchloom/patchloom/issues/1818)) ([ebe9705](https://github.com/patchloom/patchloom/commit/ebe9705ba78e5a329caca55c50a60ac15f6438f0))
+* reject append/prepend on binary (NUL) files ([#1789](https://github.com/patchloom/patchloom/issues/1789)) ([846e80b](https://github.com/patchloom/patchloom/commit/846e80b70a65794bd5460b8bc3b2d390d60fb6ef))
+* reject create/rename when a path parent is a file ([#1785](https://github.com/patchloom/patchloom/issues/1785)) ([810f74f](https://github.com/patchloom/patchloom/commit/810f74f4e5ec33d6da1b10e1d78b40e4c918fe18))
+* report applied:true in write --json after --apply ([#1788](https://github.com/patchloom/patchloom/issues/1788)) ([2625ec1](https://github.com/patchloom/patchloom/commit/2625ec16d2981f4e065cbb09d2b700015a70bfbf))
+* search match_count counts all occurrences per line ([#1819](https://github.com/patchloom/patchloom/issues/1819)) ([a44e9a3](https://github.com/patchloom/patchloom/commit/a44e9a387a12feb2923da007d442634cd0d4ef5a))
+
 ## [0.15.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.14.0...patchloom-v0.15.0) (2026-07-16)
 
 
