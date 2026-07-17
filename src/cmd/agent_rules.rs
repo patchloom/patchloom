@@ -258,7 +258,7 @@ success lines are the full path list.\n\n\
                  ```\n\n\
                  One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays \
                  (`file.create f.json {\"x\":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, \
-                 `\\n` `\\t` `\\r` `\\\\` `\\\"` expand (multi-line scaffolds on one batch line).\n\
+                 `\\n` `\\t` `\\r` `\\\\` `\\\"` expand (multi-line content on one batch line).\n\
                  Batch `replace` accepts optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, \
                  `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, \
                  `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.\n\n",
