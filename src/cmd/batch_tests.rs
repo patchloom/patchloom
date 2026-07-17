@@ -42,6 +42,47 @@ mod basic {
     }
 
     #[test]
+    fn tokenize_unquoted_json_object_preserves_inner_quotes() {
+        // Agents write file.create f.json {"x":1} without outer quotes.
+        // Quote-stripping must not produce invalid JSON {x:1}.
+        let tokens = tokenize(r#"file.create f.json {"x":1}"#).unwrap();
+        assert_eq!(
+            tokens,
+            vec!["file.create", "f.json", r#"{"x":1}"#],
+            "unquoted JSON object must stay one token with quotes"
+        );
+    }
+
+    #[test]
+    fn tokenize_unquoted_json_array() {
+        let tokens = tokenize(r#"doc.set f.json items [1,2,{"a":"b"}]"#).unwrap();
+        assert_eq!(
+            tokens,
+            vec!["doc.set", "f.json", "items", r#"[1,2,{"a":"b"}]"#]
+        );
+    }
+
+    #[test]
+    fn parse_file_create_unquoted_json_content() {
+        let op = parse_line(r#"file.create cfg.json {"x":1,"y":"z"}"#, 1).unwrap();
+        assert!(matches!(
+            op,
+            Operation::FileCreate { path, content, .. }
+            if path == "cfg.json" && content == r#"{"x":1,"y":"z"}"#
+        ));
+    }
+
+    #[test]
+    fn parse_file_create_multiword_unquoted_content() {
+        let op = parse_line("file.create note.txt hello world", 1).unwrap();
+        assert!(matches!(
+            op,
+            Operation::FileCreate { path, content, .. }
+            if path == "note.txt" && content == "hello world"
+        ));
+    }
+
+    #[test]
     fn parse_json_value_number() {
         let v = parse_json_value("42").unwrap();
         assert_eq!(v, serde_json::json!(42));
@@ -616,11 +657,11 @@ mod error_handling {
 
     #[test]
     fn parse_line_extra_args_rejected_all_operations() {
-        // 2-arg operations (require exactly 2)
+        // 2-arg operations (require exactly 2). file.create/append/prepend join
+        // trailing tokens as content (agent multi-word / unquoted JSON).
         let two_arg_ops = [
             r#"doc.delete f.json sel extra"#,
             r#"doc.merge f.json "{}" extra"#,
-            r#"file.create f.txt content extra"#,
             r#"file.rename old.txt new.txt extra"#,
         ];
         for line in &two_arg_ops {

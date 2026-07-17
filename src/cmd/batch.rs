@@ -167,25 +167,21 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "replace" => parse_replace_line(args, line_num),
 
         // -- file operations ---------------------------------------------------
+        // Content is path + remainder (joined). Agents write unquoted multi-word
+        // text and unquoted JSON objects; exact-arity-2 rejected those.
         "file.append" => {
-            require_args(op, args, 2, line_num)?;
-            op!(FileAppend {
-                path: args[0].clone(),
-                content: args[1].clone()
-            })
+            let (path, content) = path_and_joined_content(op, args, line_num)?;
+            op!(FileAppend { path, content })
         }
         "file.prepend" => {
-            require_args(op, args, 2, line_num)?;
-            op!(FilePrepend {
-                path: args[0].clone(),
-                content: args[1].clone()
-            })
+            let (path, content) = path_and_joined_content(op, args, line_num)?;
+            op!(FilePrepend { path, content })
         }
         "file.create" => {
-            require_args(op, args, 2, line_num)?;
+            let (path, content) = path_and_joined_content(op, args, line_num)?;
             op!(FileCreate {
-                path: args[0].clone(),
-                content: args[1].clone(),
+                path,
+                content,
                 force: None
             })
         }
@@ -645,9 +641,35 @@ fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
     Ok(crate::ops::doc::parse_value(s))
 }
 
+/// Path + free-form content for file.create/append/prepend.
+///
+/// Requires at least a path. Remaining tokens are joined with a single space so
+/// unquoted multi-word content (`file.create f.txt hello world`) works. Prefer
+/// JSON-aware tokens (see [`tokenize`]) so unquoted `{"x":1}` is not mangled.
+fn path_and_joined_content(
+    op: &str,
+    args: &[String],
+    line_num: usize,
+) -> anyhow::Result<(String, String)> {
+    if args.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: '{op}' requires a path argument, got 0"),
+        }));
+    }
+    let path = args[0].clone();
+    let content = if args.len() == 1 {
+        String::new()
+    } else {
+        args[1..].join(" ")
+    };
+    Ok((path, content))
+}
+
 /// Tokenize a line using shell-like quoting rules.
 /// - Whitespace separates tokens
 /// - Double-quoted strings preserve spaces and allow escapes (\", \\)
+/// - Unquoted `{...}` / `[...]` are brace-balanced (JSON objects/arrays) so
+///   agents can write `file.create f.json {"x":1}` without silent quote stripping
 pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
@@ -688,6 +710,40 @@ pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
                         return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                             msg: "unterminated double quote".into(),
                         }));
+                    }
+                }
+            }
+        } else if !in_token && (ch == '{' || ch == '[') {
+            // Brace-balanced JSON token (preserves internal double quotes).
+            in_token = true;
+            let open = ch;
+            let close = if ch == '{' { '}' } else { ']' };
+            let mut depth = 0i32;
+            let mut in_string = false;
+            let mut escape = false;
+            loop {
+                let c = chars.next().ok_or_else(|| {
+                    anyhow::Error::new(crate::exit::ParseErrorError {
+                        msg: format!("unterminated JSON value starting with '{open}'"),
+                    })
+                })?;
+                current.push(c);
+                if in_string {
+                    if escape {
+                        escape = false;
+                    } else if c == '\\' {
+                        escape = true;
+                    } else if c == '"' {
+                        in_string = false;
+                    }
+                } else if c == '"' {
+                    in_string = true;
+                } else if c == open {
+                    depth += 1;
+                } else if c == close {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
                     }
                 }
             }
