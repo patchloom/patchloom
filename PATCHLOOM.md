@@ -69,8 +69,17 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 **`identity: true` (#1801):** Replace JSON when the pattern matched but every replacement was identical (`old == new`); `match_count > 0` but `file_count: 0` / empty `files` and no write.
 **`require_change` + `if_exists` (#1800):** When both are set, `if_exists` wins: zero matches → success (`ok: true`, `match_count: 0`), not fail-closed `no_matches`.
 **`tx`/`execute_plan` `strict: false` (#1803):** Continues past soft replace `no_matches` on existing paths. Does **not** continue past hard errors such as `not_found` (missing path). Optional **files** must be omitted from the plan or ensured to exist; optional **content** can use soft miss.
-**`for_each` templates:** Valid placeholders are `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`, `{name}`. Unknown lone `{name}` in path/from/to fields fails with `invalid_input` (not opaque `not_found`).
-             **Binary paths (#1813):** Sole explicit binary replace is `invalid_input`. Multi-file lists put binary co-paths in `refused[]` with `reason: binary` (not pattern `no_matches`).
+**`for_each` (plan-level field, not an op; #1842):** Fan-out is a top-level plan field with required `glob`. Example:
+```json
+{
+"for_each": { "glob": "**/*.txt" },
+"operations": [
+{ "op": "replace", "path": "{path}", "old": "x", "new": "y" }
+]
+}
+```
+Placeholders: `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`, `{name}`. Unknown lone `{name}` in path/from/to fields fails with `invalid_input` (not opaque `not_found`). Do not put `for_each` inside `operations` and do not pass a bare path array.
+**Binary paths (#1813):** Sole explicit binary replace is `invalid_input`. Multi-file lists put binary co-paths in `refused[]` with `reason: binary` (not pattern `no_matches`).
 **Search max_results:** CLI/MCP/tx `search` with `max_results` keeps full `match_count` (and full `file_count`) but may cap the detailed `matches` array **and** the `files` list in `--count` / `--files-with-matches` modes; when capped, JSON sets `truncated: true` (omitted when complete; #1798). Under `--jsonl`, capped content searches append a final `{"type":"summary","match_count":N,"match_emitted":M,"truncated":true}` line so agents still see the total. Do not treat `matches.len()` or `files.len()` as total coverage when `truncated` is true.
 
 **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect concatenated pretty multi-documents for `--json`.
@@ -78,6 +87,8 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 **Preview vs apply (#1808, #1810, #1812):** CLI write JSON always includes `applied` (`true` after apply mode, `false` for default preview / check mode). `changed: true` or `files_changed: N` on preview means **would** change, not that bytes were written. Exit 2 = changes detected / dry-run.
 **`backup_session` on success (#1802):** Successful CLI replace/doc/tx apply JSON includes `backup_session` when a backup was created (same field as `format_failed` and library `EditResult`). Use it for surgical undo; do not guess newest session under parallel agents.
 **CLI vs plan/MCP names (#1809):** CLI replace is positional `OLD` + `--new NEW` (not plan aliases `from`/`to` as flags). CLI `doc set` is `doc set PATH SELECTOR VALUE` (not a `--key` flag). Plan/MCP accept legacy aliases `from`/`to` and `key` for selector.
+**CLI `md upsert-bullet`:** use `--bullet` (or alias `--content`; #1839) with `--heading`.
+**Doc query `--json` (#1838):** `doc get`/`has`/`keys`/`len`/`select`/`flatten` success is `{"ok":true,"value":...,"path":...,"selector":...}` (selector omitted for flatten). Text mode stays bare. `doc has` prints `true`/`false` and exits **0** for both (missing key is not `no_matches`; #1843).
 **Replace jsonl multi-file (#1799):** Streams one object per success path (`status: ok`), refused soft-miss (`status: refused`), skipped missing (`status: skipped`), then a `type: summary` trailer with counts. Prefer this or MCP `batch_replace` over assuming success lines are the full path list.
 
 Use patchloom when:
@@ -124,7 +135,8 @@ Use these names in plans, MCP args, and CLI flags (do not invent alternates):
 | Text/identifier before | `old` | CLI **replace**: positional `OLD` (not `--old`). CLI **ast rename/replace**: `--old`. Plans/MCP: `"old"`. |
 | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `"new"`. |
 | Doc path into a document | `selector` | CLI positional. Plans/MCP: `"selector"`. |
-| AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |
+| AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). |
+| AST refs / impact | symbol first | `ast refs SYMBOL PATH` / `ast impact SYMBOL PATH` (no `--name` flag; #1841). |
 | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |
 
 Replace example: `patchloom replace OLD --new NEW path` (positional OLD + `--new`; never `replace --old …`).
@@ -311,17 +323,23 @@ Tree-sitter-backed operations that understand code structure (20 languages).
 
 ```bash
 # Rename an identifier across a file, skipping strings and comments
+# (path first, then --old / --new)
 patchloom ast rename src/lib.rs --old OldName --new NewName --apply
 
 # Replace text only within a specific function body
-patchloom ast replace src/config.rs --symbol default_timeout --old 30 --new 60 --apply
+# (PATH then SYMBOL are positionals — no --symbol flag; #1841)
+patchloom ast replace src/config.rs default_timeout --old 30 --new 60 --apply
 
 # List all symbol definitions
 patchloom ast list src/lib.rs
 
 # Find all references to a symbol
-patchloom ast refs src/ --name my_function
+# (SYMBOL then PATH — order differs from replace/read; #1841)
+patchloom ast refs my_function src/
+# impact is also SYMBOL then PATH: ast impact my_function src/
 ```
+
+**AST CLI arg order:** `rename`/`replace`/`read`/`validate` use path-first; `refs`/`impact` use symbol-first. There is no `--symbol` or `--name` flag on these commands.
 
 AST rename, replace, and rewrite_signature can also be used in batch and tx plans:
 

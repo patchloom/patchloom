@@ -81,7 +81,8 @@ mod basic {
     }
 
     #[test]
-    fn has_returns_no_matches_for_missing_key() {
+    fn has_returns_false_success_for_missing_key() {
+        // #1843: missing is a valid boolean answer (exit 0), not no_matches.
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
         let action = DocAction::Has {
@@ -89,22 +90,16 @@ mod basic {
             selector: "missing".into(),
         };
         let (output, code) = execute_with_mode(&action, OutputMode::Text).unwrap();
-        assert_eq!(
-            code,
-            exit::NO_MATCHES,
-            "doc has should return NO_MATCHES when selector is absent"
-        );
+        assert_eq!(code, exit::SUCCESS, "missing key still exits 0");
         assert_eq!(output, "false");
     }
 
     #[test]
-    fn has_exit_code_consistent_with_get() {
-        // Regression: doc has always returned SUCCESS even for missing keys,
-        // while doc get returned NO_MATCHES. Both should use NO_MATCHES.
+    fn has_missing_exits_success_while_get_exits_no_matches() {
+        // #1843: has is boolean; get is lookup. Missing key: has=0, get=3.
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "data.json", r#"{"a": 1}"#);
 
-        // Existing key: both return SUCCESS.
         let (_, has_code) = execute_with_mode(
             &DocAction::Has {
                 file: path.clone(),
@@ -124,8 +119,7 @@ mod basic {
         assert_eq!(has_code, exit::SUCCESS);
         assert_eq!(get_code, exit::SUCCESS);
 
-        // Missing key: both return NO_MATCHES.
-        let (_, has_code) = execute_with_mode(
+        let (has_out, has_code) = execute_with_mode(
             &DocAction::Has {
                 file: path.clone(),
                 selector: "missing".into(),
@@ -141,8 +135,29 @@ mod basic {
             OutputMode::Text,
         )
         .unwrap();
-        assert_eq!(has_code, exit::NO_MATCHES);
+        assert_eq!(has_code, exit::SUCCESS);
+        assert_eq!(has_out, "false");
         assert_eq!(get_code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn has_json_success_envelope_includes_value() {
+        // #1838: structured success is ok envelope.
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
+        let (output, code) = execute_with_mode(
+            &DocAction::Has {
+                file: path,
+                selector: "name".into(),
+            },
+            OutputMode::Json,
+        )
+        .unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["value"], true);
+        assert_eq!(v["selector"], "name");
     }
 
     // -- keys ---------------------------------------------------------------
@@ -633,9 +648,11 @@ mod edge_cases {
         let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-        assert_eq!(parsed["tags"], serde_json::json!([]));
-        assert_eq!(parsed["name"], serde_json::json!("foo"));
-        assert_eq!(parsed["items[0]"], serde_json::json!(1));
+        assert_eq!(parsed["ok"], true);
+        let map = &parsed["value"];
+        assert_eq!(map["tags"], serde_json::json!([]));
+        assert_eq!(map["name"], serde_json::json!("foo"));
+        assert_eq!(map["items[0]"], serde_json::json!(1));
     }
 
     #[test]
@@ -646,8 +663,10 @@ mod edge_cases {
         let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-        assert_eq!(parsed["config"], serde_json::json!({}));
-        assert_eq!(parsed["name"], serde_json::json!("bar"));
+        assert_eq!(parsed["ok"], true);
+        let map = &parsed["value"];
+        assert_eq!(map["config"], serde_json::json!({}));
+        assert_eq!(map["name"], serde_json::json!("bar"));
     }
 
     #[test]
@@ -658,9 +677,11 @@ mod edge_cases {
         let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
-        assert_eq!(parsed["a.b"], serde_json::json!([]));
-        assert_eq!(parsed["a.c"], serde_json::json!({}));
-        assert_eq!(parsed["d[0]"], serde_json::json!(1));
+        assert_eq!(parsed["ok"], true);
+        let map = &parsed["value"];
+        assert_eq!(map["a.b"], serde_json::json!([]));
+        assert_eq!(map["a.c"], serde_json::json!({}));
+        assert_eq!(map["d[0]"], serde_json::json!(1));
     }
 }
 

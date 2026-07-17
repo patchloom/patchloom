@@ -251,7 +251,7 @@ pub use api::{
     ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
     apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
     classify_error, classify_error_ref, edit_error_kind, edit_error_ref, format_search_results,
-    parse_unified_diff, run_post_write_validation, search_file, text_diff,
+    merge_match_modes, parse_unified_diff, run_post_write_validation, search_file, text_diff,
 };
 pub use plan::Plan;
 

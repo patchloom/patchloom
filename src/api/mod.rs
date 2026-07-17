@@ -580,7 +580,10 @@ pub(crate) fn match_mode_from_strategy(
 ///
 /// Shared by multi-op content edits, plan/tx aggregates, and replace_op path
 /// re-visits so every surface reports the same confidence ordering.
-pub(crate) fn merge_match_modes(prev: Option<MatchMode>, next: MatchMode) -> MatchMode {
+///
+/// Public for embedder hosts that combine multiple [`MatchMode`] values from
+/// multi-op content edits (#1844).
+pub fn merge_match_modes(prev: Option<MatchMode>, next: MatchMode) -> MatchMode {
     match (prev, next) {
         (Some(MatchMode::Fuzzy), _) | (_, MatchMode::Fuzzy) => MatchMode::Fuzzy,
         (Some(MatchMode::Anchored), _) | (_, MatchMode::Anchored) => MatchMode::Anchored,

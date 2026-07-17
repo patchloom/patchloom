@@ -944,3 +944,37 @@ fn test_batch_json_unknown_op_sets_parse_error_kind() {
         "batch parse failure should set error_kind: {json}"
     );
 }
+
+/// #1840: batch tidy.fix applies CLI tidy-fix defaults (trim + final newline).
+#[test]
+fn test_batch_tidy_fix_trims_trailing_whitespace_by_default() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.txt"), "trail  \n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["batch", "--apply"])
+        .write_stdin("tidy.fix t.txt\n")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(
+        json["files_changed"], 1,
+        "tidy.fix must change dirty file without write_policy (#1840): {json}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.txt")).unwrap(),
+        "trail\n",
+        "trailing spaces must be trimmed by default"
+    );
+}
