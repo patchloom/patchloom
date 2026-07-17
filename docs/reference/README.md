@@ -1007,7 +1007,7 @@ Use these when newline and whitespace correctness is the main concern.
 <!-- ref:tx-field:for_each -->
 ### `for_each`
 
-- **What it does:** Glob-driven batch expansion. When present, the plan's `operations` are treated as templates and expanded once per matching file. Template variables (`{path}`, `{dir}`, `{stem}`, `{ext}`, `{name}`) are substituted in all operation fields.
+- **What it does:** Glob-driven batch expansion. When present, the plan's `operations` are treated as templates and expanded once per matching file. Template variables (`{path}`, `{item}` as an alias for `{path}`, `{dir}`, `{stem}`, `{ext}`, `{name}`) are substituted in all operation fields. A path field that is still a lone `{placeholder}` after expansion is rejected as `invalid_input` (not a later opaque `not_found`).
 - **Escape mechanism:** Double the braces to produce a literal brace in the output. `{{path}}` becomes `{path}` (not substituted), `{{stem}}` becomes `{stem}`, etc. Use this when operation values must contain literal brace-wrapped text that should not be treated as template variables.
 - **Use when:** The same structural transform (extract tests, add headers, reorder symbols) must be applied to many files matching a glob pattern.
 - **Field value:** Object with `glob` (required), `exclude` (optional array of glob patterns), and `filter` (optional, e.g. `has_symbol(tests)`).

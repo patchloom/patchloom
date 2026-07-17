@@ -3145,3 +3145,22 @@ fn test_replace_if_exists_softens_require_change() {
     assert_eq!(v["ok"], true, "{v}");
     assert_eq!(v["match_count"], 0, "{v}");
 }
+
+/// Identity replace (old==new) reports applied:false even with --apply.
+#[test]
+fn test_replace_identity_json_applied_false() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("s.txt"), "same\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "same", "--new", "same", "s.txt", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["identity"], true, "{v}");
+    assert_eq!(v["applied"], false, "identity write is a no-op: {v}");
+    assert_eq!(v["match_count"], 1, "{v}");
+}

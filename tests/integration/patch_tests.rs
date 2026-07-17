@@ -849,3 +849,68 @@ fn test_patch_apply_dash_reads_stdin() {
     let content = fs::read_to_string(dir.path().join("test.txt")).unwrap();
     assert_eq!(content, "line1\nnew line\nline3\n");
 }
+
+/// Preview/check patch JSON must set applied:false and would_change status (#1812).
+#[test]
+fn test_patch_preview_json_applied_false() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+    fs::write(
+        dir.path().join("p.patch"),
+        "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-hello\n+world\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "p.patch"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["applied"], false, "preview must not look like apply: {v}");
+    let files = v["files"].as_array().expect("files");
+    assert_eq!(files[0]["status"], "would_change", "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_json_applied_true() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "hello\n").unwrap();
+    fs::write(
+        dir.path().join("p.patch"),
+        "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-hello\n+world\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "p.patch", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["applied"], true, "{v}");
+    assert_eq!(v["files"][0]["status"], "applied", "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+        "world\n"
+    );
+}
