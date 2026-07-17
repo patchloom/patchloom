@@ -646,6 +646,8 @@ fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
 /// Requires at least a path. Remaining tokens are joined with a single space so
 /// unquoted multi-word content (`file.create f.txt hello world`) works. Prefer
 /// JSON-aware tokens (see [`tokenize`]) so unquoted `{"x":1}` is not mangled.
+/// Content expands `\n` `\t` `\r` `\\` `\"` so agents can write multi-line files
+/// on one batch line (fixrealloop: TOML/Rust scaffolds).
 fn path_and_joined_content(
     op: &str,
     args: &[String],
@@ -657,12 +659,37 @@ fn path_and_joined_content(
         }));
     }
     let path = args[0].clone();
-    let content = if args.len() == 1 {
+    let raw = if args.len() == 1 {
         String::new()
     } else {
         args[1..].join(" ")
     };
-    Ok((path, content))
+    Ok((path, expand_content_escapes(&raw)))
+}
+
+/// Expand common escapes in batch file content (`\n` `\t` `\r` `\\` `\"`).
+fn expand_content_escapes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('\\') => out.push('\\'),
+            Some('"') => out.push('"'),
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 /// Tokenize a line using shell-like quoting rules.
