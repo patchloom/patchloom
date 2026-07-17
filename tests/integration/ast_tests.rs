@@ -630,6 +630,38 @@ fn test_ast_rename_apply_exits_0() {
     );
 }
 
+/// Identity rename (old==new) must not claim files_changed or applied.
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_rename_identity_json_files_changed_zero() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("same.rs");
+    fs::write(&f, "fn foo() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json", "ast", "rename", "same.rs", "--old", "foo", "--new", "foo", "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        v["files_changed"], 0,
+        "identity rename must not claim a change: {v}"
+    );
+    assert_eq!(
+        v["applied"], false,
+        "identity rename must set applied:false: {v}"
+    );
+    assert_eq!(fs::read_to_string(&f).unwrap(), "fn foo() {}\n");
+}
+
 /// Legacy path-last positionals are no longer accepted (canonical: path + --old/--new).
 #[test]
 #[cfg(feature = "ast")]

@@ -103,7 +103,6 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
         return Ok(exit::NO_MATCHES);
     }
 
-    let files_changed = operations.len();
     let (cwd, result) = match stage_for_write(WriteSource::Operations(operations), global) {
         Ok(v) => v,
         Err(e) if exit::is_no_match(&e) => {
@@ -113,6 +112,9 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
         }
         Err(e) => return Err(e),
     };
+    // Effective content changes only (identity rename old==new is 0).
+    // Do not report operations.len() when commit would write nothing.
+    let files_changed = result.build_diffs().len();
 
     #[derive(serde::Serialize)]
     struct RenameOut {
@@ -132,8 +134,8 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
         result,
         |phase, _diff, backup| RenameOut {
             ok: true,
-            // On preview/check this is "would change" count; agents must also
-            // read `applied` (#1812). After apply, it is writes that landed.
+            // Count of files with real content deltas (not identity renames).
+            // Agents pair this with `applied` (#1812).
             files_changed,
             applied: phase.applied_flag(),
             backup_session: backup,
