@@ -1458,3 +1458,48 @@ fn test_search_files_with_matches_max_results_caps_files() {
     );
     assert_eq!(v["truncated"], true, "{v}");
 }
+
+/// Search match_count counts every occurrence on a line (parity with replace).
+#[test]
+fn test_search_counts_all_occurrences_on_one_line() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hi hi hi\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hi", "a.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["match_count"], 3, "occurrence count: {v}");
+    assert_eq!(v["matches"].as_array().unwrap().len(), 3, "{v}");
+    assert_eq!(v["matches"][0]["column"], 1);
+    assert_eq!(v["matches"][1]["column"], 4);
+    assert_eq!(v["matches"][2]["column"], 7);
+
+    let count = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hi", "a.txt", "--count"])
+        .output()
+        .unwrap();
+    assert_eq!(count.status.code(), Some(0));
+    let c: serde_json::Value = serde_json::from_slice(&count.stdout).unwrap();
+    assert_eq!(c["match_count"], 3, "count mode: {c}");
+    assert_eq!(c["files"][0]["count"], 3, "{c}");
+
+    // Align with replace so agents can plan with search then apply replace.
+    let rep = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "hi", "--new", "X", "a.txt"])
+        .output()
+        .unwrap();
+    let r: serde_json::Value = serde_json::from_slice(&rep.stdout).unwrap();
+    assert_eq!(r["match_count"], 3, "replace parity: {r}");
+}

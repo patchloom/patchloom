@@ -40,7 +40,7 @@ pub struct SearchArgs {
     #[arg(long, short = 'l', conflicts_with = "count")]
     pub files_with_matches: bool,
     // ref:search-mode:count
-    /// Only print match counts per file.
+    /// Only print match counts per file (occurrence counts, same total as replace).
     #[arg(long, short = 'c', conflicts_with = "files_with_matches")]
     pub count: bool,
     // ref:search-mode:invert-match

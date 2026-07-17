@@ -210,17 +210,27 @@ pub fn search_one_file(
             }
         }
     } else if params.count_only {
+        // Invert stays line-oriented (lines without a match). Forward match
+        // counts every occurrence so search match_count aligns with replace
+        // (fixrealloop: "hi hi hi" was search=1 / replace=3).
         for line in content.lines() {
-            let found = matcher.find(line);
-            let is_match = if params.invert_match {
-                found.is_none()
+            if params.invert_match {
+                if matcher.find(line).is_none() {
+                    count += 1;
+                    if params.files_with_matches && params.assert_count.is_none() {
+                        break;
+                    }
+                }
             } else {
-                found.is_some()
-            };
-            if is_match {
-                count += 1;
-                if params.files_with_matches && params.assert_count.is_none() {
-                    break;
+                let n = matcher.count_matches(
+                    line,
+                    params.files_with_matches && params.assert_count.is_none(),
+                );
+                if n > 0 {
+                    count += n;
+                    if params.files_with_matches && params.assert_count.is_none() {
+                        break;
+                    }
                 }
             }
         }
@@ -228,51 +238,61 @@ pub fn search_one_file(
         let ctx_before = params.before_context.or(params.context).unwrap_or(0);
         let ctx_after = params.after_context.or(params.context).unwrap_or(0);
         let has_ctx = ctx_before > 0 || ctx_after > 0;
+        let lines: Vec<&str> = content.lines().collect();
 
-        if has_ctx {
-            let lines: Vec<&str> = content.lines().collect();
-            for (i, line) in lines.iter().copied().enumerate() {
-                let found = matcher.find(line);
-                let is_match = if params.invert_match {
-                    found.is_none()
-                } else {
-                    found.is_some()
-                };
-                if !is_match {
+        for (i, line) in lines.iter().copied().enumerate() {
+            if params.invert_match {
+                if matcher.find(line).is_some() {
                     continue;
                 }
                 count += 1;
-                let column = found.map_or(1, |(s, _)| s + 1);
                 let start = i.saturating_sub(ctx_before);
                 let end = (i + 1 + ctx_after).min(lines.len());
                 file_matches.push(SearchMatch {
                     path: path_str.clone(),
                     line: i + 1,
-                    column,
+                    column: 1,
                     text: line.to_string(),
-                    context_before: Some(lines[start..i].iter().map(|s| s.to_string()).collect()),
-                    context_after: Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect()),
+                    context_before: if has_ctx {
+                        Some(lines[start..i].iter().map(|s| s.to_string()).collect())
+                    } else {
+                        None
+                    },
+                    context_after: if has_ctx {
+                        Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect())
+                    } else {
+                        None
+                    },
                 });
+                continue;
             }
-        } else {
-            for (i, line) in content.lines().enumerate() {
-                let found = matcher.find(line);
-                let is_match = if params.invert_match {
-                    found.is_none()
-                } else {
-                    found.is_some()
-                };
-                if !is_match {
-                    continue;
-                }
+
+            // All non-overlapping occurrences on the line (parity with replace).
+            for (start_b, _end_b) in matcher.find_iter_positions(line) {
                 count += 1;
+                let column = start_b + 1;
+                let ctx_start = i.saturating_sub(ctx_before);
+                let ctx_end = (i + 1 + ctx_after).min(lines.len());
                 file_matches.push(SearchMatch {
                     path: path_str.clone(),
                     line: i + 1,
-                    column: found.map_or(1, |(s, _)| s + 1),
+                    column,
                     text: line.to_string(),
-                    context_before: None,
-                    context_after: None,
+                    context_before: if has_ctx {
+                        Some(lines[ctx_start..i].iter().map(|s| s.to_string()).collect())
+                    } else {
+                        None
+                    },
+                    context_after: if has_ctx {
+                        Some(
+                            lines[i + 1..ctx_end]
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    },
                 });
             }
         }
@@ -457,6 +477,40 @@ mod tests {
         assert_eq!(result.matches.len(), 2);
         assert_eq!(result.matches[0].line, 1);
         assert_eq!(result.matches[1].line, 3);
+    }
+
+    #[test]
+    fn search_one_file_counts_all_occurrences_on_a_line() {
+        // Align with replace match_count (fixrealloop dogfood).
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("multi.txt");
+        std::fs::write(&file, "hi hi hi\n").unwrap();
+        let matcher = build_matcher("hi", true, false, false).unwrap();
+        let params = SearchFileParams {
+            multiline: false,
+            invert_match: false,
+            count_only: false,
+            files_with_matches: false,
+            assert_count: None,
+            before_context: None,
+            after_context: None,
+            context: None,
+            quiet: true,
+        };
+        let result = search_one_file(&file, &matcher, &params, dir.path()).unwrap();
+        assert_eq!(result.count, 3);
+        assert_eq!(result.matches.len(), 3);
+        assert_eq!(result.matches[0].column, 1);
+        assert_eq!(result.matches[1].column, 4);
+        assert_eq!(result.matches[2].column, 7);
+
+        let count_params = SearchFileParams {
+            count_only: true,
+            ..params
+        };
+        let counted = search_one_file(&file, &matcher, &count_params, dir.path()).unwrap();
+        assert_eq!(counted.count, 3);
+        assert!(counted.matches.is_empty());
     }
 
     #[test]
