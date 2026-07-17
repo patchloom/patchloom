@@ -218,7 +218,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
 
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
-        let content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
+        // CLI `replace --if-exists` soft-skips missing paths (`skipped[]`).
+        // Plan/batch must match: without if_exists, missing paths stay hard
+        // `not_found` (#1793). With if_exists, missing is a soft success so
+        // multi-op batches do not abort on optional files (fixrealloop R12).
+        let content = match read_file_content(tx.pending, tx.existed_before, &file_path) {
+            Ok(c) => c,
+            Err(e) if if_exists && crate::exit::is_io_not_found(&e) => return Ok(0),
+            Err(e) => return Err(e),
+        };
         let (replaced, match_count) = if *command_position {
             let to = new_text.as_deref().unwrap_or("");
             let (out, n) = crate::ops::shell_token::replace_command_position(content, old, to);
@@ -860,6 +868,77 @@ mod tests {
         let mut tx = f.state(dir.path());
         let count = execute_replace_op(&op, &mut tx).unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn replace_missing_path_if_exists_soft_skips() {
+        // CLI --if-exists soft-skips missing paths; plan/batch must match
+        // (fixrealloop R12: batch `replace missing.toml … --if-exists` aborted).
+        let dir = TempDir::new().unwrap();
+        let op = Operation::Replace {
+            path: Some("missing.txt".into()),
+            glob: None,
+            regex: false,
+            old: "a".into(),
+            new_text: Some("b".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: true,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).expect("if_exists soft-skip");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn replace_missing_path_without_if_exists_errors() {
+        let dir = TempDir::new().unwrap();
+        let op = Operation::Replace {
+            path: Some("missing.txt".into()),
+            glob: None,
+            regex: false,
+            old: "a".into(),
+            new_text: Some("b".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_replace_op(&op, &mut tx).expect_err("missing without if_exists");
+        assert!(
+            crate::exit::is_io_not_found(&err),
+            "expected NotFound, got: {err:#}"
+        );
     }
 
     #[test]
