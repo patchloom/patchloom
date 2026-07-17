@@ -427,12 +427,17 @@ fn test_replace_jsonl_check_output() {
         .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
         .collect();
 
+    // Multi-file jsonl may append a type:summary trailer (#1799).
+    let file_lines: Vec<_> = lines
+        .iter()
+        .filter(|l| l.get("type").and_then(|t| t.as_str()) != Some("summary"))
+        .collect();
     assert_eq!(
-        lines.len(),
+        file_lines.len(),
         2,
-        "should have one JSONL line per matched file"
+        "should have one JSONL line per matched file: {lines:?}"
     );
-    for line in &lines {
+    for line in &file_lines {
         assert!(line["path"].is_string());
         assert!(line["match_count"].as_u64().unwrap() >= 1);
     }
@@ -2942,4 +2947,201 @@ fn test_replace_multi_file_nth_out_of_range_fail_closed() {
         fs::read_to_string(dir.path().join("m2.txt")).unwrap(),
         "a\na\n"
     );
+}
+
+/// #1808: --check JSON must set applied:false (distinct from --apply).
+#[test]
+fn test_replace_check_json_applied_false() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("c.txt"), "x=1\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "x=1", "--new", "x=2", "c.txt", "--check"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["applied"], false, "check must not look like apply: {v}");
+    assert!(
+        v.get("backup_session").is_none() || v["backup_session"].is_null(),
+        "{v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("c.txt")).unwrap(),
+        "x=1\n"
+    );
+}
+
+/// #1802: successful apply JSON includes backup_session when a backup was created.
+#[test]
+fn test_replace_apply_json_includes_backup_session() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "a=1\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "a=1", "--new", "a=2", "f.txt", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["applied"], true, "{v}");
+    assert!(
+        v["backup_session"].as_str().is_some_and(|s| !s.is_empty()),
+        "success must expose backup_session: {v}"
+    );
+}
+
+/// #1799: --jsonl multi-file includes refused + summary trailer.
+#[test]
+fn test_replace_jsonl_multi_includes_refused_and_summary() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.env"), "a=1\n").unwrap();
+    fs::write(dir.path().join("b.env"), "b=1\n").unwrap();
+    fs::write(dir.path().join("c.env"), "a=1\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--jsonl", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace", "a=1", "--new", "a=9", "a.env", "b.env", "c.env", "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("b.env") && l.contains("refused")),
+        "jsonl must stream refused path: {stdout}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("\"type\":\"summary\"") || l.contains("\"type\": \"summary\"")),
+        "jsonl must emit summary: {stdout}"
+    );
+}
+
+/// #1811: # comment lines in --files-from are ignored (not skipped paths).
+#[test]
+fn test_replace_files_from_hash_comments_ignored() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "a=1\n").unwrap();
+    fs::write(dir.path().join("list.txt"), "# header\na.txt\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "--files-from",
+            "list.txt",
+            "replace",
+            "a=1",
+            "--new",
+            "a=2",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(
+        v.get("skipped").is_none()
+            || v["skipped"]
+                .as_array()
+                .map(|a| a.is_empty())
+                .unwrap_or(true),
+        "comment must not appear in skipped: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "a=2\n"
+    );
+}
+
+/// #1813: multi-file binary co-listed appears as refused reason binary.
+#[test]
+fn test_replace_multi_binary_refused_not_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("bin.dat"), b"a\0b").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace", "hello", "--new", "hi", "t.txt", "bin.dat", "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    let refused = v["refused"].as_array().expect("binary must be refused");
+    assert!(
+        refused.iter().any(|r| {
+            r["path"].as_str() == Some("bin.dat") && r["reason"].as_str() == Some("binary")
+        }),
+        "{v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.txt")).unwrap(),
+        "hi\n"
+    );
+}
+
+/// #1800: if_exists softens require_change (exit 0 on zero matches).
+#[test]
+fn test_replace_if_exists_softens_require_change() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("z.txt"), "z=1\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "missing",
+            "--new",
+            "x",
+            "z.txt",
+            "--if-exists",
+            "--require-change",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["match_count"], 0, "{v}");
 }

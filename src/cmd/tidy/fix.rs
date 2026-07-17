@@ -23,6 +23,12 @@ struct TidyFixOutput {
     files: Vec<TidyFixFileResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<String>,
+    /// Whether bytes were written (#1812). `false` for preview/`--check`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
+    /// Backup session id after a successful apply (#1802).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
     /// Paths from `--files-from` that were missing (agent honesty; #1756 class).
     #[serde(skip_serializing_if = "Option::is_none")]
     skipped: Option<Vec<String>>,
@@ -63,7 +69,7 @@ pub(super) fn tidy_fix_output(
         true,
         FinalizeCallbacks {
             on_check: |g: &GlobalFlags, _has: bool, _diffs: &[crate::diff::FileDiff]| {
-                emit_tidy_fix_output(g, &fix_files, None, skipped.clone())?;
+                emit_tidy_fix_output(g, &fix_files, None, Some(false), None, skipped.clone())?;
                 if !g.quiet && !g.json && !g.jsonl {
                     for p in dirty_rel_paths {
                         println!("{p}");
@@ -74,15 +80,23 @@ pub(super) fn tidy_fix_output(
             on_apply: |g: &GlobalFlags,
                        _has: bool,
                        _diffs: &[crate::diff::FileDiff],
-                       diff_text: Option<String>| {
-                emit_tidy_fix_output(g, &fix_files, diff_text, skipped.clone())?;
+                       diff_text: Option<String>,
+                       backup: Option<String>| {
+                emit_tidy_fix_output(
+                    g,
+                    &fix_files,
+                    diff_text,
+                    Some(true),
+                    backup,
+                    skipped.clone(),
+                )?;
                 Ok(())
             },
             on_preview: |g: &GlobalFlags,
                          _has: bool,
                          diffs: &[crate::diff::FileDiff],
                          diff_text: Option<String>| {
-                emit_tidy_fix_output(g, &fix_files, diff_text, skipped.clone())?;
+                emit_tidy_fix_output(g, &fix_files, diff_text, Some(false), None, skipped.clone())?;
                 if !g.json && !g.jsonl && !g.quiet && !diffs.is_empty() {
                     print!("{}", render_diffs_colored(diffs, g.should_color()));
                 }
@@ -107,6 +121,8 @@ fn emit_tidy_fix_output(
     global: &GlobalFlags,
     fix_files: &[TidyFixFileResult],
     diff_text: Option<String>,
+    applied: Option<bool>,
+    backup_session: Option<String>,
     skipped: Option<Vec<String>>,
 ) -> anyhow::Result<()> {
     if global.json {
@@ -115,6 +131,8 @@ fn emit_tidy_fix_output(
             files_changed: fix_files.len(),
             files: fix_files.to_vec(),
             diff: diff_text,
+            applied,
+            backup_session,
             skipped,
         };
         global.emit_json(&output)?;
@@ -255,7 +273,7 @@ pub(super) fn run_fix(
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }
-        emit_tidy_fix_output(global, &[], None, skipped)?;
+        emit_tidy_fix_output(global, &[], None, Some(false), None, skipped)?;
         return Ok(exit::SUCCESS);
     }
 

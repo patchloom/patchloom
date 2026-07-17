@@ -256,7 +256,13 @@ fn commit_and_finalize(
         return Ok(exit::NO_MATCHES);
     }
     if ctx.structured {
-        let output = build_full_tx_output("success", result, ctx.cwd);
+        let mut output = build_full_tx_output("success", result, ctx.cwd);
+        // Surface backup session on success so agents can undo without
+        // guessing newest session (#1802). plan_exec already did this;
+        // CLI tx path was missing the assignment.
+        if output.backup_session.is_none() {
+            output.backup_session = apply_backup_session;
+        }
         let ok = emit_output_json(&output, ctx.compact);
         return Ok(exit_after_emit(ok, exit::SUCCESS));
     }

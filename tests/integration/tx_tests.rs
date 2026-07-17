@@ -8515,3 +8515,40 @@ fn test_tx_verify_cli_and_plan_unique_names_deduped() {
         "unique_names must appear once when CLI and plan both request it: {err}"
     );
 }
+
+/// #1802: successful tx --json includes backup_session.
+#[test]
+fn test_tx_apply_json_includes_backup_session() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "1\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": "f.txt",
+            "old": "1",
+            "new": "2"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(
+        v["backup_session"].as_str().is_some_and(|s| !s.is_empty()),
+        "tx success must expose backup_session: {v}"
+    );
+}

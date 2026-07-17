@@ -178,6 +178,9 @@ struct MdOutput {
     diff: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
+    /// Backup session id after a successful apply (#1802).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
 }
 
 /// Execute a single md operation through the engine, mapping "not found"
@@ -196,7 +199,7 @@ fn execute_md_op(
     match execute_via_engine(
         op,
         global,
-        |phase, diff| MdOutput {
+        |phase, diff, _backup| MdOutput {
             ok: true,
             path: file_owned.clone(),
             has_changes: match phase {
@@ -205,6 +208,7 @@ fn execute_md_op(
             },
             diff,
             applied: phase.applied_flag(),
+            backup_session: _backup,
         },
         check_msg,
         apply_msg,
@@ -393,7 +397,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     on_apply: |_g: &GlobalFlags,
                                _has: bool,
                                _diffs: &[crate::diff::FileDiff],
-                               _plain: Option<String>| Ok(()),
+                               _plain: Option<String>,
+                               _backup: Option<String>| Ok(()),
                     on_preview: |g: &GlobalFlags,
                                  _has: bool,
                                  diffs: &[crate::diff::FileDiff],
@@ -481,7 +486,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     execute_via_engine(
                         op,
                         global,
-                        |phase, diff| MdOutput {
+                        |phase, diff, _backup| MdOutput {
                             ok: true,
                             path: file_owned.clone(),
                             has_changes: match phase {
@@ -490,6 +495,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                             },
                             diff,
                             applied: phase.applied_flag(),
+                            backup_session: _backup,
                         },
                         &format!("would modify {file}"),
                         &format!("modified {file}"),

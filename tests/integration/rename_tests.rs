@@ -429,7 +429,10 @@ fn test_rename_check_json_output() {
     assert_eq!(output.status.code(), Some(2));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
-    assert!(json.get("applied").is_none());
+    assert_eq!(
+        json["applied"], false,
+        "check must set applied:false: {json}"
+    );
     // Source should still exist in --check mode.
     assert!(src.exists());
 }

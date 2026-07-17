@@ -642,7 +642,23 @@ fn test_smoke_quickstart_transaction_snippet() {
         .unwrap();
     assert!(apply_output.status.success());
     let actual_json: serde_json::Value = serde_json::from_slice(&apply_output.stdout).unwrap();
-    assert_eq!(actual_json, expected_json);
+    // backup_session is present on success when a backup was created (#1802);
+    // allow it without hard-coding the timestamp.
+    let mut actual_cmp = actual_json.clone();
+    if let Some(obj) = actual_cmp.as_object_mut() {
+        obj.remove("backup_session");
+    }
+    let mut expected_cmp = expected_json.clone();
+    if let Some(obj) = expected_cmp.as_object_mut() {
+        obj.remove("backup_session");
+    }
+    assert_eq!(actual_cmp, expected_cmp, "actual={actual_json}");
+    assert!(
+        actual_json["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "tx apply success should include backup_session: {actual_json}"
+    );
 
     let package_after: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("package.json")).unwrap())

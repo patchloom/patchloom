@@ -146,6 +146,12 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). Soft no-match / fuzzy fail-closed refuse sets `ok: false` and `error_kind: no_matches` on CLI, plan/tx, and MCP (body and `is_error` agree; #1791). When some paths write and others soft-refuse or soft-miss, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent`, `below_min_fuzzy_score`, or `no_matches` for exact soft miss on explicit multi-path lists; #1792) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).\n\
              **Missing paths CLI vs MCP (#1793):** CLI multi-path `replace` soft-skips missing explicit paths under `skipped[]` and still applies the rest. MCP `batch_replace` / plan ops treat a missing path as a hard `not_found` and roll back the batch (atomic on hard errors). Soft zero-match on existing paths still applies matches and lists `refused[]` with overall success. Under `--json`/`--jsonl`, CLI does not also print a human stderr \"No such file\" line for paths already in `skipped[]` (#1797).\n\
              **Empty `--files-from`:** An empty list file or empty stdin (`--files-from -`) is `error_kind: invalid_input` (exit 1), not pattern `no_matches`. Fix the path list; do not widen the replace pattern (#1796).\n\
+             **`--files-from` comments (#1811):** Lines whose first non-whitespace character is `#` are comments and are ignored (gitignore-style). Blank lines are ignored. Do not emit markdown headers as path lines.\n\
+             **Do not branch on `ok` alone (#1804):** Prefer `applied: true` (CLI write JSON) or MCP/tx `files_changed > 0` with `status: success` for \"edit landed.\" Soft refuse / no match uses `error_kind`/`status: no_matches` (and `applied: false` / `files_changed: 0`). Partial multi-path: read `refused[]` / `skipped[]`. Format failure: `error_kind: format_failed` means write may already be on disk.\n\
+             **`identity: true` (#1801):** Replace JSON when the pattern matched but every replacement was identical (`old == new`); `match_count > 0` but `file_count: 0` / empty `files` and no write.\n\
+             **`require_change` + `if_exists` (#1800):** When both are set, `if_exists` wins: zero matches → success (`ok: true`, `match_count: 0`), not fail-closed `no_matches`.\n\
+             **`tx`/`execute_plan` `strict: false` (#1803):** Continues past soft replace `no_matches` on existing paths. Does **not** continue past hard errors such as `not_found` (missing path). Optional **files** must be omitted from the plan or ensured to exist; optional **content** can use soft miss.\n\
+             **Binary paths (#1813):** Sole explicit binary replace is `invalid_input`. Multi-file lists put binary co-paths in `refused[]` with `reason: binary` (not pattern `no_matches`).\n\
              **Search max_results:** CLI/MCP/tx `search` with `max_results` keeps full `match_count` (and full `file_count`) but may cap the detailed `matches` array **and** the `files` list in `--count` / `--files-with-matches` modes; when capped, JSON sets `truncated: true` (omitted when complete; #1798). Under `--jsonl`, capped content searches append a final `{\"type\":\"summary\",\"match_count\":N,\"match_emitted\":M,\"truncated\":true}` line so agents still see the total. Do not treat `matches.len()` or `files.len()` as total coverage when `truncated` is true.\n\n\
              **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / \
              `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` \
@@ -155,7 +161,21 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
     }
     if show_cli {
         out.push_str(
-            "Use patchloom when:\n\
+            "**Preview vs apply (#1808, #1810, #1812):** CLI write JSON always includes `applied` \
+(`true` after apply mode, `false` for default preview / check mode). `changed: true` or \
+`files_changed: N` on preview means **would** change, not that bytes were written. Exit 2 = \
+changes detected / dry-run.\n\
+             **`backup_session` on success (#1802):** Successful CLI replace/doc/tx apply JSON \
+includes `backup_session` when a backup was created (same field as `format_failed` and library \
+`EditResult`). Use it for surgical undo; do not guess newest session under parallel agents.\n\
+             **CLI vs plan/MCP names (#1809):** CLI replace is positional `OLD` + `--new NEW` \
+(not plan aliases `from`/`to` as flags). CLI `doc set` is `doc set PATH SELECTOR VALUE` \
+(not a `--key` flag). Plan/MCP accept legacy aliases `from`/`to` and `key` for selector.\n\
+             **Replace jsonl multi-file (#1799):** Streams one object per success path \
+(`status: ok`), refused soft-miss (`status: refused`), skipped missing (`status: skipped`), \
+then a `type: summary` trailer with counts. Prefer this or MCP `batch_replace` over assuming \
+success lines are the full path list.\n\n\
+             Use patchloom when:\n\
              - Editing JSON, YAML, or TOML (parser-backed, preserves comments, output is always valid)\n\
              - Editing markdown sections, bullets, or tables by heading\n\
              - Batching edits across multiple files in one call\n\

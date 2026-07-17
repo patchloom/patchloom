@@ -2931,3 +2931,23 @@ fn test_doc_set_leading_slash_selector_strips_root() {
     let v2: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file2).unwrap()).unwrap();
     assert_eq!(v2, serde_json::json!({"server": {"port": 8080}}));
 }
+
+/// #1810: doc set preview sets applied:false (changed means would-change).
+#[test]
+fn test_doc_set_preview_applied_false() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("c.json"), "{}").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["doc", "set", "c.json", "k", "true"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["changed"], true, "{v}");
+    assert_eq!(v["applied"], false, "preview must not look like apply: {v}");
+    assert_eq!(fs::read_to_string(dir.path().join("c.json")).unwrap(), "{}");
+}
