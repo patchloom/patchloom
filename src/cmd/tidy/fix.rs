@@ -78,18 +78,11 @@ pub(super) fn tidy_fix_output(
                 Ok(())
             },
             on_apply: |g: &GlobalFlags,
-                       _has: bool,
+                       has: bool,
                        _diffs: &[crate::diff::FileDiff],
                        diff_text: Option<String>,
                        backup: Option<String>| {
-                emit_tidy_fix_output(
-                    g,
-                    &fix_files,
-                    diff_text,
-                    Some(true),
-                    backup,
-                    skipped.clone(),
-                )?;
+                emit_tidy_fix_output(g, &fix_files, diff_text, Some(has), backup, skipped.clone())?;
                 Ok(())
             },
             on_preview: |g: &GlobalFlags,

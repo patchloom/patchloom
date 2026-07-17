@@ -1066,12 +1066,13 @@ fn replace_output(
                 Ok(())
             },
             on_apply: |g: &GlobalFlags,
-                       _has: bool,
+                       has: bool,
                        diffs: &[crate::diff::FileDiff],
                        diff_text: Option<String>,
                        backup: Option<String>| {
+                // has == bytes written (false for identity-only / no-op apply).
                 if g.json {
-                    g.emit_json(&build_output(diff_text, Some(true), backup))?;
+                    g.emit_json(&build_output(diff_text, Some(has), backup))?;
                 } else if g.jsonl {
                     emit_replace_jsonl(
                         g,
@@ -1080,7 +1081,7 @@ fn replace_output(
                         skipped.as_ref(),
                         total_matches,
                         file_count,
-                        Some(true),
+                        Some(has),
                         backup,
                     )?;
                 } else if g.diff {

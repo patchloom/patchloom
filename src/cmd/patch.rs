@@ -483,12 +483,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Ok(())
             },
             on_apply: |g: &GlobalFlags,
-                       _has: bool,
+                       has: bool,
                        diffs: &[crate::diff::FileDiff],
                        _plain: Option<String>,
                        backup: Option<String>| {
-                let files = build_file_results(diffs, "applied");
-                emit_patch_files_output(g, true, &files, Some(true), backup)?;
+                let status = if has { "applied" } else { "unchanged" };
+                let files = build_file_results(diffs, status);
+                emit_patch_files_output(g, true, &files, Some(has), backup)?;
                 Ok(())
             },
             on_preview: |g: &GlobalFlags,
