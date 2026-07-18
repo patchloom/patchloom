@@ -21,6 +21,11 @@ use std::path::{Path, PathBuf};
 pub struct TxOutput {
     pub ok: bool,
     pub status: String,
+    /// Whether bytes were written to disk for this report (#1808 parity for
+    /// plan/batch/tx). True after successful apply or post-commit lifecycle
+    /// errors; false for preview/check and pure failures.
+    #[serde(default)]
+    pub applied: bool,
     pub files_changed: usize,
     pub files_created: usize,
     pub files_deleted: usize,
@@ -419,6 +424,8 @@ pub(crate) fn build_tx_output_with_meta(
     TxOutput {
         ok,
         status: status.to_string(),
+        // success = committed apply; changes_detected/no_matches = dry-run
+        applied: status == "success",
         files_changed: modified,
         files_created: created,
         files_deleted: deleted_count,
@@ -518,6 +525,7 @@ pub(crate) fn build_error_output(
     TxOutput {
         ok: false,
         status: "error".to_string(),
+        applied: false,
         files_changed: 0,
         files_created: 0,
         files_deleted: 0,
@@ -555,6 +563,8 @@ pub(crate) fn build_applied_with_error_output(
 ) -> TxOutput {
     let mut output = build_full_tx_output("error", result, cwd);
     output.ok = false;
+    // Writes already committed before this error path.
+    output.applied = true;
     output.error_kind = Some(error_kind.to_string());
     output.error = Some(format!(
         "{error_kind}: {}",
@@ -685,6 +695,7 @@ mod tests {
         TxOutput {
             ok: true,
             status: status.to_string(),
+            applied: status == "success",
             files_changed: 0,
             files_created: 0,
             files_deleted: 0,
@@ -710,6 +721,7 @@ mod tests {
         TxOutput {
             ok: false,
             status: "error".to_string(),
+            applied: false,
             files_changed: 0,
             files_created: 0,
             files_deleted: 0,
@@ -1023,6 +1035,32 @@ mod tests {
             "single replace path must surface matched_text even when other files changed"
         );
         assert_eq!(out.match_score, Some(0.88));
+    }
+
+    #[test]
+    fn applied_true_on_success_status_false_on_preview() {
+        let preview = build_tx_output_with_meta(
+            "changes_detected",
+            true,
+            &[],
+            &Default::default(),
+            &Default::default(),
+            Path::new("/tmp"),
+            &Default::default(),
+        );
+        assert!(!preview.applied, "preview must set applied=false");
+        let applied = build_tx_output_with_meta(
+            "success",
+            true,
+            &[],
+            &Default::default(),
+            &Default::default(),
+            Path::new("/tmp"),
+            &Default::default(),
+        );
+        assert!(applied.applied, "success must set applied=true");
+        let err = build_error_output("invalid_input", "nope", None);
+        assert!(!err.applied, "pure error must set applied=false");
     }
 
     // ---- TxOutput serde round-trip ----

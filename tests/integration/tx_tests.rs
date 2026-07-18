@@ -8810,3 +8810,46 @@ fn test_tx_for_each_item_alias_and_unknown_placeholder() {
     assert_eq!(v["error_kind"], "parse_error", "{v}");
     assert!(v["error"].as_str().unwrap_or("").contains("{file}"), "{v}");
 }
+
+/// Plan/batch JSON must expose `applied` like other CLI write commands (fixrealloop).
+#[test]
+fn test_tx_json_includes_applied_field() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "hi\n").unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version":1,"operations":[{"op":"replace","path":"f.txt","old":"hi","new":"yo"}]}"#,
+    )
+    .unwrap();
+
+    // Preview
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["status"], "changes_detected", "{v}");
+    assert_eq!(v["applied"], false, "preview must set applied=false: {v}");
+
+    // Apply
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["status"], "success", "{v}");
+    assert_eq!(v["applied"], true, "apply must set applied=true: {v}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "yo\n");
+}

@@ -182,9 +182,10 @@ Do not put `for_each` inside `operations` and do not pass a bare path array.\n\
     if show_cli {
         out.push_str(
             "**Preview vs apply (#1808, #1810, #1812):** CLI write JSON always includes `applied` \
-(`true` after apply mode, `false` for default preview / check mode). `changed: true` or \
-`files_changed: N` on preview means **would** change, not that bytes were written. Exit 2 = \
-changes detected / dry-run.\n\
+(`true` after apply mode, `false` for default preview / check mode). Plan/batch/tx JSON also \
+includes `applied` (same meaning; pair with `status`: `success` vs `changes_detected`). \
+`changed: true` or `files_changed: N` on preview means **would** change, not that bytes were \
+written. Exit 2 = changes detected / dry-run.\n\
              **`backup_session` on success (#1802):** Successful CLI replace/doc/tx apply JSON \
 includes `backup_session` when a backup was created (same field as `format_failed` and library \
 `EditResult`). Use it for surgical undo; do not guess newest session under parallel agents.\n\

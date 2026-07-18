@@ -221,6 +221,7 @@ mod tests {
         let report = TxOutput {
             ok: true,
             status: "success".into(),
+            applied: true,
             files_changed: 1,
             files_created: 0,
             files_deleted: 0,
