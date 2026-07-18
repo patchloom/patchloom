@@ -92,7 +92,8 @@ curl -fsS -X PATCH "https://api.smithery.ai/servers/${enc_name}" \
       description: $desc,
       homepage: "https://patchloom.github.io/patchloom/",
       repositoryUrl: "https://github.com/patchloom/patchloom",
-      license: "MIT"
+      license: "MIT",
+      unlisted: false
     }')" >/dev/null || true
 
 echo "Published ${qualified_name}"
