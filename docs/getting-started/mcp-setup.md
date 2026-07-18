@@ -47,7 +47,38 @@ bash scripts/publish-smithery.sh   # REST upload (reliable for stdio MCPB)
 CI: `.github/workflows/publish-smithery.yml` packs after each GitHub Release and
 publishes when the `SMITHERY_API_KEY` secret is set (soft-skip otherwise).
 
+## Glama directory
+
+[Glama](https://glama.ai/mcp/servers) indexes open-source MCP servers for
+discovery, quality scores, and optional hosted connectors. Patchloom is not
+auto-listed from `server.json` alone; submission is a one-time web form after
+sign-in.
+
+Repo metadata for Glama lives in [`glama.json`](../../glama.json) at the
+repository root (official schema: `maintainers` GitHub usernames). After the
+listing is live, Glama re-reads that file for ownership/indexing hints.
+
+### Submit (manual, once)
+
+1. Sign in at [glama.ai](https://glama.ai/) (GitHub OAuth is supported).
+2. Open [MCP Servers](https://glama.ai/mcp/servers) and click **Add MCP Server**.
+3. Submit:
+   - **GitHub repository URL:** `https://github.com/patchloom/patchloom`
+   - **Name / display name:** `patchloom`
+   - **Description:** short summary matching `server.json` / the README MCP line
+4. Wait for automated checks (license, security scan, health test). Most
+   submissions complete within minutes.
+5. Confirm search finds the listing, then optional check via the
+   [MCP Inspector](https://glama.ai/mcp/inspector).
+
+Expected listing URL shape after approval:
+`https://glama.ai/mcp/servers/patchloom/patchloom` (namespace/slug may vary).
+
+There is no public unauthenticated submit API; `POST /api/mcp/servers/submit`
+requires a Glama session (unauthenticated calls redirect to sign-up).
+
 ## Verify MCP support
+
 
 The MCP server is included by default in all pre-built binaries and in
 Homebrew, Scoop, Chocolatey, npm (`npx` / global), and crates.io installs.
