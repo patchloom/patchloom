@@ -832,9 +832,9 @@ Use these when markdown structure matters more than raw text matching.
 <!-- ref:md-action:replace-section -->
 ### `md replace-section`
 
-- **What it does:** Replaces the body of a heading section.
-- **Use when:** A section should be treated as authoritative content that can be rewritten in one step.
-- **Prefer instead:** Use `md insert-after-heading` when existing section content should stay and you only need to add more text.
+- **What it does:** Replaces the body of a heading section. The section runs from after the matched heading until the next heading of the **same or higher** level (CommonMark hierarchy). Nested lower-level headings (for example `## API` under `# Intro`) are part of that section and are replaced too.
+- **Use when:** A section should be treated as authoritative content that can be rewritten in one step. Prefer peer-level headings (all `##`) when you must keep sibling sections.
+- **Prefer instead:** Use `md insert-after-heading` when existing section content should stay and you only need to add more text. Target a `##` heading when you only want that subsection, not a parent `#` that owns nested `##` children.
 
 <!-- ref:md-action:insert-after-heading -->
 ### `md insert-after-heading`
@@ -867,9 +867,9 @@ Use these when markdown structure matters more than raw text matching.
 <!-- ref:md-action:dedupe-headings -->
 ### `md dedupe-headings`
 
-- **What it does:** Removes duplicate headings.
-- **Use when:** Generated markdown or hand edited docs have accumulated repeated sections that should collapse to one.
-- **Prefer instead:** Use `md lint-agents` when the goal is diagnosis rather than mutation.
+- **What it does:** Removes **later whole sections** whose heading text and level match an earlier heading (heading line plus body until the next same-or-higher heading). It does not only delete the duplicate heading line; unique content under the second heading is removed with it.
+- **Use when:** Generated markdown or hand edited docs have accumulated repeated sections that should collapse to one, and keeping only the first section body is correct.
+- **Prefer instead:** Use `md lint-agents` when the goal is diagnosis rather than mutation. Do not use dedupe if later duplicate-titled sections hold unique content you need to keep or merge.
 - **JSON:** Object with `ok`, `path`, `removed` (heading strings), `applied` (false for preview/check), and `backup_session` after a real apply. JSONL still emits one JSON string per removed heading.
 
 <!-- ref:md-action:lint-agents -->

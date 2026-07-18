@@ -22,7 +22,7 @@
 | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |
 | Insert a sibling section after a full section body | `md_insert_after_section` |
 | Move a heading section (same file or cross-file) | `md_move_section` |
-| Remove duplicate headings | `md_dedupe_headings` |
+| Remove later whole sections with a duplicate heading | `md_dedupe_headings` |
 | Lint markdown for structural issues | `md_lint` |
 | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |
 | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |
@@ -378,6 +378,7 @@ dependencies[name=react].version # predicate filter
 
 **Multi-document YAML:** Files with multiple `---` documents parse as a **top-level array** (one element per document). Address a field with a document index first, e.g. `0.metadata.name` or `[0].metadata.name`, not a bare key at the stream root. A bare root key on multi-doc (or any top-level array) fails with `error_kind: type_error` and an index-form hint on both `doc get`/`select` and `doc set` (not soft `no_matches`). Writes keep the multi-doc form (still `---` separators, not a single YAML sequence).
 
+**Markdown section bounds:** `md_replace_section` / `md_insert_after_section` / section moves end at the next heading of the **same or higher** level. Nested lower-level headings belong to the parent (replacing `# Intro` also rewrites following `##` children until the next `#`). Prefer peer-level headings when siblings must survive. `md_dedupe_headings` removes later **whole sections** with a duplicate level+text heading (body under the second heading is discarded, not merged).
 **Markdown insert placement:** `md_insert_after_heading` inserts **under the heading line** (before existing body). To add a sibling `##` section after the full section body, use `md_insert_after_section`.
 
 ## Exit codes
@@ -416,7 +417,7 @@ dependencies[name=react].version # predicate filter
 - `doc.append`: Append a value to an array at a selector path.
 - `doc.move`: Move a value from one selector path to another within the same file.
 - `doc.ensure`: Set a value only if the selector path does not already exist.
-- `md.replace_section`: Replace the body of a markdown section identified by heading.
+- `md.replace_section`: Replace the body of a markdown section identified by heading (section ends at the next same-or-higher-level heading; nested lower-level headings are included).
 - `md.upsert_bullet`: Insert or update a bullet point under a markdown heading.
 - `md.table_append`: Append a row to a markdown table under a heading.
 - `md.insert_after_heading`: Insert content immediately after a markdown heading line (before any existing body). For a sibling section after the full body, use md.insert_after_section.
@@ -429,7 +430,7 @@ dependencies[name=react].version # predicate filter
 - `doc.delete_where`: Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path. CLI --json and MCP/tx success include changed and removed (0 when no elements match; exit 0 / ok is idempotent).
 - `search`: Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores: literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.
 - `read`: Read file contents with optional line range.
-- `md.dedupe_headings`: Remove duplicate markdown headings in a file.
+- `md.dedupe_headings`: Remove later whole sections whose heading text+level already appeared (heading and body until next same-or-higher heading; unique second-section content is discarded).
 - `md.lint_agents`: Lint an AGENTS.md file for common issues.
 - `ast.rename`: AST-aware rename: rename identifiers skipping strings and comments.
 - `ast.replace`: Replace text within a specific symbol's body (AST-scoped).

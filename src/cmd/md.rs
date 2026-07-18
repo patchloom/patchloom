@@ -25,7 +25,11 @@ pub struct MdArgs {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum MdAction {
-    /// Replace a heading section.
+    /// Replace a heading section body (until next same-or-higher heading).
+    ///
+    /// Nested lower-level headings under the match are included (e.g. `# Intro`
+    /// owns following `##` sections until the next `#`). Prefer peer-level
+    /// headings when sibling sections must survive.
     ReplaceSection {
         /// Markdown file to edit.
         file: String,
@@ -104,7 +108,10 @@ pub enum MdAction {
         #[arg(long, visible_alias = "content", allow_hyphen_values = true)]
         bullet: String,
     },
-    /// Remove duplicate headings.
+    /// Remove later whole sections with a duplicate heading (level+text).
+    ///
+    /// Drops heading **and** body until the next same-or-higher heading; unique
+    /// content under the second heading is not kept.
     DedupeHeadings {
         /// Markdown file to scan for duplicate headings.
         file: String,
