@@ -195,6 +195,10 @@ includes `backup_session` when a backup was created (same field as `format_faile
              **Doc query `--json` (#1838):** `doc get`/`has`/`keys`/`len`/`select`/`flatten` success is \
 `{\"ok\":true,\"value\":...,\"path\":...,\"selector\":...}` (selector omitted for flatten). Text mode stays bare. \
 `doc has` prints `true`/`false` and exits **0** for both (missing key is not `no_matches`; #1843).\n\
+             **Plan/batch `tidy.fix` defaults (#1840, #1847):** Omitting write-policy fields matches CLI \
+`tidy fix` (trim trailing whitespace + ensure final newline). Precedence: defaults → plan \
+`write_policy` → op fields. Op fields stick through commit (plan `write_policy` is not re-applied \
+to that path); a later non-tidy write clears that. Bare example: `{\"op\":\"tidy.fix\",\"path\":\"f.txt\"}`.\n\
              **Replace jsonl multi-file (#1799):** Streams one object per success path \
 (`status: ok`), refused soft-miss (`status: refused`), skipped missing (`status: skipped`), \
 then a `type: summary` trailer with counts. Prefer this or MCP `batch_replace` over assuming \
@@ -1011,6 +1015,20 @@ mod tests {
         assert!(
             out.contains("doc has") && out.contains("#1843"),
             "must document doc has exit 0 for missing key"
+        );
+    }
+
+    #[test]
+    fn agent_rules_documents_tidy_fix_defaults() {
+        // #1840 / #1847
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("tidy.fix") && out.contains("#1840") && out.contains("#1847"),
+            "must document tidy.fix defaults and commit precedence"
+        );
+        assert!(
+            out.contains("{\"op\":\"tidy.fix\"") || out.contains(r#"{"op":"tidy.fix""#),
+            "must include bare tidy.fix plan example"
         );
     }
 
