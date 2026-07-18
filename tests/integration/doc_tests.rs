@@ -1725,6 +1725,33 @@ fn test_doc_select_filters_by_predicate() {
         .stdout(predicate::str::contains("\"b\"").not());
 }
 
+/// #1838: doc select --json success uses ok/value envelope (same path as get).
+#[test]
+fn test_doc_select_json_success_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"status":"active","name":"a"},{"status":"done","name":"b"}]}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "select"])
+        .arg(&file)
+        .arg("items[status=active]")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    // Single match unwraps to the object (same as doc get multi-value rule).
+    assert_eq!(v["value"]["name"], "a", "{v}");
+    assert_eq!(v["value"]["status"], "active", "{v}");
+    assert_eq!(v["selector"], "items[status=active]", "{v}");
+}
+
 #[test]
 fn test_doc_ensure_creates_missing_key() {
     let dir = TempDir::new().unwrap();
