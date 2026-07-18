@@ -28,9 +28,11 @@ several large native binaries inside the zip.
 ## Publish to Smithery
 
 ```bash
-# One-time: smithery auth login  (or set SMITHERY_API_KEY)
+# One-time: smithery auth login
+# export SMITHERY_API_KEY=$(smithery auth whoami --full | sed -n "s/^SMITHERY_API_KEY=//p")
+# gh secret set SMITHERY_API_KEY --repo patchloom/patchloom   # for CI
 make pack-mcpb
-smithery mcp publish target/mcpb/patchloom-<version>.mcpb -n patchloom/patchloom
+bash scripts/publish-smithery.sh
 ```
 
 CI: `.github/workflows/publish-smithery.yml` packs after a GitHub Release and

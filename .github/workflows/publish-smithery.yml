@@ -73,9 +73,8 @@ jobs:
       - name: Install pack tools
         run: |
           set -euo pipefail
-          npm install -g @anthropic-ai/mcpb smithery
+          npm install -g @anthropic-ai/mcpb
           mcpb --version
-          smithery --version || true
 
       - name: Stamp Cargo.toml version for pack
         env:
@@ -110,13 +109,8 @@ jobs:
           set -euo pipefail
           if [ -z "${SMITHERY_API_KEY:-}" ]; then
             echo "SMITHERY_API_KEY unset; packing succeeded, publish soft-skipped."
-            echo "Set the secret (smithery auth token / dashboard API key) to enable publish."
+            echo "Set the secret via: smithery auth login && smithery auth whoami --full | gh secret set SMITHERY_API_KEY"
             exit 0
-          fi
-          bundle="target/mcpb/patchloom-${VERSION}.mcpb"
-          if [ ! -f "$bundle" ]; then
-            echo "Missing ${bundle}" >&2
-            exit 1
           fi
           # Wait briefly so npm patchloom@VERSION is available when clients
           # first install the bundle (npx path). Soft wait only.
@@ -128,5 +122,6 @@ jobs:
             echo "Waiting for npm patchloom@${VERSION} (attempt ${i})"
             sleep 20
           done
-          smithery mcp publish "$bundle" -n patchloom/patchloom
-          echo "Published patchloom/patchloom from ${bundle}"
+          # Use REST API (scripts/publish-smithery.sh). CLI 1.2.0 can 400 with
+          # "No values to set" for stdio MCPB even when the API succeeds.
+          bash scripts/publish-smithery.sh
