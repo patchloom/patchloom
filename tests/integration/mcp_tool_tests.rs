@@ -1890,14 +1890,32 @@ async fn test_mcp_md_lint_round_trip() {
         }),
     )
     .await;
-    assert!(!is_error, "md_lint should succeed: {val}");
-    let arr = val.as_array().expect("md_lint should return a JSON array");
+    // Envelope matches CLI `md lint-agents --json` (#1854 / #1859): object with
+    // ok/path/issue_count/issues — not a bare array. Issues remain isError=false.
     assert!(
-        !arr.is_empty(),
-        "md_lint should find issues in file with duplicate heading"
+        !is_error,
+        "md_lint should succeed (isError=false) with issues: {val}"
+    );
+    assert!(
+        val.is_object(),
+        "md_lint success body must be an object envelope, not a bare array: {val}"
+    );
+    assert_eq!(val["ok"], false, "issues present => ok:false: {val}");
+    assert_eq!(val["path"], "AGENTS.md", "{val}");
+    let issues = val["issues"]
+        .as_array()
+        .expect("issues must be an array field");
+    assert!(
+        !issues.is_empty(),
+        "md_lint should find issues in file with duplicate heading: {val}"
+    );
+    assert_eq!(
+        val["issue_count"].as_u64().unwrap(),
+        issues.len() as u64,
+        "issue_count must match issues.len(): {val}"
     );
 
-    // Also test a clean file returns an empty array.
+    // Clean file: same envelope shape, ok:true, empty issues, still isError=false.
     fs::write(
         dir.path().join("clean.md"),
         "# Single Heading\n\nContent.\n",
@@ -1912,10 +1930,17 @@ async fn test_mcp_md_lint_round_trip() {
     )
     .await;
     assert!(!is_error2, "md_lint should succeed on clean file: {val2}");
+    assert!(
+        val2.is_object(),
+        "clean md_lint must be object envelope, not array: {val2}"
+    );
+    assert_eq!(val2["ok"], true, "{val2}");
+    assert_eq!(val2["path"], "clean.md", "{val2}");
+    assert_eq!(val2["issue_count"], 0, "{val2}");
     assert_eq!(
-        val2.as_array().unwrap().len(),
+        val2["issues"].as_array().expect("issues array").len(),
         0,
-        "md_lint should return empty array for clean file"
+        "clean file should have empty issues: {val2}"
     );
     client.cancel().await.unwrap();
 }

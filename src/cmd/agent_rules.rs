@@ -178,9 +178,10 @@ Do not put `for_each` inside `operations` and do not pass a bare path array.\n\
              `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` \
              (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect \
              concatenated pretty multi-documents for `--json`.\n\
-             **Diagnostic envelopes:** `tidy check --json` and `md lint-agents --json` emit a single object \
-             `{ok, issue_count, issues, ...}` (not a bare array). Branch on `ok` / `issue_count`. JSONL stays \
-             one issue object per line. (#1854)\n\n",
+             **Diagnostic envelopes:** `tidy check --json`, `md lint-agents --json`, and MCP `md_lint` emit a \
+             single object `{ok, path, issue_count, issues}` (not a bare array). Branch on `ok` / \
+             `issue_count`. MCP `md_lint` keeps isError=false when issues are present (same as clean file \
+             success with `ok: true`). CLI JSONL stays one issue object per line. (#1854, #1859)\n\n",
         );
     }
     if show_cli {

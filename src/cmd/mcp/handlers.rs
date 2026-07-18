@@ -465,7 +465,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Lint a markdown rules file for duplicate headings, dangerous git commands, and missing final newline. Example: {\"path\": \"AGENTS.md\"}"
+        description = "Lint a markdown rules file for duplicate headings, dangerous git commands, and missing final newline. Returns object envelope {ok, path, issue_count, issues} (CLI lint-agents --json parity; not a bare array). isError stays false when issues are present; branch on ok / issue_count. Example: {\"path\": \"AGENTS.md\"}"
     )]
     async fn md_lint(
         &self,
@@ -477,7 +477,15 @@ impl PatchloomService {
             let content = std::fs::read_to_string(&abs)
                 .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
             let issues = crate::ops::md::lint_agents_content(&content);
-            let json = serde_json::to_string_pretty(&issues)
+            // Envelope matches CLI `md lint-agents --json` (#1854 / #1859).
+            // Always tool success (isError=false); agents branch on ok / issue_count.
+            let envelope = serde_json::json!({
+                "ok": issues.is_empty(),
+                "path": p.path,
+                "issue_count": issues.len(),
+                "issues": issues,
+            });
+            let json = serde_json::to_string_pretty(&envelope)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
