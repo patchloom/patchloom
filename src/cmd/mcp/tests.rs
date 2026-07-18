@@ -36,6 +36,27 @@ async fn spawn_test_client_with_log(
     ().serve(client_transport).await.unwrap()
 }
 
+/// #1838: MCP peels CLI doc-query ok/value envelopes back to bare values.
+#[test]
+fn peel_doc_query_success_value_extracts_value() {
+    let envelope = r#"{"ok":true,"value":{"a":1},"path":"/tmp/x.json","selector":"a"}"#;
+    let peeled = peel_doc_query_success_value(envelope);
+    let v: serde_json::Value = serde_json::from_str(&peeled).unwrap();
+    assert_eq!(v, serde_json::json!({"a": 1}), "peeled: {peeled}");
+}
+
+#[test]
+fn peel_doc_query_success_value_leaves_errors_and_diff() {
+    let err = r#"{"ok":false,"error":"no match","error_kind":"no_matches"}"#;
+    assert_eq!(peel_doc_query_success_value(err), err);
+
+    let diff = r#"{"identical":false,"differences":["~ a"]}"#;
+    assert_eq!(peel_doc_query_success_value(diff), diff);
+
+    let not_json = "plain text";
+    assert_eq!(peel_doc_query_success_value(not_json), not_json);
+}
+
 mod basic {
     use super::*;
 

@@ -1363,6 +1363,28 @@ fn test_doc_len_array() {
         .stdout(predicate::str::starts_with("5"));
 }
 
+/// #1838: doc len --json success uses ok/value envelope (not bare number).
+#[test]
+fn test_doc_len_json_success_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items":[1,2,3,4,5]}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "len"])
+        .arg(&file)
+        .arg("items")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["value"], 5, "{v}");
+    assert_eq!(v["selector"], "items", "{v}");
+    assert!(v["path"].as_str().is_some(), "{v}");
+}
+
 #[test]
 fn test_doc_append_to_array() {
     let dir = TempDir::new().unwrap();
@@ -1701,6 +1723,33 @@ fn test_doc_select_filters_by_predicate() {
         .stdout(predicate::str::contains("\"name\""))
         .stdout(predicate::str::contains("\"a\""))
         .stdout(predicate::str::contains("\"b\"").not());
+}
+
+/// #1838: doc select --json success uses ok/value envelope (same path as get).
+#[test]
+fn test_doc_select_json_success_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"status":"active","name":"a"},{"status":"done","name":"b"}]}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "select"])
+        .arg(&file)
+        .arg("items[status=active]")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    // Single match unwraps to the object (same as doc get multi-value rule).
+    assert_eq!(v["value"]["name"], "a", "{v}");
+    assert_eq!(v["value"]["status"], "active", "{v}");
+    assert_eq!(v["selector"], "items[status=active]", "{v}");
 }
 
 #[test]

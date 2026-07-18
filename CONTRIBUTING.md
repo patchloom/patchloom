@@ -15,7 +15,7 @@ cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast), integration tests, PTY tests, release notes verification, test hygiene audit, and generated-doc freshness checks (`check-patchloom-md`, `check-readme`). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme` so a drifted README test badge fails before CI).
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, and generated-doc freshness checks (`check-patchloom-md`, `check-readme`). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme` so a drifted README test badge fails before CI).
 
 ## Issues and triage
 

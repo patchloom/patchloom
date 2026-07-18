@@ -251,6 +251,9 @@ pub(crate) struct TxState<'a> {
     /// upfront declared_paths check covers static paths; this catches paths
     /// discovered at runtime (#1361).
     pub(crate) guard: Option<&'a crate::containment::PathGuard>,
+    /// Plan-level `write_policy` (if any). Used by `tidy.fix` so defaults
+    /// honor plan overrides before op-level fields (#1840 honesty).
+    pub(crate) plan_write_policy: Option<&'a crate::write::WritePolicyOverride>,
 }
 
 /// Test fixture that owns all the storage behind a `TxState`, avoiding
@@ -306,6 +309,7 @@ impl TxStateFixture {
             quiet: true,
             structured: false,
             guard: None,
+            plan_write_policy: None,
         }
     }
 }
@@ -593,6 +597,7 @@ pub(crate) fn execute_and_collect(
             quiet,
             structured,
             guard,
+            plan_write_policy: plan.write_policy.as_ref(),
         };
         match execute_operation(op, &mut tx) {
             Ok(count) => {
