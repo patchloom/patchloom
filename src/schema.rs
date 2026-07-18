@@ -243,12 +243,18 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "tidy.fix",
-        description: "Normalize whitespace, line endings, and final newline in a file.",
+        description: "Normalize whitespace in a file. When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; normalize_eol stays keep). Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).",
         tier: Tier::Weak,
-        examples: &[(
-            "Fix whitespace in a file",
-            r###"{"op":"tidy.fix","path":"src/main.rs","ensure_final_newline":true,"trim_trailing_whitespace":true}"###,
-        )],
+        examples: &[
+            (
+                "Fix whitespace with explicit flags (same as bare defaults)",
+                r###"{"op":"tidy.fix","path":"src/main.rs","ensure_final_newline":true,"trim_trailing_whitespace":true}"###,
+            ),
+            (
+                "Bare tidy.fix uses CLI tidy-fix defaults",
+                r###"{"op":"tidy.fix","path":"src/main.rs"}"###,
+            ),
+        ],
     },
     // --- Medium tier ---
     OpMeta {

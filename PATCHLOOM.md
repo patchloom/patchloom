@@ -89,6 +89,7 @@ Placeholders: `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`
 **CLI vs plan/MCP names (#1809):** CLI replace is positional `OLD` + `--new NEW` (not plan aliases `from`/`to` as flags). CLI `doc set` is `doc set PATH SELECTOR VALUE` (not a `--key` flag). Plan/MCP accept legacy aliases `from`/`to` and `key` for selector.
 **CLI `md upsert-bullet`:** use `--bullet` (or alias `--content`; #1839) with `--heading`.
 **Doc query `--json` (#1838):** `doc get`/`has`/`keys`/`len`/`select`/`flatten` success is `{"ok":true,"value":...,"path":...,"selector":...}` (selector omitted for flatten). Text mode stays bare. `doc has` prints `true`/`false` and exits **0** for both (missing key is not `no_matches`; #1843).
+**Plan/batch `tidy.fix` defaults (#1840, #1847):** Omitting write-policy fields matches CLI `tidy fix` (trim trailing whitespace + ensure final newline). Precedence: defaults → plan `write_policy` → op fields. Op fields stick through commit (plan `write_policy` is not re-applied to that path); a later non-tidy write clears that. Bare example: `{"op":"tidy.fix","path":"f.txt"}`.
 **Replace jsonl multi-file (#1799):** Streams one object per success path (`status: ok`), refused soft-miss (`status: refused`), skipped missing (`status: skipped`), then a `type: summary` trailer with counts. Prefer this or MCP `batch_replace` over assuming success lines are the full path list.
 
 Use patchloom when:
@@ -406,7 +407,7 @@ dependencies[name=react].version # predicate filter
 - `file.create`: Create a new file with specified content.
 - `file.delete`: Delete a file.
 - `file.rename`: Rename (move) a file.
-- `tidy.fix`: Normalize whitespace, line endings, and final newline in a file.
+- `tidy.fix`: Normalize whitespace in a file. When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; normalize_eol stays keep). Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).
 - `doc.set`: Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.
 - `doc.delete`: Delete a value at a selector path in a JSON, YAML, or TOML file. CLI --json and MCP/tx success include changed and removed (0 on missing key; exit 0 / ok is idempotent).
 - `doc.merge`: Deep-merge a JSON object into the root of a document.
