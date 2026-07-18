@@ -374,4 +374,26 @@ fn test_explain_file_prepend_description() {
         .stdout(predicates::str::contains("Prepend"));
 }
 
+/// #1847: explain must surface explicit tidy.fix write-policy fields.
+#[test]
+fn test_explain_tidy_fix_shows_explicit_write_policy_fields() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version":1,"operations":[{"op":"tidy.fix","path":"x.txt","ensure_final_newline":false,"trim_trailing_whitespace":false,"normalize_eol":"lf"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("ensure_final_newline=false"))
+        .stdout(predicates::str::contains("trim_trailing_whitespace=false"))
+        .stdout(predicates::str::contains("normalize_eol=lf"));
+}
+
 // ── --format flag on write commands ────────────────────────────
