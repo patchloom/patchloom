@@ -2744,6 +2744,80 @@ fn test_tx_tidy_fix_defaults_trim_and_final_newline() {
     );
 }
 
+/// #1840: plan-level write_policy must override tidy.fix CLI-matching defaults.
+#[test]
+fn test_tx_tidy_fix_plan_write_policy_overrides_defaults() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("messy.txt");
+    fs::write(&file, "hello   ").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "write_policy": {
+            "trim_trailing_whitespace": false,
+            "ensure_final_newline": false
+        },
+        "operations": [{
+            "op": "tidy.fix",
+            "path": file.to_str().unwrap()
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        result, "hello   ",
+        "plan write_policy must disable tidy.fix defaults: got {result:?}"
+    );
+}
+
+/// Op-level tidy fields win over plan write_policy.
+#[test]
+fn test_tx_tidy_fix_op_fields_win_over_plan_write_policy() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("messy.txt");
+    fs::write(&file, "hello   ").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "write_policy": {
+            "trim_trailing_whitespace": false,
+            "ensure_final_newline": false
+        },
+        "operations": [{
+            "op": "tidy.fix",
+            "path": file.to_str().unwrap(),
+            "trim_trailing_whitespace": true,
+            "ensure_final_newline": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        result, "hello\n",
+        "op-level tidy fields must beat plan write_policy: got {result:?}"
+    );
+}
+
 #[test]
 fn test_tx_tidy_fix_trim_trailing_whitespace() {
     let dir = TempDir::new().unwrap();
