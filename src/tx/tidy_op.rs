@@ -19,9 +19,11 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             let file_path = tx.cwd.join(path);
             mark_write_target(tx.write_targets, &file_path);
             let content = read_file_content(tx.pending, tx.existed_before, &file_path)?.to_owned();
+            // Defaults match CLI `tidy fix` when no flags / write_policy override
+            // are set (#1840): trim trailing whitespace + ensure final newline.
             let policy = WritePolicy {
                 ensure_final_newline: ensure_final_newline.unwrap_or(true),
-                trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
+                trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(true),
                 normalize_eol: if let Some(eol) = normalize_eol {
                     crate::write::parse_eol_mode(eol)?
                 } else {

@@ -460,25 +460,33 @@ fn format_json_value(value: &serde_json::Value, compact: bool) -> String {
     }
 }
 
-fn format_values(values: &[&serde_json::Value], mode: OutputMode) -> anyhow::Result<String> {
+/// Agent JSON envelope for successful doc query results (#1838).
+///
+/// Text mode stays bare (jq-friendly / human). Json/Jsonl wrap `value` so
+/// agents can branch on `ok` like other commands.
+fn format_query_success(
+    value: serde_json::Value,
+    mode: OutputMode,
+    path: &str,
+    selector: Option<&str>,
+) -> anyhow::Result<String> {
     match mode {
-        OutputMode::Text => Ok(values
-            .iter()
-            .map(|value| format_value(value, mode))
-            .collect::<Vec<_>>()
-            .join("\n")),
-        OutputMode::Json => {
-            if values.len() == 1 {
-                Ok(serde_json::to_string_pretty(values[0])?)
+        OutputMode::Text => Ok(format_value(&value, mode)),
+        OutputMode::Json | OutputMode::Jsonl => {
+            let mut payload = serde_json::json!({
+                "ok": true,
+                "value": value,
+                "path": path,
+            });
+            if let Some(sel) = selector {
+                payload["selector"] = serde_json::Value::String(sel.to_string());
+            }
+            if mode == OutputMode::Json {
+                Ok(serde_json::to_string_pretty(&payload)?)
             } else {
-                Ok(serde_json::to_string_pretty(values)?)
+                Ok(serde_json::to_string(&payload)?)
             }
         }
-        OutputMode::Jsonl => Ok(values
-            .iter()
-            .map(serde_json::to_string)
-            .collect::<Result<Vec<_>, _>>()?
-            .join("\n")),
     }
 }
 
@@ -546,8 +554,15 @@ fn execute_with_mode_inner(
                     quiet,
                 ),
                 crate::ops::doc::query::QueryResult::Values(vals) => {
-                    let refs: Vec<&serde_json::Value> = vals.iter().collect();
-                    Ok((format_values(&refs, output_mode)?, exit::SUCCESS))
+                    let value = if vals.len() == 1 {
+                        vals.into_iter().next().unwrap_or(serde_json::Value::Null)
+                    } else {
+                        serde_json::Value::Array(vals)
+                    };
+                    Ok((
+                        format_query_success(value, output_mode, file, Some(selector))?,
+                        exit::SUCCESS,
+                    ))
                 }
             }
         }
@@ -556,18 +571,15 @@ fn execute_with_mode_inner(
             crate::verbose!("doc: has file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             let found = crate::ops::doc::query::query_has(&root, selector)?;
-            let output = match output_mode {
-                OutputMode::Text => found.to_string(),
-                OutputMode::Json => serde_json::to_string_pretty(&found)?,
-                OutputMode::Jsonl => serde_json::to_string(&found)?,
-            };
+            // Boolean query: missing is a valid answer (exit 0), not no_matches (#1843).
             Ok((
-                output,
-                if found {
-                    exit::SUCCESS
-                } else {
-                    exit::NO_MATCHES
-                },
+                format_query_success(
+                    serde_json::Value::Bool(found),
+                    output_mode,
+                    file,
+                    Some(selector),
+                )?,
+                exit::SUCCESS,
             ))
         }
 
@@ -590,12 +602,14 @@ fn execute_with_mode_inner(
                 crate::ops::doc::query::QueryKeysResult::Keys(keys) => {
                     let output = match output_mode {
                         OutputMode::Text => keys.join("\n"),
-                        OutputMode::Json => serde_json::to_string_pretty(&keys)?,
-                        OutputMode::Jsonl => keys
-                            .iter()
-                            .map(serde_json::to_string)
-                            .collect::<Result<Vec<_>, _>>()?
-                            .join("\n"),
+                        OutputMode::Json | OutputMode::Jsonl => format_query_success(
+                            serde_json::Value::Array(
+                                keys.into_iter().map(serde_json::Value::String).collect(),
+                            ),
+                            output_mode,
+                            file,
+                            Some(selector),
+                        )?,
                     };
                     Ok((output, exit::SUCCESS))
                 }
@@ -618,14 +632,15 @@ fn execute_with_mode_inner(
                     exit::FAILURE,
                     Some("type_error"),
                 ),
-                crate::ops::doc::query::QueryLenResult::Len(len) => {
-                    let output = match output_mode {
-                        OutputMode::Text => len.to_string(),
-                        OutputMode::Json => serde_json::to_string_pretty(&len)?,
-                        OutputMode::Jsonl => serde_json::to_string(&len)?,
-                    };
-                    Ok((output, exit::SUCCESS))
-                }
+                crate::ops::doc::query::QueryLenResult::Len(len) => Ok((
+                    format_query_success(
+                        serde_json::json!(len),
+                        output_mode,
+                        file,
+                        Some(selector),
+                    )?,
+                    exit::SUCCESS,
+                )),
             }
         }
 
@@ -643,23 +658,18 @@ fn execute_with_mode_inner(
                 );
             }
             match output_mode {
-                OutputMode::Json => {
+                OutputMode::Json | OutputMode::Jsonl => {
                     let obj: serde_json::Map<String, serde_json::Value> =
                         entries.into_iter().map(|(k, v)| (k, v.clone())).collect();
-                    Ok((serde_json::to_string_pretty(&obj)?, exit::SUCCESS))
-                }
-                OutputMode::Jsonl => {
-                    let lines = entries
-                        .iter()
-                        .map(|(k, v)| {
-                            serde_json::to_string(&serde_json::json!({
-                                "path": k,
-                                "value": v,
-                            }))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?
-                        .join("\n");
-                    Ok((lines, exit::SUCCESS))
+                    Ok((
+                        format_query_success(
+                            serde_json::Value::Object(obj),
+                            output_mode,
+                            file,
+                            None,
+                        )?,
+                        exit::SUCCESS,
+                    ))
                 }
                 OutputMode::Text => {
                     let lines: Vec<String> = entries

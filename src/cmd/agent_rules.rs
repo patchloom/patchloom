@@ -159,7 +159,18 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              **`identity: true` (#1801):** Replace JSON when the pattern matched but every replacement was identical (`old == new`); `match_count > 0` but `file_count: 0` / empty `files` and no write.\n\
              **`require_change` + `if_exists` (#1800):** When both are set, `if_exists` wins: zero matches → success (`ok: true`, `match_count: 0`), not fail-closed `no_matches`.\n\
              **`tx`/`execute_plan` `strict: false` (#1803):** Continues past soft replace `no_matches` on existing paths. Does **not** continue past hard errors such as `not_found` (missing path). Optional **files** must be omitted from the plan or ensured to exist; optional **content** can use soft miss.\n\
-             **`for_each` templates:** Valid placeholders are `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`, `{name}`. Unknown lone `{name}` in path/from/to fields fails with `invalid_input` (not opaque `not_found`).
+             **`for_each` (plan-level field, not an op; #1842):** Fan-out is a top-level plan field with required `glob`. Example:\n\
+             ```json\n\
+             {\n\
+               \"for_each\": { \"glob\": \"**/*.txt\" },\n\
+               \"operations\": [\n\
+                 { \"op\": \"replace\", \"path\": \"{path}\", \"old\": \"x\", \"new\": \"y\" }\n\
+               ]\n\
+             }\n\
+             ```\n\
+             Placeholders: `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`, `{name}`. \
+Unknown lone `{name}` in path/from/to fields fails with `invalid_input` (not opaque `not_found`). \
+Do not put `for_each` inside `operations` and do not pass a bare path array.\n\
              **Binary paths (#1813):** Sole explicit binary replace is `invalid_input`. Multi-file lists put binary co-paths in `refused[]` with `reason: binary` (not pattern `no_matches`).\n\
              **Search max_results:** CLI/MCP/tx `search` with `max_results` keeps full `match_count` (and full `file_count`) but may cap the detailed `matches` array **and** the `files` list in `--count` / `--files-with-matches` modes; when capped, JSON sets `truncated: true` (omitted when complete; #1798). Under `--jsonl`, capped content searches append a final `{\"type\":\"summary\",\"match_count\":N,\"match_emitted\":M,\"truncated\":true}` line so agents still see the total. Do not treat `matches.len()` or `files.len()` as total coverage when `truncated` is true.\n\n\
              **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / \
@@ -180,6 +191,10 @@ includes `backup_session` when a backup was created (same field as `format_faile
              **CLI vs plan/MCP names (#1809):** CLI replace is positional `OLD` + `--new NEW` \
 (not plan aliases `from`/`to` as flags). CLI `doc set` is `doc set PATH SELECTOR VALUE` \
 (not a `--key` flag). Plan/MCP accept legacy aliases `from`/`to` and `key` for selector.\n\
+             **CLI `md upsert-bullet`:** use `--bullet` (or alias `--content`; #1839) with `--heading`.\n\
+             **Doc query `--json` (#1838):** `doc get`/`has`/`keys`/`len`/`select`/`flatten` success is \
+`{\"ok\":true,\"value\":...,\"path\":...,\"selector\":...}` (selector omitted for flatten). Text mode stays bare. \
+`doc has` prints `true`/`false` and exits **0** for both (missing key is not `no_matches`; #1843).\n\
              **Replace jsonl multi-file (#1799):** Streams one object per success path \
 (`status: ok`), refused soft-miss (`status: refused`), skipped missing (`status: skipped`), \
 then a `type: summary` trailer with counts. Prefer this or MCP `batch_replace` over assuming \
@@ -242,7 +257,8 @@ success lines are the full path list.\n\n\
          | Text/identifier before | `old` | CLI **replace**: positional `OLD` (not `--old`). CLI **ast rename/replace**: `--old`. Plans/MCP: `\"old\"`. |\n\
          | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `\"new\"`. |\n\
          | Doc path into a document | `selector` | CLI positional. Plans/MCP: `\"selector\"`. |\n\
-         | AST rename / replace | path first | `ast rename PATH --old X --new Y`; plan `ast.rename` uses `path`/`old`/`new`. |\n\
+         | AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). |\n\
+         | AST refs / impact | symbol first | `ast refs SYMBOL PATH` / `ast impact SYMBOL PATH` (no `--name` flag; #1841). |\n\
          | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |\n\n\
          Replace example: `patchloom replace OLD --new NEW path` (positional OLD + `--new`; never `replace --old …`).\n\
          Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector, \
@@ -486,14 +502,20 @@ success lines are the full path list.\n\n\
              Tree-sitter-backed operations that understand code structure (20 languages).\n\n\
              ```bash\n\
              # Rename an identifier across a file, skipping strings and comments\n\
+             # (path first, then --old / --new)\n\
              patchloom ast rename src/lib.rs --old OldName --new NewName --apply\n\n\
              # Replace text only within a specific function body\n\
-             patchloom ast replace src/config.rs --symbol default_timeout --old 30 --new 60 --apply\n\n\
+             # (PATH then SYMBOL are positionals — no --symbol flag; #1841)\n\
+             patchloom ast replace src/config.rs default_timeout --old 30 --new 60 --apply\n\n\
              # List all symbol definitions\n\
              patchloom ast list src/lib.rs\n\n\
              # Find all references to a symbol\n\
-             patchloom ast refs src/ --name my_function\n\
+             # (SYMBOL then PATH — order differs from replace/read; #1841)\n\
+             patchloom ast refs my_function src/\n\
+             # impact is also SYMBOL then PATH: ast impact my_function src/\n\
              ```\n\n\
+             **AST CLI arg order:** `rename`/`replace`/`read`/`validate` use path-first; \
+`refs`/`impact` use symbol-first. There is no `--symbol` or `--name` flag on these commands.\n\n\
              AST rename, replace, and rewrite_signature can also be used in batch and tx plans:\n\n\
              ```bash\n\
              # In a batch file (path, then old, then new — same names as CLI flags):\n\
@@ -927,6 +949,71 @@ mod tests {
     }
 
     /// Canonical names table must stay present so agents do not invent alternates.
+    /// Full AST CLI examples live under `#[cfg(feature = "ast")]`; the names table
+    /// always documents PATH/SYMBOL order so this still holds for test-mcp-no-ast.
+    #[test]
+    fn agent_rules_ast_cli_examples_use_real_clap_shapes() {
+        // #1841: no --symbol / --name; correct positional order.
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("ast replace PATH SYMBOL")
+                || out.contains("ast replace src/config.rs default_timeout"),
+            "replace must use PATH SYMBOL positionals"
+        );
+        assert!(
+            !out.contains("ast replace src/config.rs --symbol")
+                && !out.contains("ast replace PATH --symbol"),
+            "must not document nonexistent --symbol"
+        );
+        assert!(
+            out.contains("ast refs my_function src/") || out.contains("ast refs SYMBOL PATH"),
+            "refs must document SYMBOL PATH order"
+        );
+        assert!(
+            !out.contains("ast refs src/ --name") && !out.contains("ast refs PATH --name"),
+            "must not document nonexistent --name on refs"
+        );
+        #[cfg(feature = "ast")]
+        {
+            assert!(
+                out.contains("ast replace src/config.rs default_timeout --old 30 --new 60"),
+                "AST section example must use PATH SYMBOL positionals"
+            );
+            assert!(
+                out.contains("ast refs my_function src/"),
+                "AST section example must use SYMBOL PATH for refs"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_rules_documents_for_each_plan_json_shape() {
+        // #1842: complete plan-level for_each example.
+        let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
+        assert!(
+            out.contains("\"for_each\"") && out.contains("\"glob\""),
+            "must show plan-level for_each with glob"
+        );
+        assert!(
+            out.contains("plan-level field") || out.contains("#1842"),
+            "must say for_each is plan-level not an op"
+        );
+    }
+
+    #[test]
+    fn agent_rules_documents_doc_query_envelope_and_has_exit() {
+        // #1838 / #1843 lock strings for CLI agent hosts.
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("Doc query") && out.contains("\"ok\":true") && out.contains("value"),
+            "must document doc query JSON success envelope"
+        );
+        assert!(
+            out.contains("doc has") && out.contains("#1843"),
+            "must document doc has exit 0 for missing key"
+        );
+    }
+
     #[test]
     fn agent_rules_includes_canonical_parameter_names() {
         let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));

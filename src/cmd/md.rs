@@ -14,6 +14,7 @@ EXAMPLES:
   patchloom md table-append README.md --heading '## API' --row '| /users | List users |'
   patchloom md table-append README.md --heading '## API' --row '/users|List users'
   patchloom md upsert-bullet AGENTS.md --heading '## Rules' --bullet '- Run make check'
+  patchloom md upsert-bullet AGENTS.md --heading '## Rules' --content '- Alias of --bullet' --apply
   patchloom md replace-section CHANGELOG.md --heading '## Unreleased' --content '- New feature' --apply")]
 pub struct MdArgs {
     #[command(subcommand)]
@@ -99,7 +100,8 @@ pub enum MdAction {
         #[arg(long)]
         heading: String,
         /// Bullet text (leading `- ` is optional).
-        #[arg(long, allow_hyphen_values = true)]
+        /// Alias `--content` matches sibling `md` mutators (#1839).
+        #[arg(long, visible_alias = "content", allow_hyphen_values = true)]
         bullet: String,
     },
     /// Remove duplicate headings.

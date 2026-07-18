@@ -21,8 +21,10 @@ fn test_doc_get_jsonl_compound_value_is_single_line_json() {
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
     assert_eq!(lines.len(), 1);
     let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-    assert_eq!(json["name"], "patchloom");
-    assert_eq!(json["version"], 1);
+    // #1838: success is ok envelope; value holds the document fragment.
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["value"]["name"], "patchloom");
+    assert_eq!(json["value"]["version"], 1);
 }
 
 #[test]
@@ -88,6 +90,7 @@ fn test_doc_has_missing_key() {
     let file = dir.path().join("test.json");
     fs::write(&file, r#"{"name":"patchloom"}"#).unwrap();
 
+    // Missing key is a valid boolean answer (exit 0), not no_matches (#1843).
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("doc")
@@ -95,12 +98,59 @@ fn test_doc_has_missing_key() {
         .arg(&file)
         .arg("missing")
         .assert()
-        .code(3) // NO_MATCHES: key doesn't exist
+        .code(0)
         .stdout(predicate::str::contains("false"));
 }
 
+/// #1838: doc query --json success is an ok envelope, not a bare value.
 #[test]
-fn test_doc_keys_jsonl_outputs_one_key_per_line() {
+fn test_doc_get_json_success_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("o.json");
+    fs::write(&file, r#"{"a":1,"c":null}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("a")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["value"], 1, "{v}");
+    assert!(v["path"].as_str().is_some(), "{v}");
+    assert_eq!(v["selector"], "a", "{v}");
+}
+
+/// #1843: doc has missing under --json exits 0 with value false.
+#[test]
+fn test_doc_has_json_missing_exit_0_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("o.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "has"])
+        .arg(&file)
+        .arg("missing")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "missing key is not no_matches: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["value"], false, "{v}");
+}
+
+#[test]
+fn test_doc_keys_jsonl_success_envelope() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
     fs::write(&file, r#"{"scripts":{"build":"tsc","lint":"eslint"}}"#).unwrap();
@@ -117,14 +167,14 @@ fn test_doc_keys_jsonl_outputs_one_key_per_line() {
 
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<serde_json::Value> = stdout
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect();
-    assert_eq!(lines.len(), 2);
-    assert!(lines.iter().any(|v| v == "build"));
-    assert!(lines.iter().any(|v| v == "lint"));
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "single envelope line (#1838): {stdout}");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    let keys = json["value"].as_array().expect("value array of keys");
+    assert_eq!(keys.len(), 2);
+    assert!(keys.iter().any(|v| v == "build"));
+    assert!(keys.iter().any(|v| v == "lint"));
 }
 
 #[test]
@@ -1394,22 +1444,25 @@ fn test_doc_flatten_includes_empty_arrays() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // #1838: --json success is an ok envelope; flatten map lives under value.
+    assert_eq!(parsed["ok"], true, "envelope: {stdout}");
+    let value = &parsed["value"];
     assert_eq!(
-        parsed["empty_arr"],
+        value["empty_arr"],
         serde_json::json!([]),
         "empty array missing: {stdout}"
     );
     assert_eq!(
-        parsed["empty_obj"],
+        value["empty_obj"],
         serde_json::json!({}),
         "empty object missing: {stdout}"
     );
     assert_eq!(
-        parsed["nested.deep_empty"],
+        value["nested.deep_empty"],
         serde_json::json!([]),
         "nested empty array missing: {stdout}"
     );
-    assert_eq!(parsed["default[0]"], serde_json::json!("a"));
+    assert_eq!(value["default[0]"], serde_json::json!("a"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1440,7 +1493,7 @@ fn test_doc_diff_shows_changes() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_doc_flatten_jsonl_outputs_path_value_objects() {
+fn test_doc_flatten_jsonl_success_envelope() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
     fs::write(&file, r#"{"a":1,"b":{"c":2}}"#).unwrap();
@@ -1456,14 +1509,13 @@ fn test_doc_flatten_jsonl_outputs_path_value_objects() {
 
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let lines: Vec<serde_json::Value> = stdout
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect();
-
-    assert!(lines.iter().any(|v| v["path"] == "a" && v["value"] == 1));
-    assert!(lines.iter().any(|v| v["path"] == "b.c" && v["value"] == 2));
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 1, "single envelope line (#1838): {stdout}");
+    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    let map = json["value"].as_object().expect("flatten map");
+    assert_eq!(map.get("a"), Some(&serde_json::json!(1)));
+    assert_eq!(map.get("b.c"), Some(&serde_json::json!(2)));
 }
 
 #[test]

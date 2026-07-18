@@ -263,6 +263,35 @@ fn test_md_upsert_bullet_adds_new() {
     );
 }
 
+/// #1839: --content is a visible alias of --bullet (sibling md mutator habit).
+#[test]
+fn test_md_upsert_bullet_accepts_content_alias() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("notes.md");
+    fs::write(&file, "## Rules\n\n- existing\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "md",
+            "upsert-bullet",
+            file.to_str().unwrap(),
+            "--heading",
+            "## Rules",
+            "--content",
+            "via content alias",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("via content alias"),
+        "content alias must write bullet: {content}"
+    );
+}
+
 #[test]
 fn test_md_upsert_bullet_skips_duplicate() {
     let dir = TempDir::new().unwrap();
