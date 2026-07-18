@@ -1,4 +1,4 @@
-use super::execute::{TxState, read_file_content, update_file_content};
+use super::execute::{TxState, read_file_content};
 use super::output::TxLintResult;
 use crate::ops::md::{
     dedupe_headings_in, insert_after_heading_in, insert_after_section_in, insert_before_heading_in,
@@ -25,13 +25,7 @@ fn apply_md_heading_op(
         op(file_content, heading, extra).ok_or_else(|| crate::exit::NoMatchError {
             msg: format!("{err_label} not found: {heading}"),
         })?;
-    update_file_content(
-        tx.pending,
-        tx.deletions,
-        tx.write_targets,
-        &file_path,
-        new_content,
-    );
+    tx.write_file(&file_path, new_content);
     Ok(())
 }
 
@@ -114,13 +108,7 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
                         })
                     },
                 )?;
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &file_path,
-                new_content,
-            );
+            tx.write_file(&file_path, new_content);
         }
 
         Operation::MdMoveSection {
@@ -161,21 +149,9 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
                     .ok_or_else(|| crate::exit::NoMatchError {
                         msg: "md.move_section: heading or target not found".to_string(),
                     })?;
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &source_path,
-                new_source,
-            );
+            tx.write_file(&source_path, new_source);
             if !same_file {
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &dest_path,
-                    new_dest,
-                );
+                tx.write_file(&dest_path, new_dest);
             }
         }
 
@@ -183,13 +159,7 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
             let file_path = tx.cwd.join(path);
             let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let (new_content, _removed) = dedupe_headings_in(file_content);
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &file_path,
-                new_content,
-            );
+            tx.write_file(&file_path, new_content);
         }
 
         Operation::MdLintAgents { path } => {

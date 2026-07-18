@@ -19,6 +19,22 @@ pub(crate) fn build_write_policy(
     ctx: &EngineContext,
     path: &Path,
 ) -> anyhow::Result<WritePolicy> {
+    build_write_policy_with_plan(plan, ctx, path, true)
+}
+
+/// Like [`build_write_policy`], but when `apply_plan_fields` is false skip
+/// plan `write_policy` field overrides (trim/ensure/eol/collapse).
+///
+/// Used for paths whose content was already staged by `tidy.fix` with the
+/// full defaults→plan→op precedence (#1847). Still resolves EditorConfig via
+/// CLI flags (and plan `respect_editorconfig` when set) so CLI
+/// `tidy fix --respect-editorconfig` keeps working.
+pub(crate) fn build_write_policy_with_plan(
+    plan: &Plan,
+    ctx: &EngineContext,
+    path: &Path,
+    apply_plan_fields: bool,
+) -> anyhow::Result<WritePolicy> {
     // If the plan explicitly sets respect_editorconfig, build the policy
     // with that flag applied. This must happen before policy_from_flags
     // because EditorConfig properties are resolved during construction,
@@ -30,7 +46,7 @@ pub(crate) fn build_write_policy(
         base_flags = GlobalFlags::with_editorconfig(&base_flags, ec);
     }
     let mut write_policy = crate::write::policy_from_flags(&base_flags, Some(path));
-    if let Some(ov) = &plan.write_policy {
+    if apply_plan_fields && let Some(ov) = &plan.write_policy {
         write_policy.apply_override(ov)?;
     }
     Ok(write_policy)

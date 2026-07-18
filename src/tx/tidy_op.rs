@@ -57,8 +57,11 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
 
             if content != new {
+                // Do not use write_file: that clears policy_finalized.
                 update_file_content(tx.pending, tx.deletions, tx.write_targets, &file_path, new);
             }
+            // #1847: content already reflects effective tidy policy (op wins).
+            tx.policy_finalized.insert(file_path);
             Ok(0)
         }
 

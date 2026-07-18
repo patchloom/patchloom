@@ -1,4 +1,4 @@
-use super::execute::{TxState, read_file_content, update_file_content};
+use super::execute::{TxState, read_file_content};
 use crate::plan::Operation;
 
 use std::path::{Path, PathBuf};
@@ -42,7 +42,7 @@ fn ast_rename_single_file(
     let result = crate::ast::rename::rename_in_source(content, old, new, lang_val);
     match result {
         Some(r) if r.replacements > 0 => {
-            update_file_content(tx.pending, tx.deletions, tx.write_targets, abs, r.content);
+            tx.write_file(abs, r.content);
             Ok(r.replacements)
         }
         Some(_) => Err(crate::exit::NoMatchError {
@@ -56,13 +56,7 @@ fn ast_rename_single_file(
                 let new_content = re.replace_all(content, new).to_string();
                 let count = re.find_iter(content).count();
                 if count > 0 {
-                    update_file_content(
-                        tx.pending,
-                        tx.deletions,
-                        tx.write_targets,
-                        abs,
-                        new_content,
-                    );
+                    tx.write_file(abs, new_content);
                     return Ok(count);
                 }
             }
@@ -134,13 +128,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             )?;
             match result {
                 Some(r) if r.replacements > 0 => {
-                    update_file_content(
-                        tx.pending,
-                        tx.deletions,
-                        tx.write_targets,
-                        &abs,
-                        r.content,
-                    );
+                    tx.write_file(&abs, r.content);
                     Ok(r.replacements)
                 }
                 Some(_) => Err(crate::exit::NoMatchError {
@@ -205,13 +193,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             if new_content == content {
                 return Ok(0);
             }
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs,
-                new_content,
-            );
+            tx.write_file(&abs, new_content);
             Ok(1)
         }
 
@@ -243,13 +225,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 pos,
                 lang_val,
             )?;
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs,
-                result.content,
-            );
+            tx.write_file(&abs, result.content);
             Ok(1)
         }
 
@@ -275,13 +251,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 preamble.as_deref(),
                 lang_val,
             )?;
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs,
-                result.content,
-            );
+            tx.write_file(&abs, result.content);
             Ok(1)
         }
 
@@ -318,13 +288,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 file_content = result.content;
             }
             if total_changes > 0 {
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &abs,
-                    file_content,
-                );
+                tx.write_file(&abs, file_content);
             }
             Ok(total_changes)
         }
@@ -349,13 +313,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 lang_val,
             )?;
             if result.symbols_reordered > 0 {
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &abs,
-                    result.content,
-                );
+                tx.write_file(&abs, result.content);
             }
             Ok(result.symbols_reordered)
         }
@@ -383,13 +341,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             };
             let result = crate::ast::group::group_symbols(file_content, &spec, lang_val)?;
             if result.symbols_moved > 0 {
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &abs,
-                    result.content,
-                );
+                tx.write_file(&abs, result.content);
             }
             Ok(result.symbols_moved)
         }
@@ -426,20 +378,8 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 pos,
                 lang_val,
             )?;
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs_source,
-                result.source_content,
-            );
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs_target,
-                result.target_content,
-            );
+            tx.write_file(&abs_source, result.source_content);
+            tx.write_file(&abs_target, result.target_content);
             Ok(result.symbols_moved)
         }
 
@@ -477,20 +417,8 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 prepend.as_deref(),
                 lang_val,
             )?;
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs_source,
-                result.source_content,
-            );
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs_target,
-                result.target_content,
-            );
+            tx.write_file(&abs_source, result.source_content);
+            tx.write_file(&abs_target, result.target_content);
             Ok(1)
         }
 
@@ -527,22 +455,10 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 exhaustive,
                 lang_val,
             )?;
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &abs_source,
-                result.source_content,
-            );
+            tx.write_file(&abs_source, result.source_content);
             for (target_path, target_content) in &result.targets {
                 let abs_target = tx.cwd.join(target_path);
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &abs_target,
-                    target_content.clone(),
-                );
+                tx.write_file(&abs_target, target_content.clone());
             }
             Ok(result.symbols_distributed)
         }

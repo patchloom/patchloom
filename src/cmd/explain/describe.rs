@@ -193,17 +193,51 @@ pub(super) fn describe_operation(op: &Operation) -> String {
         }
         Operation::TidyFix {
             path,
+            ensure_final_newline,
+            trim_trailing_whitespace,
+            normalize_eol,
+            collapse_blanks,
             dedent,
             indent,
-            ..
+            lines,
         } => {
-            if dedent.is_some() {
+            let mut base = if dedent.is_some() {
                 format!("Dedent and normalize whitespace in {path}")
             } else if indent.is_some() {
                 format!("Indent and normalize whitespace in {path}")
             } else {
                 format!("Normalize whitespace in {path}")
+            };
+            // Surface explicit op overrides so agents see #1840/#1847 precedence
+            // (defaults → plan write_policy → op fields).
+            let mut notes: Vec<String> = Vec::new();
+            if let Some(v) = ensure_final_newline {
+                notes.push(format!("ensure_final_newline={v}"));
             }
+            if let Some(v) = trim_trailing_whitespace {
+                notes.push(format!("trim_trailing_whitespace={v}"));
+            }
+            if let Some(eol) = normalize_eol {
+                notes.push(format!("normalize_eol={eol}"));
+            }
+            if let Some(v) = collapse_blanks {
+                notes.push(format!("collapse_blanks={v}"));
+            }
+            if let Some(spec) = dedent {
+                notes.push(format!("dedent={spec}"));
+            }
+            if let Some(spec) = indent {
+                notes.push(format!("indent={spec}"));
+            }
+            if let Some(r) = lines {
+                notes.push(format!("lines={r}"));
+            }
+            if !notes.is_empty() {
+                base.push_str(" (");
+                base.push_str(&notes.join(", "));
+                base.push(')');
+            }
+            base
         }
         Operation::FileAppend { path, .. } => {
             format!("Append content to {path}")

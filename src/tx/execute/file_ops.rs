@@ -1,5 +1,5 @@
 //! File create/append/prepend/delete/rename for the tx engine.
-use super::{TxState, read_file_content, update_file_content};
+use super::{TxState, read_file_content};
 use crate::plan::Operation;
 
 // op_to_doc_mutation moved to plan.rs as the single source of truth for
@@ -35,13 +35,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::append_content(existing, content);
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &file_path,
-                combined,
-            );
+            tx.write_file(&file_path, combined);
         }
 
         Operation::FilePrepend { path, content } => {
@@ -71,13 +65,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::prepend_content(existing, content);
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &file_path,
-                combined,
-            );
+            tx.write_file(&file_path, combined);
         }
 
         Operation::FileCreate {
@@ -99,13 +87,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
                     let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
                 }
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &file_path,
-                    content.clone(),
-                );
+                tx.write_file(&file_path, content.clone());
             } else {
                 let exists_in_tx =
                     tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
@@ -115,13 +97,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     }
                     .into());
                 }
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &file_path,
-                    content.clone(),
-                );
+                tx.write_file(&file_path, content.clone());
             }
         }
 
@@ -165,13 +141,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 tx.pending.remove(&file_path);
                 tx.deletions.remove(&file_path);
             } else {
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &file_path,
-                    String::new(),
-                );
+                tx.write_file(&file_path, String::new());
                 tx.deletions.insert(file_path);
             }
         }
@@ -263,13 +233,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
 
             // Write content to destination.
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &dst_path,
-                content,
-            );
+            tx.write_file(&dst_path, content);
 
             // Delete source (same logic as file.delete for tx-created files).
             let created_in_tx = match tx.pending.get(&src_path) {
@@ -280,13 +244,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 tx.pending.remove(&src_path);
                 tx.deletions.remove(&src_path);
             } else {
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &src_path,
-                    String::new(),
-                );
+                tx.write_file(&src_path, String::new());
                 tx.deletions.insert(src_path);
             }
         }

@@ -3,7 +3,7 @@
 //! size-waiver: accepted single-domain bulk (policy #1408). Path + glob replace
 //! with fuzzy/context fallback co-located; do not split for LOC alone.
 
-use super::execute::{TxState, read_and_probe, read_file_content, update_file_content};
+use super::execute::{TxState, read_and_probe, read_file_content};
 use crate::api::MatchMode;
 use crate::ops::replace::{
     compile_replace_regex, context_filtered_offset, replace_content, replace_whole_lines,
@@ -277,13 +277,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         replacement,
                         &content[target_offset + old.len()..],
                     );
-                    update_file_content(
-                        tx.pending,
-                        tx.deletions,
-                        tx.write_targets,
-                        &file_path,
-                        new_content,
-                    );
+                    tx.write_file(&file_path, new_content);
                     record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
                     return Ok(1);
                 }
@@ -298,13 +292,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 .into());
             }
             let owned = replaced.into_owned();
-            update_file_content(
-                tx.pending,
-                tx.deletions,
-                tx.write_targets,
-                &file_path,
-                owned,
-            );
+            tx.write_file(&file_path, owned);
             record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
             Ok(match_count)
         } else if let Some((n, total)) = (*nth).and_then(|n| {
@@ -404,13 +392,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             to_text,
                             &content[anchor.start_offset + anchor.matched_text.len()..]
                         );
-                        update_file_content(
-                            tx.pending,
-                            tx.deletions,
-                            tx.write_targets,
-                            &file_path,
-                            new_content,
-                        );
+                        tx.write_file(&file_path, new_content);
                         record_replace_match(
                             tx,
                             &file_path,
@@ -590,13 +572,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             replacement,
                             &content[target_offset + old.len()..],
                         );
-                        update_file_content(
-                            tx.pending,
-                            tx.deletions,
-                            tx.write_targets,
-                            &file_path,
-                            new_content,
-                        );
+                        tx.write_file(&file_path, new_content);
                         record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
                         total_matches += 1;
                         continue;
@@ -616,13 +592,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .into());
                 }
                 total_matches += match_count;
-                update_file_content(
-                    tx.pending,
-                    tx.deletions,
-                    tx.write_targets,
-                    &file_path,
-                    replaced.into_owned(),
-                );
+                tx.write_file(&file_path, replaced.into_owned());
                 record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
             } else if let Some((n, total)) = (*nth).and_then(|n| {
                 let total = crate::ops::replace::count_nth_candidates(
@@ -727,13 +697,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             to_text,
                             &content[anchor.start_offset + anchor.matched_text.len()..]
                         );
-                        update_file_content(
-                            tx.pending,
-                            tx.deletions,
-                            tx.write_targets,
-                            &file_path,
-                            new_content,
-                        );
+                        tx.write_file(&file_path, new_content);
                         record_replace_match(
                             tx,
                             &file_path,

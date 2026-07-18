@@ -2818,6 +2818,43 @@ fn test_tx_tidy_fix_op_fields_win_over_plan_write_policy() {
     );
 }
 
+/// #1847: op-level ensure_final_newline false must survive commit despite plan ensure true.
+#[test]
+fn test_tx_tidy_fix_op_fields_survive_commit_write_policy() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("messy.txt");
+    fs::write(&file, "hello").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "write_policy": {
+            "ensure_final_newline": true
+        },
+        "operations": [{
+            "op": "tidy.fix",
+            "path": file.to_str().unwrap(),
+            "ensure_final_newline": false,
+            "trim_trailing_whitespace": false
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        result, "hello",
+        "op ensure_final_newline=false must not be undone by plan write_policy at commit (#1847): got {result:?}"
+    );
+}
+
 #[test]
 fn test_tx_tidy_fix_trim_trailing_whitespace() {
     let dir = TempDir::new().unwrap();
