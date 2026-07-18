@@ -190,6 +190,8 @@ Pre-built binaries for Linux, macOS, and Windows are on the
 See [Installation](./docs/getting-started/installation.md) for shell
 installer scripts, source builds, and shell completion setup.
 
+- MCP Registry name: `mcp-name: io.github.patchloom/patchloom`
+
 ### Editor extension
 
 Install the companion extension for VS Code, Cursor, Windsurf, or VSCodium:
@@ -464,6 +466,7 @@ flowchart LR
 | Component | Status |
 |---|---|
 | CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [Chocolatey](https://community.chocolatey.org/packages/patchloom) (`choco install patchloom`; first version under moderation), and [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`) |
+| MCP server | Official [MCP Registry](https://registry.modelcontextprotocol.io/) name `io.github.patchloom/patchloom` (stdio; crates.io / npm packages; see `server.json`) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 
 ## Full command reference

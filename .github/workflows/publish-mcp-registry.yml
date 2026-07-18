@@ -1,0 +1,178 @@
+# Publish server.json to the official MCP Registry after a GitHub Release.
+# Ownership verification:
+#   - cargo: visible `mcp-name: io.github.patchloom/patchloom` in crates.io README
+#   - npm: package.json `mcpName` injected in release.yml publish-npm job
+# Auth: GitHub OIDC (no long-lived registry token). Org Owner namespace
+# io.github.patchloom/* requires the workflow to run in patchloom/patchloom.
+name: Publish MCP Registry
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.15.3). Empty uses the latest GitHub Release tag."
+        required: false
+        type: string
+
+concurrency:
+  group: publish-mcp-registry-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    # Do not publish while the repository is private.
+    if: ${{ !github.event.repository.private }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ] && [ -n "${RELEASE_TAG:-}" ]; then
+            # cargo-dist tags look like patchloom-v0.15.2
+            version="${RELEASE_TAG#patchloom-v}"
+            version="${version#v}"
+          fi
+          if [ -z "$version" ]; then
+            tag=$(gh release view --json tagName --jq .tagName)
+            version="${tag#patchloom-v}"
+            version="${version#v}"
+          fi
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Could not resolve a package version" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${version}"
+
+      - name: Wait for package ownership markers
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MCP_NAME: io.github.patchloom/patchloom
+          # crates.io requires an identifying User-Agent (data-access policy).
+          CRATES_UA: patchloom-mcp-registry-ci (https://github.com/patchloom/patchloom)
+        run: |
+          set -euo pipefail
+          # crates.io and npm can lag the GitHub Release by a few minutes.
+          # Ownership checks fail if we publish before markers are live.
+          attempts=30
+          sleep_s=20
+          cargo_ok=0
+          npm_ok=0
+          for i in $(seq 1 "$attempts"); do
+            echo "Attempt ${i}/${attempts}: checking crates.io README and npm package.json"
+
+            # Cargo ownership: visible mcp-name token in rendered README HTML.
+            # crates.io strips HTML comments; marker must be plain markdown text.
+            if [ "$cargo_ok" -eq 0 ]; then
+              readme_html=$(curl -fsSL -A "$CRATES_UA" \
+                "https://crates.io/api/v1/crates/patchloom/${VERSION}/readme" \
+                || true)
+              if printf '%s' "$readme_html" | grep -Fq "mcp-name: ${MCP_NAME}"; then
+                echo "cargo marker present on crates.io ${VERSION}"
+                cargo_ok=1
+              else
+                echo "cargo marker not yet visible for ${VERSION}"
+              fi
+            fi
+
+            if [ "$npm_ok" -eq 0 ]; then
+              mcp=$(curl -fsSL "https://registry.npmjs.org/patchloom/${VERSION}" \
+                | jq -r '.mcpName // empty' || true)
+              if [ "$mcp" = "$MCP_NAME" ]; then
+                echo "npm mcpName present for ${VERSION}"
+                npm_ok=1
+              else
+                echo "npm mcpName not yet visible for ${VERSION} (got: '${mcp:-none}')"
+              fi
+            fi
+
+            if [ "$cargo_ok" -eq 1 ] && [ "$npm_ok" -eq 1 ]; then
+              echo "Both ownership markers ready"
+              exit 0
+            fi
+            sleep "$sleep_s"
+          done
+
+          echo "Timed out waiting for ownership markers (cargo_ok=${cargo_ok} npm_ok=${npm_ok})" >&2
+          exit 1
+
+      - name: Stamp server.json version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          jq --arg v "$VERSION" '
+            .version = $v
+            | .packages |= map(.version = $v)
+          ' server.json > server.json.tmp
+          mv server.json.tmp server.json
+          echo "server.json version fields set to ${VERSION}:"
+          jq '{name, version, packages: [.packages[] | {registryType, identifier, version}]}' server.json
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          # Pin to a release artifact; update when mcp-publisher cuts a new major.
+          curl -fsSL \
+            "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher
+          ./mcp-publisher --help >/dev/null
+          echo "mcp-publisher installed"
+
+      - name: Authenticate (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Validate server.json
+        run: ./mcp-publisher validate server.json
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish server.json
+
+      - name: Verify listing
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Registry search can lag briefly; retry a few times.
+          for i in 1 2 3 4 5; do
+            body=$(curl -fsSL \
+              "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.patchloom/patchloom")
+            if printf '%s' "$body" | jq -e --arg v "$VERSION" '
+              .servers[]?
+              | .server
+              | select(.name == "io.github.patchloom/patchloom")
+              | select(.version == $v)
+            ' >/dev/null; then
+              echo "Verified io.github.patchloom/patchloom@${VERSION} in registry search"
+              exit 0
+            fi
+            echo "Listing not visible yet (attempt ${i}); sleeping 10s"
+            sleep 10
+          done
+          echo "Published successfully but search verification timed out; check the registry UI" >&2
+          exit 0
