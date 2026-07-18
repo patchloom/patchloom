@@ -51,3 +51,56 @@ pub(crate) fn build_write_policy_with_plan(
     }
     Ok(write_policy)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::global::GlobalFlags;
+    use crate::plan::{Operation, Plan};
+    use crate::tx::context::EngineContext;
+    use crate::write::WritePolicyOverride;
+    use std::path::PathBuf;
+
+    fn ctx() -> EngineContext {
+        EngineContext::from_global(&GlobalFlags::default(), PathBuf::from("/tmp"))
+    }
+
+    fn plan_with_write_policy(ov: WritePolicyOverride) -> Plan {
+        Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            operations: vec![Operation::Read {
+                path: "f.txt".into(),
+                lines: None,
+            }],
+            write_policy: Some(ov),
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            cwd: None,
+            for_each: None,
+        }
+    }
+
+    #[test]
+    fn apply_plan_fields_false_skips_plan_trim() {
+        let plan = plan_with_write_policy(WritePolicyOverride {
+            trim_trailing_whitespace: Some(true),
+            ensure_final_newline: Some(true),
+            ..WritePolicyOverride::default()
+        });
+        let path = PathBuf::from("/tmp/f.txt");
+        let with_plan = build_write_policy_with_plan(&plan, &ctx(), &path, true).unwrap();
+        assert!(with_plan.trim_trailing_whitespace);
+        assert!(with_plan.ensure_final_newline);
+        let no_plan = build_write_policy_with_plan(&plan, &ctx(), &path, false).unwrap();
+        assert!(
+            !no_plan.trim_trailing_whitespace,
+            "plan trim must not apply when apply_plan_fields=false"
+        );
+        assert!(
+            !no_plan.ensure_final_newline,
+            "plan ensure_final_newline must not apply when apply_plan_fields=false"
+        );
+    }
+}
