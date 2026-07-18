@@ -878,7 +878,7 @@ Use these when markdown structure matters more than raw text matching.
 - **What it does:** Checks AGENTS style markdown for common problems.
 - **Use when:** You want a CI style guard for agent instruction files before they drift into invalid or confusing structure.
 - **Prefer instead:** Use `md dedupe-headings` when you already know the file should be auto corrected.
-- **JSON (#1854):** Object envelope `{ok, path, issue_count, issues}` (tidy check parity). `ok` is true when there are no issues. Exit `2` when `issue_count > 0`. JSONL still emits one issue object per line (no envelope).
+- **JSON (#1854 / #1859):** Object envelope `{ok, path, issue_count, issues}` (tidy check parity; MCP `md_lint` uses the same shape). `ok` is true when there are no issues. CLI exit `2` when `issue_count > 0`. MCP keeps the tool call successful (`isError=false`) and agents branch on `ok` / `issue_count`. JSONL still emits one issue object per line (no envelope).
 
 <!-- ref:md-action:table-append -->
 ### `md table-append`
