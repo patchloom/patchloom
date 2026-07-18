@@ -710,7 +710,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Reads the value at a selector path from a JSON, YAML, or TOML file.
 - **Use when:** You need one precise value without mutating the document.
-- **JSON success (#1838):** Under `--json`/`--jsonl`, success is `{"ok":true,"value":...,"path":...,"selector":...}` (not a bare JSON value). Text mode stays bare. Missing selector is `error_kind: no_matches` (exit 3).
+- **JSON success (#1838):** Under `--json`/`--jsonl`, success is `{"ok":true,"value":...,"path":...,"selector":...}` (not a bare JSON value). Text mode stays bare. Missing selector is `error_kind: no_matches` (exit 3). A bare top-level key on multi-document YAML (array root) is `error_kind: type_error` (exit 1) with an index-form hint (`0.key` / `[0].key`), same as `doc set` on that shape.
 - **Prefer instead:** Use `doc flatten` when you are exploring an unfamiliar file and need a broader map of its contents.
 
 <!-- ref:doc-action:has -->

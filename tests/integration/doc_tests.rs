@@ -2884,6 +2884,48 @@ fn test_doc_set_multi_document_bare_key_hints_index() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: 1\n---\nb: 2\n");
 }
 
+/// Read path: bare key on multi-doc must be type_error + index hint, not no_matches.
+/// Found by fixrealloop (docs already promised set/get parity).
+#[test]
+fn test_doc_get_multi_document_bare_key_hints_index() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("a")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "type_error exit 1, not no_matches 3: stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "type_error", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("array")
+            && (err.contains("0.a") || err.contains("[0].a"))
+            && err.contains("index"),
+        "expected multi-doc index hint, got: {v}"
+    );
+    // Indexed form still works.
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("0.a")
+        .assert()
+        .code(0)
+        .stdout(predicates::str::contains("\"value\": 1"));
+}
+
 /// doc set Apply shares `atomic_write`; hardlinked siblings must stay in sync (#1733).
 #[cfg(unix)]
 #[test]

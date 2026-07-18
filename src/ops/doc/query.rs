@@ -20,13 +20,44 @@ pub enum QueryResult {
 /// Query values at a selector path.
 ///
 /// Returns cloned values so the caller owns them.
+///
+/// When the document root is an array (multi-document YAML or a top-level JSON
+/// array) and the selector begins with a non-numeric key, returns
+/// [`crate::exit::TypeErrorError`] with an index form hint (`0.key` / `[0].key`)
+/// instead of soft [`QueryResult::NoMatch`]. Matches write-path honesty for
+/// multi-doc bare keys (docs/reference multi-document YAML; fixrealloop).
 pub fn query_get(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryResult> {
     let segments = selector::parse_anyhow(selector)?;
     let results = selector::eval(root, &segments);
     if results.is_empty() {
+        if let Some(hint) = array_root_bare_key_hint(root, &segments) {
+            return Err(crate::exit::TypeErrorError { msg: hint }.into());
+        }
         return Ok(QueryResult::NoMatch);
     }
     Ok(QueryResult::Values(results.into_iter().cloned().collect()))
+}
+
+/// Actionable error when a bare object key is used at an array root.
+fn array_root_bare_key_hint(
+    root: &serde_json::Value,
+    segments: &[selector::Segment],
+) -> Option<String> {
+    if !root.is_array() {
+        return None;
+    }
+    let selector::Segment::Key(k) = segments.first()? else {
+        return None;
+    };
+    // Numeric keys are array indices via dot notation (#1288).
+    if k.parse::<usize>().is_ok() {
+        return None;
+    }
+    Some(format!(
+        "parent is an array, not an object (for multi-document YAML or \
+         top-level arrays, address a document/element with an index first, \
+         e.g. 0.{k} or [0].{k})"
+    ))
 }
 
 /// Check whether a selector path exists.
@@ -139,6 +170,48 @@ mod tests {
             QueryResult::Values(v) => assert_eq!(v, vec![serde_json::json!(1)]),
             QueryResult::NoMatch => panic!("expected match"),
         }
+    }
+
+    #[test]
+    fn get_bare_key_on_array_root_type_error_with_index_hint() {
+        // Multi-document YAML / top-level array: bare key must not look like a
+        // soft no_matches (agents widen the wrong thing).
+        let doc = serde_json::json!([{"a": 1}, {"b": 2}]);
+        let err = query_get(&doc, "a").expect_err("bare key at array root");
+        let msg = err.to_string();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
+        assert!(
+            msg.contains("array")
+                && (msg.contains("0.a") || msg.contains("[0].a"))
+                && msg.contains("index"),
+            "actionable multi-doc hint missing: {msg}"
+        );
+    }
+
+    #[test]
+    fn get_indexed_key_on_array_root_still_matches() {
+        let doc = serde_json::json!([{"a": 1}, {"b": 2}]);
+        match query_get(&doc, "0.a").unwrap() {
+            QueryResult::Values(v) => assert_eq!(v, vec![serde_json::json!(1)]),
+            QueryResult::NoMatch => panic!("expected match"),
+        }
+        match query_get(&doc, "[1].b").unwrap() {
+            QueryResult::Values(v) => assert_eq!(v, vec![serde_json::json!(2)]),
+            QueryResult::NoMatch => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn get_missing_key_inside_doc_still_no_match() {
+        // Document 0 is an object; missing nested key stays soft no_matches.
+        let doc = serde_json::json!([{"a": 1}, {"b": 2}]);
+        assert!(matches!(
+            query_get(&doc, "0.missing").unwrap(),
+            QueryResult::NoMatch
+        ));
     }
 
     // -- query_has --
