@@ -1444,22 +1444,25 @@ fn test_doc_flatten_includes_empty_arrays() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // #1838: --json success is an ok envelope; flatten map lives under value.
+    assert_eq!(parsed["ok"], true, "envelope: {stdout}");
+    let value = &parsed["value"];
     assert_eq!(
-        parsed["empty_arr"],
+        value["empty_arr"],
         serde_json::json!([]),
         "empty array missing: {stdout}"
     );
     assert_eq!(
-        parsed["empty_obj"],
+        value["empty_obj"],
         serde_json::json!({}),
         "empty object missing: {stdout}"
     );
     assert_eq!(
-        parsed["nested.deep_empty"],
+        value["nested.deep_empty"],
         serde_json::json!([]),
         "nested empty array missing: {stdout}"
     );
-    assert_eq!(parsed["default[0]"], serde_json::json!("a"));
+    assert_eq!(value["default[0]"], serde_json::json!("a"));
 }
 
 // ---------------------------------------------------------------------------
