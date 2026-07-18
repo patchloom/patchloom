@@ -719,3 +719,71 @@ fn test_tidy_check_skips_git_directory() {
         "issues must not list .git paths: {parsed}"
     );
 }
+
+/// #1796: empty --files-from must not report tidy check ok:true / zero issues.
+#[test]
+fn test_tidy_check_empty_files_from_json_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("messy.txt"), "trail  \n").unwrap();
+    fs::write(dir.path().join("empty.txt"), "").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "empty.txt", "tidy", "check"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("empty --files-from"),
+        "must blame empty list: {v}"
+    );
+}
+
+/// #1796: empty --files-from for tidy fix is invalid_input, not a successful no-op.
+#[test]
+fn test_tidy_fix_empty_files_from_json_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("messy.txt"), "trail  \n").unwrap();
+    fs::write(dir.path().join("empty.txt"), "").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "--files-from",
+            "empty.txt",
+            "tidy",
+            "fix",
+            "--apply",
+            "--trim-trailing-whitespace",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    // Workspace file must remain dirty.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("messy.txt")).unwrap(),
+        "trail  \n"
+    );
+}

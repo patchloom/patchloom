@@ -200,6 +200,8 @@ pub(super) fn run_fix(
     let skipped = crate::files::scan_missing_entries(global, &cwd, &paths)?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&cwd))?;
+    // Empty --files-from is invalid_input, not a successful no-op (#1796).
+    crate::files::ensure_files_from_nonempty(global, &fix_file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&cwd))?;
 
     let line_range = lines
