@@ -333,13 +333,37 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
                 .map(|path| serde_json::json!({ "path": path }))
                 .collect(),
         );
-    } else if matches!(kind, Some("no_matches") | Some("ambiguous")) {
-        // Pre-write hard failures never mutate disk (#1835). Engine/context
-        // paths that surface via AmbiguousError/NoMatchError still need the
-        // field so agents can branch on applied alone.
+    } else if kind.is_some_and(error_kind_implies_not_applied)
+        || matches!(kind, Some("format_failed"))
+    {
+        // Pre-write failures never mutate disk (#1835): agents branch on
+        // `applied` alone. Also cover not_found / already_exists / parse_error
+        // (CLI emit_error_json_kind parity). format_failed with no written
+        // paths is applied:false (write did not land).
         output["applied"] = serde_json::Value::Bool(false);
     }
     (output, code)
+}
+
+/// Error kinds that mean no successful write landed on disk.
+///
+/// Used by [`structured_error_payload`] and CLI
+/// [`crate::cli::global::GlobalFlags::emit_error_json_kind`] so agents can
+/// branch on `applied: false` without enumerating every kind.
+#[must_use]
+pub fn error_kind_implies_not_applied(kind: &str) -> bool {
+    matches!(
+        kind,
+        "no_matches"
+            | "ambiguous"
+            | "invalid_input"
+            | "not_found"
+            | "already_exists"
+            | "type_error"
+            | "conflicts"
+            | "parse_error"
+            | "changes_detected"
+    )
 }
 
 /// Classify a typed error for JSON `error_kind` + exit code.
@@ -473,6 +497,39 @@ mod tests {
             p["applied"], false,
             "pre-write ambiguous must set applied:false (#1835): {p}"
         );
+    }
+
+    #[test]
+    fn structured_error_payload_prewrite_already_exists_and_not_found_set_applied_false() {
+        let exists: anyhow::Error = AlreadyExistsError {
+            msg: "file already exists".into(),
+        }
+        .into();
+        let (p, code) = structured_error_payload(&exists);
+        assert_eq!(code, FAILURE);
+        assert_eq!(p["error_kind"], "already_exists");
+        assert_eq!(
+            p["applied"], false,
+            "pre-write already_exists must set applied:false: {p}"
+        );
+
+        let missing: anyhow::Error =
+            std::io::Error::new(std::io::ErrorKind::NotFound, "no such file").into();
+        let (p, code) = structured_error_payload(&missing);
+        assert_eq!(code, FAILURE);
+        assert_eq!(p["error_kind"], "not_found");
+        assert_eq!(
+            p["applied"], false,
+            "pre-write not_found must set applied:false: {p}"
+        );
+    }
+
+    #[test]
+    fn error_kind_implies_not_applied_covers_prewrite_kinds() {
+        assert!(error_kind_implies_not_applied("already_exists"));
+        assert!(error_kind_implies_not_applied("not_found"));
+        assert!(error_kind_implies_not_applied("parse_error"));
+        assert!(!error_kind_implies_not_applied("format_failed"));
     }
 
     #[test]

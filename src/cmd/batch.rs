@@ -586,6 +586,24 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
         })
     })?;
 
+    // Agents often paste CLI order (`replace OLD --new NEW path` → batch line
+    // `replace OLD NEW path`). Batch is PATH OLD NEW. When the first token is
+    // not a file and the third token is, fail early with the correct order.
+    {
+        use std::path::Path;
+        let path_p = Path::new(&path);
+        let new_p = Path::new(&new_text);
+        if !path_p.is_file() && new_p.is_file() {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!(
+                    "line {line_num}: batch replace order is PATH OLD NEW \
+                     (first arg '{path}' is not a file; third arg '{new_text}' is a file). \
+                     CLI is `replace OLD --new NEW path`; batch is `replace path old new`"
+                ),
+            }));
+        }
+    }
+
     if command_position
         && let Some(msg) = crate::ops::shell_token::command_position_combo_error(
             crate::ops::shell_token::CommandPositionIncompat {
