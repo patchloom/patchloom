@@ -37,8 +37,11 @@ The bundle lives under [`mcpb/`](../../mcpb/) and runs:
 
 ```bash
 make pack-mcpb   # writes target/mcpb/patchloom-<version>.mcpb
-# One-time: smithery auth login  (or set SMITHERY_API_KEY)
-smithery mcp publish target/mcpb/patchloom-<version>.mcpb -n patchloom/patchloom
+# One-time auth + CI secret:
+#   smithery auth login
+#   export SMITHERY_API_KEY=$(smithery auth whoami --full | sed -n 's/^SMITHERY_API_KEY=//p')
+#   gh secret set SMITHERY_API_KEY --repo patchloom/patchloom
+bash scripts/publish-smithery.sh   # REST upload (reliable for stdio MCPB)
 ```
 
 CI: `.github/workflows/publish-smithery.yml` packs after each GitHub Release and
