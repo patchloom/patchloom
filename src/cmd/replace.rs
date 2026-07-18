@@ -899,35 +899,37 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     replace_output(
         global,
         result,
-        &files,
-        total_matches,
-        file_count,
-        &cwd,
-        skipped,
-        zero_match_refused,
+        ReplaceOutputArgs {
+            files: &files,
+            total_matches,
+            file_count,
+            cwd: &cwd,
+            skipped,
+            zero_match_refused,
+        },
     )
 }
 
-/// Emit multi-file replace outcomes under `--jsonl` (#1799): one line per
-/// success path, refused soft-miss, skipped missing path, then a summary.
-#[allow(clippy::too_many_arguments)]
-fn emit_replace_jsonl(
-    global: &GlobalFlags,
-    files: &[ReplaceFileResult],
-    refused: Option<&Vec<RefuseFileResult>>,
-    skipped: Option<&Vec<String>>,
+/// Inputs for multi-file replace `--jsonl` emission (#1799, #1855).
+struct ReplaceJsonlArgs<'a> {
+    files: &'a [ReplaceFileResult],
+    refused: Option<&'a Vec<RefuseFileResult>>,
+    skipped: Option<&'a Vec<String>>,
     match_count: usize,
     file_count: usize,
     applied: Option<bool>,
     backup_session: Option<String>,
-) -> anyhow::Result<()> {
+}
+
+/// Emit multi-file replace outcomes under `--jsonl` (#1799): one line per
+/// success path, refused soft-miss, skipped missing path, then a summary.
+fn emit_replace_jsonl(args: ReplaceJsonlArgs<'_>) -> anyhow::Result<()> {
     let emit_line = |v: &serde_json::Value| -> anyhow::Result<()> {
         // Compact one-line objects; always stdout in jsonl mode.
         println!("{}", serde_json::to_string(v)?);
         Ok(())
     };
-    let _ = global; // mode already gated by caller
-    for f in files {
+    for f in args.files {
         emit_line(&serde_json::json!({
             "path": f.path,
             "match_count": f.match_count,
@@ -935,7 +937,7 @@ fn emit_replace_jsonl(
             "status": "ok",
         }))?;
     }
-    if let Some(refused) = refused {
+    if let Some(refused) = args.refused {
         for r in refused {
             emit_line(&serde_json::json!({
                 "path": r.path,
@@ -946,7 +948,7 @@ fn emit_replace_jsonl(
             }))?;
         }
     }
-    if let Some(skipped) = skipped {
+    if let Some(skipped) = args.skipped {
         for path in skipped {
             emit_line(&serde_json::json!({
                 "path": path,
@@ -955,23 +957,23 @@ fn emit_replace_jsonl(
             }))?;
         }
     }
-    let refused_n = refused.map_or(0, |r| r.len());
-    let skipped_n = skipped.map_or(0, |s| s.len());
+    let refused_n = args.refused.map_or(0, |r| r.len());
+    let skipped_n = args.skipped.map_or(0, |s| s.len());
     // Always emit a summary when multi-path honesty fields exist so line
     // parsers see totals without re-reading the stream (#1799). Also emit
     // when applied/backup is known so single-file jsonl can undo (#1802).
-    if refused_n > 0 || skipped_n > 0 || files.len() > 1 || applied.is_some() {
+    if refused_n > 0 || skipped_n > 0 || args.files.len() > 1 || args.applied.is_some() {
         let mut summary = serde_json::json!({
             "type": "summary",
             "ok": true,
-            "match_count": match_count,
-            "file_count": file_count,
-            "files_ok": files.len(),
+            "match_count": args.match_count,
+            "file_count": args.file_count,
+            "files_ok": args.files.len(),
             "refused": refused_n,
             "skipped": skipped_n,
-            "applied": applied,
+            "applied": args.applied,
         });
-        if let Some(bs) = backup_session {
+        if let Some(bs) = args.backup_session {
             summary["backup_session"] = serde_json::Value::String(bs);
         }
         emit_line(&summary)?;
@@ -979,22 +981,33 @@ fn emit_replace_jsonl(
     Ok(())
 }
 
+/// Inputs for replace mode/exit finalization (#1855).
+struct ReplaceOutputArgs<'a> {
+    files: &'a [ReplaceFileResult],
+    total_matches: usize,
+    file_count: usize,
+    cwd: &'a std::path::Path,
+    skipped: Option<Vec<String>>,
+    /// Exact multi-path soft-miss list (#1792).
+    zero_match_refused: Option<Vec<RefuseFileResult>>,
+}
+
 /// Handle output rendering and commit/check/preview for replace via the engine.
 ///
 /// Mode/exit owned by [`crate::cmd::write_mode::finalize_report`].
-/// `zero_match_refused` is the exact multi-path soft-miss list (#1792).
-#[allow(clippy::too_many_arguments)]
 fn replace_output(
     global: &GlobalFlags,
     result: crate::tx::engine::ExecutionResult,
-    files: &[ReplaceFileResult],
-    total_matches: usize,
-    file_count: usize,
-    cwd: &std::path::Path,
-    skipped: Option<Vec<String>>,
-    zero_match_refused: Option<Vec<RefuseFileResult>>,
+    args: ReplaceOutputArgs<'_>,
 ) -> anyhow::Result<u8> {
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
+
+    let files = args.files;
+    let total_matches = args.total_matches;
+    let file_count = args.file_count;
+    let cwd = args.cwd;
+    let skipped = args.skipped;
+    let zero_match_refused = args.zero_match_refused;
 
     let refused_meta = collect_refused_files(
         cwd,
@@ -1037,16 +1050,15 @@ fn replace_output(
                 if g.json {
                     g.emit_json(&build_output(None, Some(false), None))?;
                 } else if g.jsonl {
-                    emit_replace_jsonl(
-                        g,
+                    emit_replace_jsonl(ReplaceJsonlArgs {
                         files,
-                        refused.as_ref(),
-                        skipped.as_ref(),
-                        total_matches,
+                        refused: refused.as_ref(),
+                        skipped: skipped.as_ref(),
+                        match_count: total_matches,
                         file_count,
-                        Some(false),
-                        None,
-                    )?;
+                        applied: Some(false),
+                        backup_session: None,
+                    })?;
                 } else if !g.quiet {
                     println!("{total_matches} match(es) in {file_count} file(s)");
                     for f in files {
@@ -1076,16 +1088,15 @@ fn replace_output(
                 if g.json {
                     g.emit_json(&build_output(diff_text, Some(has), backup))?;
                 } else if g.jsonl {
-                    emit_replace_jsonl(
-                        g,
+                    emit_replace_jsonl(ReplaceJsonlArgs {
                         files,
-                        refused.as_ref(),
-                        skipped.as_ref(),
-                        total_matches,
+                        refused: refused.as_ref(),
+                        skipped: skipped.as_ref(),
+                        match_count: total_matches,
                         file_count,
-                        Some(has),
-                        backup,
-                    )?;
+                        applied: Some(has),
+                        backup_session: backup,
+                    })?;
                 } else if g.diff {
                     print!("{}", render_diffs_colored(diffs, g.should_color()));
                 } else if !g.quiet {
@@ -1115,16 +1126,15 @@ fn replace_output(
                 if g.json {
                     g.emit_json(&build_output(diff_text, Some(false), None))?;
                 } else if g.jsonl {
-                    emit_replace_jsonl(
-                        g,
+                    emit_replace_jsonl(ReplaceJsonlArgs {
                         files,
-                        refused.as_ref(),
-                        skipped.as_ref(),
-                        total_matches,
+                        refused: refused.as_ref(),
+                        skipped: skipped.as_ref(),
+                        match_count: total_matches,
                         file_count,
-                        Some(false),
-                        None,
-                    )?;
+                        applied: Some(false),
+                        backup_session: None,
+                    })?;
                 } else if !diffs.is_empty() {
                     print!("{}", render_diffs_colored(diffs, g.should_color()));
                 }
@@ -1385,12 +1395,15 @@ fn run_context_replace(
     replace_output(
         global,
         result,
-        &files,
-        total_matches,
-        file_count,
-        &cwd,
-        skipped,
-        None, // exact zero-match refused collected only on precomputed path (#1792)
+        ReplaceOutputArgs {
+            files: &files,
+            total_matches,
+            file_count,
+            cwd: &cwd,
+            skipped,
+            // Exact zero-match refused collected only on precomputed path (#1792).
+            zero_match_refused: None,
+        },
     )
 }
 

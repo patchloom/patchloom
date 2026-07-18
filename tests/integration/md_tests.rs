@@ -539,15 +539,26 @@ fn test_md_lint_agents_json_output() {
         .arg("--json")
         .arg("md")
         .arg("lint-agents")
-        .arg(&file)
+        .arg("AGENTS.md")
+        .arg("--cwd")
+        .arg(dir.path())
         .output()
         .unwrap();
 
     assert_eq!(output.status.code(), Some(2));
     let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let arr = parsed.as_array().unwrap();
+    // Envelope (tidy check parity, #1854): not a bare array.
+    assert!(parsed.is_object(), "expected object envelope: {parsed}");
+    assert_eq!(parsed["ok"], false);
+    assert!(
+        parsed["issue_count"].as_u64().unwrap() >= 1,
+        "issue_count: {parsed}"
+    );
+    assert_eq!(parsed["path"], "AGENTS.md");
+    let arr = parsed["issues"]
+        .as_array()
+        .expect("issues array under envelope");
     assert!(!arr.is_empty());
-    // Each issue must have an "issue" string and a "heading" identifying it
     let issue_val = arr[0].get("issue").expect("issue field missing");
     let issue_str = issue_val.as_str().expect("issue field should be a string");
     assert!(
@@ -559,6 +570,31 @@ fn test_md_lint_agents_json_output() {
         heading_val.as_str().unwrap().contains("Build"),
         "heading should reference 'Build': {heading_val}"
     );
+}
+
+#[test]
+fn test_md_lint_agents_json_clean_file_envelope() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(&file, "# AGENTS.md\n\n## Build\n\nRun make\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("md")
+        .arg("lint-agents")
+        .arg("AGENTS.md")
+        .arg("--cwd")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(parsed["issue_count"], 0, "{parsed}");
+    assert_eq!(parsed["path"], "AGENTS.md");
+    assert_eq!(parsed["issues"], serde_json::json!([]));
 }
 
 #[test]
