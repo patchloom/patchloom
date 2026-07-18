@@ -2712,6 +2712,38 @@ fn test_tx_tidy_fix_in_plan() {
     assert_eq!(result, "line1\nline2\n");
 }
 
+/// #1840: bare tidy.fix (no write-policy fields) must match CLI tidy fix defaults.
+#[test]
+fn test_tx_tidy_fix_defaults_trim_and_final_newline() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("messy.txt");
+    fs::write(&file, "hello   \nworld\t").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "tidy.fix",
+            "path": file.to_str().unwrap()
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        result, "hello\nworld\n",
+        "bare tidy.fix must trim trailing whitespace and ensure final newline (#1840)"
+    );
+}
+
 #[test]
 fn test_tx_tidy_fix_trim_trailing_whitespace() {
     let dir = TempDir::new().unwrap();
