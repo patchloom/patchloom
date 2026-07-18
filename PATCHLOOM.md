@@ -84,7 +84,7 @@ Placeholders: `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`
 
 **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect concatenated pretty multi-documents for `--json`.
 
-**Preview vs apply (#1808, #1810, #1812):** CLI write JSON always includes `applied` (`true` after apply mode, `false` for default preview / check mode). `changed: true` or `files_changed: N` on preview means **would** change, not that bytes were written. Exit 2 = changes detected / dry-run.
+**Preview vs apply (#1808, #1810, #1812):** CLI write JSON always includes `applied` (`true` after apply mode, `false` for default preview / check mode). Plan/batch/tx JSON also includes `applied` (same meaning; pair with `status`: `success` vs `changes_detected`). `changed: true` or `files_changed: N` on preview means **would** change, not that bytes were written. Exit 2 = changes detected / dry-run.
 **`backup_session` on success (#1802):** Successful CLI replace/doc/tx apply JSON includes `backup_session` when a backup was created (same field as `format_failed` and library `EditResult`). Use it for surgical undo; do not guess newest session under parallel agents.
 **CLI vs plan/MCP names (#1809):** CLI replace is positional `OLD` + `--new NEW` (not plan aliases `from`/`to` as flags). CLI `doc set` is `doc set PATH SELECTOR VALUE` (not a `--key` flag). Plan/MCP accept legacy aliases `from`/`to` and `key` for selector.
 **CLI `md upsert-bullet`:** use `--bullet` (or alias `--content`; #1839) with `--heading`.

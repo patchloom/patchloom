@@ -213,6 +213,7 @@ Returns:
 {
   "ok": true,
   "status": "success",
+  "applied": true,
   "files_changed": 3,
   "files_created": 0,
   "files_deleted": 0,

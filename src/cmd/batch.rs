@@ -829,6 +829,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         if !global.emit_json(&serde_json::json!({
             "ok": true,
             "status": "success",
+            "applied": false,
             "files_changed": 0,
             "files_created": 0,
             "files_deleted": 0,
