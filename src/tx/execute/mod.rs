@@ -24,7 +24,7 @@ mod policy;
 mod tests;
 
 pub(crate) use file_ops::execute_file_op;
-pub(crate) use policy::build_write_policy;
+pub(crate) use policy::{build_write_policy, build_write_policy_with_plan};
 
 // ---------------------------------------------------------------------------
 // Pending file changes
@@ -728,14 +728,16 @@ pub(crate) fn execute_and_collect(
         if !write_targets.contains(path) {
             continue;
         }
-        // #1847: tidy.fix already applied effective policy (incl. op fields).
-        // Skip commit re-apply so plan write_policy cannot undo op overrides.
-        let final_content = if policy_finalized.contains(path) {
-            std::borrow::Cow::Borrowed(current.as_str())
+        // #1847: tidy.fix staged with defaults→plan→op. Re-applying plan
+        // write_policy here would undo op fields. Still run CLI/EditorConfig
+        // policy (apply_plan_fields=false) so `tidy fix --respect-editorconfig`
+        // is not a no-op.
+        let write_policy = if policy_finalized.contains(path) {
+            build_write_policy_with_plan(plan, ctx, path, false)?
         } else {
-            let write_policy = build_write_policy(plan, ctx, path)?;
-            apply_policy(current, &write_policy)
+            build_write_policy(plan, ctx, path)?
         };
+        let final_content = apply_policy(current, &write_policy);
         // A file creation with empty content still has original == final == "",
         // but must be treated as an effective change because the file does not
         // exist on disk yet (#create-empty-file).
