@@ -114,11 +114,11 @@ AST tools so `list_tools` stays honest about what is callable.
 | `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped |
 | `md_upsert_bullet` | Add a bullet under a markdown heading |
 | `md_table_append` | Append a row to a markdown table |
-| `md_replace_section` | Replace a markdown section by heading |
+| `md_replace_section` | Replace a section by heading (through next same-or-higher heading) |
 | `md_insert_after_heading` | Insert content immediately after a heading line (before body) |
 | `md_insert_after_section` | Insert content after the full section body (sibling section) |
 | `md_insert_before_heading` | Insert content before a markdown heading |
-| `md_move_section` | Move a heading section (same file reorder or cross-file) |
+| `md_move_section` | Move a heading section through next same-or-higher heading (same-file or cross-file) |
 | `md_dedupe_headings` | Remove later whole sections with a duplicate heading (second body discarded) |
 | `md_lint` | Lint an AGENTS.md file; returns `{ok, path, issue_count, issues}` (CLI lint-agents --json parity). Branch on `ok`; isError stays false when issues are present |
 | `fix_whitespace` | Fix whitespace and line endings in a text file. Binary and invalid UTF-8 files are skipped |

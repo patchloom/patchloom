@@ -361,7 +361,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "md.move_section",
-        description: "Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.",
+        description: "Move a heading section to a new position (same-file reorder or cross-file move). The moved range ends at the next same-or-higher-level heading (nested lower headings included). Exactly one of before or after is required.",
         tier: Tier::Medium,
         examples: &[
             (

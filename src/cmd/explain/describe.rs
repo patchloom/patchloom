@@ -184,10 +184,15 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             } else {
                 "(no position)".to_string()
             };
+            // Section body ends at next same-or-higher heading (nested lower included).
             if to.is_some() {
-                format!("Move section \"{heading}\" from {path} to {dest} {pos}")
+                format!(
+                    "Move section \"{heading}\" from {path} to {dest} {pos} (through next same-or-higher heading)"
+                )
             } else {
-                format!("Move section \"{heading}\" {pos} in {path}")
+                format!(
+                    "Move section \"{heading}\" {pos} in {path} (through next same-or-higher heading)"
+                )
             }
         }
         Operation::MdDedupeHeadings { path } => {
@@ -785,9 +790,14 @@ mod tests {
             before: Some("License".into()),
             after: None,
         };
+        let desc = describe_operation(&op);
         assert_eq!(
-            describe_operation(&op),
-            r#"Move section "FAQ" before "License" in README.md"#
+            desc,
+            r#"Move section "FAQ" before "License" in README.md (through next same-or-higher heading)"#
+        );
+        assert!(
+            desc.contains("same-or-higher"),
+            "move explain must name hierarchical bounds: {desc}"
         );
     }
 
@@ -802,7 +812,7 @@ mod tests {
         };
         assert_eq!(
             describe_operation(&op),
-            r#"Move section "Appendix" from spec.md to notes.md after "Body""#
+            r#"Move section "Appendix" from spec.md to notes.md after "Body" (through next same-or-higher heading)"#
         );
     }
 

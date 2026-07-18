@@ -1147,7 +1147,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:md.move_section -->
 ### `md.move_section`
 
-- **What it does:** Moves a markdown section to a new position, optionally to a different file.
+- **What it does:** Moves a markdown section to a new position, optionally to a different file. The moved range ends at the next heading of the same or higher level; nested lower-level headings move with the parent.
 - **Use when:** Section reordering or cross-file moves should be atomic with the rest of the plan.
 - **Related:** top level `md move-section`
 
