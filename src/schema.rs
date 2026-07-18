@@ -313,7 +313,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "md.replace_section",
-        description: "Replace the body of a markdown section identified by heading.",
+        description: "Replace the body of a markdown section identified by heading (section ends at the next same-or-higher-level heading; nested lower-level headings are included).",
         tier: Tier::Medium,
         examples: &[(
             "Update the install section of README",
@@ -425,7 +425,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "md.dedupe_headings",
-        description: "Remove duplicate markdown headings in a file.",
+        description: "Remove later whole sections whose heading text+level already appeared (heading and body until next same-or-higher heading; unique second-section content is discarded).",
         tier: Tier::Strong,
         examples: &[],
     },

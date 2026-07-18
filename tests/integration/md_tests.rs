@@ -42,6 +42,41 @@ fn test_md_replace_section() {
     );
 }
 
+/// Replacing `# Intro` includes nested `##` children until the next `#`
+/// (fixrealloop: agents expected sibling ## API to survive).
+#[test]
+fn test_md_replace_section_parent_includes_nested_headings() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "# Intro\n\nhello\n\n## API\n\ntable\n\n## Notes\n\n- bullet\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["md", "replace-section"])
+        .arg(&file)
+        .args(["--heading", "Intro", "--content", "hello world", "--apply"])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("hello world"),
+        "replacement body missing: {content}"
+    );
+    assert!(
+        !content.contains("## API") && !content.contains("table"),
+        "nested ## API must be inside # Intro bounds: {content}"
+    );
+    assert!(
+        !content.contains("## Notes"),
+        "nested ## Notes must be inside # Intro bounds: {content}"
+    );
+}
+
 #[test]
 fn test_md_default_mode_shows_diff() {
     let dir = TempDir::new().unwrap();

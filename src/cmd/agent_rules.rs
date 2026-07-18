@@ -112,7 +112,7 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              | Insert text after/before a heading | `md_insert_after_heading`, `md_insert_before_heading` |\n\
              | Insert a sibling section after a full section body | `md_insert_after_section` |\n\
              | Move a heading section (same file or cross-file) | `md_move_section` |\n\
-             | Remove duplicate headings | `md_dedupe_headings` |\n\
+             | Remove later whole sections with a duplicate heading | `md_dedupe_headings` |\n\
              | Lint markdown for structural issues | `md_lint` |\n\
              | Fix trailing whitespace or missing newlines | `fix_whitespace` (one file) or `batch_tidy` (multiple files) |\n\
              | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |\n\
@@ -568,6 +568,12 @@ success lines are the full path list.\n\n\
          (or any top-level array) fails with `error_kind: type_error` and an index-form hint on both \
          `doc get`/`select` and `doc set` (not soft `no_matches`). Writes keep the multi-doc form \
          (still `---` separators, not a single YAML sequence).\n\n\
+         **Markdown section bounds:** `md_replace_section` / `md_insert_after_section` / section moves \
+         end at the next heading of the **same or higher** level. Nested lower-level headings belong to \
+         the parent (replacing `# Intro` also rewrites following `##` children until the next `#`). Prefer \
+         peer-level headings when siblings must survive. `md_dedupe_headings` removes later **whole \
+         sections** with a duplicate level+text heading (body under the second heading is discarded, not \
+         merged).\n\
          **Markdown insert placement:** `md_insert_after_heading` inserts **under the heading line** \
          (before existing body). To add a sibling `##` section after the full section body, use \
          `md_insert_after_section`.\n\n",
@@ -838,6 +844,18 @@ mod tests {
                 && out.contains("type_error")
                 && out.contains("doc get"),
             "agents need multi-doc index guidance + bare-key type_error on get/set"
+        );
+    }
+
+    #[test]
+    fn workflow_documents_markdown_section_bounds_and_dedupe() {
+        let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+        assert!(
+            out.contains("Markdown section bounds")
+                && out.contains("same or higher")
+                && out.contains("md_dedupe_headings")
+                && out.contains("whole sections"),
+            "agents need hierarchical section + dedupe body-loss guidance"
         );
     }
 

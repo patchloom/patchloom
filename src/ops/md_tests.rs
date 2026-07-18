@@ -141,6 +141,26 @@ mod basic {
         );
     }
 
+    /// Parent `#` section includes nested `##` until the next same-or-higher
+    /// heading (fixrealloop agent footgun when targeting Intro above ## API).
+    #[test]
+    fn replace_section_parent_heading_includes_nested_children() {
+        let content = "# Intro\n\nhello\n\n## API\n\ntable\n\n## Notes\n\n- bullet\n";
+        let result = replace_section_in(content, "Intro", "hello world").unwrap();
+        assert_eq!(result, "# Intro\nhello world\n");
+        assert!(
+            !result.contains("## API") && !result.contains("## Notes"),
+            "nested ## sections must be inside # Intro bounds: {result}"
+        );
+        // Peer-level headings: only the targeted ## is replaced.
+        let peers = "## Intro\n\nhello\n\n## API\n\ntable\n";
+        let peer = replace_section_in(peers, "Intro", "hello world").unwrap();
+        assert!(
+            peer.contains("## API") && peer.contains("table"),
+            "peer ## API must survive replacing ## Intro: {peer}"
+        );
+    }
+
     #[test]
     fn replace_section_no_extra_blank_when_original_had_none() {
         // When the original had no blank line before the next heading, don't add one.
