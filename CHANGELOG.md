@@ -11,6 +11,18 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.15.2](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.1...patchloom-v0.15.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* agent honesty for contain, init JSON, names table, applied ([#1845](https://github.com/patchloom/patchloom/issues/1845)) ([136db8f](https://github.com/patchloom/patchloom/commit/136db8f2684e119765dcd715b0cd823d1e7afa34))
+* agent honesty for doc query, tidy.fix, md/AST docs ([#1846](https://github.com/patchloom/patchloom/issues/1846)) ([e9e75a1](https://github.com/patchloom/patchloom/commit/e9e75a179209853d024bcd2a02965c5f66c10f7d))
+* agent JSON honesty for replace mode, undo, and format_failed ([#1836](https://github.com/patchloom/patchloom/issues/1836)) ([dc765e6](https://github.com/patchloom/patchloom/commit/dc765e6a2c41762376404ee6ee92261c246c7ec6))
+* honor tidy.fix plan write_policy; lock doc query envelopes ([#1848](https://github.com/patchloom/patchloom/issues/1848)) ([ffedb27](https://github.com/patchloom/patchloom/commit/ffedb270e862b2717d0ea2f036a92130bd1df9da))
+* include applied on plan/batch/tx JSON ([#1851](https://github.com/patchloom/patchloom/issues/1851)) ([194e3e4](https://github.com/patchloom/patchloom/commit/194e3e415a6ec35219d96c79b50fcba6f0c1e370))
+* tidy.fix op write-policy survives commit ([#1849](https://github.com/patchloom/patchloom/issues/1849)) ([59da347](https://github.com/patchloom/patchloom/commit/59da3478cb9a29f00f419ddfd4ec23a893fb9270))
+
 ## [0.15.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.0...patchloom-v0.15.1) (2026-07-17)
 
 
