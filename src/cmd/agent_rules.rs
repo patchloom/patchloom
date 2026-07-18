@@ -949,16 +949,20 @@ mod tests {
     }
 
     /// Canonical names table must stay present so agents do not invent alternates.
+    /// Full AST CLI examples live under `#[cfg(feature = "ast")]`; the names table
+    /// always documents PATH/SYMBOL order so this still holds for test-mcp-no-ast.
     #[test]
     fn agent_rules_ast_cli_examples_use_real_clap_shapes() {
         // #1841: no --symbol / --name; correct positional order.
         let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
         assert!(
-            out.contains("ast replace src/config.rs default_timeout --old 30 --new 60"),
+            out.contains("ast replace PATH SYMBOL")
+                || out.contains("ast replace src/config.rs default_timeout"),
             "replace must use PATH SYMBOL positionals"
         );
         assert!(
-            !out.contains("ast replace src/config.rs --symbol"),
+            !out.contains("ast replace src/config.rs --symbol")
+                && !out.contains("ast replace PATH --symbol"),
             "must not document nonexistent --symbol"
         );
         assert!(
@@ -966,9 +970,20 @@ mod tests {
             "refs must document SYMBOL PATH order"
         );
         assert!(
-            !out.contains("ast refs src/ --name"),
+            !out.contains("ast refs src/ --name") && !out.contains("ast refs PATH --name"),
             "must not document nonexistent --name on refs"
         );
+        #[cfg(feature = "ast")]
+        {
+            assert!(
+                out.contains("ast replace src/config.rs default_timeout --old 30 --new 60"),
+                "AST section example must use PATH SYMBOL positionals"
+            );
+            assert!(
+                out.contains("ast refs my_function src/"),
+                "AST section example must use SYMBOL PATH for refs"
+            );
+        }
     }
 
     #[test]
