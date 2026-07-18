@@ -547,7 +547,7 @@ fn test_md_lint_agents_json_output() {
 
     assert_eq!(output.status.code(), Some(2));
     let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    // Envelope (tidy check parity, #1854): not a bare array.
+    // Envelope (#1854 / #1859): single-file diagnostic object, not a bare array.
     assert!(parsed.is_object(), "expected object envelope: {parsed}");
     assert_eq!(parsed["ok"], false);
     assert!(
