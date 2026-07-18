@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.patchloom/patchloom",
+  "title": "Patchloom",
+  "description": "AI agent file editing via MCP: JSON/YAML/TOML, AST renames, markdown, batch.",
+  "repository": {
+    "url": "https://github.com/patchloom/patchloom",
+    "source": "github"
+  },
+  "version": "0.15.2",
+  "packages": [
+    {
+      "registryType": "cargo",
+      "identifier": "patchloom",
+      "version": "0.15.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp-server"
+        }
+      ]
+    },
+    {
+      "registryType": "npm",
+      "identifier": "patchloom",
+      "version": "0.15.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp-server"
+        }
+      ]
+    }
+  ]
+}

@@ -2,6 +2,27 @@
 
 Patchloom includes an MCP (Model Context Protocol) server for structured tool calls. MCP-capable AI agents can call Patchloom tools directly with JSON parameters, with no shell command construction, no quoting issues, and no `--apply` flag needed.
 
+## Official MCP Registry
+
+Patchloom publishes to the
+[official MCP Registry](https://registry.modelcontextprotocol.io/) as
+`io.github.patchloom/patchloom`. The listing points clients at the crates.io
+and npm packages and starts the stdio server with `mcp-server`.
+
+Repo metadata lives in [`server.json`](../../server.json) at the repository
+root. Ownership markers (required by the registry) are:
+
+- **crates.io:** a visible `mcp-name: io.github.patchloom/patchloom` line in
+  the crate README (HTML comments are stripped on crates.io, so the token must
+  be plain markdown text).
+- **npm:** `mcpName` in the published `package.json` (injected during the
+  release `publish-npm` job; cargo-dist does not emit it).
+
+After each GitHub Release, the `Publish MCP Registry` workflow stamps the
+version into `server.json`, waits for those markers, authenticates with
+GitHub OIDC, and runs `mcp-publisher publish`. You can re-run it manually
+via `workflow_dispatch` with an explicit version.
+
 ## Verify MCP support
 
 The MCP server is included by default in all pre-built binaries and in

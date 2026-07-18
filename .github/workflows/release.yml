@@ -762,11 +762,31 @@ jobs:
           # publish credential. Do not set NODE_AUTH_TOKEN here (empty tokens
           # can override OIDC). Optional emergency fallback: set NPM_TOKEN and
           # export NODE_AUTH_TOKEN only in a temporary override if OIDC fails.
+          #
+          # Inject mcpName for official MCP Registry ownership verification
+          # (https://github.com/modelcontextprotocol/registry package-types).
+          # cargo-dist does not emit this field; inject before publish so each
+          # npm version can be listed as io.github.patchloom/patchloom.
+          MCP_REGISTRY_NAME="io.github.patchloom/patchloom"
           published=0
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
-            echo "Publishing ./npm/${pkg} via OIDC trusted publishing"
-            npm publish --access public "./npm/${pkg}"
+            tarball="./npm/${pkg}"
+            work=$(mktemp -d)
+            tar -xzf "$tarball" -C "$work"
+            if [ ! -f "$work/package/package.json" ]; then
+              echo "npm tarball missing package/package.json: ${pkg}" >&2
+              rm -rf "$work"
+              exit 1
+            fi
+            jq --arg name "$MCP_REGISTRY_NAME" '.mcpName = $name' \
+              "$work/package/package.json" > "$work/package/package.json.tmp"
+            mv "$work/package/package.json.tmp" "$work/package/package.json"
+            # Re-pack with the same top-level package/ directory layout.
+            tar -czf "$tarball" -C "$work" package
+            rm -rf "$work"
+            echo "Publishing ${tarball} via OIDC trusted publishing (mcpName=${MCP_REGISTRY_NAME})"
+            npm publish --access public "$tarball"
             published=$((published + 1))
           done
           if [ "$published" -eq 0 ]; then
