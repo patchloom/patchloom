@@ -1,0 +1,66 @@
+{
+  "$schema": "https://raw.githubusercontent.com/anthropics/mcpb/main/dist/mcpb-manifest.schema.json",
+  "manifest_version": "0.3",
+  "name": "patchloom",
+  "display_name": "Patchloom",
+  "version": "0.15.2",
+  "description": "Structured file editing for AI agents: JSON/YAML/TOML, AST renames, markdown, batch, and replace via MCP.",
+  "long_description": "Patchloom is a single-binary CLI and MCP server for agent-grade repo edits. It edits JSON, YAML, and TOML by selector (preserving comments), understands code structure across many languages, batches multi-file edits, and exposes the same operations as structured MCP tools over stdio.\n\nInstall: the bundle prefers a PATH-installed `patchloom` binary, otherwise runs `npx -y patchloom@<version> mcp-server` (Node.js 18+). Pre-built binaries are also on crates.io, Homebrew, Scoop, Chocolatey, and GitHub Releases.",
+  "author": {
+    "name": "Sebastien Tardif",
+    "url": "https://github.com/patchloom"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/patchloom/patchloom.git"
+  },
+  "homepage": "https://patchloom.github.io/patchloom/",
+  "documentation": "https://patchloom.github.io/patchloom/getting-started/mcp-setup.html",
+  "support": "https://github.com/patchloom/patchloom/issues",
+  "icon": "icon.png",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "file-editing",
+    "agents",
+    "ast",
+    "yaml",
+    "toml",
+    "markdown",
+    "patchloom"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/run.mjs",
+    "mcp_config": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "patchloom@0.15.2",
+        "mcp-server"
+      ],
+      "env": {},
+      "platform_overrides": {
+        "win32": {
+          "command": "npx.cmd",
+          "args": [
+            "-y",
+            "patchloom@0.15.2",
+            "mcp-server"
+          ]
+        }
+      }
+    }
+  },
+  "tools_generated": true,
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
