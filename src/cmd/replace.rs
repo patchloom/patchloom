@@ -309,12 +309,7 @@ fn collect_replacements(
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
     // Empty --files-from is an input error, not a pattern miss (#1796).
     // Detected here (single read of stdin) before soft no_matches handling.
-    if global.files_from.is_some() && file_paths.is_empty() {
-        return Err(crate::exit::InvalidInputError {
-            msg: "empty --files-from path list (no files to scan)".into(),
-        }
-        .into());
-    }
+    crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
     let replacement = build_replacement(args);
     let quiet = global.quiet;
@@ -1185,13 +1180,9 @@ fn run_context_replace(
         args.paths.clone()
     };
     let file_paths = crate::collect_file_paths_opts(&paths, global, false, Some(cwd))?;
+    // Empty --files-from is input error on fuzzy/context path too (#1796).
+    crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     if file_paths.is_empty() {
-        // Empty --files-from is input error on fuzzy/context path too (#1796).
-        if global.files_from.is_some() {
-            let msg = "empty --files-from path list (no files to scan)";
-            global.emit_error_json_kind(Some("invalid_input"), msg)?;
-            return Ok(exit::FAILURE);
-        }
         if crate::files::all_scan_targets_missing(global, &paths, Some(cwd))? {
             let msg = format!(
                 "no such file or directory: {}",

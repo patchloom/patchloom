@@ -105,6 +105,7 @@ fn test_search_no_match_files_from_mentions_files_from_not_dot() {
 #[test]
 fn test_search_empty_files_from_does_not_walk_workspace() {
     // Empty --files-from must not fall back to walking `.` (would match a.txt).
+    // #1796: invalid_input (exit 1), not pattern no_matches (exit 3).
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.txt"), "unique_token_xyz\n").unwrap();
     fs::write(dir.path().join("empty.txt"), "").unwrap();
@@ -117,22 +118,27 @@ fn test_search_empty_files_from_does_not_walk_workspace() {
         .arg("empty.txt")
         .arg("search")
         .arg("unique_token_xyz")
+        .arg("--json")
         .output()
         .unwrap();
     assert_eq!(
         output.status.code(),
-        Some(3),
-        "empty files-from must yield no matches, not walk workspace"
+        Some(1),
+        "empty files-from must be invalid_input, not no_matches: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
     assert!(
-        !stdout.contains("unique_token_xyz"),
-        "must not search workspace files when list is empty: {stdout}"
+        v["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("empty --files-from"),
+        "must blame empty list, not pattern: {v}"
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("--files-from"),
-        "no-match message should mention --files-from: {stderr}"
+        !v.to_string().contains("unique_token_xyz"),
+        "must not search workspace files when list is empty: {v}"
     );
 }
 

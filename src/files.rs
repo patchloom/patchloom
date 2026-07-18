@@ -168,6 +168,25 @@ fn missing_paths_under(cwd: &Path, paths: &[String]) -> Option<Vec<String>> {
     }
 }
 
+/// Reject an empty `--files-from` list as `invalid_input` (exit 1).
+///
+/// Soft `no_matches` (search) or clean success (tidy check) would mislead agents
+/// into widening the pattern or treating the workspace as clean when zero paths
+/// were scanned. Same contract as replace (#1796), applied to all scan commands.
+#[cfg(feature = "cli")]
+pub(crate) fn ensure_files_from_nonempty(
+    global: &GlobalFlags,
+    file_paths: &[PathBuf],
+) -> anyhow::Result<()> {
+    if global.files_from.is_some() && file_paths.is_empty() {
+        return Err(crate::exit::InvalidInputError {
+            msg: "empty --files-from path list (no files to scan)".into(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
 /// Collect file paths from either `--files-from`, or by walking `paths` with
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
 /// paths are joined with it before walking.  Tidy commands set
@@ -703,6 +722,45 @@ mod tests {
         assert!(has_regex_metacharacters("a|b"));
         assert!(has_regex_metacharacters("^start"));
         assert!(has_regex_metacharacters("end$"));
+    }
+
+    // ── ensure_files_from_nonempty (#1796) ─────────────────────────────
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn ensure_files_from_nonempty_rejects_empty_list() {
+        let global = GlobalFlags {
+            files_from: Some("list.txt".into()),
+            ..GlobalFlags::default()
+        };
+        let err = ensure_files_from_nonempty(&global, &[]).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("empty --files-from"),
+            "expected empty-list message: {msg}"
+        );
+        assert_eq!(
+            crate::exit::classify_typed_error(&err).map(|(kind, _)| kind),
+            Some("invalid_input")
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn ensure_files_from_nonempty_ok_when_paths_present() {
+        let global = GlobalFlags {
+            files_from: Some("list.txt".into()),
+            ..GlobalFlags::default()
+        };
+        ensure_files_from_nonempty(&global, &[PathBuf::from("a.txt")]).unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn ensure_files_from_nonempty_skips_when_unset() {
+        // Directory walk with zero matching files is not invalid_input.
+        let global = GlobalFlags::default();
+        ensure_files_from_nonempty(&global, &[]).unwrap();
     }
 
     // ── is_binary ─────────────────────────────────────────────────────

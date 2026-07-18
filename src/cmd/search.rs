@@ -139,6 +139,8 @@ pub(crate) fn collect_matches(
         args.multiline,
     )?;
     let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+    // Empty --files-from is invalid_input, not pattern no_matches (#1796).
+    crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
     let count_only = args.count || args.files_with_matches;
 
