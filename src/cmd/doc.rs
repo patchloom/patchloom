@@ -592,13 +592,16 @@ fn execute_with_mode_inner(
                     output_mode,
                     quiet,
                 ),
-                crate::ops::doc::query::QueryKeysResult::NotAnObject => format_error(
-                    &format!("doc keys: target at '{selector}' is not an object"),
-                    output_mode,
-                    quiet,
-                    exit::FAILURE,
-                    Some("type_error"),
-                ),
+                crate::ops::doc::query::QueryKeysResult::NotAnObject => {
+                    let msg = if selector.is_empty() && root.is_array() {
+                        "doc keys: target is a top-level array (multi-document YAML or JSON \
+                         array); use a document/element index first, e.g. keys on `0` or `[0]`"
+                            .to_string()
+                    } else {
+                        format!("doc keys: target at '{selector}' is not an object")
+                    };
+                    format_error(&msg, output_mode, quiet, exit::FAILURE, Some("type_error"))
+                }
                 crate::ops::doc::query::QueryKeysResult::Keys(keys) => {
                     let output = match output_mode {
                         OutputMode::Text => keys.join("\n"),

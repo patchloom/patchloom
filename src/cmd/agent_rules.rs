@@ -564,7 +564,9 @@ success lines are the full path list.\n\n\
          you at `doc update` or an index path.\n\n\
          **Multi-document YAML:** Files with multiple `---` documents parse as a **top-level array** \
          (one element per document). Address a field with a document index first, e.g. `0.metadata.name` \
-         or `[0].metadata.name`, not a bare key at the stream root. Writes keep the multi-doc form \
+         or `[0].metadata.name`, not a bare key at the stream root. A bare root key on multi-doc \
+         (or any top-level array) fails with `error_kind: type_error` and an index-form hint on both \
+         `doc get`/`select` and `doc set` (not soft `no_matches`). Writes keep the multi-doc form \
          (still `---` separators, not a single YAML sequence).\n\n\
          **Markdown insert placement:** `md_insert_after_heading` inserts **under the heading line** \
          (before existing body). To add a sibling `##` section after the full section body, use \
@@ -832,8 +834,10 @@ mod tests {
         assert!(
             out.contains("Multi-document YAML")
                 && out.contains("0.metadata.name")
-                && out.contains("top-level array"),
-            "agents need multi-doc index guidance"
+                && out.contains("top-level array")
+                && out.contains("type_error")
+                && out.contains("doc get"),
+            "agents need multi-doc index guidance + bare-key type_error on get/set"
         );
     }
 
