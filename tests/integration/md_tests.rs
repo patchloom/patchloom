@@ -370,6 +370,15 @@ fn test_md_dedupe_headings_removes_duplicate() {
     let content = fs::read_to_string(&file).unwrap();
     let count = content.matches("## Dup").count();
     assert_eq!(count, 1, "duplicate heading should be removed");
+    // Whole later section is discarded (body under second heading is not merged).
+    assert!(
+        content.contains("First"),
+        "first section body must be kept: {content}"
+    );
+    assert!(
+        !content.contains("Second"),
+        "second section body must be discarded, not merged: {content}"
+    );
 }
 
 #[test]

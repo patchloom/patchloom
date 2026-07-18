@@ -1104,8 +1104,8 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:md.replace_section -->
 ### `md.replace_section`
 
-- **What it does:** Replaces a markdown section inside a transaction.
-- **Use when:** Docs regeneration should be part of a larger all or nothing repo change.
+- **What it does:** Replaces a markdown section body inside a transaction. The section ends at the next heading of the same or higher level; nested lower-level headings are included in the replaced range.
+- **Use when:** Docs regeneration should be part of a larger all or nothing repo change. Prefer peer-level headings when siblings must survive.
 - **Failure behavior:** Missing heading exits 3 (`no_matches`) with the heading name in the error.
 - **Related:** top level `md replace-section`
 
@@ -1154,8 +1154,8 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:md.dedupe_headings -->
 ### `md.dedupe_headings`
 
-- **What it does:** Removes duplicate markdown headings inside a transaction.
-- **Use when:** Cleanup of generated docs should stay atomic with the rest of the plan.
+- **What it does:** Removes later whole sections whose heading text+level already appeared (heading and body until the next same-or-higher heading). Unique content under the second heading is discarded, not merged.
+- **Use when:** Cleanup of generated docs should stay atomic with the rest of the plan. Do not use when duplicate headings intentionally hold different bodies that must both survive.
 - **Related:** top level `md dedupe-headings`
 
 <!-- ref:tx-op:md.lint_agents -->
