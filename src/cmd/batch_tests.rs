@@ -226,6 +226,23 @@ mod basic {
     }
 
     #[test]
+    fn parse_line_replace_cli_order_hint_when_third_arg_is_file() {
+        // Agents paste CLI order (OLD NEW path) into batch (PATH OLD NEW).
+        // Use an absolute path so the check is independent of process cwd.
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("target.txt");
+        std::fs::write(&file, "hello world\n").unwrap();
+        let path = file.to_str().unwrap();
+        let line = format!(r#"replace hello hi {path}"#);
+        let err = parse_line(&line, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("PATH OLD NEW") && msg.contains("not a file"),
+            "expected CLI-order hint, got: {msg}"
+        );
+    }
+
+    #[test]
     fn parse_line_replace_dash_prefixed_values_are_positionals() {
         // Bullet renames and flag-like strings must not be misread as flags.
         let op = parse_line(r#"replace f.md "- old bullet" "- new bullet" --fuzzy"#, 1).unwrap();

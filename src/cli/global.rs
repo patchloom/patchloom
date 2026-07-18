@@ -521,6 +521,11 @@ impl GlobalFlags {
         let mut payload = serde_json::json!({"ok": false, "error": msg});
         if let Some(k) = kind {
             payload["error_kind"] = serde_json::Value::String(k.to_string());
+            // Pre-write failures never mutate disk: agents branch on applied
+            // alone (parity with structured_error_payload / #1835).
+            if crate::exit::error_kind_implies_not_applied(k) {
+                payload["applied"] = serde_json::Value::Bool(false);
+            }
         }
         if !self.emit_json(&payload)? && !self.quiet {
             eprintln!("{msg}");
@@ -773,8 +778,12 @@ mod tests {
         // without capturing stdout in unit tests.
         let mut payload = serde_json::json!({"ok": false, "error": "missing"});
         payload["error_kind"] = serde_json::Value::String("no_matches".into());
+        if crate::exit::error_kind_implies_not_applied("no_matches") {
+            payload["applied"] = serde_json::Value::Bool(false);
+        }
         assert_eq!(payload["error_kind"], "no_matches");
         assert_eq!(payload["ok"], false);
+        assert_eq!(payload["applied"], false);
         let g = GlobalFlags {
             json: true,
             ..GlobalFlags::test_default()

@@ -780,6 +780,10 @@ fn test_create_json_already_exists_sets_error_kind() {
         parsed["error_kind"], "already_exists",
         "create --json existing file should set error_kind: {parsed}"
     );
+    assert_eq!(
+        parsed["applied"], false,
+        "pre-write already_exists must set applied:false: {parsed}"
+    );
 }
 
 #[test]

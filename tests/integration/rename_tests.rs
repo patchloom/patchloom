@@ -912,6 +912,10 @@ fn test_rename_json_already_exists_sets_error_kind() {
         parsed["error_kind"], "already_exists",
         "rename --json existing dest should set error_kind: {parsed}"
     );
+    assert_eq!(
+        parsed["applied"], false,
+        "pre-write already_exists must set applied:false: {parsed}"
+    );
 }
 
 #[test]
