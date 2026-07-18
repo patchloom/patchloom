@@ -1,0 +1,132 @@
+# Pack the local stdio MCPB and publish to Smithery after a GitHub Release.
+# Soft-skips when SMITHERY_API_KEY is unset (same pattern as Chocolatey).
+# Auth: create a key at smithery.ai (account API keys) or `smithery auth token`,
+# then: gh secret set SMITHERY_API_KEY --repo patchloom/patchloom
+name: Publish Smithery
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to pack/publish (e.g. 0.15.2). Empty uses latest GitHub Release tag."
+        required: false
+        type: string
+
+concurrency:
+  group: publish-smithery-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    if: ${{ !github.event.repository.private }}
+    permissions:
+      contents: read
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${INPUT_VERSION:-}"
+          if [ -z "$version" ] && [ -n "${RELEASE_TAG:-}" ]; then
+            version="${RELEASE_TAG#patchloom-v}"
+            version="${version#v}"
+          fi
+          if [ -z "$version" ]; then
+            tag=$(gh release view --json tagName --jq .tagName)
+            version="${tag#patchloom-v}"
+            version="${version#v}"
+          fi
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "Could not resolve a package version" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${version}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install pack tools
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/mcpb smithery
+          mcpb --version
+          smithery --version || true
+
+      - name: Stamp Cargo.toml version for pack
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # pack-mcpb.sh reads Cargo.toml; on workflow_dispatch of an older
+          # tag the tree may already be at that version. Force-stamp when
+          # they differ so the MCPB matches the release being published.
+          current=$(python3 -c "import re,pathlib; t=pathlib.Path('Cargo.toml').read_text(); print(re.search(r'(?m)^version\\s*=\\s*\\\"([^\\\"]+)\\\"', t).group(1))")
+          if [ "$current" != "$VERSION" ]; then
+            echo "Stamping Cargo.toml version ${current} -> ${VERSION} for pack only"
+            sed -i.bak -E "s/^version = \"[^\"]+\"/version = \"${VERSION}\"/" Cargo.toml
+            rm -f Cargo.toml.bak
+          fi
+
+      - name: Pack MCPB
+        run: bash scripts/pack-mcpb.sh
+
+      - name: Upload MCPB artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: patchloom-mcpb
+          path: target/mcpb/patchloom-*.mcpb
+          if-no-files-found: error
+
+      - name: Publish to Smithery
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SMITHERY_API_KEY:-}" ]; then
+            echo "SMITHERY_API_KEY unset; packing succeeded, publish soft-skipped."
+            echo "Set the secret (smithery auth token / dashboard API key) to enable publish."
+            exit 0
+          fi
+          bundle="target/mcpb/patchloom-${VERSION}.mcpb"
+          if [ ! -f "$bundle" ]; then
+            echo "Missing ${bundle}" >&2
+            exit 1
+          fi
+          # Wait briefly so npm patchloom@VERSION is available when clients
+          # first install the bundle (npx path). Soft wait only.
+          for i in 1 2 3 4 5 6; do
+            if npm view "patchloom@${VERSION}" version >/dev/null 2>&1; then
+              echo "npm patchloom@${VERSION} is live"
+              break
+            fi
+            echo "Waiting for npm patchloom@${VERSION} (attempt ${i})"
+            sleep 20
+          done
+          smithery mcp publish "$bundle" -n patchloom/patchloom
+          echo "Published patchloom/patchloom from ${bundle}"

@@ -1,0 +1,7 @@
+{
+  "name": "patchloom-mcpb",
+  "version": "0.15.2",
+  "private": true,
+  "description": "MCPB packaging metadata for patchloom (version stamped by pack-mcpb.sh)",
+  "type": "module"
+}

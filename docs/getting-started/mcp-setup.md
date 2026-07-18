@@ -23,6 +23,27 @@ version into `server.json`, waits for those markers, authenticates with
 GitHub OIDC, and runs `mcp-publisher publish`. You can re-run it manually
 via `workflow_dispatch` with an explicit version.
 
+## Smithery (local MCPB)
+
+[Smithery](https://smithery.ai/) can list local stdio servers via an
+[MCPB](https://github.com/modelcontextprotocol/mcpb) bundle (URL publish is
+for hosted Streamable HTTP endpoints; Patchloom's primary agent path is local
+stdio).
+
+The bundle lives under [`mcpb/`](../../mcpb/) and runs:
+
+1. `patchloom mcp-server` if the binary is on `PATH`, else
+2. `npx -y patchloom@<version> mcp-server` (Node.js 18+).
+
+```bash
+make pack-mcpb   # writes target/mcpb/patchloom-<version>.mcpb
+# One-time: smithery auth login  (or set SMITHERY_API_KEY)
+smithery mcp publish target/mcpb/patchloom-<version>.mcpb -n patchloom/patchloom
+```
+
+CI: `.github/workflows/publish-smithery.yml` packs after each GitHub Release and
+publishes when the `SMITHERY_API_KEY` secret is set (soft-skip otherwise).
+
 ## Verify MCP support
 
 The MCP server is included by default in all pre-built binaries and in

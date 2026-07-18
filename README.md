@@ -466,7 +466,7 @@ flowchart LR
 | Component | Status |
 |---|---|
 | CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [Chocolatey](https://community.chocolatey.org/packages/patchloom) (`choco install patchloom`; first version under moderation), and [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`) |
-| MCP server | Official [MCP Registry](https://registry.modelcontextprotocol.io/) name `io.github.patchloom/patchloom` (stdio; crates.io / npm packages; see `server.json`) |
+| MCP server | Official [MCP Registry](https://registry.modelcontextprotocol.io/) name `io.github.patchloom/patchloom` (stdio; crates.io / npm packages; see `server.json`). Local MCPB for [Smithery](https://smithery.ai/) / desktop hosts: `make pack-mcpb` (`mcpb/`) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 
 ## Full command reference
