@@ -177,7 +177,10 @@ Do not put `for_each` inside `operations` and do not pass a bare path array.\n\
              **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / \
              `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` \
              (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect \
-             concatenated pretty multi-documents for `--json`.\n\n",
+             concatenated pretty multi-documents for `--json`.\n\
+             **Diagnostic envelopes:** `tidy check --json` and `md lint-agents --json` emit a single object \
+             `{ok, issue_count, issues, ...}` (not a bare array). Branch on `ok` / `issue_count`. JSONL stays \
+             one issue object per line. (#1854)\n\n",
         );
     }
     if show_cli {

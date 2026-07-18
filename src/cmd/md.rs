@@ -482,7 +482,25 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
             let issues = lint_agents_content(&content);
 
-            if !global.emit_json_items(&issues)? && !global.quiet {
+            // --json: object envelope (tidy check parity, #1854). --jsonl: one
+            // issue object per line. Text: human lines with file:line.
+            if global.json {
+                #[derive(Serialize)]
+                struct MdLintOutput {
+                    ok: bool,
+                    path: String,
+                    issue_count: usize,
+                    issues: Vec<crate::ops::md::LintIssue>,
+                }
+                global.emit_json(&MdLintOutput {
+                    ok: issues.is_empty(),
+                    path: file.clone(),
+                    issue_count: issues.len(),
+                    issues: issues.clone(),
+                })?;
+            } else if global.jsonl {
+                global.emit_json_items(&issues)?;
+            } else if !global.quiet {
                 for issue in &issues {
                     match (issue.line, &issue.heading) {
                         (Some(ln), Some(h)) => {
