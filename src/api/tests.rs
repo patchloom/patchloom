@@ -1484,6 +1484,26 @@ fn doc_get_zero_match_error() {
 }
 
 #[test]
+fn doc_get_array_root_bare_key_is_type_error() {
+    // Multi-doc YAML / top-level JSON array: bare key must not soft no_match.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    let err = doc_get(&file, "a").unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&err),
+        "expected TypeErrorError, got: {err}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("0.a") || msg.contains("[0].a"),
+        "index hint missing: {msg}"
+    );
+    assert_eq!(doc_get(&file, "0.a").unwrap(), serde_json::json!(1));
+}
+
+#[test]
 fn doc_get_multi_match_returns_array() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.json");
