@@ -1168,7 +1168,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Applies tidy normalization inside a transaction.
 - **Use when:** Text cleanup should be part of the same atomic success criteria as other edits.
-- **Defaults (#1840):** When the op omits write-policy fields, matches bare CLI `tidy fix`: trim trailing whitespace and ensure final newline (`normalize_eol` stays keep unless set). Explicit op fields or plan `write_policy` still override.
+- **Defaults (#1840):** When the op omits write-policy fields, matches bare CLI `tidy fix`: trim trailing whitespace and ensure final newline (`normalize_eol` stays keep unless set). Precedence: tidy defaults → plan `write_policy` → op fields. Op fields win through commit (#1847); a later non-tidy write to the same path re-enables plan `write_policy` at commit.
 - **Related:** top level `tidy fix`
 
 <!-- ref:tx-op:file.append -->

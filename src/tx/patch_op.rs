@@ -1,4 +1,4 @@
-use super::execute::{TxState, read_file_content, update_file_content};
+use super::execute::{TxState, read_file_content};
 use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
 use crate::plan::Operation;
 
@@ -32,13 +32,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                     tx.deletions.insert(file_path.clone());
                     tx.write_targets.insert(file_path);
                 } else {
-                    update_file_content(
-                        tx.pending,
-                        tx.deletions,
-                        tx.write_targets,
-                        &file_path,
-                        result.content,
-                    );
+                    tx.write_file(&file_path, result.content);
                 }
             }
             Ok(0)

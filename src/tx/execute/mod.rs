@@ -113,6 +113,21 @@ pub(crate) fn update_file_content(
     }
 }
 
+impl TxState<'_> {
+    /// Write pending content and clear tidy policy-finalized state for the path
+    /// so commit-time write_policy can re-apply after non-tidy writers (#1847).
+    pub(crate) fn write_file(&mut self, path: &Path, new_content: String) {
+        self.policy_finalized.remove(path);
+        update_file_content(
+            self.pending,
+            self.deletions,
+            self.write_targets,
+            path,
+            new_content,
+        );
+    }
+}
+
 /// Mark a file as targeted by a write operation. Write policy is only
 /// applied to files in this set, not to files loaded solely for reading
 /// (#1108).
@@ -129,6 +144,7 @@ pub(crate) fn flush_doc_cache_entry(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
     write_targets: &mut HashSet<PathBuf>,
+    policy_finalized: &mut HashSet<PathBuf>,
     path: PathBuf,
     cached: CachedDoc,
 ) -> anyhow::Result<()> {
@@ -139,6 +155,7 @@ pub(crate) fn flush_doc_cache_entry(
         &cached.format,
     )
     .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+    policy_finalized.remove(&path);
     update_file_content(pending, deletions, write_targets, &path, new_content);
     Ok(())
 }
@@ -149,10 +166,18 @@ pub(crate) fn flush_doc_cache(
     pending: &mut HashMap<PathBuf, (String, String)>,
     deletions: &mut HashSet<PathBuf>,
     write_targets: &mut HashSet<PathBuf>,
+    policy_finalized: &mut HashSet<PathBuf>,
     doc_cache: &mut HashMap<PathBuf, CachedDoc>,
 ) -> anyhow::Result<()> {
     for (path, cached) in doc_cache.drain() {
-        flush_doc_cache_entry(pending, deletions, write_targets, path, cached)?;
+        flush_doc_cache_entry(
+            pending,
+            deletions,
+            write_targets,
+            policy_finalized,
+            path,
+            cached,
+        )?;
     }
     Ok(())
 }
@@ -254,6 +279,10 @@ pub(crate) struct TxState<'a> {
     /// Plan-level `write_policy` (if any). Used by `tidy.fix` so defaults
     /// honor plan overrides before op-level fields (#1840 honesty).
     pub(crate) plan_write_policy: Option<&'a crate::write::WritePolicyOverride>,
+    /// Paths whose pending content already has write-policy fully applied by
+    /// `tidy.fix` (op fields win). Cleared when a later non-tidy write updates
+    /// the path (#1847).
+    pub(crate) policy_finalized: &'a mut HashSet<PathBuf>,
 }
 
 /// Test fixture that owns all the storage behind a `TxState`, avoiding
@@ -271,6 +300,7 @@ pub(crate) struct TxStateFixture {
     pub write_targets: HashSet<PathBuf>,
     pub replace_match_meta: HashMap<PathBuf, crate::tx::output::ReplaceMatchMeta>,
     pub renames: Vec<(PathBuf, PathBuf)>,
+    pub policy_finalized: HashSet<PathBuf>,
 }
 
 #[cfg(test)]
@@ -288,6 +318,7 @@ impl TxStateFixture {
             write_targets: HashSet::new(),
             replace_match_meta: HashMap::new(),
             renames: Vec::new(),
+            policy_finalized: HashSet::new(),
         }
     }
 
@@ -310,6 +341,7 @@ impl TxStateFixture {
             structured: false,
             guard: None,
             plan_write_policy: None,
+            policy_finalized: &mut self.policy_finalized,
         }
     }
 }
@@ -538,6 +570,7 @@ pub(crate) fn execute_and_collect(
     let mut replace_hint: Option<String> = None;
     let mut replace_match_meta: HashMap<PathBuf, super::output::ReplaceMatchMeta> = HashMap::new();
     let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut policy_finalized: HashSet<PathBuf> = HashSet::new();
 
     // Upfront PathGuard on declared paths (same contract as execute_plan_inner /
     // execute_plan_direct). CLI `tx` and `batch` call this function directly and
@@ -577,6 +610,7 @@ pub(crate) fn execute_and_collect(
                 &mut pending,
                 &mut deletions,
                 &mut write_targets,
+                &mut policy_finalized,
                 &mut doc_cache,
             )?;
         }
@@ -598,6 +632,7 @@ pub(crate) fn execute_and_collect(
             structured,
             guard,
             plan_write_policy: plan.write_policy.as_ref(),
+            policy_finalized: &mut policy_finalized,
         };
         match execute_operation(op, &mut tx) {
             Ok(count) => {
@@ -681,6 +716,7 @@ pub(crate) fn execute_and_collect(
         &mut pending,
         &mut deletions,
         &mut write_targets,
+        &mut policy_finalized,
         &mut doc_cache,
     )?;
 
@@ -692,8 +728,14 @@ pub(crate) fn execute_and_collect(
         if !write_targets.contains(path) {
             continue;
         }
-        let write_policy = build_write_policy(plan, ctx, path)?;
-        let final_content = apply_policy(current, &write_policy);
+        // #1847: tidy.fix already applied effective policy (incl. op fields).
+        // Skip commit re-apply so plan write_policy cannot undo op overrides.
+        let final_content = if policy_finalized.contains(path) {
+            std::borrow::Cow::Borrowed(current.as_str())
+        } else {
+            let write_policy = build_write_policy(plan, ctx, path)?;
+            apply_policy(current, &write_policy)
+        };
         // A file creation with empty content still has original == final == "",
         // but must be treated as an effective change because the file does not
         // exist on disk yet (#create-empty-file).
