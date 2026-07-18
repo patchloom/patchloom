@@ -423,7 +423,7 @@ dependencies[name=react].version # predicate filter
 - `md.insert_after_heading`: Insert content immediately after a markdown heading line (before any existing body). For a sibling section after the full body, use md.insert_after_section.
 - `md.insert_after_section`: Insert content after the full section body (sibling placement). Use when adding a new ## section after this section's content. Prefer md.insert_after_heading for content under the heading line.
 - `md.insert_before_heading`: Insert content immediately before a markdown heading line.
-- `md.move_section`: Move a heading section to a new position (same-file reorder or cross-file move). Exactly one of before or after is required.
+- `md.move_section`: Move a heading section to a new position (same-file reorder or cross-file move). The moved range ends at the next same-or-higher-level heading (nested lower headings included). Exactly one of before or after is required.
 - `patch.apply`: Apply a unified diff patch to one or more files. Supports three-way merge on stale context.
 - `doc.prepend`: Prepend a value to the beginning of an array at a selector path.
 - `doc.update`: Set a new value at every location matching a selector. Use wildcards (items[*].enabled) or selector predicates (items[name=foo].v). Not a separate --where flag; the filter is part of the selector string.

@@ -146,7 +146,9 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             format!("Delete from {selector} where {predicate} in {path}")
         }
         Operation::MdReplaceSection { path, heading, .. } => {
-            format!("Replace section \"{heading}\" in {path}")
+            format!(
+                "Replace section \"{heading}\" in {path} (ends at next same-or-higher heading; nested lower headings included)"
+            )
         }
         Operation::MdInsertAfterHeading { path, heading, .. } => {
             format!("Insert content after heading line \"{heading}\" in {path}")
@@ -182,14 +184,21 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             } else {
                 "(no position)".to_string()
             };
+            // Section body ends at next same-or-higher heading (nested lower included).
             if to.is_some() {
-                format!("Move section \"{heading}\" from {path} to {dest} {pos}")
+                format!(
+                    "Move section \"{heading}\" from {path} to {dest} {pos} (through next same-or-higher heading)"
+                )
             } else {
-                format!("Move section \"{heading}\" {pos} in {path}")
+                format!(
+                    "Move section \"{heading}\" {pos} in {path} (through next same-or-higher heading)"
+                )
             }
         }
         Operation::MdDedupeHeadings { path } => {
-            format!("Deduplicate headings in {path}")
+            format!(
+                "Deduplicate headings in {path} (remove later whole sections with same level+text; second body discarded, not merged)"
+            )
         }
         Operation::TidyFix {
             path,
@@ -781,9 +790,14 @@ mod tests {
             before: Some("License".into()),
             after: None,
         };
+        let desc = describe_operation(&op);
         assert_eq!(
-            describe_operation(&op),
-            r#"Move section "FAQ" before "License" in README.md"#
+            desc,
+            r#"Move section "FAQ" before "License" in README.md (through next same-or-higher heading)"#
+        );
+        assert!(
+            desc.contains("same-or-higher"),
+            "move explain must name hierarchical bounds: {desc}"
         );
     }
 
@@ -798,7 +812,7 @@ mod tests {
         };
         assert_eq!(
             describe_operation(&op),
-            r#"Move section "Appendix" from spec.md to notes.md after "Body""#
+            r#"Move section "Appendix" from spec.md to notes.md after "Body" (through next same-or-higher heading)"#
         );
     }
 
@@ -1041,6 +1055,42 @@ mod tests {
         assert_eq!(
             describe_operation(&op),
             "Apply unified diff patch (merge on stale, allow conflicts)"
+        );
+    }
+
+    #[test]
+    fn describe_md_replace_section_names_bounds() {
+        let op = Operation::MdReplaceSection {
+            path: "README.md".into(),
+            heading: "## Install".into(),
+            content: "new body\n".into(),
+        };
+        let desc = describe_operation(&op);
+        assert!(
+            desc.contains("same-or-higher") && desc.contains("nested lower"),
+            "explain must name hierarchical section bounds: {desc}"
+        );
+        assert!(
+            desc.contains("## Install") && desc.contains("README.md"),
+            "explain must name heading and path: {desc}"
+        );
+    }
+
+    #[test]
+    fn describe_md_dedupe_headings_names_whole_section_discard() {
+        let op = Operation::MdDedupeHeadings {
+            path: "CHANGELOG.md".into(),
+        };
+        let desc = describe_operation(&op);
+        assert!(
+            desc.contains("whole sections")
+                && desc.contains("discarded")
+                && !desc.eq("Deduplicate headings in CHANGELOG.md"),
+            "explain must warn that later whole-section bodies are discarded: {desc}"
+        );
+        assert!(
+            desc.contains("CHANGELOG.md"),
+            "explain must name path: {desc}"
         );
     }
 

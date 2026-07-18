@@ -206,7 +206,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "md_replace_section",
         op_name: "md.replace_section",
         extra: Some(
-            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+            "Section ends at the next same-or-higher-level heading; nested lower-level headings are included in the replaced range. Prefer peer-level headings when siblings must survive. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
         validations: &[
@@ -254,7 +254,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "md_dedupe_headings",
         op_name: "md.dedupe_headings",
         extra: Some(
-            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+            "Removes later whole sections with the same heading level+text (body under the second heading is discarded, not merged). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
