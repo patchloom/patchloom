@@ -465,6 +465,13 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
+        // Sole explicit binary is soft-skipped by the text reader; do not report
+        // no_matches (agents retry with different patterns forever). Parity with
+        // replace/tidy (#1813 family); found by MPI fixrealloop dogfood.
+        if let Some(err) = crate::ops::file::single_explicit_binary_target(&args.paths, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let path_desc = global.path_scope_description(&args.paths);
         let payload = SearchOutput {
             ok: false,

@@ -1057,6 +1057,33 @@ fn test_search_skips_binary_files() {
     );
 }
 
+/// Sole explicit binary path must be invalid_input, not pattern no_matches
+/// (parity with replace; agents otherwise retry forever). MPI 2026-07-19.
+#[test]
+fn test_search_sole_explicit_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let bin_file = dir.path().join("data.bin");
+    fs::write(&bin_file, b"needle\x00in binary").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "needle"])
+        .arg(&bin_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(err.contains("binary"), "expected binary guidance, got: {v}");
+}
+
 #[test]
 fn test_search_skips_invalid_utf8_files() {
     let dir = TempDir::new().unwrap();

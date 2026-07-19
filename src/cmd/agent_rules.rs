@@ -172,7 +172,7 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              Placeholders: `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`, `{name}`. \
 Unknown lone `{name}` in path/from/to fields fails with `invalid_input` (not opaque `not_found`). \
 Do not put `for_each` inside `operations` and do not pass a bare path array.\n\
-             **Binary paths (#1813):** Sole explicit binary replace is `invalid_input`. Multi-file lists put binary co-paths in `refused[]` with `reason: binary` (not pattern `no_matches`).\n\
+             **Binary paths (#1813):** Sole explicit binary **replace** or **search** is `invalid_input` (not pattern `no_matches`). Multi-file replace lists put binary co-paths in `refused[]` with `reason: binary`. Directory walks still soft-skip binaries without failing the whole search.\n\
              **Search max_results:** CLI/MCP/tx `search` with `max_results` keeps full `match_count` (and full `file_count`) but may cap the detailed `matches` array **and** the `files` list in `--count` / `--files-with-matches` modes; when capped, JSON sets `truncated: true` (omitted when complete; #1798). Under `--jsonl`, capped content searches append a final `{\"type\":\"summary\",\"match_count\":N,\"match_emitted\":M,\"truncated\":true}` line so agents still see the total. Do not treat `matches.len()` or `files.len()` as total coverage when `truncated` is true.\n\n\
              **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / \
              `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` \
@@ -568,8 +568,8 @@ success lines are the full path list.\n\n\
          (or any top-level array) fails with `error_kind: type_error` and an index-form hint on \
          `doc get`/`select`/`has` and `doc set` (not soft `no_matches` / not soft `has: false`). \
          `doc keys .` on multi-doc root is also `type_error` (list keys on `0` / `[0]` first). \
-         `doc merge` of an object into multi-doc root is `type_error` (would replace the whole \
-         stream). Bare-key `doc append`/`prepend`/`delete`/`update`/`move`/`ensure` on multi-doc \
+         `doc merge` of any overlay into multi-doc root is `type_error` (object *or* array \
+         overlay would replace the whole stream). Bare-key `doc append`/`prepend`/`delete`/`update`/`move`/`ensure` on multi-doc \
          root are also `type_error` with `0.key` / `[0].key` hints (not soft no-match or \
          `invalid_input`). Address fields under `0.` / `[0].` instead. Writes keep the multi-doc \
          form (still `---` separators, not a single YAML sequence).\n\n\
