@@ -996,9 +996,10 @@ pub fn apply_doc_mutation(
         }
         DocMutation::Merge { value } => {
             // Multi-document YAML / top-level JSON arrays: deep_merge replaces
-            // a non-object base with the overlay, which would destroy the
-            // document stream. Fail closed with an index hint (fixrealloop).
-            if root.is_array() && value.is_object() {
+            // a non-object base with the overlay wholesale (object *or* array
+            // overlay). Fail closed for any overlay on an array root so agents
+            // cannot wipe a multi-doc stream (fixrealloop / MPI; #1872 incomplete).
+            if root.is_array() {
                 return Ok(MutationResult::TypeError(
                     "doc merge: target is a top-level array (multi-document YAML or JSON \
                      array); deep-merge would replace the whole stream with the overlay. \

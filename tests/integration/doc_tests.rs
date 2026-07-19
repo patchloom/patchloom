@@ -3049,6 +3049,7 @@ fn test_doc_append_delete_update_multi_document_bare_key_hints() {
 
 /// `doc merge` on multi-doc must not replace the whole stream with the overlay.
 /// Found by fixrealloop: deep_merge replaced array roots with the object.
+/// MPI: array overlays also replaced the stream (sibling of object-only guard).
 #[test]
 fn test_doc_merge_multi_document_refuses_object_overlay() {
     let dir = TempDir::new().unwrap();
@@ -3056,34 +3057,72 @@ fn test_doc_merge_multi_document_refuses_object_overlay() {
     let original = "a: 1\n---\nb: 2\n";
     fs::write(&file, original).unwrap();
 
+    for (label, value) in [
+        ("object", r#"{"c":3}"#),
+        ("array", r#"[{"a":9},{"b":9}]"#),
+    ] {
+        fs::write(&file, original).unwrap();
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "merge"])
+            .arg(&file)
+            .args(["--value", value, "--apply"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{label}: type_error exit 1: stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], false, "{label}: {v}");
+        assert_eq!(v["error_kind"], "type_error", "{label}: {v}");
+        assert_eq!(v["applied"], false, "{label}: {v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("top-level array") || err.contains("multi-document"),
+            "{label}: expected multi-doc merge guidance, got: {v}"
+        );
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            original,
+            "{label}: file must be unchanged after refused merge"
+        );
+    }
+}
+
+/// `doc ensure` bare key on multi-doc must type_error (parity with set/move).
+#[test]
+fn test_doc_ensure_multi_document_bare_key_type_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    let original = "name: a\n---\nname: b\n";
+    fs::write(&file, original).unwrap();
+
     let out = Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["--json", "doc", "merge"])
+        .args(["--json", "doc", "ensure"])
         .arg(&file)
-        .args(["--value", r#"{"c":3}"#, "--apply"])
+        .args(["version", "1", "--apply"])
         .output()
         .unwrap();
     assert_eq!(
         out.status.code(),
         Some(1),
-        "type_error exit 1: stdout={} stderr={}",
+        "stdout={} stderr={}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["ok"], false, "{v}");
     assert_eq!(v["error_kind"], "type_error", "{v}");
-    assert_eq!(v["applied"], false, "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("top-level array") || err.contains("multi-document"),
-        "expected multi-doc merge guidance, got: {v}"
+        err.contains("0.version") || err.contains("[0].version"),
+        "expected multi-doc index hint, got: {v}"
     );
-    assert_eq!(
-        fs::read_to_string(&file).unwrap(),
-        original,
-        "file must be unchanged after refused merge"
-    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
 }
 
 /// `doc has` bare key on multi-doc must be type_error, not soft false (#1843 is for missing only).

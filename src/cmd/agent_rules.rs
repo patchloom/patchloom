@@ -568,8 +568,8 @@ success lines are the full path list.\n\n\
          (or any top-level array) fails with `error_kind: type_error` and an index-form hint on \
          `doc get`/`select`/`has` and `doc set` (not soft `no_matches` / not soft `has: false`). \
          `doc keys .` on multi-doc root is also `type_error` (list keys on `0` / `[0]` first). \
-         `doc merge` of an object into multi-doc root is `type_error` (would replace the whole \
-         stream). Bare-key `doc append`/`prepend`/`delete`/`update`/`move`/`ensure` on multi-doc \
+         `doc merge` of any overlay into multi-doc root is `type_error` (object *or* array \
+         overlay would replace the whole stream). Bare-key `doc append`/`prepend`/`delete`/`update`/`move`/`ensure` on multi-doc \
          root are also `type_error` with `0.key` / `[0].key` hints (not soft no-match or \
          `invalid_input`). Address fields under `0.` / `[0].` instead. Writes keep the multi-doc \
          form (still `---` separators, not a single YAML sequence).\n\n\

@@ -349,6 +349,31 @@ mod basic {
     }
 
     #[test]
+    fn mutation_merge_array_root_with_array_is_type_error() {
+        // Array overlay also fully replaces via deep_merge (sibling of #1872).
+        // Found by MPI: object overlay was refused; array overlay still applied.
+        let mut root = json!([{"a": 1}, {"b": 2}]);
+        let original = root.clone();
+        let result = apply_doc_mutation(
+            &mut root,
+            DocMutation::Merge {
+                value: json!([{"a": 9}, {"b": 9}]),
+            },
+        )
+        .unwrap();
+        match result {
+            MutationResult::TypeError(msg) => {
+                assert!(
+                    msg.contains("top-level array") || msg.contains("multi-document"),
+                    "expected multi-doc guidance, got: {msg}"
+                );
+            }
+            other => panic!("expected TypeError, got {other:?}"),
+        }
+        assert_eq!(root, original, "root must be unchanged on type error");
+    }
+
+    #[test]
     fn mutation_append_to_array() {
         let mut root = json!({"items": [1, 2]});
         let result = apply_doc_mutation(
