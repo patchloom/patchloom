@@ -40,10 +40,13 @@ pub fn navigate_mut<'a>(
                             })
                         })?
                     } else {
+                        // Multi-document YAML / top-level arrays: bare keys need an
+                        // index first (parity with set_at_path / query_get; fixrealloop).
                         return Err(anyhow::Error::new(crate::exit::TypeErrorError {
                             msg: format!(
-                                "expected object at key '{k}', found {}",
-                                value_type_name(current)
+                                "parent is an array, not an object (for multi-document YAML or \
+                                 top-level arrays, address a document/element with an index first, \
+                                 e.g. 0.{k} or [0].{k})"
                             ),
                         }));
                     }
@@ -248,6 +251,15 @@ pub fn delete_at_selector(
             }
             if let Some(obj) = parent.as_object_mut() {
                 Ok(obj.remove(k.as_str()).is_some())
+            } else if parent.is_array() {
+                // Soft false would look like "key absent" on multi-doc roots.
+                Err(anyhow::Error::new(crate::exit::TypeErrorError {
+                    msg: format!(
+                        "parent is an array, not an object (for multi-document YAML or \
+                         top-level arrays, address a document/element with an index first, \
+                         e.g. 0.{k} or [0].{k})"
+                    ),
+                }))
             } else {
                 Ok(false)
             }
@@ -713,6 +725,39 @@ mod tests {
             !msg.eq("parent is not an object"),
             "bare message is not agent-actionable: {msg}"
         );
+    }
+
+    #[test]
+    fn navigate_mut_array_root_bare_key_hints_index() {
+        // append/prepend/navigate share this path (fixrealloop multi-doc).
+        let mut root = json!([{"tags": ["a"]}, {"tags": ["b"]}]);
+        let err = navigate_mut(&mut root, &segs("tags"), false).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
+        assert!(
+            msg.contains("0.tags") || msg.contains("[0].tags"),
+            "expected multi-doc index hint, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn delete_at_selector_array_root_bare_key_is_type_error() {
+        let mut root = json!([{"tags": ["a"]}, {"tags": ["b"]}]);
+        let original = root.clone();
+        let err = delete_at_selector(&mut root, &segs("tags")).unwrap_err();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error not soft false, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("0.tags") || msg.contains("[0].tags"),
+            "expected multi-doc index hint, got: {msg}"
+        );
+        assert_eq!(root, original);
     }
 
     #[test]
