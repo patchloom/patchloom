@@ -28,6 +28,8 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make audit-test-hygiene` | Audit test names and weak assertions for staleness after refactors (run after MPI or breaking changes) |
 | `make audit` | Run `cargo audit` for known vulnerabilities (optional locally; also in CI) |
 | `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; required in CI) |
+| `make pack-mcpb` | Pack `mcpb/` into `target/mcpb/patchloom-<ver>.mcpb` (Smithery / desktop). Honors `$VERSION` over Cargo.toml |
+| `make pack-mcpb-test` | Unit tests for pack version override and stamped manifest (`scripts/test_pack_mcpb.py`; skips full pack when `mcpb` CLI missing) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo list, plan `key` alias). Not part of `check`; run before tagging a release |
 | `make fuzz` | Run fuzz tests (11 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |

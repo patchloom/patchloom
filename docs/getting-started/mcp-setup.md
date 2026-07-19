@@ -36,7 +36,7 @@ The bundle lives under [`mcpb/`](../../mcpb/) and runs:
 2. `npx -y patchloom@<version> mcp-server` (Node.js 18+).
 
 ```bash
-make pack-mcpb   # writes target/mcpb/patchloom-<version>.mcpb
+make pack-mcpb   # writes target/mcpb/patchloom-<version>.mcpb (override with VERSION=x.y.z)
 # One-time auth + CI secret:
 #   smithery auth login
 #   export SMITHERY_API_KEY=$(smithery auth whoami --full | sed -n 's/^SMITHERY_API_KEY=//p')

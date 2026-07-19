@@ -73,25 +73,15 @@ jobs:
       - name: Install pack tools
         run: |
           set -euo pipefail
-          npm install -g @anthropic-ai/mcpb
+          # Pin mcpb for reproducible packs (Scorecard / supply-chain hygiene).
+          npm install -g @anthropic-ai/mcpb@2.1.2
           mcpb --version
 
-      - name: Stamp Cargo.toml version for pack
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          # pack-mcpb.sh reads Cargo.toml; on workflow_dispatch of an older
-          # tag the tree may already be at that version. Force-stamp when
-          # they differ so the MCPB matches the release being published.
-          current=$(python3 -c "import re,pathlib; t=pathlib.Path('Cargo.toml').read_text(); print(re.search(r'(?m)^version\\s*=\\s*\\\"([^\\\"]+)\\\"', t).group(1))")
-          if [ "$current" != "$VERSION" ]; then
-            echo "Stamping Cargo.toml version ${current} -> ${VERSION} for pack only"
-            sed -i.bak -E "s/^version = \"[^\"]+\"/version = \"${VERSION}\"/" Cargo.toml
-            rm -f Cargo.toml.bak
-          fi
-
       - name: Pack MCPB
+        env:
+          # pack-mcpb.sh prefers VERSION over Cargo.toml so workflow_dispatch
+          # of an older tag does not need to rewrite Cargo.toml on disk.
+          VERSION: ${{ steps.version.outputs.version }}
         run: bash scripts/pack-mcpb.sh
 
       - name: Upload MCPB artifact
