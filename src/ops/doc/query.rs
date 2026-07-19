@@ -61,9 +61,18 @@ fn array_root_bare_key_hint(
 }
 
 /// Check whether a selector path exists.
+///
+/// Soft `false` when the path is simply missing. When the document root is an
+/// array (multi-document YAML or top-level JSON array) and the selector starts
+/// with a bare object key, returns the same [`crate::exit::TypeErrorError`] as
+/// [`query_get`] so agents do not treat a shape mistake as "key absent".
 pub fn query_has(root: &serde_json::Value, selector: &str) -> anyhow::Result<bool> {
     let segments = selector::parse_anyhow(selector)?;
-    Ok(!selector::eval(root, &segments).is_empty())
+    let found = !selector::eval(root, &segments).is_empty();
+    if !found && let Some(hint) = array_root_bare_key_hint(root, &segments) {
+        return Err(crate::exit::TypeErrorError { msg: hint }.into());
+    }
+    Ok(found)
 }
 
 /// Result of a keys query.
@@ -229,6 +238,30 @@ mod tests {
     #[test]
     fn has_nested() {
         assert!(query_has(&sample_doc(), "nested.key").unwrap());
+    }
+
+    #[test]
+    fn has_bare_key_on_array_root_type_error_with_index_hint() {
+        // Multi-doc / top-level array: bare key must not soft-return false
+        // (agents treat that as "absent" and never try 0.key).
+        let doc = serde_json::json!([{"a": 1}, {"b": 2}]);
+        let err = query_has(&doc, "a").expect_err("bare key at array root");
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("0.a") || msg.contains("[0].a"),
+            "hint missing index form: {msg}"
+        );
+    }
+
+    #[test]
+    fn has_indexed_key_on_array_root_ok() {
+        let doc = serde_json::json!([{"a": 1}, {"b": 2}]);
+        assert!(query_has(&doc, "0.a").unwrap());
+        assert!(!query_has(&doc, "0.missing").unwrap());
     }
 
     // -- query_keys --
