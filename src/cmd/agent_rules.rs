@@ -569,10 +569,10 @@ success lines are the full path list.\n\n\
          `doc get`/`select`/`has` and `doc set` (not soft `no_matches` / not soft `has: false`). \
          `doc keys .` on multi-doc root is also `type_error` (list keys on `0` / `[0]` first). \
          `doc merge` of an object into multi-doc root is `type_error` (would replace the whole \
-         stream). Bare-key `doc append`/`prepend`/`delete`/`update` on multi-doc root are also \
-         `type_error` with `0.key` / `[0].key` hints (not soft no-match). Address fields under \
-         `0.` / `[0].` instead. Writes keep the multi-doc form (still `---` separators, not a \
-         single YAML sequence).\n\n\
+         stream). Bare-key `doc append`/`prepend`/`delete`/`update`/`move`/`ensure` on multi-doc \
+         root are also `type_error` with `0.key` / `[0].key` hints (not soft no-match or \
+         `invalid_input`). Address fields under `0.` / `[0].` instead. Writes keep the multi-doc \
+         form (still `---` separators, not a single YAML sequence).\n\n\
          **Markdown section bounds:** `md_replace_section` / `md_insert_after_section` / section moves \
          end at the next heading of the **same or higher** level. Nested lower-level headings belong to \
          the parent (replacing `# Intro` also rewrites following `##` children until the next `#`). Prefer \
@@ -851,8 +851,10 @@ mod tests {
                 && out.contains("has")
                 && out.contains("doc keys")
                 && out.contains("doc merge")
-                && out.contains("doc append"),
-            "agents need multi-doc index guidance + bare-key type_error on get/has/set/keys/merge/append"
+                && out.contains("doc append")
+                && out.contains("move")
+                && out.contains("ensure"),
+            "agents need multi-doc index guidance + bare-key type_error on get/has/set/keys/merge/append/move/ensure"
         );
     }
 

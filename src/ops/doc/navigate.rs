@@ -429,8 +429,14 @@ pub fn move_at_path(
                             }));
                         }
                     } else {
-                        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                            msg: format!("source key '{k}' not found (parent is array)"),
+                        // Multi-doc / top-level array: bare key is type_error with
+                        // index hint (parity with delete/append/update; fixrealloop).
+                        return Err(anyhow::Error::new(crate::exit::TypeErrorError {
+                            msg: format!(
+                                "parent is an array, not an object (for multi-document YAML or \
+                                 top-level arrays, address a document/element with an index first, \
+                                 e.g. 0.{k} or [0].{k})"
+                            ),
                         }));
                     }
                 } else {
@@ -488,8 +494,13 @@ pub fn move_at_path(
                             }));
                         }
                     } else {
-                        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                            msg: format!("target key '{k}' not valid (parent is array)"),
+                        // Multi-doc / top-level array: bare target key needs an index.
+                        return Err(anyhow::Error::new(crate::exit::TypeErrorError {
+                            msg: format!(
+                                "parent is an array, not an object (for multi-document YAML or \
+                                 top-level arrays, address a document/element with an index first, \
+                                 e.g. 0.{k} or [0].{k})"
+                            ),
                         }));
                     }
                 } else {
