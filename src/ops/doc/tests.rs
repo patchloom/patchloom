@@ -837,6 +837,47 @@ mod error_handling {
     }
 
     #[test]
+    fn move_at_path_array_root_bare_key_is_type_error() {
+        // Multi-doc YAML is a top-level array. Bare-key move must type_error
+        // with index hints (not invalid_input "parent is array").
+        let mut root = json!([{"port": 80}, {"port": 443}]);
+        let original = root.clone();
+        let from = crate::selector::parse("port").unwrap();
+        let to = crate::selector::parse("http_port").unwrap();
+        let err = move_at_path(&mut root, &from, &to).unwrap_err();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("0.port") || msg.contains("[0].port"),
+            "expected multi-doc index hint, got: {msg}"
+        );
+        assert_eq!(root, original, "root must be unchanged on type error");
+    }
+
+    #[test]
+    fn move_at_path_array_root_bare_target_is_type_error() {
+        // Indexed source + bare target at array root also needs type_error.
+        let mut root = json!([{"port": 80}, {"port": 443}]);
+        let original = root.clone();
+        let from = crate::selector::parse("0.port").unwrap();
+        let to = crate::selector::parse("http_port").unwrap();
+        let err = move_at_path(&mut root, &from, &to).unwrap_err();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("0.http_port") || msg.contains("[0].http_port"),
+            "expected multi-doc index hint on target, got: {msg}"
+        );
+        assert_eq!(root, original, "root must be unchanged on type error");
+    }
+
+    #[test]
     fn move_at_path_empty_from_selector_fails() {
         let mut root = json!({"a": 1});
         let from: Vec<crate::selector::Segment> = vec![];

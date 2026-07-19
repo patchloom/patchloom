@@ -2924,6 +2924,84 @@ fn test_doc_keys_multi_document_root_hints_index() {
     }
 }
 
+/// `doc move` bare keys on multi-doc must type_error with index hints.
+/// Found by fixrealloop: bare move returned invalid_input "parent is array".
+#[test]
+fn test_doc_move_multi_document_bare_key_type_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    let original = "port: 80\n---\nport: 443\n";
+    fs::write(&file, original).unwrap();
+
+    // Bare from+to
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "move"])
+        .arg(&file)
+        .args(["port", "http_port", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "type_error", "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("0.port") || err.contains("[0].port"),
+        "expected multi-doc index hint, got: {v}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
+
+    // Indexed from + bare to
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "move"])
+        .arg(&file)
+        .args(["0.port", "http_port", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{:?}", out);
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "type_error", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("0.http_port") || err.contains("[0].http_port"),
+        "expected target index hint, got: {v}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
+
+    // Indexed success path
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "move"])
+        .arg(&file)
+        .args(["0.port", "0.http_port", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let body = fs::read_to_string(&file).unwrap();
+    assert!(
+        body.contains("http_port: 80") && body.contains("port: 443"),
+        "expected renamed key under first doc, got:\n{body}"
+    );
+    assert!(
+        !body.contains("\nport: 80") && !body.starts_with("port: 80"),
+        "first-doc port key should be gone, got:\n{body}"
+    );
+}
+
 /// append/delete/update bare keys on multi-doc must type_error with index hints.
 /// Found by fixrealloop: append said "expected object at key", delete soft no-op.
 #[test]
