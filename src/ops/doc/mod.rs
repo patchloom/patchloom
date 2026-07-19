@@ -987,6 +987,7 @@ pub fn apply_doc_mutation(
         }
         DocMutation::Delete { selector } => {
             let sel = selector::parse_anyhow(&selector)?;
+            // delete_at_selector returns TypeError for bare keys on array parents.
             if delete_at_selector(root, &sel)? {
                 Ok(MutationResult::Removed(1))
             } else {
@@ -1038,7 +1039,12 @@ pub fn apply_doc_mutation(
         DocMutation::Update { selector, value } => {
             let sel = selector::parse_anyhow(&selector)?;
             if update_matching(root, &sel, &value) == 0 {
-                Ok(MutationResult::NoMatch)
+                // Bare key on multi-doc / array root: soft no_matches hides shape errors.
+                if let Some(hint) = query::array_root_bare_key_hint(root, &sel) {
+                    Ok(MutationResult::TypeError(hint))
+                } else {
+                    Ok(MutationResult::NoMatch)
+                }
             } else {
                 Ok(MutationResult::Applied)
             }

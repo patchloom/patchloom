@@ -39,7 +39,7 @@ pub fn query_get(root: &serde_json::Value, selector: &str) -> anyhow::Result<Que
 }
 
 /// Actionable error when a bare object key is used at an array root.
-fn array_root_bare_key_hint(
+pub(crate) fn array_root_bare_key_hint(
     root: &serde_json::Value,
     segments: &[selector::Segment],
 ) -> Option<String> {

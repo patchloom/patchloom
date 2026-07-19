@@ -2924,6 +2924,51 @@ fn test_doc_keys_multi_document_root_hints_index() {
     }
 }
 
+/// append/delete/update bare keys on multi-doc must type_error with index hints.
+/// Found by fixrealloop: append said "expected object at key", delete soft no-op.
+#[test]
+fn test_doc_append_delete_update_multi_document_bare_key_hints() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("arr.yaml");
+    let original = "tags:\n  - a\n---\ntags:\n  - b\n";
+    fs::write(&file, original).unwrap();
+
+    for (sub, extra) in [
+        ("append", vec!["z"]),
+        ("prepend", vec!["z"]),
+        ("delete", vec![]),
+        ("update", vec![r#"["z"]"#]),
+    ] {
+        fs::write(&file, original).unwrap();
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        cmd.args(["--json", "doc", sub]).arg(&file).arg("tags");
+        for a in &extra {
+            cmd.arg(a);
+        }
+        cmd.arg("--apply");
+        let out = cmd.output().unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{sub}: stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["error_kind"], "type_error", "{sub}: {v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("0.tags") || err.contains("[0].tags"),
+            "{sub}: expected multi-doc index hint, got: {v}"
+        );
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            original,
+            "{sub}: file must be unchanged"
+        );
+    }
+}
+
 /// `doc merge` on multi-doc must not replace the whole stream with the overlay.
 /// Found by fixrealloop: deep_merge replaced array roots with the object.
 #[test]

@@ -278,6 +278,52 @@ mod basic {
     }
 
     #[test]
+    fn mutation_update_array_root_bare_key_is_type_error() {
+        let mut root = json!([{"tags": ["a"]}, {"tags": ["b"]}]);
+        let original = root.clone();
+        let result = apply_doc_mutation(
+            &mut root,
+            DocMutation::Update {
+                selector: "tags".into(),
+                value: json!(["z"]),
+            },
+        )
+        .unwrap();
+        match result {
+            MutationResult::TypeError(msg) => {
+                assert!(
+                    msg.contains("0.tags") || msg.contains("[0].tags"),
+                    "expected multi-doc hint, got: {msg}"
+                );
+            }
+            other => panic!("expected TypeError, got {other:?}"),
+        }
+        assert_eq!(root, original);
+    }
+
+    #[test]
+    fn mutation_append_array_root_bare_key_is_type_error() {
+        let mut root = json!([{"tags": ["a"]}, {"tags": ["b"]}]);
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Append {
+                selector: "tags".into(),
+                value: json!("z"),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("0.tags") || msg.contains("[0].tags"),
+            "expected multi-doc hint, got: {msg}"
+        );
+    }
+
+    #[test]
     fn mutation_merge_array_root_with_object_is_type_error() {
         // Multi-doc YAML is modeled as a top-level array. Merging an object
         // overlay must not replace the entire stream (silent data loss).
