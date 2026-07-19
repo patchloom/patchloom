@@ -1081,10 +1081,7 @@ fn test_search_sole_explicit_binary_is_invalid_input() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["error_kind"], "invalid_input", "{v}");
     let err = v["error"].as_str().unwrap_or("");
-    assert!(
-        err.contains("binary"),
-        "expected binary guidance, got: {v}"
-    );
+    assert!(err.contains("binary"), "expected binary guidance, got: {v}");
 }
 
 #[test]

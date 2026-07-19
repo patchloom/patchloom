@@ -3057,10 +3057,7 @@ fn test_doc_merge_multi_document_refuses_object_overlay() {
     let original = "a: 1\n---\nb: 2\n";
     fs::write(&file, original).unwrap();
 
-    for (label, value) in [
-        ("object", r#"{"c":3}"#),
-        ("array", r#"[{"a":9},{"b":9}]"#),
-    ] {
+    for (label, value) in [("object", r#"{"c":3}"#), ("array", r#"[{"a":9},{"b":9}]"#)] {
         fs::write(&file, original).unwrap();
         let out = Command::cargo_bin("patchloom")
             .unwrap()
