@@ -593,7 +593,11 @@ fn execute_with_mode_inner(
                     quiet,
                 ),
                 crate::ops::doc::query::QueryKeysResult::NotAnObject => {
-                    let msg = if selector.is_empty() && root.is_array() {
+                    // CLI root selector is `.` (not empty); empty remains for
+                    // library/plan callers that pass "". Multi-doc YAML is a top-level
+                    // array, so bare root keys need an index first (parity with get/set).
+                    let root_selector = selector.is_empty() || selector == ".";
+                    let msg = if root_selector && root.is_array() {
                         "doc keys: target is a top-level array (multi-document YAML or JSON \
                          array); use a document/element index first, e.g. keys on `0` or `[0]`"
                             .to_string()

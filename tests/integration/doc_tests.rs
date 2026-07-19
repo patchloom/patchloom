@@ -2891,28 +2891,80 @@ fn test_doc_set_multi_document_bare_key_hints_index() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: 1\n---\nb: 2\n");
 }
 
-/// `doc keys` on multi-doc root (empty selector) should name the array/index shape.
+/// `doc keys` on multi-doc root should name the array/index shape.
+/// Agents pass `.` for root (empty selector is awkward in clap); both must work.
 #[test]
 fn test_doc_keys_multi_document_root_hints_index() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("multi.yaml");
     fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
 
+    // `.` is the CLI root form; empty is accepted by clap and used by older tests.
+    for root_sel in ["", "."] {
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "keys"])
+            .arg(&file)
+            .arg(root_sel)
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "selector {root_sel:?}: stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["error_kind"], "type_error", "selector {root_sel:?}: {v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("array") && (err.contains("0") || err.contains("index")),
+            "expected multi-doc keys guidance for {root_sel:?}, got: {v}"
+        );
+    }
+}
+
+/// `doc has` bare key on multi-doc must be type_error, not soft false (#1843 is for missing only).
+#[test]
+fn test_doc_has_multi_document_bare_key_hints_index() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
     let out = Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["--json", "doc", "keys"])
+        .args(["--json", "doc", "has"])
         .arg(&file)
-        .arg("")
+        .arg("a")
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "type_error exit 1, not soft false: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
     assert_eq!(v["error_kind"], "type_error", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("array") && (err.contains("0") || err.contains("index")),
-        "expected multi-doc keys guidance, got: {v}"
+        err.contains("0.a") || err.contains("[0].a"),
+        "expected multi-doc index hint, got: {v}"
     );
+
+    // Indexed form still soft-false for missing, soft-true for present.
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "has"])
+        .arg(&file)
+        .arg("0.a")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["value"], true, "{v}");
 }
 
 /// Read path: bare key on multi-doc must be type_error + index hint, not no_matches.

@@ -565,9 +565,10 @@ success lines are the full path list.\n\n\
          **Multi-document YAML:** Files with multiple `---` documents parse as a **top-level array** \
          (one element per document). Address a field with a document index first, e.g. `0.metadata.name` \
          or `[0].metadata.name`, not a bare key at the stream root. A bare root key on multi-doc \
-         (or any top-level array) fails with `error_kind: type_error` and an index-form hint on both \
-         `doc get`/`select` and `doc set` (not soft `no_matches`). Writes keep the multi-doc form \
-         (still `---` separators, not a single YAML sequence).\n\n\
+         (or any top-level array) fails with `error_kind: type_error` and an index-form hint on \
+         `doc get`/`select`/`has` and `doc set` (not soft `no_matches` / not soft `has: false`). \
+         `doc keys .` on multi-doc root is also `type_error` (list keys on `0` / `[0]` first). Writes \
+         keep the multi-doc form (still `---` separators, not a single YAML sequence).\n\n\
          **Markdown section bounds:** `md_replace_section` / `md_insert_after_section` / section moves \
          end at the next heading of the **same or higher** level. Nested lower-level headings belong to \
          the parent (replacing `# Intro` also rewrites following `##` children until the next `#`). Prefer \
@@ -842,8 +843,10 @@ mod tests {
                 && out.contains("0.metadata.name")
                 && out.contains("top-level array")
                 && out.contains("type_error")
-                && out.contains("doc get"),
-            "agents need multi-doc index guidance + bare-key type_error on get/set"
+                && out.contains("doc get")
+                && out.contains("has")
+                && out.contains("doc keys"),
+            "agents need multi-doc index guidance + bare-key type_error on get/has/set/keys"
         );
     }
 
