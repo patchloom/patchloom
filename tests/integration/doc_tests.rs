@@ -2924,6 +2924,45 @@ fn test_doc_keys_multi_document_root_hints_index() {
     }
 }
 
+/// `doc merge` on multi-doc must not replace the whole stream with the overlay.
+/// Found by fixrealloop: deep_merge replaced array roots with the object.
+#[test]
+fn test_doc_merge_multi_document_refuses_object_overlay() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    let original = "a: 1\n---\nb: 2\n";
+    fs::write(&file, original).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "merge"])
+        .arg(&file)
+        .args(["--value", r#"{"c":3}"#, "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "type_error exit 1: stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "type_error", "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("top-level array") || err.contains("multi-document"),
+        "expected multi-doc merge guidance, got: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        original,
+        "file must be unchanged after refused merge"
+    );
+}
+
 /// `doc has` bare key on multi-doc must be type_error, not soft false (#1843 is for missing only).
 #[test]
 fn test_doc_has_multi_document_bare_key_hints_index() {

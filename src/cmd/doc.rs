@@ -83,8 +83,10 @@ pub enum DocAction {
         /// File path (JSON, YAML, or TOML).
         file: String,
         // ref:doc-mode:stdin
+        /// Read the merge overlay as JSON from stdin (mutually exclusive with `--value`).
         #[arg(long)]
         stdin: bool,
+        /// Merge overlay as a JSON object literal (e.g. `{"debug":true}`). Mutually exclusive with `--stdin`.
         #[arg(long)]
         value: Option<String>,
     },
