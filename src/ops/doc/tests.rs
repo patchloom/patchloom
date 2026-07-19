@@ -278,6 +278,31 @@ mod basic {
     }
 
     #[test]
+    fn mutation_merge_array_root_with_object_is_type_error() {
+        // Multi-doc YAML is modeled as a top-level array. Merging an object
+        // overlay must not replace the entire stream (silent data loss).
+        let mut root = json!([{"a": 1}, {"b": 2}]);
+        let original = root.clone();
+        let result = apply_doc_mutation(
+            &mut root,
+            DocMutation::Merge {
+                value: json!({"c": 3}),
+            },
+        )
+        .unwrap();
+        match result {
+            MutationResult::TypeError(msg) => {
+                assert!(
+                    msg.contains("top-level array") || msg.contains("multi-document"),
+                    "expected multi-doc guidance, got: {msg}"
+                );
+            }
+            other => panic!("expected TypeError, got {other:?}"),
+        }
+        assert_eq!(root, original, "root must be unchanged on type error");
+    }
+
+    #[test]
     fn mutation_append_to_array() {
         let mut root = json!({"items": [1, 2]});
         let result = apply_doc_mutation(
