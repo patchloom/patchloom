@@ -68,6 +68,13 @@ pub struct SearchArgs {
     pub max_results: usize,
 }
 
+/// Explicit path refused for non-pattern reasons (parity with replace `refused[]`).
+#[derive(Debug, Serialize, Clone)]
+pub(crate) struct SearchRefused {
+    path: String,
+    reason: &'static str,
+}
+
 #[derive(Debug, Serialize)]
 struct SearchOutput {
     ok: bool,
@@ -91,6 +98,10 @@ struct SearchOutput {
     /// Paths from `--files-from` that were missing (agent JSON; #1756).
     #[serde(skip_serializing_if = "Option::is_none")]
     skipped: Option<Vec<String>>,
+    /// Explicit multi-path co-targets that were not searched (e.g. binary).
+    /// Directory walks are not expanded into mass refused (parity with replace).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refused: Option<Vec<SearchRefused>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -169,11 +180,74 @@ pub(crate) fn collect_matches(
     ))
 }
 
+/// Explicit multi-file lists only: co-listed binary paths that search skipped.
+/// Sole binary is hard `invalid_input` elsewhere; directory walks omit refused.
+pub(crate) fn explicit_binary_refused(
+    args: &SearchArgs,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+) -> Option<Vec<SearchRefused>> {
+    let explicit = if global.files_from.is_some() {
+        // files-from may list many binaries; still report them when few?
+        // Match replace: files-from counts as explicit list.
+        true
+    } else if args.paths.len() < 2 {
+        // Sole path uses single_explicit_binary_target; no refused[] needed.
+        false
+    } else {
+        args.paths.iter().all(|p| !cwd.join(p).is_dir())
+    };
+    if !explicit {
+        return None;
+    }
+    let entries: Vec<&String> = if global.files_from.is_some() {
+        // Re-read via paths already resolved is hard; scan args.paths when no
+        // files_from positionals — for files_from, resolve list from disk.
+        // Prefer scanning the same list as collect_file_paths_opts would see.
+        Vec::new()
+    } else {
+        args.paths.iter().collect()
+    };
+    let mut refused = Vec::new();
+    if global.files_from.is_some() {
+        if let Ok(Some(files)) = global.read_files_from() {
+            for f in files {
+                let path = cwd.join(&f);
+                if path.is_file() && crate::files::is_binary_file(&path) {
+                    refused.push(SearchRefused {
+                        path: f,
+                        reason: "binary",
+                    });
+                }
+            }
+        }
+    } else {
+        for p in entries {
+            let path = cwd.join(p);
+            if path.is_file() && crate::files::is_binary_file(&path) {
+                refused.push(SearchRefused {
+                    path: crate::files::relative_display(&path, cwd)
+                        .to_string_lossy()
+                        .into_owned(),
+                    reason: "binary",
+                });
+            }
+        }
+    }
+    if refused.is_empty() {
+        None
+    } else {
+        refused.sort_by(|a, b| a.path.cmp(&b.path));
+        Some(refused)
+    }
+}
+
 pub(crate) fn format_results(
     results: SearchResults,
     args: &SearchArgs,
     global: &GlobalFlags,
     skipped: Option<Vec<String>>,
+    refused: Option<Vec<SearchRefused>>,
 ) -> anyhow::Result<String> {
     use std::fmt::Write;
     let mut out = String::new();
@@ -232,6 +306,7 @@ pub(crate) fn format_results(
             error_kind: None,
             error: None,
             skipped,
+            refused,
         };
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
@@ -407,6 +482,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let results = collect_matches(&args, global)?;
     let cwd = global.resolve_cwd()?;
     let skipped = crate::files::scan_missing_entries(global, &cwd, &args.paths)?;
+    let refused = explicit_binary_refused(&args, global, &cwd);
 
     // --assert-count mode: succeed only if total count equals N.
     // JSON matches MCP search_files: ok == matched; mismatch sets
@@ -486,6 +562,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 crate::fallback::truncate_str(&args.pattern, 60)
             )),
             skipped: skipped.clone(),
+            refused: refused.clone(),
         };
         global.emit_json(&payload)?;
         if !global.quiet && !global.json && !global.jsonl {
@@ -503,7 +580,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if global.json || global.jsonl || !global.quiet {
-        let output = format_results(results, &args, global, skipped)?;
+        let output = format_results(results, &args, global, skipped, refused)?;
         print!("{output}");
     }
 
@@ -639,7 +716,8 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.files_with_matches = true;
         let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
-        let output = format_results(results, &args, &GlobalFlags::test_default(), None).unwrap();
+        let output =
+            format_results(results, &args, &GlobalFlags::test_default(), None, None).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with("hello.txt"));
@@ -657,7 +735,8 @@ mod tests {
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
         args.count = true;
         let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
-        let output = format_results(results, &args, &GlobalFlags::test_default(), None).unwrap();
+        let output =
+            format_results(results, &args, &GlobalFlags::test_default(), None, None).unwrap();
         let lines: Vec<&str> = output.lines().collect();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].ends_with(":2"));
@@ -851,7 +930,7 @@ mod tests {
         let mut global = GlobalFlags::test_default();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(results, &args, &global, None).unwrap();
+        let output = format_results(results, &args, &global, None, None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         // "Hello" appears in two lines of hello.txt, one file.
@@ -889,7 +968,7 @@ mod tests {
         let mut global = GlobalFlags::test_default();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(results, &args, &global, None).unwrap();
+        let output = format_results(results, &args, &global, None, None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         assert_eq!(v["file_count"], serde_json::json!(1));
@@ -909,7 +988,7 @@ mod tests {
         let mut global = GlobalFlags::test_default();
         global.json = true;
         let results = collect_matches(&args, &global).unwrap();
-        let output = format_results(results, &args, &global, None).unwrap();
+        let output = format_results(results, &args, &global, None, None).unwrap();
         let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
         assert_eq!(v["ok"], serde_json::json!(true));
         // files array must contain the per-file counts.
@@ -1020,6 +1099,7 @@ mod tests {
             &args,
             &global,
             None,
+            None,
         )
         .unwrap();
         // "line3" should appear exactly once, not twice.
@@ -1042,6 +1122,7 @@ mod tests {
             collect_matches(&args, &global).unwrap(),
             &args,
             &global,
+            None,
             None,
         )
         .unwrap();
