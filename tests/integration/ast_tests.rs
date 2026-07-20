@@ -1074,3 +1074,41 @@ fn test_ast_validate_ok_rust_still_succeeds() {
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["valid"], true);
 }
+
+/// Sole explicit binary AST paths must be invalid_input, not no_matches /
+/// unsupported-language / missing-symbol (NUL is valid UTF-8).
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_sole_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("blob.bin"), b"hello\x00world").unwrap();
+
+    for args in [
+        vec!["--json", "ast", "list", "blob.bin"],
+        vec!["--json", "ast", "validate", "blob.bin"],
+        vec![
+            "--json", "ast", "rename", "blob.bin", "--old", "foo", "--new", "bar",
+        ],
+    ] {
+        let output = patchloom_in(dir.path()).args(&args).output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "args={args:?} stdout={}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            json["error_kind"], "invalid_input",
+            "args={args:?} json={json}"
+        );
+        assert!(
+            json["error"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase()
+                .contains("binary"),
+            "args={args:?} json={json}"
+        );
+    }
+}

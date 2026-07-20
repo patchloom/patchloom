@@ -52,6 +52,12 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
     let structured = global.json || global.jsonl;
 
     if target.is_file() {
+        // Binary before "unsupported language" so agents do not treat NUL files
+        // as a soft language miss (parity with replace/tidy/md).
+        if let Err(err) = crate::ops::file::ensure_not_binary_file(&target, &args.path) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let lang = resolve_lang(lang_hint, &target);
         crate::verbose!("ast list: detected language={lang} for {}", args.path);
         if !lang.has_grammar() {
@@ -215,6 +221,11 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
         return Ok(exit::NO_MATCHES);
     }
 
+    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
+
     // Single explicit path with no grammar: same honesty as `ast list` so agents
     // do not treat `[]` + exit 0 as "validated OK".
     if paths.len() == 1 {
@@ -321,6 +332,10 @@ pub struct SearchArgs {
 
 pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
     let lang_hint = args.lang.as_deref();
     crate::verbose!(
         "ast search: query={}, pattern={}, target={}",
@@ -432,6 +447,10 @@ pub struct RefsArgs {
 
 pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
     let lang_hint = args.lang.as_deref();
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
     crate::verbose!("ast refs: scanning {} files", paths.len());
@@ -693,6 +712,10 @@ pub struct ImpactArgs {
 
 pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
+    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
     crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);
     crate::verbose!("ast impact: scanning {} files", paths.len());
 

@@ -23,9 +23,24 @@ pub(super) fn setup_single_file(
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [path_arg])?;
     let target = cwd.join(path_arg);
+    // Sole binary must not look like unsupported-language / missing-symbol.
+    crate::ops::file::ensure_not_binary_file(&target, path_arg)?;
     let lang = resolve_lang(lang_arg, &target);
     let source = std::fs::read_to_string(&target).with_context(|| format!("reading {path_arg}"))?;
     Ok((cwd, target, lang, source))
+}
+
+/// When the user names exactly one file path that is binary, fail as
+/// `invalid_input` (parity with replace/search/tidy/md). Directory walks still
+/// soft-skip non-source files.
+pub(super) fn reject_sole_explicit_binary(
+    paths: &[PathBuf],
+    path_arg: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    if paths.len() != 1 {
+        return Ok(());
+    }
+    crate::ops::file::ensure_not_binary_file(&paths[0], path_arg)
 }
 
 /// Common preamble for multi-file AST commands: resolve cwd, join path, resolve
