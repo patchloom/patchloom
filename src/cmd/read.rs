@@ -52,21 +52,27 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
             msg: format!("{path}: target is not a file"),
         });
     }
+    // Refuse binary targets (NUL in probe window) before UTF-8 decode so agents
+    // do not get ok:true with embedded \0 (parity with search/replace/tidy;
+    // MPI 2026-07-20).
+    if let Err(err) = crate::ops::file::ensure_not_binary_file(p, path) {
+        return Err(ReadFail {
+            kind: "invalid_input",
+            msg: err.msg,
+        });
+    }
     let content = fs::read_to_string(path).map_err(|e| {
         let kind = if e.kind() == std::io::ErrorKind::NotFound {
             "not_found"
-        } else if e.kind() == std::io::ErrorKind::IsADirectory {
+        } else if e.kind() == std::io::ErrorKind::IsADirectory
+            || e.kind() == std::io::ErrorKind::PermissionDenied
+            || e.kind() == std::io::ErrorKind::InvalidData
+        {
+            // InvalidData covers non-UTF-8 text that passed the binary probe
+            // (no early NUL). Surface as invalid_input, not not_found.
             "invalid_input"
         } else {
-            // Permission denied and other IO: still surface as not_found for
-            // historical single-path "all failed" envelope? Prefer generic
-            // invalid_input only for directory-like cases; keep not_found for
-            // missing paths and leave other IO as not_found-ish for agents.
-            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                "invalid_input"
-            } else {
-                "not_found"
-            }
+            "not_found"
         };
         ReadFail {
             kind,

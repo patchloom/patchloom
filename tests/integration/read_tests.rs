@@ -272,6 +272,63 @@ fn test_read_multiple_files_json_partial_failure_reports_skipped() {
     );
 }
 
+/// Sole explicit binary path must be invalid_input, not ok:true with NULs
+/// (parity with search/replace/tidy; MPI 2026-07-20).
+#[test]
+fn test_read_sole_explicit_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let bin_file = dir.path().join("data.bin");
+    fs::write(&bin_file, b"hello\x00world").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "read"])
+        .arg(&bin_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(err.contains("binary"), "expected binary guidance, got: {v}");
+}
+
+/// Multi-path read: text succeeds; binary co-path goes to skipped with invalid_input.
+#[test]
+fn test_read_multi_path_binary_skipped_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let text = dir.path().join("ok.txt");
+    let bin_file = dir.path().join("data.bin");
+    fs::write(&text, "hello\n").unwrap();
+    fs::write(&bin_file, b"hello\x00world").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "read"])
+        .arg(&text)
+        .arg(&bin_file)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{:?}", out);
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["files"].as_array().map(|a| a.len()), Some(1), "{v}");
+    assert_eq!(v["files"][0]["content"], "hello\n");
+    let skipped = v["skipped"].as_array().expect("skipped");
+    assert_eq!(skipped.len(), 1, "{v}");
+    assert!(
+        skipped[0].as_str().is_some_and(|s| s.contains("binary")),
+        "{v}"
+    );
+}
+
 #[test]
 fn test_read_multiple_files_jsonl() {
     let dir = TempDir::new().unwrap();
