@@ -20,6 +20,8 @@ fn apply_md_heading_op(
     err_label: &str,
 ) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
+    // Sole binary must not surface as heading no_matches (NUL is valid UTF-8).
+    crate::ops::file::ensure_not_binary_file(&file_path, path)?;
     let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
     let new_content =
         op(file_content, heading, extra).ok_or_else(|| crate::exit::NoMatchError {
@@ -95,6 +97,7 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
 
         Operation::MdTableAppend { path, heading, row } => {
             let file_path = tx.cwd.join(path);
+            crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let (body_start, body_end) = crate::ops::md::find_section(file_content, heading)
                 .ok_or_else(|| crate::exit::NoMatchError {
@@ -131,6 +134,10 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
             let dest_path_str = to.as_deref().unwrap_or(path.as_str());
             let source_path = tx.cwd.join(path);
             let dest_path = tx.cwd.join(dest_path_str);
+            crate::ops::file::ensure_not_binary_file(&source_path, path)?;
+            if dest_path != source_path {
+                crate::ops::file::ensure_not_binary_file(&dest_path, dest_path_str)?;
+            }
             let same_file = to.is_none()
                 || source_path == dest_path
                 || matches!(
@@ -157,6 +164,7 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
 
         Operation::MdDedupeHeadings { path } => {
             let file_path = tx.cwd.join(path);
+            crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let (new_content, _removed) = dedupe_headings_in(file_content);
             tx.write_file(&file_path, new_content);
@@ -164,6 +172,7 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
 
         Operation::MdLintAgents { path } => {
             let file_path = tx.cwd.join(path);
+            crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             let content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let issues = crate::ops::md::lint_agents_content(content);
             tx.tx_lints.push(TxLintResult {

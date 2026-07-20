@@ -192,6 +192,9 @@ struct TidyCheckOutput {
     /// Paths from `--files-from` that were missing (agent honesty).
     #[serde(skip_serializing_if = "Option::is_none")]
     skipped: Option<Vec<String>>,
+    /// Explicit multi-path co-targets soft-skipped (e.g. binary).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refused: Option<Vec<crate::ops::file::PathRefused>>,
 }
 
 /// Render issues to stdout.
@@ -203,6 +206,7 @@ pub(super) fn render_issues(
     issues: &[TidyIssue],
     global: &GlobalFlags,
     skipped: Option<Vec<String>>,
+    refused: Option<Vec<crate::ops::file::PathRefused>>,
 ) -> anyhow::Result<()> {
     if global.json {
         let output = TidyCheckOutput {
@@ -210,6 +214,7 @@ pub(super) fn render_issues(
             issue_count: issues.len(),
             issues: issues.to_vec(),
             skipped,
+            refused,
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
@@ -245,9 +250,10 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         return Ok(exit::FAILURE);
     }
     let skipped = crate::files::scan_missing_entries(global, &cwd, paths)?;
+    let refused = crate::ops::file::explicit_multi_path_binary_refused(paths, &cwd);
     let issues = collect_issues(paths, global)?;
     if !global.quiet || global.json || global.jsonl {
-        render_issues(&issues, global, skipped)?;
+        render_issues(&issues, global, skipped, refused)?;
     }
     if issues.is_empty() {
         Ok(exit::SUCCESS)

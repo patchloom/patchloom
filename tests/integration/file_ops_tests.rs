@@ -803,3 +803,70 @@ fn test_tidy_fix_sole_binary_is_invalid_input() {
         b"a\x00b  \n"
     );
 }
+
+#[test]
+fn test_tidy_multi_path_binary_refused() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "text  \n").unwrap();
+    fs::write(dir.path().join("bin.dat"), b"hello\x00world").unwrap();
+    fs::write(dir.path().join("b.txt"), "more  \n").unwrap();
+
+    for sub in ["check", "fix"] {
+        let mut args = vec!["--json", "tidy", sub, "a.txt", "bin.dat", "b.txt"];
+        if sub == "fix" {
+            args.push("--trim-trailing-whitespace");
+        }
+        args.push("--cwd");
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(&args)
+            .arg(dir.path())
+            .output()
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+            panic!(
+                "tidy {sub} multi binary: parse {}: {}",
+                e,
+                String::from_utf8_lossy(&output.stdout)
+            )
+        });
+        let refused = json["refused"]
+            .as_array()
+            .unwrap_or_else(|| panic!("tidy {sub} multi-path must report refused[]: {json}"));
+        assert_eq!(refused.len(), 1, "tidy {sub}: {json}");
+        assert_eq!(refused[0]["reason"], "binary", "tidy {sub}: {json}");
+        let path = refused[0]["path"].as_str().unwrap_or("");
+        assert!(path.contains("bin.dat"), "tidy {sub} refused path: {json}");
+    }
+}
+
+#[test]
+fn test_md_sole_binary_is_invalid_input_not_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.bin"), b"hello\x00# H\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "md",
+            "replace-section",
+            "only.bin",
+            "--heading",
+            "H",
+            "--content",
+            "x",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("binary"),
+        "{json}"
+    );
+}
