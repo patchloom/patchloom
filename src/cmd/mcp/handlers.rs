@@ -297,8 +297,19 @@ impl PatchloomService {
                 return no_results("No matches found.");
             }
 
-            let output = crate::cmd::search::format_results(results, &search_args, &global, None)
-                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let cwd = global.resolve_cwd().map_err(|e| {
+                McpError::internal_error(format!("resolve cwd: {e}"), None)
+            })?;
+            let refused =
+                crate::cmd::search::explicit_binary_refused(&search_args, &global, &cwd);
+            let output = crate::cmd::search::format_results(
+                results,
+                &search_args,
+                &global,
+                None,
+                refused,
+            )
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             exit_code_to_result(exit::SUCCESS, &output, "No results.")
         })
         .await

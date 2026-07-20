@@ -1084,6 +1084,46 @@ fn test_search_sole_explicit_binary_is_invalid_input() {
     assert!(err.contains("binary"), "expected binary guidance, got: {v}");
 }
 
+/// Explicit multi-path search must list binary co-paths in refused[] (parity
+/// with replace; agents otherwise assume every listed path was scanned).
+/// MPI 2026-07-20.
+#[test]
+fn test_search_multi_path_binary_refused() {
+    let dir = TempDir::new().unwrap();
+    let text = dir.path().join("text.txt");
+    let bin_file = dir.path().join("data.bin");
+    fs::write(&text, "needle in text\n").unwrap();
+    fs::write(&bin_file, b"needle\x00binary").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "needle"])
+        .arg(&text)
+        .arg(&bin_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(v["match_count"].as_u64().unwrap_or(0) >= 1, "{v}");
+    let refused = v["refused"]
+        .as_array()
+        .expect("refused[] required for binary co-path");
+    assert_eq!(refused.len(), 1, "{v}");
+    assert_eq!(refused[0]["reason"], "binary", "{v}");
+    let path = refused[0]["path"].as_str().unwrap_or("");
+    assert!(
+        path.contains("data.bin") || path.ends_with("data.bin"),
+        "refused path should be binary file: {v}"
+    );
+}
+
 #[test]
 fn test_search_skips_invalid_utf8_files() {
     let dir = TempDir::new().unwrap();
