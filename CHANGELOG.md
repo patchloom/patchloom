@@ -11,6 +11,27 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.15.3](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.2...patchloom-v0.15.3) (2026-07-20)
+
+
+### Bug Fixes
+
+* agent honesty for pre-write applied and batch replace order ([#1856](https://github.com/patchloom/patchloom/issues/1856)) ([4e50e3b](https://github.com/patchloom/patchloom/commit/4e50e3b7141370df8926070bb09376ffcae96c4e))
+* empty --files-from honesty for search and tidy ([#1861](https://github.com/patchloom/patchloom/issues/1861)) ([c0c7049](https://github.com/patchloom/patchloom/commit/c0c70497fe01639d9874f19032e9e1d54fa8774d))
+* honest explain for md section bounds and dedupe discard ([#1865](https://github.com/patchloom/patchloom/issues/1865)) ([99422e1](https://github.com/patchloom/patchloom/commit/99422e1e1cc09cab5d3beb18cab5f535ae4275b2))
+* MCP md_lint JSON envelope matches CLI ([#1859](https://github.com/patchloom/patchloom/issues/1859)) ([#1860](https://github.com/patchloom/patchloom/issues/1860)) ([c799d90](https://github.com/patchloom/patchloom/commit/c799d90349d84a1bb64ac51577ad0276051ca036))
+* md lint-agents JSON envelope; replace context structs ([#1858](https://github.com/patchloom/patchloom/issues/1858)) ([b6f157c](https://github.com/patchloom/patchloom/commit/b6f157c8c812df37d108766672ccf271bc6f88fb))
+* multi-doc bare-key honesty for doc has and keys ([#1871](https://github.com/patchloom/patchloom/issues/1871)) ([f47d655](https://github.com/patchloom/patchloom/commit/f47d65561fabf8f3846d6041363aa7952a073f6c))
+* multi-doc bare-key type_error for append/delete/update ([#1873](https://github.com/patchloom/patchloom/issues/1873)) ([1d16992](https://github.com/patchloom/patchloom/commit/1d16992c268b0636c78a86b86e1bd082c8ea6527))
+* multi-doc bare-key type_error for doc move ([#1874](https://github.com/patchloom/patchloom/issues/1874)) ([2a23f33](https://github.com/patchloom/patchloom/commit/2a23f3371440ea3a968816871c391f6b63f498f0))
+* multi-doc doc get bare key type_error hint ([#1862](https://github.com/patchloom/patchloom/issues/1862)) ([87c8303](https://github.com/patchloom/patchloom/commit/87c8303ce0a4808b71303beb2050bc0e0a88ca68))
+* multi-doc merge array refuse + sole binary search honesty ([#1875](https://github.com/patchloom/patchloom/issues/1875)) ([a1bc515](https://github.com/patchloom/patchloom/commit/a1bc51591daa013351a22e2469b8bc805463a423))
+* publish Smithery MCPB via REST API ([#1868](https://github.com/patchloom/patchloom/issues/1868)) ([6935ab5](https://github.com/patchloom/patchloom/commit/6935ab56e54fe1b201c11a16c1d3fabf1768033c))
+* refuse binary targets on read ([#1876](https://github.com/patchloom/patchloom/issues/1876)) ([bb5e6b9](https://github.com/patchloom/patchloom/commit/bb5e6b9356c4c814fe23f06b0a4065cff5b79b3d))
+* refuse doc merge object overlay on multi-doc array root ([#1872](https://github.com/patchloom/patchloom/issues/1872)) ([ccff9b3](https://github.com/patchloom/patchloom/commit/ccff9b3a00d894d0aed0cf3866fc7826977c740f))
+* search multi-path refused[] for binary co-paths ([#1877](https://github.com/patchloom/patchloom/issues/1877)) ([f45afe5](https://github.com/patchloom/patchloom/commit/f45afe582d3ac79fbaad05c2fd870236ea3800be))
+* tidy multi-path binary refused[] and md sole binary honesty ([#1878](https://github.com/patchloom/patchloom/issues/1878)) ([cb01061](https://github.com/patchloom/patchloom/commit/cb01061799bdf394553d66daa1a209141bf36607))
+
 ## [0.15.2](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.1...patchloom-v0.15.2) (2026-07-18)
 
 
