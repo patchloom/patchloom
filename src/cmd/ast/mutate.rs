@@ -41,6 +41,12 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     );
     crate::verbose!("ast rename: scanning {} files", paths.len());
 
+    // Sole binary must not look like "symbol not found" (NUL is valid UTF-8).
+    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
+
     // Pre-filter to files that have matches (parallel read+probe), then execute
     // as a batch through the tx engine. This gives backup, rollback, and format.
     let lang_hint = args.lang.as_deref();
@@ -51,6 +57,10 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     // unreadable files as soft no-matches.
     let read_errors = std::sync::Mutex::new(Vec::<anyhow::Error>::new());
     let operations: Vec<Operation> = crate::par_process_files(&paths, None, &[], |path| {
+        // Directory walks soft-skip binaries (no refused[] expansion).
+        if crate::ops::file::ensure_not_binary_file(path, &path.display().to_string()).is_err() {
+            return None;
+        }
         let lang = resolve_lang(lang_hint, path);
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,
@@ -199,6 +209,14 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
         args.old,
         args.regex
     );
+
+    let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [&args.path])?;
+    let target = cwd.join(&args.path);
+    if let Err(err) = crate::ops::file::ensure_not_binary_file(&target, &args.path) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
 
     let op = Operation::AstReplace {
         path: args.path.clone(),
