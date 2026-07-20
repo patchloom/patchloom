@@ -269,6 +269,7 @@ mod basic {
         let result = apply_doc_mutation(
             &mut root,
             DocMutation::Merge {
+                selector: None,
                 value: json!({"b": 2}),
             },
         )
@@ -332,6 +333,7 @@ mod basic {
         let result = apply_doc_mutation(
             &mut root,
             DocMutation::Merge {
+                selector: None,
                 value: json!({"c": 3}),
             },
         )
@@ -349,6 +351,21 @@ mod basic {
     }
 
     #[test]
+    fn mutation_merge_into_multi_doc_element_via_selector() {
+        let mut root = json!([{"a": 1}, {"b": 2}]);
+        let result = apply_doc_mutation(
+            &mut root,
+            DocMutation::Merge {
+                selector: Some("0".into()),
+                value: json!({"c": 3}),
+            },
+        )
+        .unwrap();
+        assert!(matches!(result, MutationResult::Applied));
+        assert_eq!(root, json!([{"a": 1, "c": 3}, {"b": 2}]));
+    }
+
+    #[test]
     fn mutation_merge_array_root_with_array_is_type_error() {
         // Array overlay also fully replaces via deep_merge (sibling of #1872).
         // Found by MPI: object overlay was refused; array overlay still applied.
@@ -357,6 +374,7 @@ mod basic {
         let result = apply_doc_mutation(
             &mut root,
             DocMutation::Merge {
+                selector: None,
                 value: json!([{"a": 9}, {"b": 9}]),
             },
         )

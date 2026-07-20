@@ -436,8 +436,25 @@ mod basic {
     #[test]
     fn parse_line_doc_merge() {
         let op = parse_line(r#"doc.merge config.json "{\"debug\":true}""#, 1).unwrap();
-        assert!(matches!(op, Operation::DocMerge { ref path, ref value }
-                if path == "config.json" && value == &serde_json::json!({"debug": true})));
+        assert!(
+            matches!(op, Operation::DocMerge { ref path, ref selector, ref value }
+                if path == "config.json" && selector.is_none() && value == &serde_json::json!({"debug": true}))
+        );
+    }
+
+    #[test]
+    fn parse_line_doc_merge_with_selector() {
+        let op = parse_line(r#"doc.merge multi.yaml 0 "{\"env\":\"prod\"}""#, 1).unwrap();
+        assert!(matches!(
+            op,
+            Operation::DocMerge {
+                ref path,
+                ref selector,
+                ref value
+            } if path == "multi.yaml"
+                && selector.as_deref() == Some("0")
+                && value == &serde_json::json!({"env": "prod"})
+        ));
     }
 
     #[test]
@@ -694,7 +711,6 @@ mod error_handling {
         // trailing tokens as content (agent multi-word / unquoted JSON).
         let two_arg_ops = [
             r#"doc.delete f.json sel extra"#,
-            r#"doc.merge f.json "{}" extra"#,
             r#"file.rename old.txt new.txt extra"#,
         ];
         for line in &two_arg_ops {
@@ -704,6 +720,13 @@ mod error_handling {
                 "expected rejection for '{line}', got: {err}"
             );
         }
+
+        // doc.merge accepts 2 (path value) or 3 (path selector value); reject 4+.
+        let err = parse_line(r#"doc.merge f.json 0 "{}" extra"#, 1).unwrap_err();
+        assert!(
+            err.to_string().contains("expected 2 args") || err.to_string().contains("got 4"),
+            "expected rejection for merge extra args, got: {err}"
+        );
 
         // 3-arg operations (require exactly 3)
         let three_arg_ops = [

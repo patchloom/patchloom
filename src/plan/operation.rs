@@ -99,7 +99,12 @@ pub enum Operation {
     DocMerge {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
-        /// Object to deep-merge into the file.
+        /// Optional selector for the merge target (e.g. `0` for multi-doc YAML).
+        /// When omitted, merges into the document root.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(alias = "key")]
+        selector: Option<String>,
+        /// Object to deep-merge into the file (or selected object).
         value: serde_json::Value,
     },
     #[serde(rename = "doc.append")]
