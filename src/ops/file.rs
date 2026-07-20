@@ -112,6 +112,67 @@ pub fn single_explicit_binary_target(
     ensure_not_binary_file(&path, display).err()
 }
 
+/// Path soft-refused for non-pattern reasons (parity with replace/search `refused[]`).
+#[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
+pub struct PathRefused {
+    pub path: String,
+    pub reason: &'static str,
+}
+
+/// Explicit multi-file lists only: binary co-paths that text ops soft-skip.
+///
+/// Sole binary is hard `invalid_input` via [`single_explicit_binary_target`].
+/// Directory walks (any path is a directory) omit mass `refused[]` (noise).
+/// Used by tidy multi-path check/fix; search/replace keep local variants with
+/// extra reason fields where needed.
+pub fn explicit_multi_path_binary_refused(
+    paths: &[String],
+    cwd: &Path,
+) -> Option<Vec<PathRefused>> {
+    if paths.len() < 2 {
+        return None;
+    }
+    if paths.iter().any(|p| {
+        let path = {
+            let raw = Path::new(p);
+            if raw.is_absolute() {
+                raw.to_path_buf()
+            } else {
+                cwd.join(raw)
+            }
+        };
+        path.is_dir()
+    }) {
+        return None;
+    }
+    let mut refused = Vec::new();
+    for p in paths {
+        let path = {
+            let raw = Path::new(p);
+            if raw.is_absolute() {
+                raw.to_path_buf()
+            } else {
+                cwd.join(raw)
+            }
+        };
+        // Use ensure_not_binary_file (not is_binary_file) so this works under
+        // --features files without the cli-only is_binary_file cfg.
+        if path.is_file() && ensure_not_binary_file(&path, p).is_err() {
+            // Keep the user-facing path string (CLI arg), not only the abs path.
+            refused.push(PathRefused {
+                path: p.clone(),
+                reason: "binary",
+            });
+        }
+    }
+    if refused.is_empty() {
+        None
+    } else {
+        refused.sort_by(|a, b| a.path.cmp(&b.path));
+        Some(refused)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +322,26 @@ mod tests {
             single_explicit_binary_target(&["t.txt".into(), "b.bin".into()], dir.path()).is_none()
         );
         assert!(single_explicit_binary_target(&[".".into()], dir.path()).is_none());
+    }
+
+    #[test]
+    fn multi_path_binary_refused_lists_binary_co_path() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("t.txt"), "hi\n").unwrap();
+        fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
+        let refused =
+            explicit_multi_path_binary_refused(&["t.txt".into(), "b.bin".into()], dir.path())
+                .expect("binary co-path");
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].reason, "binary");
+        assert!(refused[0].path.contains("b.bin"), "got {}", refused[0].path);
+    }
+
+    #[test]
+    fn multi_path_binary_refused_none_for_dir_walk_or_sole() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
+        assert!(explicit_multi_path_binary_refused(&["b.bin".into()], dir.path()).is_none());
+        assert!(explicit_multi_path_binary_refused(&[".".into()], dir.path()).is_none());
     }
 }

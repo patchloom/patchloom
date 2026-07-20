@@ -32,6 +32,9 @@ struct TidyFixOutput {
     /// Paths from `--files-from` that were missing (agent honesty; #1756 class).
     #[serde(skip_serializing_if = "Option::is_none")]
     skipped: Option<Vec<String>>,
+    /// Explicit multi-path co-targets soft-skipped (e.g. binary). Directory walks omit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    refused: Option<Vec<crate::ops::file::PathRefused>>,
 }
 
 /// Convert `EolMode` to the string format expected by `Operation::TidyFix`.
@@ -53,6 +56,7 @@ pub(super) fn tidy_fix_output(
     dirty_rel_paths: &[String],
     cwd: &Path,
     skipped: Option<Vec<String>>,
+    refused: Option<Vec<crate::ops::file::PathRefused>>,
 ) -> anyhow::Result<u8> {
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
@@ -69,7 +73,15 @@ pub(super) fn tidy_fix_output(
         true,
         FinalizeCallbacks {
             on_check: |g: &GlobalFlags, _has: bool, _diffs: &[crate::diff::FileDiff]| {
-                emit_tidy_fix_output(g, &fix_files, None, Some(false), None, skipped.clone())?;
+                emit_tidy_fix_output(
+                    g,
+                    &fix_files,
+                    None,
+                    Some(false),
+                    None,
+                    skipped.clone(),
+                    refused.clone(),
+                )?;
                 if !g.quiet && !g.json && !g.jsonl {
                     for p in dirty_rel_paths {
                         println!("{p}");
@@ -82,14 +94,30 @@ pub(super) fn tidy_fix_output(
                        _diffs: &[crate::diff::FileDiff],
                        diff_text: Option<String>,
                        backup: Option<String>| {
-                emit_tidy_fix_output(g, &fix_files, diff_text, Some(has), backup, skipped.clone())?;
+                emit_tidy_fix_output(
+                    g,
+                    &fix_files,
+                    diff_text,
+                    Some(has),
+                    backup,
+                    skipped.clone(),
+                    refused.clone(),
+                )?;
                 Ok(())
             },
             on_preview: |g: &GlobalFlags,
                          _has: bool,
                          diffs: &[crate::diff::FileDiff],
                          diff_text: Option<String>| {
-                emit_tidy_fix_output(g, &fix_files, diff_text, Some(false), None, skipped.clone())?;
+                emit_tidy_fix_output(
+                    g,
+                    &fix_files,
+                    diff_text,
+                    Some(false),
+                    None,
+                    skipped.clone(),
+                    refused.clone(),
+                )?;
                 if !g.json && !g.jsonl && !g.quiet && !diffs.is_empty() {
                     print!("{}", render_diffs_colored(diffs, g.should_color()));
                 }
@@ -117,6 +145,7 @@ fn emit_tidy_fix_output(
     applied: Option<bool>,
     backup_session: Option<String>,
     skipped: Option<Vec<String>>,
+    refused: Option<Vec<crate::ops::file::PathRefused>>,
 ) -> anyhow::Result<()> {
     if global.json {
         let output = TidyFixOutput {
@@ -127,6 +156,7 @@ fn emit_tidy_fix_output(
             applied,
             backup_session,
             skipped,
+            refused,
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
@@ -268,7 +298,8 @@ pub(super) fn run_fix(
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }
-        emit_tidy_fix_output(global, &[], None, Some(false), None, skipped)?;
+        let refused = crate::ops::file::explicit_multi_path_binary_refused(&paths, &cwd);
+        emit_tidy_fix_output(global, &[], None, Some(false), None, skipped, refused)?;
         return Ok(exit::SUCCESS);
     }
 
@@ -296,5 +327,6 @@ pub(super) fn run_fix(
     // write-policy fields use the effective check-parity defaults above.
     let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
-    tidy_fix_output(global, result, &dirty_rel_paths, &cwd, skipped)
+    let refused = crate::ops::file::explicit_multi_path_binary_refused(&paths, &cwd);
+    tidy_fix_output(global, result, &dirty_rel_paths, &cwd, skipped, refused)
 }
