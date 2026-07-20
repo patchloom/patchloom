@@ -135,6 +135,7 @@ pub fn doc_merge(
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocMerge {
         path: path.to_string_lossy().into(),
+        selector: None,
         value,
     };
     doc_write(op, path, mode, guard, "doc.merge")

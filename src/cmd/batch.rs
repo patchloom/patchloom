@@ -15,6 +15,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// doc.set <path> <selector> <value>
 /// doc.delete <path> <selector>
 /// doc.merge <path> <json-value>
+/// doc.merge <path> <selector> <json-value>
 /// doc.ensure <path> <selector> <value>
 /// doc.append <path> <selector> <value>
 /// doc.prepend <path> <selector> <value>
@@ -139,12 +140,30 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
         "doc.merge" => {
-            require_args(op, args, 2, line_num)?;
-            let value = parse_json_value(&args[1])?;
-            op!(DocMerge {
-                path: args[0].clone(),
-                value
-            })
+            // PATH VALUE, or PATH SELECTOR VALUE (selector e.g. multi-doc `0`).
+            match args.len() {
+                2 => {
+                    let value = parse_json_value(&args[1])?;
+                    op!(DocMerge {
+                        path: args[0].clone(),
+                        selector: None,
+                        value
+                    })
+                }
+                3 => {
+                    let value = parse_json_value(&args[2])?;
+                    op!(DocMerge {
+                        path: args[0].clone(),
+                        selector: Some(args[1].clone()),
+                        value
+                    })
+                }
+                n => Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!(
+                        "line {line_num}: {op}: expected 2 args (path value) or 3 (path selector value), got {n}"
+                    ),
+                })),
+            }
         }
         "doc.move" => {
             require_args(op, args, 3, line_num)?;

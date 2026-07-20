@@ -82,6 +82,10 @@ pub enum DocAction {
     Merge {
         /// File path (JSON, YAML, or TOML).
         file: String,
+        /// Selector path for the merge target (e.g. `0` for multi-document YAML).
+        /// When omitted, merges into the document root.
+        #[arg(long)]
+        selector: Option<String>,
         // ref:doc-mode:stdin
         /// Read the merge overlay as JSON from stdin (mutually exclusive with `--value`).
         #[arg(long)]
@@ -319,8 +323,18 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
                 predicate: predicate.clone(),
             })
         }
-        DocAction::Merge { file, stdin, value } => {
-            crate::verbose!("doc: merge file={}, stdin={}", file, stdin);
+        DocAction::Merge {
+            file,
+            selector,
+            stdin,
+            value,
+        } => {
+            crate::verbose!(
+                "doc: merge file={}, selector={:?}, stdin={}",
+                file,
+                selector,
+                stdin
+            );
             if *stdin && value.is_some() {
                 // Surface as plain anyhow; run() maps merge validation via
                 // emit_error_json_kind before staging when possible.
@@ -339,6 +353,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             };
             Ok(Operation::DocMerge {
                 path: file.clone(),
+                selector: selector.clone(),
                 value: parse_value(&merge_str),
             })
         }

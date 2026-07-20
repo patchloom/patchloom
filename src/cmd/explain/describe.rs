@@ -104,8 +104,16 @@ pub(super) fn describe_operation(op: &Operation) -> String {
         Operation::DocDelete { path, selector } => {
             format!("Delete {selector} from {path}")
         }
-        Operation::DocMerge { path, value } => {
-            format!("Merge {value} into {path}")
+        Operation::DocMerge {
+            path,
+            selector,
+            value,
+        } => {
+            if let Some(sel) = selector {
+                format!("Merge {value} into {sel} in {path}")
+            } else {
+                format!("Merge {value} into {path}")
+            }
         }
         Operation::DocAppend {
             path,

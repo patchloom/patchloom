@@ -3384,3 +3384,48 @@ fn test_doc_set_preview_applied_false() {
     assert_eq!(v["applied"], false, "preview must not look like apply: {v}");
     assert_eq!(fs::read_to_string(dir.path().join("c.json")).unwrap(), "{}");
 }
+
+/// Multi-doc merge into document 0 via --selector (fixrealloop gap).
+#[test]
+fn test_doc_merge_multi_doc_selector() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("services.yaml"),
+        "---\nname: app\nport: 8080\n---\nname: worker\nport: 9090\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "doc",
+            "merge",
+            "services.yaml",
+            "--selector",
+            "0",
+            "--value",
+            r#"{"env":"prod"}"#,
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = fs::read_to_string(dir.path().join("services.yaml")).unwrap();
+    assert!(
+        text.contains("env: prod") || text.contains("env:prod"),
+        "expected env merged into first doc: {text}"
+    );
+    assert!(
+        text.contains("name: worker"),
+        "second doc must remain: {text}"
+    );
+}

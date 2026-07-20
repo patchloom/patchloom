@@ -920,6 +920,8 @@ pub enum DocMutation {
         selector: String,
     },
     Merge {
+        /// When set, deep-merge into this selector (e.g. multi-doc `0`).
+        selector: Option<String>,
         value: serde_json::Value,
     },
     Append {
@@ -994,21 +996,32 @@ pub fn apply_doc_mutation(
                 Ok(MutationResult::NoMatch)
             }
         }
-        DocMutation::Merge { value } => {
+        DocMutation::Merge { selector, value } => {
             // Multi-document YAML / top-level JSON arrays: deep_merge replaces
             // a non-object base with the overlay wholesale (object *or* array
             // overlay). Fail closed for any overlay on an array root so agents
             // cannot wipe a multi-doc stream (fixrealloop / MPI; #1872 incomplete).
-            if root.is_array() {
+            // Prefer `selector: "0"` (or CLI `--selector 0`) to merge into one doc.
+            let target = if let Some(sel) = selector.as_deref().filter(|s| !s.is_empty()) {
+                let parsed = selector::parse_anyhow(sel)?;
+                navigate_mut(root, &parsed, false)?
+            } else {
+                root
+            };
+            if target.is_array() {
                 return Ok(MutationResult::TypeError(
                     "doc merge: target is a top-level array (multi-document YAML or JSON \
                      array); deep-merge would replace the whole stream with the overlay. \
-                     Address a document/element first (e.g. set fields under `0.` / `[0].`) \
-                     or merge only into object documents"
+                     Pass a selector to an object document (e.g. `--selector 0` / plan \
+                     `\"selector\": \"0\"`) or use doc.set under `0.` / `[0].`"
                         .into(),
                 ));
             }
-            deep_merge(root, &value);
+            if !target.is_object() && !value.is_object() {
+                // deep_merge replaces non-object bases; still allow object overlay
+                // onto object or empty. Non-object target with object value is ok.
+            }
+            deep_merge(target, &value);
             Ok(MutationResult::Applied)
         }
         DocMutation::Append { selector, value } => {

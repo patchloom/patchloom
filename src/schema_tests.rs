@@ -420,6 +420,7 @@ mod basic {
                 "doc.merge",
                 Operation::DocMerge {
                     path: "f".into(),
+                    selector: None,
                     value: serde_json::json!({}),
                 },
             ),

@@ -179,9 +179,14 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
                 selector: selector.clone(),
             },
         )),
-        Operation::DocMerge { path, value } => Some((
+        Operation::DocMerge {
+            path,
+            selector,
+            value,
+        } => Some((
             path,
             DocMutation::Merge {
+                selector: selector.clone(),
                 value: value.clone(),
             },
         )),

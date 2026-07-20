@@ -350,6 +350,7 @@ mod basic {
         let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
         let action = DocAction::Merge {
             file: path.clone(),
+            selector: None,
             stdin: false,
             value: Some(r#"{"age": 42}"#.into()),
         };
@@ -371,6 +372,7 @@ mod basic {
         let path = write_file(&dir, "test.json", r#"{"a": 1}"#);
         let action = DocAction::Merge {
             file: path,
+            selector: None,
             stdin: true,
             value: Some(r#"{"b": 2}"#.into()),
         };
@@ -1002,6 +1004,7 @@ mod error_paths {
         let path = write_file(&dir, "test.json", r#"{"a": 1}"#);
         let action = DocAction::Merge {
             file: path,
+            selector: None,
             stdin: false,
             value: None,
         };
@@ -1015,6 +1018,7 @@ mod error_paths {
         let path = write_file(&dir, "test.json", r#"{"a": 1}"#);
         let action = DocAction::Merge {
             file: path,
+            selector: None,
             stdin: true,
             value: Some(r#"{"b": 2}"#.to_string()),
         };
