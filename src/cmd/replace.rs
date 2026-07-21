@@ -282,17 +282,6 @@ fn parse_range_arg(spec: Option<&str>) -> anyhow::Result<Option<(usize, Option<u
     }
 }
 
-fn build_replacement(args: &ReplaceArgs) -> String {
-    replacement_text(
-        &args.old,
-        &args.new,
-        &args.insert_before,
-        &args.insert_after,
-        args.regex || args.case_insensitive || args.word_boundary,
-        args.regex,
-    )
-}
-
 /// Walk files and collect replacements using parallel file processing.
 ///
 /// Includes identity matches (`new == old`) so callers can enforce `--unique`
@@ -311,7 +300,6 @@ fn collect_replacements(
     // Detected here (single read of stdin) before soft no_matches handling.
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
-    let replacement = build_replacement(args);
     let quiet = global.quiet;
 
     let compiled_re = compile_replace_regex(
@@ -328,11 +316,26 @@ fn collect_replacements(
     let command_position = args.command_position;
     let to = args.new.as_deref().unwrap_or("");
     let range = parse_range_arg(args.range.as_deref())?;
+    // Capture for per-file line-oriented insert normalize (#1885).
+    let insert_before = args.insert_before.clone();
+    let insert_after = args.insert_after.clone();
+    let new_opt = args.new.clone();
+    let use_match_anchor = args.regex || args.case_insensitive || args.word_boundary;
+    let regex_mode = args.regex;
 
     let cwd_ref = &cwd;
     let mut replacements: Vec<FileReplacement> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let content = crate::files::read_text_file_logged(path, "replace", quiet)?;
+            let replacement = replacement_text(
+                from,
+                &new_opt,
+                &insert_before,
+                &insert_after,
+                use_match_anchor,
+                regex_mode,
+                &content,
+            );
             let (replaced, count) = if command_position {
                 let (out, n) =
                     crate::ops::shell_token::replace_command_position(&content, from, to);

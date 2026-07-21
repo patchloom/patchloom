@@ -262,9 +262,17 @@ pub struct ReplaceOptions {
     pub multiline: bool,
     /// Text to insert before each match instead of replacing.
     /// Mutually exclusive with `to` (the replacement text) and `insert_after`.
+    ///
+    /// **Line-oriented by default (#1885):** when the payload looks like a new
+    /// line (indent, `//`/`#` comment, embedded newline) or every match of the
+    /// anchor is alone on its line, a separating newline is added so the insert
+    /// does not glue onto the anchor. Pure mid-line inserts (e.g. `"X"` after
+    /// `"foo"` inside a line) stay byte-exact.
     pub insert_before: Option<String>,
     /// Text to insert after each match instead of replacing.
     /// Mutually exclusive with `to` (the replacement text) and `insert_before`.
+    ///
+    /// Same line-oriented default as [`Self::insert_before`] (#1885).
     pub insert_after: Option<String>,
     /// Delete/replace entire lines containing the match rather than just the
     /// matched text. When `to` is empty, matching lines are removed.

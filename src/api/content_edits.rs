@@ -245,9 +245,15 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<OneEdit> {
             // anchor span.
             match content.find(anchor.as_str()) {
                 Some(idx) => {
+                    let insert = crate::ops::replace::normalize_line_insert(
+                        content,
+                        anchor,
+                        insert,
+                        crate::ops::replace::InsertSide::Before,
+                    );
                     let mut out = String::with_capacity(content.len() + insert.len());
                     out.push_str(&content[..idx]);
-                    out.push_str(insert);
+                    out.push_str(&insert);
                     out.push_str(&content[idx..]);
                     Ok(OneEdit {
                         content: out,
@@ -276,10 +282,16 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<OneEdit> {
             // First-match only (see InsertBefore).
             match content.find(anchor.as_str()) {
                 Some(idx) => {
+                    let insert = crate::ops::replace::normalize_line_insert(
+                        content,
+                        anchor,
+                        insert,
+                        crate::ops::replace::InsertSide::After,
+                    );
                     let end = idx + anchor.len();
                     let mut out = String::with_capacity(content.len() + insert.len());
                     out.push_str(&content[..end]);
-                    out.push_str(insert);
+                    out.push_str(&insert);
                     out.push_str(&content[end..]);
                     Ok(OneEdit {
                         content: out,
@@ -387,6 +399,24 @@ mod tests {
 
     #[test]
     fn multi_op_insert_before_after() {
+        // Mid-line bare inserts stay byte-exact (no leading indent / newline).
+        let edits = [
+            ContentEdit::InsertBefore {
+                anchor: "B".into(),
+                content: "A".into(),
+            },
+            ContentEdit::InsertAfter {
+                anchor: "B".into(),
+                content: "C".into(),
+            },
+        ];
+        let r = apply_content_edits("xBy", &edits).unwrap();
+        assert_eq!(r.modified, "xABCy");
+    }
+
+    #[test]
+    fn multi_op_insert_line_oriented_on_whole_line_anchor() {
+        // Whole-line anchor "B": bare payloads get newlines (#1885).
         let edits = [
             ContentEdit::InsertBefore {
                 anchor: "B".into(),
@@ -398,7 +428,8 @@ mod tests {
             },
         ];
         let r = apply_content_edits("B", &edits).unwrap();
-        assert_eq!(r.modified, "ABC");
+        // Before: "A\n" + "B" → "A\nB"; After: "B" + "\nC" on that buffer → "A\nB\nC"
+        assert_eq!(r.modified, "A\nB\nC");
     }
 
     #[test]

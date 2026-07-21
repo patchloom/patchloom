@@ -6,8 +6,8 @@
 use super::execute::{TxState, read_and_probe, read_file_content};
 use crate::api::MatchMode;
 use crate::ops::replace::{
-    compile_replace_regex, context_filtered_offset, replace_content, replace_whole_lines,
-    replacement_text,
+    InsertSide, compile_replace_regex, context_filtered_offset, normalize_line_insert,
+    replace_content, replace_whole_lines, replacement_text,
 };
 use crate::plan::Operation;
 use crate::tx::output::merge_match_modes;
@@ -190,14 +190,6 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         return Err(crate::exit::InvalidInputError { msg: msg.into() }.into());
     }
     let use_regex = regex_mode || *case_insensitive || word_boundary;
-    let replacement = replacement_text(
-        old,
-        new_text,
-        insert_before,
-        insert_after,
-        use_regex,
-        regex_mode,
-    );
     let compiled_re = compile_replace_regex(
         old,
         regex_mode,
@@ -227,6 +219,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             Err(e) if if_exists && crate::exit::is_io_not_found(&e) => return Ok(0),
             Err(e) => return Err(e),
         };
+        // Per-file content so whole-line anchor detection is accurate (#1885).
+        let replacement = replacement_text(
+            old,
+            new_text,
+            insert_before,
+            insert_after,
+            use_regex,
+            regex_mode,
+            content,
+        );
         let (replaced, match_count) = if *command_position {
             let to = new_text.as_deref().unwrap_or("");
             let (out, n) = crate::ops::shell_token::replace_command_position(content, old, to);
@@ -380,8 +382,20 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         );
                     } else {
                         let to_text = if let Some(ib) = insert_before {
+                            let ib = normalize_line_insert(
+                                content,
+                                &anchor.matched_text,
+                                ib,
+                                InsertSide::Before,
+                            );
                             format!("{}{}", ib, anchor.matched_text)
                         } else if let Some(ia) = insert_after {
+                            let ia = normalize_line_insert(
+                                content,
+                                &anchor.matched_text,
+                                ia,
+                                InsertSide::After,
+                            );
                             format!("{}{}", anchor.matched_text, ia)
                         } else {
                             new_text.as_deref().unwrap_or("").to_string()
@@ -521,6 +535,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 .get(&file_path)
                 .map(|(_, c)| c.clone())
                 .expect("read_and_probe guarantees entry exists in pending");
+            let replacement = replacement_text(
+                old,
+                new_text,
+                insert_before,
+                insert_after,
+                use_regex,
+                regex_mode,
+                &content,
+            );
             let (replaced, match_count) = if *command_position {
                 let to = new_text.as_deref().unwrap_or("");
                 let (out, n) = crate::ops::shell_token::replace_command_position(&content, old, to);

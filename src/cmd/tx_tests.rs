@@ -218,14 +218,14 @@ mod basic {
 
     #[test]
     fn regex_insert_before_uses_match_anchor_in_replacement_text() {
-        let text = replacement_text("b+", &None, &Some("X".to_string()), &None, true, true);
+        let text = replacement_text("b+", &None, &Some("X".to_string()), &None, true, true, "");
 
         assert_eq!(text, "X${0}");
     }
 
     #[test]
     fn regex_insert_after_uses_match_anchor_in_replacement_text() {
-        let text = replacement_text("b+", &None, &None, &Some("X".to_string()), true, true);
+        let text = replacement_text("b+", &None, &None, &Some("X".to_string()), true, true, "");
 
         assert_eq!(text, "${0}X");
     }

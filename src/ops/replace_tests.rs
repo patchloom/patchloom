@@ -87,7 +87,8 @@ mod replace_tests {
 
         #[test]
         fn replacement_text_with_to() {
-            let result = replacement_text("from", &Some("to".into()), &None, &None, false, false);
+            let result =
+                replacement_text("from", &Some("to".into()), &None, &None, false, false, "");
             assert_eq!(result, "to");
         }
 
@@ -100,6 +101,7 @@ mod replace_tests {
                 &None,
                 false,
                 false,
+                "original",
             );
             assert_eq!(result, "PREFIX\noriginal");
         }
@@ -113,6 +115,7 @@ mod replace_tests {
                 &Some("\nSUFFIX".into()),
                 false,
                 false,
+                "original",
             );
             assert_eq!(result, "original\nSUFFIX");
         }
@@ -126,6 +129,7 @@ mod replace_tests {
                 &None,
                 true,
                 true,
+                "ignored",
             );
             assert_eq!(result, "PREFIX\n${0}");
         }
@@ -139,6 +143,7 @@ mod replace_tests {
                 &Some("\nSUFFIX".into()),
                 true,
                 true,
+                "ignored",
             );
             assert_eq!(result, "${0}\nSUFFIX");
         }
@@ -148,16 +153,63 @@ mod replace_tests {
         #[test]
         fn replacement_text_escapes_dollars_for_internal_regex() {
             // use_match_anchor=true (internal regex), regex_mode=false (not user-requested)
-            let result = replacement_text("cost", &Some("$100".into()), &None, &None, true, false);
+            let result =
+                replacement_text("cost", &Some("$100".into()), &None, &None, true, false, "");
             assert_eq!(result, "$$100");
         }
 
         #[test]
         fn replacement_text_preserves_dollars_for_user_regex() {
             // use_match_anchor=true, regex_mode=true (user explicitly requested regex)
-            let result =
-                replacement_text("(c)ost", &Some("$1ost".into()), &None, &None, true, true);
+            let result = replacement_text(
+                "(c)ost",
+                &Some("$1ost".into()),
+                &None,
+                &None,
+                true,
+                true,
+                "",
+            );
             assert_eq!(result, "$1ost");
+        }
+
+        #[test]
+        fn normalize_line_insert_after_comment_after_brace() {
+            let file = "fn f() {\n}\n";
+            let out =
+                normalize_line_insert(file, "fn f() {", "    // comment\n", InsertSide::After);
+            assert_eq!(out, "\n    // comment\n");
+        }
+
+        #[test]
+        fn normalize_line_insert_after_whole_line_bare_payload() {
+            // avoid alphabeta when every match is a whole line
+            let file = "alpha\n";
+            let out = normalize_line_insert(file, "alpha", "beta", InsertSide::After);
+            assert_eq!(out, "\nbeta");
+        }
+
+        #[test]
+        fn normalize_line_insert_after_midline_stays_byte_exact() {
+            let file = "prefix foo suffix\n";
+            let out = normalize_line_insert(file, "foo", "X", InsertSide::After);
+            assert_eq!(out, "X");
+        }
+
+        #[test]
+        fn normalize_line_insert_before_appends_newline() {
+            let file = "fn f() {\n}\n";
+            let out = normalize_line_insert(file, "fn f() {", "// header", InsertSide::Before);
+            assert_eq!(out, "// header\n");
+        }
+
+        #[test]
+        fn normalize_line_insert_already_has_newline_unchanged() {
+            let file = "fn f() {\n}\n";
+            let after = normalize_line_insert(file, "fn f() {", "\n// c\n", InsertSide::After);
+            assert_eq!(after, "\n// c\n");
+            let before = normalize_line_insert(file, "fn f() {", "// c\n", InsertSide::Before);
+            assert_eq!(before, "// c\n");
         }
 
         #[test]
