@@ -192,7 +192,7 @@ pub(crate) fn explicit_binary_refused(
         // Match replace: files-from counts as explicit list.
         true
     } else if args.paths.len() < 2 {
-        // Sole path uses single_explicit_binary_target; no refused[] needed.
+        // Sole path uses sole_explicit_non_text; no refused[] needed.
         false
     } else {
         args.paths.iter().all(|p| !cwd.join(p).is_dir())
@@ -481,7 +481,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let cwd = global.resolve_cwd()?;
     // Sole non-text before soft-skip scan (no "skipping" then invalid_input).
-    if let Some(err) = crate::ops::file::single_explicit_binary_target(&args.paths, &cwd) {
+    if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
@@ -549,7 +549,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Sole explicit binary is soft-skipped by the text reader; do not report
         // no_matches (agents retry with different patterns forever). Parity with
         // replace/tidy (#1813 family); found by MPI fixrealloop dogfood.
-        if let Some(err) = crate::ops::file::single_explicit_binary_target(&args.paths, &cwd) {
+        if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }

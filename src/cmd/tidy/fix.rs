@@ -294,11 +294,11 @@ pub(super) fn run_fix(
             return Ok(exit::FAILURE);
         }
         // Sole explicit binary: soft-skip would look like "already tidy".
-        if let Some(err) = crate::ops::file::single_explicit_binary_target(&paths, &cwd) {
+        if let Some(err) = crate::ops::file::sole_explicit_non_text(&paths, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }
-        let refused = crate::ops::file::explicit_multi_path_binary_refused(&paths, &cwd);
+        let refused = crate::ops::file::explicit_multi_path_non_text_refused(&paths, &cwd);
         emit_tidy_fix_output(global, &[], None, Some(false), None, skipped, refused)?;
         return Ok(exit::SUCCESS);
     }
@@ -327,6 +327,6 @@ pub(super) fn run_fix(
     // write-policy fields use the effective check-parity defaults above.
     let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
-    let refused = crate::ops::file::explicit_multi_path_binary_refused(&paths, &cwd);
+    let refused = crate::ops::file::explicit_multi_path_non_text_refused(&paths, &cwd);
     tidy_fix_output(global, result, &dirty_rel_paths, &cwd, skipped, refused)
 }

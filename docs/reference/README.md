@@ -1333,7 +1333,7 @@ The operations below are the building blocks inside `operations`.
 | Fail-closed text replace | `ReplaceOptions.require_change` + `edit_error_kind` / `classify_error` |
 | Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks; `EditErrorKind::TypeError` for multi-doc / wrong-root doc navigation (CLI `error_kind: type_error`; #1883) |
 | Path binary preflight | `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884); writers still enforce binary on apply |
-| Text I/O honesty | Sole path: `files::load_text_strict` (binary / invalid UTF-8 → `InvalidInput`); walks: `read_text_file` / `read_and_probe` soft-skip; byte rule `classify_text_bytes` (#1894) |
+| Text I/O honesty | Sole path: `files::load_text_strict` (binary / invalid UTF-8 → `InvalidInput`); walks: `try_read_text_file` / `read_text_file` / `read_and_probe` — content SoftSkip vs `Unreadable`; sole CLI helper `ops::file::sole_explicit_non_text`; byte rule `classify_text_bytes` (#1894) |
 | Line-oriented insert | `insert_before` / `insert_after` default (#1885): newline when payload looks like a new line or anchor is whole-line; mid-line bare stays byte-exact |
 | Shell token rename | `ReplaceOptions.command_position` / `ContentEdit::Replace` (#1666) |
 | Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |

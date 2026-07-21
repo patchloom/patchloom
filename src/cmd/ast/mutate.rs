@@ -41,21 +41,36 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     );
     crate::verbose!("ast rename: scanning {} files", paths.len());
 
-    // Sole binary must not look like "symbol not found" (NUL is valid UTF-8).
-    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+    // Sole non-text must not look like "symbol not found" (NUL is valid UTF-8).
+    if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
 
     // Pre-filter to files that have matches (parallel read+probe), then execute
     // as a batch through the tx engine. This gives backup, rollback, and format.
+    // SoftSkip content kinds (binary/utf8); track Unreadable so empty results
+    // are not reported as no_matches when IO may have masked the scan (#1894).
     let lang_hint = args.lang.as_deref();
     let old = args.old.as_str();
     let new = args.new.as_str();
     let lang_cli = args.lang.clone();
+    let unreadable = std::sync::Mutex::new(Vec::<String>::new());
     let operations: Vec<Operation> = crate::par_process_files(&paths, None, &[], |path| {
-        // SoftSkip walk (#1894): binary / invalid UTF-8 / unreadable → skip.
-        let source = crate::files::read_text_file(path)?;
+        let source = match crate::files::try_read_text_file(path) {
+            Ok(s) => s,
+            Err(crate::files::SoftTextSkip::Binary | crate::files::SoftTextSkip::InvalidUtf8) => {
+                return None;
+            }
+            Err(crate::files::SoftTextSkip::Unreadable) => {
+                if let Ok(mut g) = unreadable.lock()
+                    && g.len() < 8
+                {
+                    g.push(path.display().to_string());
+                }
+                return None;
+            }
+        };
         let lang = resolve_lang(lang_hint, path);
 
         // Check if this file has any matches (AST or word-boundary fallback).
@@ -89,6 +104,19 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     });
 
     if operations.is_empty() {
+        let unread = unreadable.into_inner().unwrap_or_default();
+        if !unread.is_empty() {
+            let sample = unread.join(", ");
+            let msg = format!(
+                "could not read {} path(s) while scanning {} (e.g. {}); \
+                 not reporting as symbol not found",
+                unread.len(),
+                args.path,
+                sample
+            );
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(exit::FAILURE);
+        }
         let msg = format!("symbol '{}' not found in {}", args.old, args.path);
         global.emit_error_json_kind(Some("no_matches"), &msg)?;
         return Ok(exit::NO_MATCHES);

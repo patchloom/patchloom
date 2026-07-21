@@ -30,9 +30,9 @@ pub(super) fn setup_single_file(
 
 /// When the user names exactly one file path, fail closed as `invalid_input` for
 /// binary or invalid UTF-8 (parity with replace/search/tidy/md / #1894).
-/// Directory walks still soft-skip non-text files. IO/missing errors are left
-/// to the walk (return `Ok` here).
-pub(super) fn reject_sole_explicit_binary(
+/// Directory walks soft-skip content kinds; IO is handled by the walk
+/// (return `Ok` here so missing sole paths can soft-fail later).
+pub(super) fn reject_sole_explicit_non_text(
     paths: &[PathBuf],
     path_arg: &str,
 ) -> Result<(), crate::exit::InvalidInputError> {

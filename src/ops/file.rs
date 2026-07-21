@@ -88,11 +88,10 @@ pub fn ensure_not_binary_file(
 /// When the user names exactly one existing file that is not valid text
 /// (binary NUL **or** invalid UTF-8), return `InvalidInput`.
 ///
-/// Soft-skip walks still use [`crate::files::read_text_file`]; multi-path
-/// lists use soft-skip / `refused[]`. Sole explicit non-text must not report
-/// pattern `no_matches` or vacuous tidy "clean" (#1894 honesty; fixrealloop
-/// 2026-07-21 found sole invalid UTF-8 soft-skipped as `no_matches`).
-pub fn single_explicit_binary_target(
+/// Soft walks use [`crate::files::try_read_text_file`]; explicit multi-path
+/// lists use [`explicit_multi_path_non_text_refused`]. Sole explicit non-text
+/// must not report pattern `no_matches` or vacuous tidy "clean" (#1894).
+pub fn sole_explicit_non_text(
     paths: &[String],
     cwd: &Path,
 ) -> Option<crate::exit::InvalidInputError> {
@@ -114,7 +113,7 @@ pub fn single_explicit_binary_target(
     if !path.is_file() {
         return None;
     }
-    // Full Strict sole-path rule (binary + invalid UTF-8), not binary-only.
+    // Full Strict sole-path rule (binary + invalid UTF-8).
     match crate::files::load_text_strict(&path, display) {
         Ok(_) => None,
         Err(e) => e
@@ -125,20 +124,31 @@ pub fn single_explicit_binary_target(
     }
 }
 
+/// Deprecated name for [`sole_explicit_non_text`] (binary-only name was wrong
+/// after invalid UTF-8 joined the sole-path fail-closed set).
+#[inline]
+pub fn single_explicit_binary_target(
+    paths: &[String],
+    cwd: &Path,
+) -> Option<crate::exit::InvalidInputError> {
+    sole_explicit_non_text(paths, cwd)
+}
+
 /// Path soft-refused for non-pattern reasons (parity with replace/search `refused[]`).
 #[derive(Debug, Clone, serde::Serialize, PartialEq, Eq)]
 pub struct PathRefused {
     pub path: String,
+    /// `binary`, `invalid_utf8`, or `unreadable`.
     pub reason: &'static str,
 }
 
-/// Explicit multi-file lists only: binary co-paths that text ops soft-skip.
+/// Explicit multi-file lists only: non-text / unreadable co-paths that walks
+/// soft-skip.
 ///
-/// Sole binary is hard `invalid_input` via [`single_explicit_binary_target`].
+/// Sole non-text is hard `invalid_input` via [`sole_explicit_non_text`].
 /// Directory walks (any path is a directory) omit mass `refused[]` (noise).
-/// Used by tidy multi-path check/fix; search/replace keep local variants with
-/// extra reason fields where needed.
-pub fn explicit_multi_path_binary_refused(
+/// Reasons: `binary`, `invalid_utf8`, `unreadable`.
+pub fn explicit_multi_path_non_text_refused(
     paths: &[String],
     cwd: &Path,
 ) -> Option<Vec<PathRefused>> {
@@ -168,13 +178,15 @@ pub fn explicit_multi_path_binary_refused(
                 cwd.join(raw)
             }
         };
-        // Path preflight via ensure_not_binary_file (typed InvalidInput on NUL).
-        if path.is_file() && ensure_not_binary_file(&path, p).is_err() {
-            // Keep the user-facing path string (CLI arg), not only the abs path.
-            refused.push(PathRefused {
+        if !path.is_file() {
+            continue;
+        }
+        match crate::files::try_read_text_file(&path) {
+            Ok(_) => {}
+            Err(skip) => refused.push(PathRefused {
                 path: p.clone(),
-                reason: "binary",
-            });
+                reason: skip.as_reason(),
+            }),
         }
     }
     if refused.is_empty() {
@@ -183,6 +195,15 @@ pub fn explicit_multi_path_binary_refused(
         refused.sort_by(|a, b| a.path.cmp(&b.path));
         Some(refused)
     }
+}
+
+/// Deprecated name for [`explicit_multi_path_non_text_refused`].
+#[inline]
+pub fn explicit_multi_path_binary_refused(
+    paths: &[String],
+    cwd: &Path,
+) -> Option<Vec<PathRefused>> {
+    explicit_multi_path_non_text_refused(paths, cwd)
 }
 
 #[cfg(test)]
@@ -316,32 +337,30 @@ mod tests {
     }
 
     #[test]
-    fn single_explicit_binary_detects_sole_file() {
+    fn sole_explicit_non_text_detects_sole_binary() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("b.bin");
         fs::write(&path, b"x\x00y").unwrap();
-        let err = single_explicit_binary_target(&["b.bin".into()], dir.path()).unwrap();
+        let err = sole_explicit_non_text(&["b.bin".into()], dir.path()).unwrap();
         assert!(err.msg.contains("binary"));
     }
 
     #[test]
-    fn single_explicit_binary_none_for_text_or_multi() {
+    fn sole_explicit_non_text_none_for_text_or_multi() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("t.txt"), "hi\n").unwrap();
         fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
-        assert!(single_explicit_binary_target(&["t.txt".into()], dir.path()).is_none());
-        assert!(
-            single_explicit_binary_target(&["t.txt".into(), "b.bin".into()], dir.path()).is_none()
-        );
-        assert!(single_explicit_binary_target(&[".".into()], dir.path()).is_none());
+        assert!(sole_explicit_non_text(&["t.txt".into()], dir.path()).is_none());
+        assert!(sole_explicit_non_text(&["t.txt".into(), "b.bin".into()], dir.path()).is_none());
+        assert!(sole_explicit_non_text(&[".".into()], dir.path()).is_none());
     }
 
     #[test]
-    fn single_explicit_rejects_invalid_utf8() {
+    fn sole_explicit_non_text_rejects_invalid_utf8() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("bad.txt");
         fs::write(&path, b"hello \xff world\n").unwrap();
-        let err = single_explicit_binary_target(&["bad.txt".into()], dir.path()).unwrap();
+        let err = sole_explicit_non_text(&["bad.txt".into()], dir.path()).unwrap();
         assert!(
             err.msg.contains("UTF-8") || err.msg.contains("utf"),
             "got: {}",
@@ -351,23 +370,27 @@ mod tests {
     }
 
     #[test]
-    fn multi_path_binary_refused_lists_binary_co_path() {
+    fn multi_path_non_text_refused_lists_binary_and_utf8() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("t.txt"), "hi\n").unwrap();
         fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
-        let refused =
-            explicit_multi_path_binary_refused(&["t.txt".into(), "b.bin".into()], dir.path())
-                .expect("binary co-path");
-        assert_eq!(refused.len(), 1);
-        assert_eq!(refused[0].reason, "binary");
-        assert!(refused[0].path.contains("b.bin"), "got {}", refused[0].path);
+        fs::write(dir.path().join("bad.txt"), b"hi \xff\n").unwrap();
+        let refused = explicit_multi_path_non_text_refused(
+            &["t.txt".into(), "b.bin".into(), "bad.txt".into()],
+            dir.path(),
+        )
+        .expect("non-text co-paths");
+        assert_eq!(refused.len(), 2);
+        let reasons: Vec<_> = refused.iter().map(|r| r.reason).collect();
+        assert!(reasons.contains(&"binary"), "{refused:?}");
+        assert!(reasons.contains(&"invalid_utf8"), "{refused:?}");
     }
 
     #[test]
-    fn multi_path_binary_refused_none_for_dir_walk_or_sole() {
+    fn multi_path_non_text_refused_none_for_dir_walk_or_sole() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
-        assert!(explicit_multi_path_binary_refused(&["b.bin".into()], dir.path()).is_none());
-        assert!(explicit_multi_path_binary_refused(&[".".into()], dir.path()).is_none());
+        assert!(explicit_multi_path_non_text_refused(&["b.bin".into()], dir.path()).is_none());
+        assert!(explicit_multi_path_non_text_refused(&[".".into()], dir.path()).is_none());
     }
 }

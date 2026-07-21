@@ -1112,3 +1112,78 @@ fn test_ast_sole_binary_is_invalid_input() {
         );
     }
 }
+
+/// Directory rename walk: unreadable files must not be reported as symbol
+/// not found when they may have masked the scan (SoftTextSkip::Unreadable).
+#[cfg(all(unix, feature = "ast"))]
+#[test]
+fn test_ast_rename_dir_unreadable_not_no_matches() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir(&src).unwrap();
+    // No matching symbol; only an unreadable file. Soft-skip must not look
+    // like "symbol not found".
+    let locked = src.join("locked.rs");
+    fs::write(&locked, "fn secret() {}\n").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    // Root can still read mode-000; skip when permissions do not block.
+    if fs::read_to_string(&locked).is_ok() {
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+
+    let output = patchloom_in(dir.path())
+        .args([
+            "--json", "ast", "rename", "src", "--old", "secret", "--new", "public",
+        ])
+        .output()
+        .unwrap();
+    let _ = fs::set_permissions(&locked, fs::Permissions::from_mode(0o644));
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("could not read") && err.contains("not reporting as symbol"),
+        "expected unreadable mask message, got: {json}"
+    );
+    // Real no_matches uses "symbol '…' not found"; must not use that shape.
+    assert!(
+        !err.contains("symbol '") && !err.contains("no_matches"),
+        "must not use no_matches shape: {json}"
+    );
+}
+
+/// Content SoftSkip (binary) in a dir with no matches is still no_matches.
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_rename_dir_binary_only_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("blob.bin"), b"fn secret()\x00{}\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args([
+            "--json", "ast", "rename", "src", "--old", "secret", "--new", "public",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "no_matches", "{json}");
+}

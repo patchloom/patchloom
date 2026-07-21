@@ -225,7 +225,7 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
         return Ok(exit::NO_MATCHES);
     }
 
-    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+    if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
@@ -336,7 +336,7 @@ pub struct SearchArgs {
 
 pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
-    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+    if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
@@ -451,7 +451,7 @@ pub struct RefsArgs {
 
 pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
-    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+    if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
@@ -716,7 +716,7 @@ pub struct ImpactArgs {
 
 pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
-    if let Err(err) = super::common::reject_sole_explicit_binary(&paths, &args.path) {
+    if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
