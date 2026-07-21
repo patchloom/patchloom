@@ -51,10 +51,18 @@ pub fn is_binary(data: &[u8]) -> bool {
 }
 
 /// Returns whether the file at `path` appears to be binary by reading only its
-/// first 8 KiB (streaming, no full allocation for large files). Returns false
-/// on open/read errors (the subsequent content read will surface the real error).
-#[cfg(any(test, feature = "cli"))]
-pub(crate) fn is_binary_file(path: &Path) -> bool {
+/// first 8 KiB (streaming, no full allocation for large files).
+///
+/// Heuristic: true when a NUL byte appears in the probe window (same rule as
+/// [`is_binary`]). Returns **false** if the path cannot be opened or read
+/// (missing, permission, …); callers that need a typed open error should open
+/// the path themselves.
+///
+/// Public for embedder preflight (#1884) so hosts do not reimplement the
+/// window size or probe semantics. Writers still enforce binary themselves.
+/// Available with default features and under `features = ["files"]` (always
+/// compiled; no `cli` gate).
+pub fn is_binary_file(path: &Path) -> bool {
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return false,
