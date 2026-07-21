@@ -65,7 +65,8 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
             if !lang.has_grammar() {
                 return None;
             }
-            let source = std::fs::read_to_string(path).ok()?;
+            // SoftSkip multi-path (#1894): binary / invalid UTF-8 → skip.
+            let source = crate::files::read_text_file(path)?;
             let symbols = extract_symbols(&source, lang);
             if symbols.is_empty() {
                 return None;

@@ -53,24 +53,10 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     let old = args.old.as_str();
     let new = args.new.as_str();
     let lang_cli = args.lang.clone();
-    // Surface the first IO error (same as sequential pre-scan); do not hide
-    // unreadable files as soft no-matches.
-    let read_errors = std::sync::Mutex::new(Vec::<anyhow::Error>::new());
     let operations: Vec<Operation> = crate::par_process_files(&paths, None, &[], |path| {
-        // Directory walks soft-skip binaries (no refused[] expansion).
-        if crate::ops::file::ensure_not_binary_file(path, &path.display().to_string()).is_err() {
-            return None;
-        }
+        // SoftSkip walk (#1894): binary / invalid UTF-8 / unreadable → skip.
+        let source = crate::files::read_text_file(path)?;
         let lang = resolve_lang(lang_hint, path);
-        let source = match std::fs::read_to_string(path) {
-            Ok(s) => s,
-            Err(e) => {
-                if let Ok(mut guard) = read_errors.lock() {
-                    guard.push(anyhow::anyhow!("reading {}: {e}", path.display()));
-                }
-                return None;
-            }
-        };
 
         // Check if this file has any matches (AST or word-boundary fallback).
         let has_match = if lang.has_grammar() {
@@ -101,11 +87,6 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
             lang: lang_cli.clone(),
         })
     });
-    if let Ok(mut errs) = read_errors.into_inner()
-        && let Some(e) = errs.drain(..).next()
-    {
-        return Err(e);
-    }
 
     if operations.is_empty() {
         let msg = format!("symbol '{}' not found in {}", args.old, args.path);
@@ -213,9 +194,13 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [&args.path])?;
     let target = cwd.join(&args.path);
-    if let Err(err) = crate::ops::file::ensure_not_binary_file(&target, &args.path) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
-        return Ok(exit::FAILURE);
+    // Strict sole-path preflight (#1894); engine also loads via load_text_strict.
+    if let Err(e) = crate::files::load_text_strict(&target, &args.path) {
+        if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+            global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
+            return Ok(exit::FAILURE);
+        }
+        return Err(e);
     }
 
     let op = Operation::AstReplace {

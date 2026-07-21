@@ -5,8 +5,6 @@
 
 use std::path::Path;
 
-use anyhow::Context;
-
 use crate::containment::PathGuard;
 use crate::plan::Operation;
 
@@ -65,8 +63,8 @@ fn patch_write(
         // Apply to the first file in the patch.
         let pf = &patch_files[0];
         let file_path = cwd.join(&pf.path);
-        let original = std::fs::read_to_string(&file_path)
-            .with_context(|| format!("failed to read {}", file_path.display()))?;
+        // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+        let original = crate::files::load_text_strict(&file_path, &pf.path)?;
 
         let new_content = ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
             if e.contains("stale context") {
@@ -114,8 +112,8 @@ pub fn apply_patch_file(
     let mut results = Vec::new();
     for pf in &patch_files {
         let file_path = cwd.join(&pf.path);
-        let original = std::fs::read_to_string(&file_path)
-            .with_context(|| format!("failed to read {}", file_path.display()))?;
+        // Strict sole-path (#1894).
+        let original = crate::files::load_text_strict(&file_path, &pf.path)?;
 
         let new_content = crate::ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
             if e.contains("stale context") {

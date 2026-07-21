@@ -9,7 +9,6 @@ use super::common::{
 use crate::ast::symbols::{self, SymbolDef};
 use crate::cli::global::GlobalFlags;
 use crate::exit;
-use anyhow::Context;
 use clap::Args;
 
 #[derive(Debug, Args)]
@@ -52,12 +51,17 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
     let structured = global.json || global.jsonl;
 
     if target.is_file() {
-        // Binary before "unsupported language" so agents do not treat NUL files
-        // as a soft language miss (parity with replace/tidy/md).
-        if let Err(err) = crate::ops::file::ensure_not_binary_file(&target, &args.path) {
-            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
-            return Ok(exit::FAILURE);
-        }
+        // Strict sole-path (#1894): binary / invalid UTF-8 before language miss.
+        let source = match crate::files::load_text_strict(&target, &args.path) {
+            Ok(s) => s,
+            Err(e) => {
+                if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+                    global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
+                    return Ok(exit::FAILURE);
+                }
+                return Err(e);
+            }
+        };
         let lang = resolve_lang(lang_hint, &target);
         crate::verbose!("ast list: detected language={lang} for {}", args.path);
         if !lang.has_grammar() {
@@ -71,7 +75,7 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
             global.emit_error_json_kind(Some("no_matches"), &msg)?;
             return Ok(exit::NO_MATCHES);
         }
-        let symbols = symbols::extract_symbols_from_file(&target, Some(lang));
+        let symbols = symbols::extract_symbols(&source, lang);
         let filtered = filter_symbols(&symbols, &kind_filter);
         if !filtered.is_empty() {
             any_output = true;
@@ -788,7 +792,8 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
     let new_source = if let Some(ref to_ref) = args.to {
         get_git_file_content(&cwd, &args.path, to_ref)?
     } else {
-        std::fs::read_to_string(&target).with_context(|| format!("reading {}", args.path))?
+        // Strict sole-path working tree (#1894).
+        crate::files::load_text_strict(&target, &args.path)?
     };
 
     let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);

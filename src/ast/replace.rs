@@ -2,8 +2,6 @@
 
 use std::path::Path;
 
-use anyhow::Context;
-
 use super::Language;
 use super::symbols::{extract_symbols, find_symbol};
 
@@ -124,8 +122,8 @@ pub fn replace_in_symbol_file(
     if !lang.has_grammar() {
         return Ok(None);
     }
-    let source =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+    let source = crate::files::load_text_strict(path, &path.display().to_string())?;
     replace_in_symbol(&source, symbol_name, from, to, regex, lang)
 }
 

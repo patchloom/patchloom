@@ -369,7 +369,8 @@ impl PatchloomService {
                 && p.after_context.is_none()
             {
                 let abs = svc.cwd().join(&p.path);
-                if let Ok(content) = std::fs::read_to_string(&abs) {
+                // Soft-or-preflight (#1894): skip non-text; engine still Strict.
+                if let Some(content) = crate::files::read_text_file(&abs) {
                     let to_str = p.new_text.as_deref().unwrap_or("");
                     let result = crate::fallback::validate_edit_nth(
                         &content,
@@ -485,8 +486,14 @@ impl PatchloomService {
         self.blocking(move |svc| {
             svc.check_path(&p.path)?;
             let abs = svc.cwd().join(&p.path);
-            let content = std::fs::read_to_string(&abs)
-                .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
+            // Strict sole-path (#1894): binary / invalid UTF-8 → invalid_params.
+            let content = crate::files::load_text_strict(&abs, &p.path).map_err(|e| {
+                if crate::exit::is_invalid_input(&e) {
+                    McpError::invalid_params(e.to_string(), None)
+                } else {
+                    McpError::internal_error(format!("reading {}: {e}", p.path), None)
+                }
+            })?;
             let issues = crate::ops::md::lint_agents_content(&content);
             // Envelope matches CLI `md lint-agents --json` (#1854 / #1859).
             // Always tool success (isError=false); agents branch on ok / issue_count.
@@ -633,8 +640,13 @@ impl PatchloomService {
             } else if let Some(path) = &p.plan_path {
                 svc.check_path(path)?;
                 let abs = svc.cwd().join(path);
-                let content = std::fs::read_to_string(&abs).map_err(|e| {
-                    McpError::internal_error(format!("failed to read plan_path: {e}"), None)
+                // Strict sole-path plan load (#1894).
+                let content = crate::files::load_text_strict(&abs, path).map_err(|e| {
+                    if crate::exit::is_invalid_input(&e) {
+                        McpError::invalid_params(e.to_string(), None)
+                    } else {
+                        McpError::internal_error(format!("failed to read plan_path: {e}"), None)
+                    }
                 })?;
                 crate::plan::parse_plan_auto(&content, Some(path), None).map_err(|e| {
                     McpError::invalid_params(format!("failed to parse plan: {e}"), None)

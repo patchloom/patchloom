@@ -259,7 +259,8 @@ fn similar_targets_for_no_match(
     }
     files.truncate(5);
     for f in files {
-        let Ok(content) = std::fs::read_to_string(&f) else {
+        // SoftSkip multi-path scan (#1894); binary/invalid UTF-8 skipped.
+        let Some(content) = crate::files::read_text_file(&f) else {
             continue;
         };
         let similar = crate::fallback::find_similar_targets(&content, &args.old, 3);
@@ -723,7 +724,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
         let range = parse_range_arg(args.range.as_deref())?;
         for path in &file_paths {
-            let Ok(content) = std::fs::read_to_string(path) else {
+            // SoftSkip multi-path (#1894).
+            let Some(content) = crate::files::read_text_file(path) else {
                 continue;
             };
             let total = count_nth_candidates(
