@@ -190,6 +190,27 @@ mod replace_tests {
         }
 
         #[test]
+        fn normalize_line_insert_after_whole_line_crlf_bare_payload() {
+            // CRLF after anchor must still count as a line boundary.
+            let file = "alpha\r\n";
+            assert!(
+                anchor_is_whole_line(file, "alpha"),
+                "CRLF-terminated line should be whole-line"
+            );
+            let out = normalize_line_insert(file, "alpha", "beta", InsertSide::After);
+            assert_eq!(out, "\nbeta");
+        }
+
+        #[test]
+        fn normalize_line_insert_after_whole_line_bare_cr() {
+            let file = "alpha\rbeta\r";
+            // "alpha" is alone before CR; "beta" alone before CR.
+            assert!(anchor_is_whole_line(file, "alpha"));
+            let out = normalize_line_insert(file, "alpha", "x", InsertSide::After);
+            assert_eq!(out, "\nx");
+        }
+
+        #[test]
         fn normalize_line_insert_after_midline_stays_byte_exact() {
             let file = "prefix foo suffix\n";
             let out = normalize_line_insert(file, "foo", "X", InsertSide::After);

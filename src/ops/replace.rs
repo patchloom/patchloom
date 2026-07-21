@@ -225,6 +225,9 @@ fn looks_like_new_line_payload(insert_content: &str) -> bool {
 
 /// True when every occurrence of `anchor` is alone on its line (bounded by
 /// newlines / file edges). Empty content or empty anchor → false.
+///
+/// Accepts LF, CRLF, and bare CR as line boundaries so whole-line bare
+/// inserts on Windows-style files still line-orient (#1885 follow-up).
 pub fn anchor_is_whole_line(file_content: &str, anchor: &str) -> bool {
     if anchor.is_empty() || file_content.is_empty() {
         return false;
@@ -233,14 +236,20 @@ pub fn anchor_is_whole_line(file_content: &str, anchor: &str) -> bool {
     let mut any = false;
     for (i, _) in file_content.match_indices(anchor) {
         any = true;
-        let before_ok = i == 0 || bytes[i - 1] == b'\n';
+        let before_ok = i == 0 || is_line_boundary_byte(bytes[i - 1]);
         let end = i + anchor.len();
-        let after_ok = end == file_content.len() || bytes.get(end) == Some(&b'\n');
+        let after_ok =
+            end == file_content.len() || bytes.get(end).copied().is_some_and(is_line_boundary_byte);
         if !(before_ok && after_ok) {
             return false;
         }
     }
     any
+}
+
+#[inline]
+fn is_line_boundary_byte(b: u8) -> bool {
+    b == b'\n' || b == b'\r'
 }
 
 /// Build the replacement string for replace / insert modes.
