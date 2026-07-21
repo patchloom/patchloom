@@ -2,6 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use clap::Args;
 use serde::Serialize;
+#[cfg(test)]
 use std::fs;
 
 #[derive(Debug, Args)]
@@ -52,33 +53,37 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
             msg: format!("{path}: target is not a file"),
         });
     }
-    // Refuse binary targets (NUL in probe window) before UTF-8 decode so agents
-    // do not get ok:true with embedded \0 (parity with search/replace/tidy;
-    // MPI 2026-07-20).
-    if let Err(err) = crate::ops::file::ensure_not_binary_file(p, path) {
-        return Err(ReadFail {
-            kind: "invalid_input",
-            msg: err.msg,
-        });
-    }
-    let content = fs::read_to_string(path).map_err(|e| {
-        let kind = if e.kind() == std::io::ErrorKind::NotFound {
-            "not_found"
-        } else if e.kind() == std::io::ErrorKind::IsADirectory
-            || e.kind() == std::io::ErrorKind::PermissionDenied
-            || e.kind() == std::io::ErrorKind::InvalidData
-        {
-            // InvalidData covers non-UTF-8 text that passed the binary probe
-            // (no early NUL). Surface as invalid_input, not not_found.
-            "invalid_input"
-        } else {
-            "not_found"
-        };
-        ReadFail {
-            kind,
-            msg: format!("{path}: {e}"),
+    // Strict text load (#1894): binary / invalid UTF-8 → invalid_input.
+    let content = match crate::files::load_text_strict(p, path) {
+        Ok(s) => s,
+        Err(e) => {
+            if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+                return Err(ReadFail {
+                    kind: "invalid_input",
+                    msg: inv.msg.clone(),
+                });
+            }
+            // Missing path and other IO.
+            let msg = e.to_string();
+            let kind = if msg.contains("No such file")
+                || msg.contains("not found")
+                || msg.contains("failed to read")
+            {
+                // Prefer not_found when the path is missing.
+                if !p.exists() {
+                    "not_found"
+                } else {
+                    "invalid_input"
+                }
+            } else {
+                "not_found"
+            };
+            return Err(ReadFail {
+                kind,
+                msg: format!("{path}: {e}"),
+            });
         }
-    })?;
+    };
 
     // Fast path: no line range requested, skip split/join (#169).
     if lines.is_none() {

@@ -5,8 +5,6 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
-
 use crate::ast::rewrite::{FunctionSigEdit, rewrite_function_signature};
 use crate::ast::{Language, rename, replace as ast_replace};
 use crate::containment::PathGuard;
@@ -131,9 +129,12 @@ pub fn ast_rename(
     }
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {path_str}"))
-        .map_err(|e| EditError::new(EditErrorKind::OperationFailed, e.to_string()))?;
+    let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
+        if crate::exit::is_invalid_input(&e) {
+            return e;
+        }
+        EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
+    })?;
     let lang = Language::from_path(path);
     let Some(renamed) = rename::rename_in_source(&original, old, new, lang) else {
         return Err(EditError::new(
@@ -190,8 +191,12 @@ pub fn ast_replace_in_symbol(
 ) -> anyhow::Result<EditResult> {
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
-    let original =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
+    let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
+        if crate::exit::is_invalid_input(&e) {
+            return e;
+        }
+        EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
+    })?;
     let lang = Language::from_path(path);
     let replaced =
         match ast_replace::replace_in_symbol(&original, symbol, old, new, opts.regex, lang) {

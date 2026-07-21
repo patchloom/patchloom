@@ -165,8 +165,12 @@ pub fn apply_content_edits_to_file(
         })?;
     }
     let path_str = path.to_string_lossy().into_owned();
-    let original =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
+    let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
+        if crate::exit::is_invalid_input(&e) {
+            return e;
+        }
+        EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
+    })?;
     // Prefer real path labels in multi-op preview (#1665 / #1500).
     let batch = apply_content_edits_with_label(&original, edits, Some(path_str.as_str()))?;
     let policy = WritePolicy::default();

@@ -80,6 +80,37 @@ fn read_and_probe_binary_file() {
     assert!(!pending.contains_key(&file));
 }
 
+/// Strict sole-path load must refuse binary (not rewrite as text) (#1894).
+#[test]
+fn read_file_content_rejects_binary() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("binary.bin");
+    std::fs::write(&file, b"hello\x00world").unwrap();
+
+    let mut pending = HashMap::new();
+    let mut existed = HashSet::new();
+
+    let err = read_file_content(&mut pending, &mut existed, &file).unwrap_err();
+    assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+    assert!(err.to_string().contains("binary"), "{err}");
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn read_file_content_rejects_invalid_utf8() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bad.txt");
+    std::fs::write(&file, b"hello \xff world").unwrap();
+
+    let mut pending = HashMap::new();
+    let mut existed = HashSet::new();
+
+    let err = read_file_content(&mut pending, &mut existed, &file).unwrap_err();
+    assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+    assert!(err.to_string().contains("UTF-8"), "{err}");
+    assert!(pending.is_empty());
+}
+
 #[test]
 fn read_and_probe_already_loaded_skips() {
     let path = PathBuf::from("/fake/loaded.txt");

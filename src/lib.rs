@@ -39,7 +39,8 @@
 //! - [`containment`] -- workspace path guard (flexible `AbsolutePathPolicy` via builder for temp dirs/extra roots in library use; strict `Reject` for MCP)
 //! - [`exec`] -- shell command execution with process-tree management
 //! - [`fallback`] -- multi-strategy edit recovery (exact, anchor, similarity)
-//! - [`files`] -- `is_binary`, `is_binary_file` (#1884 path preflight), `read_text_file`, and (with "files" feature) parallel scanning helpers
+//! - [`files`] -- text I/O honesty (#1894): `classify_text_bytes`, `load_text_strict` (sole path),
+//!   `read_text_file` (soft skip), `is_binary` / `is_binary_file` (#1884), and (with "files") scan helpers
 //! - [`write`] -- atomic file writes with write-policy transformations
 //!
 //! With "files" feature you also get `api::search_directory`, `api::execute_plan`,

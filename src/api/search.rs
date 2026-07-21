@@ -2,8 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
-
 use crate::ops;
 
 // ---------------------------------------------------------------------------
@@ -29,8 +27,8 @@ pub fn search(
     regex: bool,
     case_insensitive: bool,
 ) -> anyhow::Result<Vec<SearchMatch>> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let display = path.to_string_lossy();
+    let content = crate::files::load_text_strict(path, &display)?;
 
     if pattern.is_empty() {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
@@ -245,12 +243,12 @@ pub fn search_directory(
         // fallback to single file search (multi-match supported via basic search)
         if root.is_file() {
             let basic = search(root, pattern, opts.regex, opts.case_insensitive)?;
-            let display = root.to_path_buf();
+            let path_buf = root.to_path_buf();
             let ctx_b = opts.before_context.or(opts.context).unwrap_or(0);
             let ctx_a = opts.after_context.or(opts.context).unwrap_or(0);
             // read once for both content and context lines (fallback is rare / no "files" feature)
-            let content = std::fs::read_to_string(root)
-                .with_context(|| format!("failed to read {}", root.display()))?;
+            let label = root.to_string_lossy();
+            let content = crate::files::load_text_strict(root, &label)?;
             let all_lines: Vec<&str> = content.lines().collect();
             let results: Vec<SearchResult> = basic
                 .into_iter()
@@ -261,7 +259,7 @@ pub fn search_directory(
                     // column not tracked in basic fallback search (always 1; full impl behind "files" feature)
                     let column = 1;
                     SearchResult {
-                        path: display.clone(),
+                        path: path_buf.clone(),
                         line_number: m.line_number,
                         line: m.line,
                         column,

@@ -6,8 +6,6 @@
 
 use std::path::Path;
 
-use anyhow::Context;
-
 use crate::containment::PathGuard;
 use crate::ops;
 use crate::plan::Operation;
@@ -47,8 +45,7 @@ fn md_write(
     // Re-extract the operation fields to call ops directly.
     // This is only used when building without cli/files features.
     let path_str = path.to_string_lossy();
-    let original =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {path_str}"))?;
+    let original = crate::files::load_text_strict(path, &path_str)?;
 
     let new_content = match _op {
         Operation::MdReplaceSection {
@@ -213,12 +210,13 @@ pub fn md_move_section(
     // only handles single-file operations. Same-file moves can route through
     // the engine but cross-file needs coordinated writes to two files.
     let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let original = crate::files::load_text_strict(path, &path_str)?;
 
     let dest_content = match to {
-        Some(dest_path) => std::fs::read_to_string(dest_path)
-            .with_context(|| format!("failed to read {}", dest_path.display()))?,
+        Some(dest_path) => {
+            let d = dest_path.to_string_lossy();
+            crate::files::load_text_strict(dest_path, &d)?
+        }
         None => original.clone(),
     };
 
@@ -265,8 +263,7 @@ pub fn md_dedupe_headings(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<(EditResult, Vec<String>)> {
     let path_str = path.to_string_lossy();
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let original = crate::files::load_text_strict(path, &path_str)?;
 
     let (new_content, removed) = ops::md::dedupe_headings_in(&original);
 
@@ -290,8 +287,8 @@ pub use crate::ops::md::LintIssue;
 ///
 /// Returns a list of lint issues found. This is a read-only operation.
 pub fn md_lint_agents(path: &Path) -> anyhow::Result<Vec<LintIssue>> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let display = path.to_string_lossy();
+    let content = crate::files::load_text_strict(path, &display)?;
     Ok(crate::ops::md::lint_agents_content(&content))
 }
 

@@ -50,8 +50,7 @@ fn file_write(
             }
             crate::ops::file::ensure_parent_components_are_directories(path)?;
             let original = if path.exists() {
-                std::fs::read_to_string(path)
-                    .with_context(|| format!("failed to read {}", path.display()))?
+                crate::files::load_text_strict(path, &path_str)?
             } else {
                 String::new()
             };
@@ -80,8 +79,8 @@ fn file_write(
                 )
                 .into());
             }
-            let original = std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read {}", path.display()))?;
+            // Delete may remove non-UTF-8; only require text when we need a snapshot.
+            let original = crate::files::load_text_strict(path, &path_str).unwrap_or_default();
             let (applied, backup_session) = if mode == ApplyMode::Apply {
                 super::apply_mutation(
                     path,
@@ -125,9 +124,7 @@ fn file_write(
                 )
                 .into());
             }
-            crate::ops::file::ensure_not_binary_file(path, &path_str)?;
-            let original = std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read {}", path.display()))?;
+            let original = crate::files::load_text_strict(path, &path_str)?;
             let combined = if is_append {
                 crate::ops::file::append_content(&original, &content)
             } else {

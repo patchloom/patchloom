@@ -2,18 +2,17 @@
 
 use std::path::Path;
 
-use anyhow::Context;
-
 /// Read a file's content, optionally restricted to a line range.
 ///
 /// Line numbers are 1-based inclusive. This is a read-only operation.
+/// Uses **Strict** text load (#1894): binary / invalid UTF-8 → `InvalidInputError`.
 pub fn read(
     path: &Path,
     start_line: Option<usize>,
     end_line: Option<usize>,
 ) -> anyhow::Result<String> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let display = path.to_string_lossy();
+    let content = crate::files::load_text_strict(path, &display)?;
 
     match (start_line, end_line) {
         (None, None) => Ok(content),
