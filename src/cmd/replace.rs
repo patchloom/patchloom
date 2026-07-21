@@ -646,7 +646,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     global.check_paths_contained(&cwd, &args.paths)?;
     // Sole non-text before soft-skip scan so stderr is not "skipping" then
     // invalid_input (fixrealloop 2026-07-21).
-    if let Some(err) = crate::ops::file::single_explicit_binary_target(&args.paths, &cwd) {
+    if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
@@ -824,7 +824,7 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         // Sole explicit binary is skipped by the text reader; do not report
         // no_matches (agents retry with different patterns forever).
-        if let Some(err) = crate::ops::file::single_explicit_binary_target(&args.paths, &cwd) {
+        if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }

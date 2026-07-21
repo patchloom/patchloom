@@ -9,8 +9,12 @@
 //!
 //! - **Strict sole-path:** [`load_text_strict`] — binary / invalid UTF-8 →
 //!   `InvalidInputError` (CLI, MCP/tx sole path, library `api::*`).
-//! - **Soft skip (walk / multi-path):** [`read_text_file`] — binary / invalid
-//!   UTF-8 / unreadable → `None`.
+//! - **Soft content skip (walks):** [`try_read_text_file`] / [`read_text_file`] —
+//!   binary / invalid UTF-8 → [`SoftTextSkip`] (content not agent-editable).
+//! - **Unreadable is not content SoftSkip:** open/read IO is
+//!   [`SoftTextSkip::Unreadable`]. Callers decide: directory walks may
+//!   continue but must not report pattern `no_matches` when unreadable
+//!   paths may have masked the scan; sole paths use Strict IO errors.
 //! - Byte rule: [`classify_text_bytes`] (NUL probe + UTF-8).
 
 #[cfg(feature = "cli")]
@@ -523,48 +527,59 @@ pub fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     }
 }
 
-/// Soft-skip text load for walks and multi-path scans (#1894 SoftSkip policy).
+/// Why a soft walk skipped a path (#1894).
 ///
-/// Returns `None` for binary, invalid UTF-8, unreadable, or missing paths.
-/// Empty files return `Some("")`. For sole-path mutators use [`load_text_strict`].
-///
-/// For files larger than 8 KiB, only the first 8 KiB are read initially
-/// for the binary check. If the file is binary, no further I/O occurs,
-/// avoiding a full read of large binary files (images, compiled objects)
-/// that pass through the directory walker.
-pub fn read_text_file(path: &Path) -> Option<String> {
-    read_text_file_inner(path, None)
+/// **Content skips** ([`Binary`], [`InvalidUtf8`]) mean "not agent-editable
+/// text." **[`Unreadable`]** is operational (permission/IO), not a content
+/// SoftSkip: sole paths should hard-fail via [`load_text_strict`]; multi-path
+/// walks may continue but must not report pattern `no_matches` when any
+/// unreadable path may have masked the scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoftTextSkip {
+    /// NUL in the binary probe window.
+    Binary,
+    /// Valid NUL probe but not UTF-8.
+    InvalidUtf8,
+    /// Open/read/metadata failed (missing, permission, …).
+    Unreadable,
 }
 
-/// Internal version with optional diagnostic logging for CLI commands.
-#[cfg(feature = "cli")]
-pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
-    if quiet {
-        read_text_file_inner(path, None)
-    } else {
-        read_text_file_inner(path, Some(cmd))
+impl SoftTextSkip {
+    /// Stable agent-facing reason for `refused[]` / logs.
+    pub fn as_reason(self) -> &'static str {
+        match self {
+            SoftTextSkip::Binary => "binary",
+            SoftTextSkip::InvalidUtf8 => "invalid_utf8",
+            SoftTextSkip::Unreadable => "unreadable",
+        }
+    }
+
+    /// Content SoftSkip (binary / invalid UTF-8), not operational unreadable.
+    pub fn is_content_skip(self) -> bool {
+        matches!(self, SoftTextSkip::Binary | SoftTextSkip::InvalidUtf8)
     }
 }
 
-fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> {
+/// Soft-path text load with typed skip reason (#1894).
+///
+/// Empty files return `Ok("")`. For sole-path mutators use [`load_text_strict`].
+///
+/// For files larger than 8 KiB, only the first 8 KiB are read initially
+/// for the binary check. If the file is binary, no further I/O occurs.
+pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
     use std::io::Read;
 
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
-        Err(e) => {
-            if let Some(label) = log_label {
-                eprintln!("{label}: skipping {}: {e}", path.display());
-            }
-            return None;
-        }
+        Err(_) => return Err(SoftTextSkip::Unreadable),
     };
 
     let file_len = match file.metadata() {
         Ok(m) => m.len() as usize,
-        Err(_) => return None,
+        Err(_) => return Err(SoftTextSkip::Unreadable),
     };
     if file_len == 0 {
-        return Some(String::new());
+        return Ok(String::new());
     }
 
     // For files larger than the binary-check window, read just the header
@@ -575,51 +590,68 @@ fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> 
         let mut header = [0u8; BINARY_CHECK_LEN];
         let n = match file.read(&mut header) {
             Ok(n) => n,
-            Err(e) => {
-                if let Some(label) = log_label {
-                    eprintln!("{label}: skipping {}: {e}", path.display());
-                }
-                return None;
-            }
+            Err(_) => return Err(SoftTextSkip::Unreadable),
         };
         if is_binary(&header[..n]) {
-            return None;
+            return Err(SoftTextSkip::Binary);
         }
         // Header is text; now read the remainder into a single allocation.
         let mut bytes = Vec::with_capacity(file_len);
         bytes.extend_from_slice(&header[..n]);
-        if let Err(e) = file.read_to_end(&mut bytes) {
-            if let Some(label) = log_label {
-                eprintln!("{label}: skipping {}: {e}", path.display());
-            }
-            return None;
+        if file.read_to_end(&mut bytes).is_err() {
+            return Err(SoftTextSkip::Unreadable);
         }
         return match String::from_utf8(bytes) {
-            Ok(s) => Some(s),
-            Err(_) => {
-                if let Some(label) = log_label {
-                    eprintln!("{label}: skipping {} (invalid UTF-8)", path.display());
-                }
-                None
-            }
+            Ok(s) => Ok(s),
+            Err(_) => Err(SoftTextSkip::InvalidUtf8),
         };
     }
 
     // Small file: read all at once (single syscall).
     let mut bytes = Vec::with_capacity(file_len);
-    if let Err(e) = file.read_to_end(&mut bytes) {
-        if let Some(label) = log_label {
-            eprintln!("{label}: skipping {}: {e}", path.display());
-        }
-        return None;
+    if file.read_to_end(&mut bytes).is_err() {
+        return Err(SoftTextSkip::Unreadable);
     }
 
     match classify_text_bytes(&bytes) {
-        TextBytesKind::Text(s) => Some(s),
-        TextBytesKind::Binary => None,
-        TextBytesKind::InvalidUtf8 => {
-            if let Some(label) = log_label {
-                eprintln!("{label}: skipping {} (invalid UTF-8)", path.display());
+        TextBytesKind::Text(s) => Ok(s),
+        TextBytesKind::Binary => Err(SoftTextSkip::Binary),
+        TextBytesKind::InvalidUtf8 => Err(SoftTextSkip::InvalidUtf8),
+    }
+}
+
+/// Soft-skip text load for walks; collapses all skip reasons to `None`.
+///
+/// Prefer [`try_read_text_file`] when unreadable must not be confused with
+/// content SoftSkip (e.g. AST directory rename). Empty files return `Some("")`.
+pub fn read_text_file(path: &Path) -> Option<String> {
+    try_read_text_file(path).ok()
+}
+
+/// Internal version with optional diagnostic logging for CLI commands.
+///
+/// Re-opens on unreadable only to print the OS error (tests assert permission
+/// strings); content SoftSkip logs stay reason-only.
+#[cfg(feature = "cli")]
+pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
+    match try_read_text_file(path) {
+        Ok(s) => Some(s),
+        Err(SoftTextSkip::Binary) => None,
+        Err(SoftTextSkip::InvalidUtf8) => {
+            if !quiet {
+                eprintln!("{cmd}: skipping {} (invalid UTF-8)", path.display());
+            }
+            None
+        }
+        Err(SoftTextSkip::Unreadable) => {
+            if !quiet {
+                // Surface the real OS error when possible (permission, etc.).
+                let detail = std::fs::File::open(path)
+                    .err()
+                    .map(|e| e.to_string())
+                    .or_else(|| std::fs::metadata(path).err().map(|e| e.to_string()))
+                    .unwrap_or_else(|| "unreadable".into());
+                eprintln!("{cmd}: skipping {}: {detail}", path.display());
             }
             None
         }
@@ -1120,6 +1152,25 @@ mod tests {
         let file = dir.path().join("binary.bin");
         std::fs::write(&file, b"hello\x00world").unwrap();
         assert!(read_text_file(&file).is_none());
+        assert_eq!(try_read_text_file(&file).unwrap_err(), SoftTextSkip::Binary);
+    }
+
+    #[test]
+    fn try_read_text_file_reasons_utf8_and_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("bad.txt");
+        std::fs::write(&bad, b"hello \xff world").unwrap();
+        assert_eq!(
+            try_read_text_file(&bad).unwrap_err(),
+            SoftTextSkip::InvalidUtf8
+        );
+        assert_eq!(
+            try_read_text_file(dir.path().join("missing.txt").as_path()).unwrap_err(),
+            SoftTextSkip::Unreadable
+        );
+        assert!(SoftTextSkip::Binary.is_content_skip());
+        assert!(!SoftTextSkip::Unreadable.is_content_skip());
+        assert_eq!(SoftTextSkip::InvalidUtf8.as_reason(), "invalid_utf8");
     }
 
     #[test]

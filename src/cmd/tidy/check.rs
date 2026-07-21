@@ -245,12 +245,12 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         return Ok(exit::FAILURE);
     }
     // Sole explicit binary: do not report vacuous "clean" (never scanned).
-    if let Some(err) = crate::ops::file::single_explicit_binary_target(paths, &cwd) {
+    if let Some(err) = crate::ops::file::sole_explicit_non_text(paths, &cwd) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
     let skipped = crate::files::scan_missing_entries(global, &cwd, paths)?;
-    let refused = crate::ops::file::explicit_multi_path_binary_refused(paths, &cwd);
+    let refused = crate::ops::file::explicit_multi_path_non_text_refused(paths, &cwd);
     let issues = collect_issues(paths, global)?;
     if !global.quiet || global.json || global.jsonl {
         render_issues(&issues, global, skipped, refused)?;

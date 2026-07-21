@@ -172,10 +172,26 @@ pub(super) fn handle_ast_rename(
     let old = p.old.as_str();
     let new = p.new.as_str();
     let lang_cli = p.lang.clone();
+    let unreadable = std::sync::Mutex::new(Vec::<String>::new());
     let operations: Vec<crate::plan::Operation> =
         crate::par_process_files(&paths, None, &[], |path| {
-            // SoftSkip walk (#1894): binary / invalid UTF-8 / unreadable → skip.
-            let source = crate::files::read_text_file(path)?;
+            // SoftSkip content; track Unreadable so empty ≠ no matches (#1894).
+            let source = match crate::files::try_read_text_file(path) {
+                Ok(s) => s,
+                Err(
+                    crate::files::SoftTextSkip::Binary | crate::files::SoftTextSkip::InvalidUtf8,
+                ) => {
+                    return None;
+                }
+                Err(crate::files::SoftTextSkip::Unreadable) => {
+                    if let Ok(mut g) = unreadable.lock()
+                        && g.len() < 8
+                    {
+                        g.push(path.display().to_string());
+                    }
+                    return None;
+                }
+            };
             let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
 
             let has_match = if lang.has_grammar() {
@@ -207,6 +223,20 @@ pub(super) fn handle_ast_rename(
         });
 
     if operations.is_empty() {
+        let unread = unreadable.into_inner().unwrap_or_default();
+        if !unread.is_empty() {
+            let sample = unread.join(", ");
+            return Err(McpError::invalid_params(
+                format!(
+                    "could not read {} path(s) while scanning {} (e.g. {}); \
+                     not reporting as no matches",
+                    unread.len(),
+                    p.path,
+                    sample
+                ),
+                None,
+            ));
+        }
         return no_results("No matches found.");
     }
 
