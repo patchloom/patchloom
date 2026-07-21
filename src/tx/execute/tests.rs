@@ -80,6 +80,35 @@ fn read_and_probe_binary_file() {
     assert!(!pending.contains_key(&file));
 }
 
+#[test]
+fn read_and_probe_invalid_utf8_soft_skips() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bad.txt");
+    std::fs::write(&file, b"hello \xff world").unwrap();
+    let mut pending = HashMap::new();
+    let mut existed = HashSet::new();
+    assert!(!read_and_probe(&mut pending, &mut existed, &file).unwrap());
+    assert!(pending.is_empty());
+}
+
+#[test]
+fn read_and_probe_missing_is_hard_err() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("missing.txt");
+    let mut pending = HashMap::new();
+    let mut existed = HashSet::new();
+    let err = read_and_probe(&mut pending, &mut existed, &file).unwrap_err();
+    assert!(
+        err.to_string().contains("failed to read") || err.to_string().contains("missing"),
+        "{err:#}"
+    );
+    // NotFound must remain classifiable through the chain (not a bare string).
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "expected is_io_not_found, got: {err:#}"
+    );
+}
+
 /// Strict sole-path load must refuse binary (not rewrite as text) (#1894).
 #[test]
 fn read_file_content_rejects_binary() {

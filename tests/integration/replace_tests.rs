@@ -3193,6 +3193,43 @@ fn test_replace_multi_binary_refused_not_no_matches() {
     );
 }
 
+/// Multi-file invalid UTF-8 co-path is refused with reason invalid_utf8.
+#[test]
+fn test_replace_multi_invalid_utf8_refused() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("bad.txt"), b"hello \xff\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace", "hello", "--new", "hi", "t.txt", "bad.txt", "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let refused = v["refused"]
+        .as_array()
+        .expect("invalid_utf8 must be refused");
+    assert!(
+        refused.iter().any(|r| {
+            r["path"].as_str() == Some("bad.txt") && r["reason"].as_str() == Some("invalid_utf8")
+        }),
+        "{v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.txt")).unwrap(),
+        "hi\n"
+    );
+}
+
 /// #1800: if_exists softens require_change (exit 0 on zero matches).
 #[test]
 fn test_replace_if_exists_softens_require_change() {

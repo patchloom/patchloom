@@ -465,32 +465,30 @@ fn exact_zero_match_refused_from_paths(
         if matched.contains(path_s.as_ref()) {
             continue;
         }
-        // Binary/non-UTF8 is not a pattern miss (#1813).
-        if crate::files::is_binary_file(path) {
-            refused.push(RefuseFileResult {
-                path: crate::files::relative_display(path, cwd)
-                    .to_string_lossy()
-                    .into_owned(),
-                match_mode: None,
-                match_score: None,
-                matched_text: None,
-                reason: "binary",
-            });
-            continue;
+        let display = crate::files::relative_display(path, cwd)
+            .to_string_lossy()
+            .into_owned();
+        // Content SoftSkip + unreadable on explicit lists (#1813 / SoftTextSkip).
+        match crate::files::try_read_text_file(path) {
+            Ok(_) => {
+                refused.push(RefuseFileResult {
+                    path: display,
+                    match_mode: Some("exact"),
+                    match_score: None,
+                    matched_text: None,
+                    reason: "no_matches",
+                });
+            }
+            Err(skip) => {
+                refused.push(RefuseFileResult {
+                    path: display,
+                    match_mode: None,
+                    match_score: None,
+                    matched_text: None,
+                    reason: skip.as_reason(),
+                });
+            }
         }
-        // Readable text with zero matches (skip unreadable non-binary).
-        if crate::files::read_text_file(path).is_none() {
-            continue;
-        }
-        refused.push(RefuseFileResult {
-            path: crate::files::relative_display(path, cwd)
-                .to_string_lossy()
-                .into_owned(),
-            match_mode: Some("exact"),
-            match_score: None,
-            matched_text: None,
-            reason: "no_matches",
-        });
     }
     if refused.is_empty() {
         None
@@ -644,9 +642,17 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // outside the workspace while computing matches (precomputed write-path
     // guard remains defense-in-depth).
     global.check_paths_contained(&cwd, &args.paths)?;
-    // Sole non-text before soft-skip scan so stderr is not "skipping" then
-    // invalid_input (fixrealloop 2026-07-21).
-    if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
+    // Sole non-text before soft-skip scan. File-backed --files-from included;
+    // stdin ("-") is not pre-read (would empty collect's list).
+    let files_from_list = match global.files_from.as_deref() {
+        Some("-") | None => None,
+        Some(_) => global.read_files_from()?,
+    };
+    if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
+        &args.paths,
+        files_from_list.as_deref(),
+        &cwd,
+    ) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
@@ -822,9 +828,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
-        // Sole explicit binary is skipped by the text reader; do not report
-        // no_matches (agents retry with different patterns forever).
-        if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
+        // Sole explicit non-text (incl. sole --files-from); not no_matches.
+        if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
+            &args.paths,
+            files_from_list.as_deref(),
+            &cwd,
+        ) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }

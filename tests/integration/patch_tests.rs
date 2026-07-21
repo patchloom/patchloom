@@ -626,7 +626,7 @@ fn test_patch_check_exits_5_on_directory_read_error() {
         .assert()
         .code(5)
         .stderr(predicate::str::contains(
-            "patch check: test.txt -- READ ERROR: failed to read",
+            "patch check: test.txt -- READ ERROR: target is not a file",
         ));
 }
 
@@ -663,7 +663,9 @@ fn test_patch_check_json_reports_directory_read_error() {
         json["files"][0]["error"]
             .as_str()
             .unwrap()
-            .contains("failed to read")
+            .contains("not a file"),
+        "error={}",
+        json["files"][0]["error"]
     );
 }
 
@@ -705,10 +707,9 @@ fn test_patch_check_jsonl_reports_directory_read_error() {
     assert_eq!(lines[0]["path"], "test.txt");
     assert_eq!(lines[0]["status"], "error");
     assert!(
+        lines[0]["error"].as_str().unwrap().contains("not a file"),
+        "error={}",
         lines[0]["error"]
-            .as_str()
-            .unwrap()
-            .contains("failed to read")
     );
 }
 
@@ -926,6 +927,102 @@ fn test_patch_apply_json_applied_true() {
     assert_eq!(
         fs::read_to_string(dir.path().join("f.txt")).unwrap(),
         "world\n"
+    );
+}
+
+/// Patch *file* (diff input) that is binary is invalid_input (#1896).
+#[test]
+fn test_patch_diff_file_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.txt"), "hello\n").unwrap();
+    fs::write(
+        dir.path().join("p.patch"),
+        b"--- a/t.txt\n+++ b/t.txt\n\x00",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "check", "p.patch"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("binary") || err.contains("UTF-8") || err.contains("utf"),
+        "{v}"
+    );
+}
+
+/// Patch check on invalid UTF-8 *target* is invalid_input (#1896).
+#[test]
+fn test_patch_check_invalid_utf8_target_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad.txt"), b"line one\xff\nline two\n").unwrap();
+    fs::write(
+        dir.path().join("p.patch"),
+        "--- a/bad.txt\n+++ b/bad.txt\n@@ -1 +1 @@\n-line one\n+line ONE\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "check", "p.patch"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(err.contains("UTF-8") || err.contains("utf"), "{v}");
+}
+
+/// Patch check on binary *target* is invalid_input (#1896).
+#[test]
+fn test_patch_check_binary_target_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bin_line.bin"), b"line one\x00line two\n").unwrap();
+    fs::write(
+        dir.path().join("p.patch"),
+        "--- a/bin_line.bin\n+++ b/bin_line.bin\n@@ -1 +1 @@\n-line one\n+line ONE\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "check", "p.patch"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert!(v["error"].as_str().unwrap_or("").contains("binary"), "{v}");
+    assert_eq!(
+        fs::read(dir.path().join("bin_line.bin")).unwrap(),
+        b"line one\x00line two\n"
     );
 }
 

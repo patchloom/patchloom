@@ -180,15 +180,14 @@ pub(crate) fn collect_matches(
     ))
 }
 
-/// Explicit multi-file lists only: co-listed binary paths that search skipped.
-/// Sole binary is hard `invalid_input` elsewhere; directory walks omit refused.
+/// Explicit multi-file lists only: co-listed non-text / unreadable paths.
+/// Sole non-text is hard `invalid_input` elsewhere; directory walks omit refused.
 pub(crate) fn explicit_binary_refused(
     args: &SearchArgs,
     global: &GlobalFlags,
     cwd: &std::path::Path,
 ) -> Option<Vec<SearchRefused>> {
     let explicit = if global.files_from.is_some() {
-        // files-from may list many binaries; still report them when few?
         // Match replace: files-from counts as explicit list.
         true
     } else if args.paths.len() < 2 {
@@ -200,46 +199,25 @@ pub(crate) fn explicit_binary_refused(
     if !explicit {
         return None;
     }
-    let entries: Vec<&String> = if global.files_from.is_some() {
-        // Re-read via paths already resolved is hard; scan args.paths when no
-        // files_from positionals — for files_from, resolve list from disk.
-        // Prefer scanning the same list as collect_file_paths_opts would see.
-        Vec::new()
+    // Prefer caller-resolved files_from when available is not plumbed; re-read
+    // file lists (stdin lists are sole-hard-failed earlier when len == 1).
+    let path_strings: Vec<String> = if global.files_from.is_some() {
+        global.read_files_from().ok().flatten().unwrap_or_default()
     } else {
-        args.paths.iter().collect()
+        args.paths.clone()
     };
-    let mut refused = Vec::new();
-    if global.files_from.is_some() {
-        if let Ok(Some(files)) = global.read_files_from() {
-            for f in files {
-                let path = cwd.join(&f);
-                if path.is_file() && crate::files::is_binary_file(&path) {
-                    refused.push(SearchRefused {
-                        path: f,
-                        reason: "binary",
-                    });
-                }
-            }
-        }
-    } else {
-        for p in entries {
-            let path = cwd.join(p);
-            if path.is_file() && crate::files::is_binary_file(&path) {
-                refused.push(SearchRefused {
-                    path: crate::files::relative_display(&path, cwd)
-                        .to_string_lossy()
-                        .into_owned(),
-                    reason: "binary",
-                });
-            }
-        }
-    }
-    if refused.is_empty() {
-        None
-    } else {
-        refused.sort_by(|a, b| a.path.cmp(&b.path));
-        Some(refused)
-    }
+    // Shared helper: binary / invalid_utf8 / unreadable (len < 2 → None;
+    // sole is invalid_input via sole_explicit_non_text_for_scan).
+    let shared = crate::ops::file::explicit_multi_path_non_text_refused(&path_strings, cwd)?;
+    let mut refused: Vec<SearchRefused> = shared
+        .into_iter()
+        .map(|r| SearchRefused {
+            path: r.path,
+            reason: r.reason,
+        })
+        .collect();
+    refused.sort_by(|a, b| a.path.cmp(&b.path));
+    Some(refused)
 }
 
 pub(crate) fn format_results(
@@ -480,8 +458,18 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let cwd = global.resolve_cwd()?;
-    // Sole non-text before soft-skip scan (no "skipping" then invalid_input).
-    if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
+    // Sole non-text before soft-skip scan. File-backed --files-from is included;
+    // stdin ("-") cannot be pre-read without stealing the collect path, so sole
+    // stdin lists still soft-skip then re-check after collect if needed.
+    let files_from_list = match global.files_from.as_deref() {
+        Some("-") | None => None,
+        Some(_) => global.read_files_from()?,
+    };
+    if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
+        &args.paths,
+        files_from_list.as_deref(),
+        &cwd,
+    ) {
         global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
         return Ok(exit::FAILURE);
     }
@@ -546,10 +534,13 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
-        // Sole explicit binary is soft-skipped by the text reader; do not report
-        // no_matches (agents retry with different patterns forever). Parity with
-        // replace/tidy (#1813 family); found by MPI fixrealloop dogfood.
-        if let Some(err) = crate::ops::file::sole_explicit_non_text(&args.paths, &cwd) {
+        // Sole explicit non-text soft-skipped by the reader; do not report
+        // no_matches (agents retry forever). Includes sole --files-from.
+        if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
+            &args.paths,
+            files_from_list.as_deref(),
+            &cwd,
+        ) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }

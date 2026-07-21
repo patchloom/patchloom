@@ -12,7 +12,6 @@ use crate::ops::doc::{
 use crate::plan::{Operation, Plan};
 use crate::tx::context::EngineContext;
 use crate::write::apply_policy;
-use anyhow::Context;
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -56,12 +55,14 @@ pub(crate) fn read_file_content<'a>(
     }
 }
 
-/// SoftSkip load for directory walks / multi-path scans (#1894).
+/// Soft content load for multi-path scans (#1894 / SoftTextSkip).
 ///
 /// Returns `Ok(true)` if the file is text (content stored in pending),
-/// `Ok(false)` if binary or invalid UTF-8 (skipped). Uses
-/// [`crate::files::classify_text_bytes`] so walk policy matches
-/// [`crate::files::read_text_file`].
+/// `Ok(false)` if content SoftSkip (binary / invalid UTF-8).
+/// **Unreadable IO is hard `Err`** (plan ops name paths intentionally; do not
+/// soft-mask permission failures as “no text”). Matches
+/// [`crate::files::try_read_text_file`] content policy; directory CLI walks
+/// that need empty-mask behavior use `try_read_text_file` directly (AST rename).
 pub(crate) fn read_and_probe(
     pending: &mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
@@ -76,12 +77,20 @@ pub(crate) fn read_and_probe(
         }
         .into());
     }
-    let bytes =
-        std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let content = match crate::files::classify_text_bytes(&bytes) {
-        crate::files::TextBytesKind::Text(s) => s,
-        crate::files::TextBytesKind::Binary | crate::files::TextBytesKind::InvalidUtf8 => {
+    let content = match crate::files::try_read_text_file(path) {
+        Ok(s) => s,
+        Err(crate::files::SoftTextSkip::Binary | crate::files::SoftTextSkip::InvalidUtf8) => {
             return Ok(false);
+        }
+        Err(crate::files::SoftTextSkip::Unreadable) => {
+            // Re-open so NotFound / PermissionDenied stay in the error chain
+            // for exit::is_io_not_found and agent remapping.
+            return match std::fs::read(path) {
+                Ok(_) => Err(anyhow::anyhow!("failed to read {}", path.display())),
+                Err(e) => {
+                    Err(anyhow::Error::new(e).context(format!("failed to read {}", path.display())))
+                }
+            };
         }
     };
     existed_before.insert(path.to_path_buf());
