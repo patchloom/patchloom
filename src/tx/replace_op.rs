@@ -210,6 +210,10 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
 
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
+        // Sole explicit path: refuse binary with invalid_input (CLI replace
+        // parity). `read_to_string` accepts NUL as UTF-8 and used to rewrite
+        // binaries as text via MCP/tx (fixrealloop MCP dogfood).
+        crate::ops::file::ensure_not_binary_file(&file_path, p)?;
         // CLI `replace --if-exists` soft-skips missing paths (`skipped[]`).
         // Plan/batch must match: without if_exists, missing paths stay hard
         // `not_found` (#1793). With if_exists, missing is a soft success so
