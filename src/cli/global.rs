@@ -602,6 +602,16 @@ impl GlobalFlags {
         };
         Ok(Some(lines))
     }
+
+    /// Preload `--files-from` for sole-path non-text checks without stealing
+    /// stdin. Returns `None` when the flag is unset or is `-` (stdin must be
+    /// read only by the path collector).
+    pub fn files_from_for_sole_scan(&self) -> anyhow::Result<Option<Vec<String>>> {
+        match self.files_from.as_deref() {
+            Some("-") | None => Ok(None),
+            Some(_) => self.read_files_from(),
+        }
+    }
 }
 
 /// Normalize one `--files-from` line: trim, drop blanks and `#` comments (#1811).
@@ -1144,6 +1154,28 @@ mod tests {
         };
         let result = flags.read_files_from().unwrap().unwrap();
         assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
+    }
+
+    #[test]
+    fn files_from_for_sole_scan_skips_stdin_loads_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        std::fs::write(&list, "only.bin\n").unwrap();
+        let stdin_flags = GlobalFlags {
+            files_from: Some("-".into()),
+            ..GlobalFlags::test_default()
+        };
+        assert!(stdin_flags.files_from_for_sole_scan().unwrap().is_none());
+        let none_flags = GlobalFlags::test_default();
+        assert!(none_flags.files_from_for_sole_scan().unwrap().is_none());
+        let file_flags = GlobalFlags {
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        assert_eq!(
+            file_flags.files_from_for_sole_scan().unwrap().unwrap(),
+            vec!["only.bin"]
+        );
     }
 
     #[test]

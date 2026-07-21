@@ -642,12 +642,8 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // outside the workspace while computing matches (precomputed write-path
     // guard remains defense-in-depth).
     global.check_paths_contained(&cwd, &args.paths)?;
-    // Sole non-text before soft-skip scan. File-backed --files-from included;
-    // stdin ("-") is not pre-read (would empty collect's list).
-    let files_from_list = match global.files_from.as_deref() {
-        Some("-") | None => None,
-        Some(_) => global.read_files_from()?,
-    };
+    // Sole non-text before soft-skip scan (file-backed --files-from; not stdin).
+    let files_from_list = global.files_from_for_sole_scan()?;
     if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
         &args.paths,
         files_from_list.as_deref(),

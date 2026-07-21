@@ -245,10 +245,7 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         return Ok(exit::FAILURE);
     }
     // Sole non-text: positionals or file-backed --files-from (not stdin).
-    let files_from_list = match global.files_from.as_deref() {
-        Some("-") | None => None,
-        Some(_) => global.read_files_from()?,
-    };
+    let files_from_list = global.files_from_for_sole_scan()?;
     if let Some(err) =
         crate::ops::file::sole_explicit_non_text_for_scan(paths, files_from_list.as_deref(), &cwd)
     {
