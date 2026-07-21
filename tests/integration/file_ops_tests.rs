@@ -758,6 +758,66 @@ fn test_replace_sole_binary_target_is_invalid_input() {
     );
 }
 
+/// Sole explicit invalid UTF-8 must be invalid_input, not pattern no_matches
+/// (soft-skip misreported as a miss; fixrealloop 2026-07-21).
+#[test]
+fn test_replace_sole_invalid_utf8_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad.txt"), b"hello \xff world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json", "replace", "hello", "bad.txt", "--new", "hi", "--apply", "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("UTF-8") || err.contains("utf"),
+        "replace sole invalid UTF-8: {json}"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("bad.txt")).unwrap(),
+        b"hello \xff world\n"
+    );
+}
+
+/// Sole tidy check on invalid UTF-8 must not report vacuous clean (exit 0).
+#[test]
+fn test_tidy_check_sole_invalid_utf8_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad.txt"), b"line  \xff\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tidy", "check", "bad.txt", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+}
+
 #[test]
 fn test_tidy_check_sole_binary_is_invalid_input() {
     let dir = TempDir::new().unwrap();

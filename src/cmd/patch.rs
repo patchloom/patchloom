@@ -477,16 +477,24 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // The engine error from apply_patch_with_loader already includes
                 // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
                 // FAILED label to match the original CLI format.
-                // Prefer typed ConflictsError; keep conflict(s) text fallback for
-                // any remaining untyped paths.
+                // Prefer typed kinds. Sole-path binary / invalid UTF-8 from
+                // load_text_strict must stay invalid_input (exit 1), not get
+                // STALE/ambiguous labels (fixrealloop 2026-07-21).
                 let (exit_code, kind) = if exit::is_conflicts(&e) || msg.contains("conflict(s)") {
                     (exit::CONFLICTS, "conflicts")
+                } else if exit::is_invalid_input(&e) {
+                    (exit::FAILURE, "invalid_input")
                 } else {
+                    // Ambiguous / stale context and remaining untyped errors.
                     (exit::AMBIGUOUS, "ambiguous")
                 };
-                // Inject the STALE/MERGE FAILED label between path and error detail.
-                let label = if merge_mode { "MERGE FAILED" } else { "STALE" };
-                let err = inject_stale_label(&msg, label);
+                let err = if kind == "ambiguous" {
+                    // Inject the STALE/MERGE FAILED label between path and detail.
+                    let label = if merge_mode { "MERGE FAILED" } else { "STALE" };
+                    inject_stale_label(&msg, label)
+                } else {
+                    msg
+                };
                 emit_error(global, &err, kind)?;
                 return Ok(exit_code);
             }

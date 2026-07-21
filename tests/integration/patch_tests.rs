@@ -928,3 +928,42 @@ fn test_patch_apply_json_applied_true() {
         "world\n"
     );
 }
+
+/// Binary target must refuse with invalid_input (exit 1), not STALE/ambiguous.
+/// Engine already load_text_strict; CLI error mapping was wrong (fixrealloop).
+#[test]
+fn test_patch_apply_binary_target_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bin_line.bin"), b"line one\x00line two\n").unwrap();
+    fs::write(
+        dir.path().join("p.patch"),
+        "--- a/bin_line.bin\n+++ b/bin_line.bin\n@@ -1 +1 @@\n-line one\n+line ONE\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "p.patch", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(err.contains("binary"), "expected binary guidance, got: {v}");
+    assert!(
+        !err.contains("STALE"),
+        "must not STALE-label invalid_input: {v}"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("bin_line.bin")).unwrap(),
+        b"line one\x00line two\n"
+    );
+}

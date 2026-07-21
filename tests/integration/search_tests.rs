@@ -1084,6 +1084,36 @@ fn test_search_sole_explicit_binary_is_invalid_input() {
     assert!(err.contains("binary"), "expected binary guidance, got: {v}");
 }
 
+/// Sole explicit invalid UTF-8 must be invalid_input, not soft-skip no_matches.
+/// fixrealloop 2026-07-21.
+#[test]
+fn test_search_sole_invalid_utf8_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let bad = dir.path().join("bad.txt");
+    fs::write(&bad, b"needle \xff here\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "needle"])
+        .arg(&bad)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("UTF-8") || err.contains("utf"),
+        "expected UTF-8 guidance, got: {v}"
+    );
+}
+
 /// Explicit multi-path search must list binary co-paths in refused[] (parity
 /// with replace; agents otherwise assume every listed path was scanned).
 /// MPI 2026-07-20.

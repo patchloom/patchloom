@@ -85,8 +85,13 @@ pub fn ensure_not_binary_file(
     Ok(())
 }
 
-/// When the user names exactly one existing file and it is binary, return that
-/// display path. Directory walks and multi-path lists still soft-skip binaries.
+/// When the user names exactly one existing file that is not valid text
+/// (binary NUL **or** invalid UTF-8), return `InvalidInput`.
+///
+/// Soft-skip walks still use [`crate::files::read_text_file`]; multi-path
+/// lists use soft-skip / `refused[]`. Sole explicit non-text must not report
+/// pattern `no_matches` or vacuous tidy "clean" (#1894 honesty; fixrealloop
+/// 2026-07-21 found sole invalid UTF-8 soft-skipped as `no_matches`).
 pub fn single_explicit_binary_target(
     paths: &[String],
     cwd: &Path,
@@ -109,7 +114,15 @@ pub fn single_explicit_binary_target(
     if !path.is_file() {
         return None;
     }
-    ensure_not_binary_file(&path, display).err()
+    // Full Strict sole-path rule (binary + invalid UTF-8), not binary-only.
+    match crate::files::load_text_strict(&path, display) {
+        Ok(_) => None,
+        Err(e) => e
+            .downcast_ref::<crate::exit::InvalidInputError>()
+            .map(|inv| crate::exit::InvalidInputError {
+                msg: inv.msg.clone(),
+            }),
+    }
 }
 
 /// Path soft-refused for non-pattern reasons (parity with replace/search `refused[]`).
@@ -321,6 +334,20 @@ mod tests {
             single_explicit_binary_target(&["t.txt".into(), "b.bin".into()], dir.path()).is_none()
         );
         assert!(single_explicit_binary_target(&[".".into()], dir.path()).is_none());
+    }
+
+    #[test]
+    fn single_explicit_rejects_invalid_utf8() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("bad.txt");
+        fs::write(&path, b"hello \xff world\n").unwrap();
+        let err = single_explicit_binary_target(&["bad.txt".into()], dir.path()).unwrap();
+        assert!(
+            err.msg.contains("UTF-8") || err.msg.contains("utf"),
+            "got: {}",
+            err.msg
+        );
+        assert!(err.msg.contains("bad.txt"), "got: {}", err.msg);
     }
 
     #[test]
