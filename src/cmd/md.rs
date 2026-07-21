@@ -381,12 +381,16 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let cwd = global.resolve_cwd()?;
             global.check_paths_contained(&cwd, [&file])?;
             let path = cwd.join(&file);
-            if let Err(err) = crate::ops::file::ensure_not_binary_file(&path, &file) {
-                global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
-                return Ok(exit::FAILURE);
-            }
-            let original =
-                std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
+            let original = match crate::files::load_text_strict(&path, &file) {
+                Ok(s) => s,
+                Err(e) => {
+                    if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+                        global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
+                        return Ok(exit::FAILURE);
+                    }
+                    return Err(e).with_context(|| format!("reading {file}"));
+                }
+            };
             let (_new, removed) = dedupe_headings_in(&original);
 
             // Human / JSONL: one line (or item) per removed heading.
@@ -494,12 +498,16 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let cwd = global.resolve_cwd()?;
             global.check_paths_contained(&cwd, [&file])?;
             let path = cwd.join(&file);
-            if let Err(err) = crate::ops::file::ensure_not_binary_file(&path, &file) {
-                global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
-                return Ok(exit::FAILURE);
-            }
-            let content =
-                std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
+            let content = match crate::files::load_text_strict(&path, &file) {
+                Ok(s) => s,
+                Err(e) => {
+                    if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+                        global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
+                        return Ok(exit::FAILURE);
+                    }
+                    return Err(e).with_context(|| format!("reading {file}"));
+                }
+            };
             let issues = lint_agents_content(&content);
 
             // --json: object envelope (tidy check parity, #1854). --jsonl: one
@@ -551,12 +559,16 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let cwd = global.resolve_cwd()?;
             global.check_paths_contained(&cwd, [&file])?;
             let path = cwd.join(&file);
-            if let Err(err) = crate::ops::file::ensure_not_binary_file(&path, &file) {
-                global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
-                return Ok(exit::FAILURE);
-            }
-            let content =
-                std::fs::read_to_string(&path).with_context(|| format!("reading {file}"))?;
+            let content = match crate::files::load_text_strict(&path, &file) {
+                Ok(s) => s,
+                Err(e) => {
+                    if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+                        global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
+                        return Ok(exit::FAILURE);
+                    }
+                    return Err(e).with_context(|| format!("reading {file}"));
+                }
+            };
             match find_section(&content, &heading) {
                 None => {
                     let msg = format!("heading {:?} not found in {file}", heading);

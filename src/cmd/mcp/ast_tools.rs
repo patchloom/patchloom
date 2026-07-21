@@ -102,8 +102,14 @@ pub(super) fn handle_ast_read(
 
     let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
-    let source = std::fs::read_to_string(&target)
-        .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
+    // Strict sole-path text load (#1894): binary / invalid UTF-8 → invalid_params.
+    let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
+        if crate::exit::is_invalid_input(&e) {
+            McpError::invalid_params(e.to_string(), None)
+        } else {
+            McpError::internal_error(format!("reading {}: {e}", p.path), None)
+        }
+    })?;
     let all_symbols = crate::ast::symbols::extract_symbols(&source, lang);
     let sym = crate::ast::symbols::find_symbol(&all_symbols, &p.symbol).ok_or_else(|| {
         McpError::invalid_params(
@@ -166,19 +172,11 @@ pub(super) fn handle_ast_rename(
     let old = p.old.as_str();
     let new = p.new.as_str();
     let lang_cli = p.lang.clone();
-    let read_errors = std::sync::Mutex::new(Vec::<String>::new());
     let operations: Vec<crate::plan::Operation> =
         crate::par_process_files(&paths, None, &[], |path| {
+            // SoftSkip walk (#1894): binary / invalid UTF-8 / unreadable → skip.
+            let source = crate::files::read_text_file(path)?;
             let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
-            let source = match std::fs::read_to_string(path) {
-                Ok(s) => s,
-                Err(e) => {
-                    if let Ok(mut guard) = read_errors.lock() {
-                        guard.push(format!("reading {}: {e}", path.display()));
-                    }
-                    return None;
-                }
-            };
 
             let has_match = if lang.has_grammar() {
                 crate::ast::rename::rename_in_source(&source, old, new, lang)
@@ -207,11 +205,6 @@ pub(super) fn handle_ast_rename(
                 lang: lang_cli.clone(),
             })
         });
-    if let Ok(mut errs) = read_errors.into_inner()
-        && let Some(msg) = errs.drain(..).next()
-    {
-        return Err(McpError::internal_error(msg, None));
-    }
 
     if operations.is_empty() {
         return no_results("No matches found.");
@@ -537,8 +530,14 @@ pub(super) fn handle_ast_diff(
         crate::cmd::ast::get_git_file_content(&cwd, &p.path, to_ref)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?
     } else {
-        std::fs::read_to_string(&target)
-            .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?
+        // Strict sole-path (#1894): working-tree binary / invalid UTF-8.
+        crate::files::load_text_strict(&target, &p.path).map_err(|e| {
+            if crate::exit::is_invalid_input(&e) {
+                McpError::invalid_params(e.to_string(), None)
+            } else {
+                McpError::internal_error(format!("reading {}: {e}", p.path), None)
+            }
+        })?
     };
 
     let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
@@ -684,8 +683,14 @@ pub(super) fn handle_ast_imports(
         let target = cwd.join(&p.path);
         let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
-        let source = std::fs::read_to_string(&target)
-            .map_err(|e| McpError::internal_error(format!("reading {}: {e}", p.path), None))?;
+        // Strict sole-path (#1894).
+        let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
+            if crate::exit::is_invalid_input(&e) {
+                McpError::invalid_params(e.to_string(), None)
+            } else {
+                McpError::internal_error(format!("reading {}: {e}", p.path), None)
+            }
+        })?;
         let imports = crate::ast::imports::list_imports(&source, lang);
         let obj = serde_json::json!({
             "file": p.path,

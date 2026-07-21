@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use anyhow::Context;
 use serde::Serialize;
 
 use super::{Language, parse_source};
@@ -54,8 +53,8 @@ pub fn validate_file(path: &Path, lang_hint: Option<Language>) -> anyhow::Result
             msg: format!("no grammar available for {lang}"),
         }));
     }
-    let source =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+    let source = crate::files::load_text_strict(path, &path.display().to_string())?;
     validate_source(&source, lang).ok_or_else(|| {
         anyhow::Error::new(crate::exit::ParseErrorError {
             msg: format!("failed to parse {}", path.display()),

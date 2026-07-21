@@ -39,7 +39,8 @@ pub fn compute_impact(
             if !lang.has_grammar() {
                 return None;
             }
-            let source = std::fs::read_to_string(path).ok()?;
+            // SoftSkip multi-path (#1894): binary / invalid UTF-8 → skip.
+            let source = crate::files::read_text_file(path)?;
             Some((path, display.as_str(), source, lang))
         })
         .collect();

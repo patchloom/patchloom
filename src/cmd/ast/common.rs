@@ -3,7 +3,6 @@
 use crate::ast::Language;
 use crate::ast::symbols::SymbolDef;
 use crate::cli::global::GlobalFlags;
-use anyhow::Context;
 use std::path::{Path, PathBuf};
 
 /// Resolve `--lang` hint to a `Language`, falling back to extension detection.
@@ -23,10 +22,9 @@ pub(super) fn setup_single_file(
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [path_arg])?;
     let target = cwd.join(path_arg);
-    // Sole binary must not look like unsupported-language / missing-symbol.
-    crate::ops::file::ensure_not_binary_file(&target, path_arg)?;
+    // Strict sole-path text load (#1894): binary / invalid UTF-8 → InvalidInput.
+    let source = crate::files::load_text_strict(&target, path_arg)?;
     let lang = resolve_lang(lang_arg, &target);
-    let source = std::fs::read_to_string(&target).with_context(|| format!("reading {path_arg}"))?;
     Ok((cwd, target, lang, source))
 }
 

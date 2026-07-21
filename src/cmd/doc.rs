@@ -247,7 +247,8 @@ impl DocAction {
 }
 
 fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
-    let content = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+    // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+    let content = crate::files::load_text_strict(std::path::Path::new(path), path)?;
     let format = detect_format(path)?;
     parse_doc(&content, &format).with_context(|| format!("parsing {path}"))
 }

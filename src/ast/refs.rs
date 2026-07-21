@@ -148,7 +148,8 @@ pub fn find_refs_in_file(
     if !lang.has_grammar() {
         return Vec::new();
     }
-    let Ok(source) = std::fs::read_to_string(path) else {
+    // SoftSkip multi-path (#1894): binary / invalid UTF-8 → empty.
+    let Some(source) = crate::files::read_text_file(path) else {
         return Vec::new();
     };
     find_refs_in_source(&source, symbol_name, lang, display_path)
