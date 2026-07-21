@@ -479,8 +479,13 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::FAILURE);
     }
 
-    let results = collect_matches(&args, global)?;
     let cwd = global.resolve_cwd()?;
+    // Sole non-text before soft-skip scan (no "skipping" then invalid_input).
+    if let Some(err) = crate::ops::file::single_explicit_binary_target(&args.paths, &cwd) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
+    let results = collect_matches(&args, global)?;
     let skipped = crate::files::scan_missing_entries(global, &cwd, &args.paths)?;
     let refused = explicit_binary_refused(&args, global, &cwd);
 

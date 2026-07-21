@@ -1105,6 +1105,11 @@ fn test_search_sole_invalid_utf8_is_invalid_input() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("skipping"),
+        "sole non-text must not soft-skip first: {stderr}"
+    );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["error_kind"], "invalid_input", "{v}");
     let err = v["error"].as_str().unwrap_or("");
