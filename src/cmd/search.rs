@@ -458,13 +458,8 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let cwd = global.resolve_cwd()?;
-    // Sole non-text before soft-skip scan. File-backed --files-from is included;
-    // stdin ("-") cannot be pre-read without stealing the collect path, so sole
-    // stdin lists still soft-skip then re-check after collect if needed.
-    let files_from_list = match global.files_from.as_deref() {
-        Some("-") | None => None,
-        Some(_) => global.read_files_from()?,
-    };
+    // Sole non-text before soft-skip scan (file-backed --files-from; not stdin).
+    let files_from_list = global.files_from_for_sole_scan()?;
     if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
         &args.paths,
         files_from_list.as_deref(),

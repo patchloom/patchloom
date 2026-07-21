@@ -227,6 +227,14 @@ pub(super) fn run_fix(
 
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, &paths)?;
+    // Sole non-text before soft-skip scan (file-backed --files-from; not stdin).
+    let files_from_list = global.files_from_for_sole_scan()?;
+    if let Some(err) =
+        crate::ops::file::sole_explicit_non_text_for_scan(&paths, files_from_list.as_deref(), &cwd)
+    {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(crate::exit::FAILURE);
+    }
     let skipped = crate::files::scan_missing_entries(global, &cwd, &paths)?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&cwd))?;
@@ -293,12 +301,17 @@ pub(super) fn run_fix(
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
-        // Sole explicit binary: soft-skip would look like "already tidy".
-        if let Some(err) = crate::ops::file::sole_explicit_non_text(&paths, &cwd) {
+        // Sole re-check after scan (covers rare races); files_from already above.
+        if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
+            &paths,
+            files_from_list.as_deref(),
+            &cwd,
+        ) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }
-        let refused = crate::ops::file::explicit_multi_path_non_text_refused(&paths, &cwd);
+        let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(&paths);
+        let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
         emit_tidy_fix_output(global, &[], None, Some(false), None, skipped, refused)?;
         return Ok(exit::SUCCESS);
     }
