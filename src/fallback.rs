@@ -90,7 +90,11 @@ impl std::fmt::Display for EditError {
 impl std::error::Error for EditError {}
 
 /// Classification of edit errors.
+///
+/// Marked `non_exhaustive` so new honesty kinds (for example [`Self::TypeError`])
+/// can land in minor releases without breaking external exhaustive matches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 #[serde(rename_all = "snake_case")]
 pub enum EditErrorKind {
     /// The edit target matched multiple locations in the file.

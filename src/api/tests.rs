@@ -3224,6 +3224,35 @@ fn replace_in_content_fuzzy_with_insert_before() {
 }
 
 #[test]
+fn replace_in_content_fuzzy_insert_after_line_orients_comment() {
+    // Fuzzy match + comment-like insert_after must still line-orient (#1885).
+    let content = "fn process_data() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        min_fuzzy_score: None,
+        allow_absent_old: true,
+        insert_after: Some("    // after body".to_string()),
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, "fn proccess_data() {}", "", &opts).unwrap();
+    assert!(result.changed);
+    assert!(
+        result
+            .new_content
+            .contains("fn process_data() {}\n    // after body"),
+        "fuzzy insert_after must insert on next line: {}",
+        result.new_content
+    );
+    assert!(
+        !result
+            .new_content
+            .contains("fn process_data() {}    // after body"),
+        "must not glue comment onto function: {}",
+        result.new_content
+    );
+}
+
+#[test]
 fn replace_in_content_fuzzy_with_insert_after() {
     let content = "fn process_data() {}\n";
     let opts = ReplaceOptions {
