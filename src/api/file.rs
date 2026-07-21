@@ -177,8 +177,9 @@ fn file_write_cross(
                 ),
             }));
         }
-        let original = std::fs::read_to_string(src)
-            .with_context(|| format!("failed to read {}", src.display()))?;
+        // Soft text load for EditResult body only; binary / unreadable still
+        // renames the inode (this no-files fallback path).
+        let original = crate::files::try_read_text_file(src).unwrap_or_default();
         let (applied, backup_session) = super::apply_cross_file_mutation(
             src,
             Some(dst),

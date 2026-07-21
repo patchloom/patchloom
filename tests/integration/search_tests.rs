@@ -1159,6 +1159,62 @@ fn test_search_multi_path_binary_refused() {
     );
 }
 
+/// Explicit multi-path: invalid UTF-8 co-path is refused with reason invalid_utf8.
+#[test]
+fn test_search_multi_path_invalid_utf8_refused() {
+    let dir = TempDir::new().unwrap();
+    let text = dir.path().join("text.txt");
+    let bad = dir.path().join("bad.txt");
+    fs::write(&text, "needle in text\n").unwrap();
+    fs::write(&bad, b"needle \xff binary").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "needle"])
+        .arg(&text)
+        .arg(&bad)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let refused = v["refused"]
+        .as_array()
+        .expect("refused[] required for invalid_utf8 co-path");
+    assert_eq!(refused.len(), 1, "{v}");
+    assert_eq!(refused[0]["reason"], "invalid_utf8", "{v}");
+}
+
+/// Sole binary via --files-from is invalid_input (not pattern no_matches).
+#[test]
+fn test_search_files_from_sole_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("data.bin"), b"x\x00y").unwrap();
+    fs::write(dir.path().join("list.txt"), "data.bin\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "search", "needle"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert!(v["error"].as_str().unwrap_or("").contains("binary"), "{v}");
+}
+
 #[test]
 fn test_search_skips_invalid_utf8_files() {
     let dir = TempDir::new().unwrap();

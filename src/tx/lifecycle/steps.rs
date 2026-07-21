@@ -197,7 +197,9 @@ pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
     let noop_policy = WritePolicy::default();
     let mut restored = 0usize;
     for (path, original) in snapshot {
-        let current = match std::fs::read_to_string(path) {
+        // Soft content load: skip binary / unreadable collateral (do not
+        // rewrite non-text via atomic_write as UTF-8).
+        let current = match crate::files::try_read_text_file(path) {
             Ok(c) => c,
             Err(_) => continue,
         };

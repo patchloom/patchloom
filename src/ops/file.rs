@@ -91,6 +91,9 @@ pub fn ensure_not_binary_file(
 /// Soft walks use [`crate::files::try_read_text_file`]; explicit multi-path
 /// lists use [`explicit_multi_path_non_text_refused`]. Sole explicit non-text
 /// must not report pattern `no_matches` or vacuous tidy "clean" (#1894).
+///
+/// Prefer [`sole_explicit_non_text_for_scan`] when `--files-from` may supply
+/// the sole path (positional `paths` is empty).
 pub fn sole_explicit_non_text(
     paths: &[String],
     cwd: &Path,
@@ -124,14 +127,21 @@ pub fn sole_explicit_non_text(
     }
 }
 
-/// Deprecated name for [`sole_explicit_non_text`] (binary-only name was wrong
-/// after invalid UTF-8 joined the sole-path fail-closed set).
-#[inline]
-pub fn single_explicit_binary_target(
+/// Sole non-text for a scan that may use `--files-from`.
+///
+/// When `files_from` is set, resolve the list and apply the sole-path rule to
+/// that list (positional `paths` is often empty). File-backed lists are
+/// re-read; stdin lists should be resolved once by the caller and passed via
+/// [`sole_explicit_non_text`] on the resolved slice.
+pub fn sole_explicit_non_text_for_scan(
     paths: &[String],
+    files_from: Option<&[String]>,
     cwd: &Path,
 ) -> Option<crate::exit::InvalidInputError> {
-    sole_explicit_non_text(paths, cwd)
+    match files_from {
+        Some(list) => sole_explicit_non_text(list, cwd),
+        None => sole_explicit_non_text(paths, cwd),
+    }
 }
 
 /// Path soft-refused for non-pattern reasons (parity with replace/search `refused[]`).
@@ -195,15 +205,6 @@ pub fn explicit_multi_path_non_text_refused(
         refused.sort_by(|a, b| a.path.cmp(&b.path));
         Some(refused)
     }
-}
-
-/// Deprecated name for [`explicit_multi_path_non_text_refused`].
-#[inline]
-pub fn explicit_multi_path_binary_refused(
-    paths: &[String],
-    cwd: &Path,
-) -> Option<Vec<PathRefused>> {
-    explicit_multi_path_non_text_refused(paths, cwd)
 }
 
 #[cfg(test)]
@@ -367,6 +368,17 @@ mod tests {
             err.msg
         );
         assert!(err.msg.contains("bad.txt"), "got: {}", err.msg);
+    }
+
+    #[test]
+    fn sole_explicit_non_text_for_scan_uses_files_from_list() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
+        let list = vec!["b.bin".into()];
+        // Positionals empty (typical --files-from only).
+        assert!(sole_explicit_non_text(&[], dir.path()).is_none());
+        let err = sole_explicit_non_text_for_scan(&[], Some(&list), dir.path()).unwrap();
+        assert!(err.msg.contains("binary"), "got: {}", err.msg);
     }
 
     #[test]

@@ -74,6 +74,29 @@ enum DiffReadError {
     NoSource,
     IoError(String, std::io::Error),
     StdinError(std::io::Error),
+    /// Diff bytes are binary or not valid UTF-8 (#1896).
+    InvalidInput(String),
+}
+
+fn classify_diff_bytes(bytes: Vec<u8>, display: &str) -> Result<String, DiffReadError> {
+    match crate::files::classify_text_bytes(&bytes) {
+        crate::files::TextBytesKind::Text(s) => Ok(s),
+        crate::files::TextBytesKind::Binary => Err(DiffReadError::InvalidInput(format!(
+            "patch input is a binary file: {display}"
+        ))),
+        crate::files::TextBytesKind::InvalidUtf8 => Err(DiffReadError::InvalidInput(format!(
+            "patch input is not valid UTF-8 text: {display}"
+        ))),
+    }
+}
+
+fn read_diff_stdin() -> Result<String, DiffReadError> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .read_to_end(&mut bytes)
+        .map_err(DiffReadError::StdinError)?;
+    classify_diff_bytes(bytes, "stdin")
 }
 
 fn read_diff_input(
@@ -85,19 +108,76 @@ fn read_diff_input(
     // this instead of --stdin (fixrealloop).
     if let Some(path) = file {
         if path == "-" {
-            std::io::read_to_string(std::io::stdin()).map_err(DiffReadError::StdinError)
+            read_diff_stdin()
         } else {
             // Relative patch paths resolve under --cwd (parity with `tx` / `batch`).
             let full = global
                 .resolve_user_path(path)
                 .map_err(|e| DiffReadError::IoError(path.clone(), std::io::Error::other(e)))?;
-            std::fs::read_to_string(&full)
-                .map_err(|e| DiffReadError::IoError(full.display().to_string(), e))
+            let display = full.display().to_string();
+            // Strict sole-path for the patch file itself (#1896).
+            crate::files::load_text_strict(&full, &display).map_err(|e| {
+                if crate::exit::is_invalid_input(&e) {
+                    DiffReadError::InvalidInput(e.to_string())
+                } else if crate::exit::is_io_not_found(&e) {
+                    DiffReadError::IoError(
+                        display.clone(),
+                        std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()),
+                    )
+                } else {
+                    DiffReadError::IoError(display, std::io::Error::other(e.to_string()))
+                }
+            })
         }
     } else if stdin_flag {
-        std::io::read_to_string(std::io::stdin()).map_err(DiffReadError::StdinError)
+        read_diff_stdin()
     } else {
         Err(DiffReadError::NoSource)
+    }
+}
+
+/// Load a patch *target* file under Strict content rules with NotFound policy.
+///
+/// - Text: `Ok(content)`
+/// - Missing + `missing_as_empty`: `Ok("")` (creation / merge check)
+/// - Missing + not empty: `Err(NotFound)`
+/// - Binary / invalid UTF-8: `Err(InvalidInput)`
+/// - Other IO: `Err(Io)`
+enum PatchTargetError {
+    NotFound,
+    /// Directory or non-file path (per-file check status `error`, exit 5).
+    NotAFile(String),
+    /// Binary or invalid UTF-8 (fail-closed `invalid_input`, exit 1).
+    InvalidInput(String),
+    Io(String),
+}
+
+fn load_patch_target(
+    path: &std::path::Path,
+    display: &str,
+    missing_as_empty: bool,
+) -> Result<String, PatchTargetError> {
+    match crate::files::load_text_strict(path, display) {
+        Ok(s) => Ok(s),
+        Err(e) if crate::exit::is_io_not_found(&e) => {
+            if missing_as_empty {
+                Ok(String::new())
+            } else {
+                Err(PatchTargetError::NotFound)
+            }
+        }
+        Err(e) if crate::exit::is_invalid_input(&e) => {
+            let msg = e.to_string();
+            // Prefix match only: path display can contain "not a file".
+            if msg.starts_with("target is not a file:") {
+                Err(PatchTargetError::NotAFile(msg))
+            } else {
+                Err(PatchTargetError::InvalidInput(msg))
+            }
+        }
+        Err(e) => Err(PatchTargetError::Io(format!(
+            "failed to read {display}: {e}"
+        ))),
     }
 }
 
@@ -304,6 +384,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             )?;
             return Ok(exit::PARSE_ERROR);
         }
+        Err(DiffReadError::InvalidInput(msg)) => {
+            emit_error(global, &format!("patch: {msg}"), "invalid_input")?;
+            return Ok(exit::FAILURE);
+        }
     };
 
     crate::verbose!("patch: diff text length={}", diff_text.len());
@@ -332,26 +416,26 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut results = Vec::new();
         for pf in &patch_files {
             let file_path = cwd.join(&pf.path);
-            let original = match std::fs::read_to_string(&file_path) {
+            // Strict target load (#1896); creation allows missing → empty.
+            let original = match load_patch_target(&file_path, &pf.path, pf.is_creation) {
                 Ok(s) => s,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    if pf.is_creation {
-                        // Creation patch: file should not exist yet.
-                        String::new()
-                    } else {
-                        let msg = format!("file not found: {}", file_path.display());
-                        results.push(PatchFileResult {
-                            path: pf.path.clone(),
-                            status: "missing",
-                            error: Some(msg.clone()),
-                            conflicts: None,
-                        });
-                        any_problem = true;
-                        continue;
-                    }
+                Err(PatchTargetError::NotFound) => {
+                    let msg = format!("file not found: {}", file_path.display());
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "missing",
+                        error: Some(msg.clone()),
+                        conflicts: None,
+                    });
+                    any_problem = true;
+                    continue;
                 }
-                Err(e) => {
-                    let msg = format!("failed to read {}: {}", file_path.display(), e);
+                Err(PatchTargetError::InvalidInput(msg)) => {
+                    // Binary / invalid UTF-8: hard fail-closed for agents.
+                    global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
+                Err(PatchTargetError::NotAFile(msg) | PatchTargetError::Io(msg)) => {
                     results.push(PatchFileResult {
                         path: pf.path.clone(),
                         status: "error",
@@ -421,12 +505,22 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut all_ok = true;
         for pf in &patch_files {
             let file_path = cwd.join(&pf.path);
-            let original = match std::fs::read_to_string(&file_path) {
+            // Merge check: missing target → empty; binary/utf8 → invalid_input.
+            let original = match load_patch_target(&file_path, &pf.path, true) {
                 Ok(s) => s,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-                Err(e) => {
-                    let msg = format!("patch check: cannot read {}: {e}", pf.path);
+                Err(PatchTargetError::InvalidInput(msg)) => {
                     global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
+                // missing_as_empty: true → NotFound never returned here.
+                Err(PatchTargetError::NotFound) => {
+                    unreachable!("merge check uses missing_as_empty")
+                }
+                Err(PatchTargetError::NotAFile(msg) | PatchTargetError::Io(msg)) => {
+                    global.emit_error_json_kind(
+                        Some("invalid_input"),
+                        &format!("patch check: cannot read {}: {msg}", pf.path),
+                    )?;
                     return Ok(exit::FAILURE);
                 }
             };

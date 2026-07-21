@@ -74,8 +74,9 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if action == "append" {
         // Check if patchloom rules are already present.
-        let content = std::fs::read_to_string(&target_path)
-            .with_context(|| format!("reading existing {}", target_path.display()))?;
+        let content =
+            crate::files::load_text_strict(&target_path, &target_path.display().to_string())
+                .with_context(|| format!("reading existing {}", target_path.display()))?;
         if content.contains(AGENT_RULES_GENERATED_MARKER) {
             report.agent_rules = "skipped_already_present".into();
             status!("{rel_target} already contains patchloom rules, skipping.");
@@ -246,7 +247,7 @@ const GITIGNORE_PATCHLOOM_LINE: &str = ".patchloom/";
 fn ensure_gitignore_patchloom(cwd: &Path) -> anyhow::Result<GitignorePatchloom> {
     let path = cwd.join(".gitignore");
     if path.exists() {
-        let content = std::fs::read_to_string(&path)
+        let content = crate::files::load_text_strict(&path, &path.display().to_string())
             .with_context(|| format!("reading {}", path.display()))?;
         if gitignore_already_covers_patchloom(&content) {
             return Ok(GitignorePatchloom::AlreadyPresent);
