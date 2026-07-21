@@ -349,6 +349,56 @@ fn file_prepend_rejects_binary_file() {
     assert_eq!(std::fs::read(&file).unwrap(), b"hello\x00world");
 }
 
+/// Sole-path replace must refuse binary (NUL) files; MCP/tx used to rewrite them.
+#[test]
+fn replace_rejects_sole_binary_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.bin");
+    std::fs::write(&file, b"hello\x00world").unwrap();
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+
+    let op = Operation::Replace {
+        glob: None,
+        path: Some("data.bin".into()),
+        regex: false,
+        old: "hello".into(),
+        new_text: Some("HELLO".into()),
+        nth: None,
+        insert_before: None,
+        insert_after: None,
+        case_insensitive: false,
+        multiline: false,
+        if_exists: false,
+        whole_line: false,
+        range: None,
+        word_boundary: false,
+        before_context: None,
+        after_context: None,
+        unique: false,
+        require_change: false,
+        command_position: false,
+        fuzzy: false,
+        min_fuzzy_score: None,
+        allow_absent_old: false,
+    };
+    let err = crate::tx::replace_op::execute_replace_op(&op, &mut tx).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError, got: {err:#}"
+    );
+    assert!(
+        err.to_string().contains("binary file"),
+        "message should name binary: {err}"
+    );
+    assert!(
+        f.pending.is_empty() && f.write_targets.is_empty(),
+        "must not stage a write for binary replace"
+    );
+    assert_eq!(std::fs::read(&file).unwrap(), b"hello\x00world");
+}
+
 /// file.create through a path component that is a file must fail with
 /// InvalidInputError before staging (no bare tempfile / false backup).
 #[test]

@@ -4260,3 +4260,193 @@ async fn test_mcp_ast_imports_list_only() {
     );
     client.cancel().await.unwrap();
 }
+
+// --- fixrealloop / MCP dogfood (agent-shaped replace insert + multi-doc) ---
+
+/// MCP `replace_text` insert_after is line-oriented by default (#1885).
+#[tokio::test]
+async fn test_mcp_replace_text_insert_after_line_oriented() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn process_data() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "old": "fn process_data() {}",
+            "insert_after": "    // after body"
+        }),
+    )
+    .await;
+    assert!(!is_error, "replace_text insert_after should succeed: {val}");
+    assert_eq!(val["ok"], true, "insert_after ok: {val}");
+    let content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
+    assert!(
+        content.contains("fn process_data() {}\n    // after body"),
+        "line-oriented insert_after: {content}"
+    );
+    assert!(
+        !content.contains("fn process_data() {}    // after body"),
+        "must not glue comment onto line: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// MCP insert_after on CRLF files must keep CRLF separators (#1892).
+#[tokio::test]
+async fn test_mcp_replace_text_insert_after_preserves_crlf() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("win.txt"), b"line1\r\nTARGET\r\nline3\r\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "win.txt",
+            "old": "TARGET",
+            "insert_after": "// post"
+        }),
+    )
+    .await;
+    assert!(!is_error, "CRLF insert_after should succeed: {val}");
+    let on_disk = fs::read(dir.path().join("win.txt")).unwrap();
+    assert_eq!(
+        on_disk,
+        b"line1\r\nTARGET\r\n// post\r\nline3\r\n",
+        "MCP insert_after must preserve CRLF: {:?}",
+        String::from_utf8_lossy(&on_disk)
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Multi-doc bare key via MCP peels to type_error (#1883).
+#[tokio::test]
+async fn test_mcp_doc_get_multi_doc_bare_key_type_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("multi.yaml"),
+        "---\nname: a\n---\nname: b\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_get",
+        serde_json::json!({"path": "multi.yaml", "selector": "name"}),
+    )
+    .await;
+    assert!(
+        is_error || val["ok"] == false,
+        "bare multi-doc key should fail: {val}"
+    );
+    let text = val.to_string();
+    assert!(
+        text.contains("type_error") || text.contains("TypeError") || text.contains("multi"),
+        "expect type_error envelope: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Multi-doc indexed selector works over MCP.
+#[tokio::test]
+async fn test_mcp_doc_get_multi_doc_indexed_selector() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("multi.yaml"),
+        "---\nname: a\n---\nname: b\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_get",
+        serde_json::json!({"path": "multi.yaml", "selector": "0.name"}),
+    )
+    .await;
+    assert!(!is_error, "0.name should succeed: {val}");
+    // doc_get may return bare value or envelope with value field
+    let s = val.to_string();
+    assert!(
+        s.contains("\"a\"") || val == "a" || val.get("value") == Some(&serde_json::json!("a")),
+        "expected name a: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// execute_plan insert_after is line-oriented over MCP.
+#[tokio::test]
+async fn test_mcp_execute_plan_insert_after_line_oriented() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.txt"), "alpha\nbeta\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": "t.txt",
+            "old": "beta",
+            "insert_after": "// next"
+        }]
+    });
+    let (is_error, val) =
+        call_tool_value(&client, "execute_plan", serde_json::json!({"plan": plan})).await;
+    assert!(!is_error, "execute_plan insert_after should succeed: {val}");
+    let content = fs::read_to_string(dir.path().join("t.txt")).unwrap();
+    assert!(
+        content.contains("// next") && !content.contains("beta// next"),
+        "plan insert_after line-oriented: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Sole binary path via MCP replace_text is invalid_input / binary, not silent.
+#[tokio::test]
+async fn test_mcp_replace_text_sole_binary_refused() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bin.dat"), b"hello\x00world").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "bin.dat",
+            "old": "hello",
+            "new": "HELLO"
+        }),
+    )
+    .await;
+    assert!(
+        is_error || val["ok"] == false,
+        "sole binary should fail: {val}"
+    );
+    let text = val.to_string().to_lowercase();
+    assert!(
+        text.contains("binary") || text.contains("invalid_input"),
+        "binary/invalid_input kind: {val}"
+    );
+    client.cancel().await.unwrap();
+}
