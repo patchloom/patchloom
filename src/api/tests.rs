@@ -1651,6 +1651,50 @@ fn replace_text_insert_after() {
 }
 
 #[test]
+fn replace_text_insert_after_preserves_crlf() {
+    // fixrealloop: whole-line insert into CRLF files must use \r\n, not bare LF.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("win.txt");
+    fs::write(&file, "line1\r\nTARGET\r\nline3\r\n").unwrap();
+
+    let opts = ReplaceOptions {
+        insert_after: Some("// post".to_string()),
+        ..ReplaceOptions::default()
+    };
+    let result = replace_text(&file, "TARGET", "", &opts, ApplyMode::Apply, None).unwrap();
+    assert!(result.changed);
+    assert!(result.applied);
+    let on_disk = fs::read(&file).unwrap();
+    assert_eq!(
+        on_disk,
+        b"line1\r\nTARGET\r\n// post\r\nline3\r\n",
+        "insert_after must preserve CRLF separators: {:?}",
+        String::from_utf8_lossy(&on_disk)
+    );
+}
+
+#[test]
+fn replace_text_insert_before_preserves_crlf() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("win.txt");
+    fs::write(&file, "A\r\nB\r\n").unwrap();
+
+    let opts = ReplaceOptions {
+        insert_before: Some("PRE".to_string()),
+        ..ReplaceOptions::default()
+    };
+    let result = replace_text(&file, "B", "", &opts, ApplyMode::Apply, None).unwrap();
+    assert!(result.changed);
+    let on_disk = fs::read(&file).unwrap();
+    assert_eq!(
+        on_disk,
+        b"A\r\nPRE\r\nB\r\n",
+        "insert_before must preserve CRLF: {:?}",
+        String::from_utf8_lossy(&on_disk)
+    );
+}
+
+#[test]
 fn replace_text_insert_after_midline_bare() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");

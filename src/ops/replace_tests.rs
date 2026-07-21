@@ -191,14 +191,22 @@ mod replace_tests {
 
         #[test]
         fn normalize_line_insert_after_whole_line_crlf_bare_payload() {
-            // CRLF after anchor must still count as a line boundary.
+            // CRLF after anchor must still count as a line boundary, and the
+            // separator must be CRLF so the file does not get mixed LF (fixrealloop).
             let file = "alpha\r\n";
             assert!(
                 anchor_is_whole_line(file, "alpha"),
                 "CRLF-terminated line should be whole-line"
             );
             let out = normalize_line_insert(file, "alpha", "beta", InsertSide::After);
-            assert_eq!(out, "\nbeta");
+            assert_eq!(out, "\r\nbeta");
+        }
+
+        #[test]
+        fn normalize_line_insert_before_whole_line_crlf() {
+            let file = "A\r\nB\r\n";
+            let out = normalize_line_insert(file, "B", "PRE", InsertSide::Before);
+            assert_eq!(out, "PRE\r\n");
         }
 
         #[test]
@@ -207,7 +215,15 @@ mod replace_tests {
             // "alpha" is alone before CR; "beta" alone before CR.
             assert!(anchor_is_whole_line(file, "alpha"));
             let out = normalize_line_insert(file, "alpha", "x", InsertSide::After);
-            assert_eq!(out, "\nx");
+            assert_eq!(out, "\rx");
+        }
+
+        #[test]
+        fn preferred_line_ending_prefers_crlf() {
+            assert_eq!(preferred_line_ending("a\r\nb\n"), "\r\n");
+            assert_eq!(preferred_line_ending("a\rb\r"), "\r");
+            assert_eq!(preferred_line_ending("a\nb\n"), "\n");
+            assert_eq!(preferred_line_ending(""), "\n");
         }
 
         #[test]
