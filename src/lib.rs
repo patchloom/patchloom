@@ -39,7 +39,7 @@
 //! - [`containment`] -- workspace path guard (flexible `AbsolutePathPolicy` via builder for temp dirs/extra roots in library use; strict `Reject` for MCP)
 //! - [`exec`] -- shell command execution with process-tree management
 //! - [`fallback`] -- multi-strategy edit recovery (exact, anchor, similarity)
-//! - [`files`] -- `is_binary`, `read_text_file`, and (with "files" feature) parallel scanning helpers
+//! - [`files`] -- `is_binary`, `is_binary_file` (#1884 path preflight), `read_text_file`, and (with "files" feature) parallel scanning helpers
 //! - [`write`] -- atomic file writes with write-policy transformations
 //!
 //! With "files" feature you also get `api::search_directory`, `api::execute_plan`,
@@ -87,7 +87,8 @@
 //! Fail-closed text edits for agent hosts (#1492): set `ReplaceOptions.require_change = true`
 //! so zero matches become `EditErrorKind::NoMatch` (not `Ok(changed=false)`). Match kinds via
 //! `api::edit_error_kind(&err)` without scraping English. That helper also peels CLI/tx typed
-//! errors (`InvalidInputError` for empty patterns / bad regex, `NoMatchError`, …) so hosts
+//! errors (`InvalidInputError` for empty patterns / bad regex, `NoMatchError`,
+//! `TypeErrorError` → `EditErrorKind::TypeError` for multi-doc bare keys (#1883), …) so hosts
 //! need not know which construction path produced the failure. Example:
 //!
 //! ```rust,no_run
@@ -168,7 +169,8 @@
 //! );
 //! ```
 //!
-//! The `files` module (pure helpers like `is_binary`, `read_text_file`, and scanning tools when "files" feature enabled) is always available.
+//! The `files` module (pure helpers like `is_binary`, `is_binary_file` path preflight,
+//! `read_text_file`, and scanning tools when "files" feature enabled) is always available.
 //! The `cli` and `cmd` modules require the `cli` feature.
 //!
 //! For pure library use with plans and execution (post #792), prefer

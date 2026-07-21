@@ -107,6 +107,11 @@ pub enum EditErrorKind {
     GuardRejected,
     /// Invalid arguments or options for the edit.
     InvalidInput,
+    /// Wrong value type for a doc selector (multi-document YAML bare key,
+    /// navigate into array as object, etc.). CLI JSON uses `error_kind:
+    /// "type_error"`. Distinct from [`Self::InvalidInput`] so hosts can
+    /// recover with `0.key` / `[0].key` without scraping English (#1883).
+    TypeError,
     /// I/O or other operational failure.
     OperationFailed,
     /// Post-write format/lint hook failed (`format_failed` / #1663).
@@ -125,6 +130,7 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::ParseError => write!(f, "parse_error"),
             EditErrorKind::GuardRejected => write!(f, "guard_rejected"),
             EditErrorKind::InvalidInput => write!(f, "invalid_input"),
+            EditErrorKind::TypeError => write!(f, "type_error"),
             EditErrorKind::OperationFailed => write!(f, "operation_failed"),
             EditErrorKind::FormatFailed => write!(f, "format_failed"),
         }
@@ -212,9 +218,11 @@ pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErr
         if e.downcast_ref::<crate::exit::InvalidInputError>().is_some()
             || e.downcast_ref::<crate::exit::AlreadyExistsError>()
                 .is_some()
-            || e.downcast_ref::<crate::exit::TypeErrorError>().is_some()
         {
             return Some(EditErrorKind::InvalidInput);
+        }
+        if e.downcast_ref::<crate::exit::TypeErrorError>().is_some() {
+            return Some(EditErrorKind::TypeError);
         }
         if e.downcast_ref::<crate::exit::ParseErrorError>().is_some() {
             return Some(EditErrorKind::ParseError);
@@ -925,6 +933,9 @@ mod tests {
             "conflicting_edit"
         );
         assert_eq!(EditErrorKind::ParseError.to_string(), "parse_error");
+        assert_eq!(EditErrorKind::TypeError.to_string(), "type_error");
+        assert_eq!(EditErrorKind::InvalidInput.to_string(), "invalid_input");
+        assert_eq!(EditErrorKind::FormatFailed.to_string(), "format_failed");
     }
 
     #[test]
@@ -944,6 +955,13 @@ mod tests {
         assert_eq!(
             classify_error(&e as &(dyn Error + 'static)),
             Some(EditErrorKind::FormatFailed)
+        );
+        let e = crate::exit::TypeErrorError {
+            msg: "parent is an array".into(),
+        };
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::TypeError)
         );
     }
 
@@ -982,6 +1000,16 @@ mod tests {
         .into();
         assert_eq!(edit_error_kind(&exists), Some(EditErrorKind::InvalidInput));
 
+        let type_err: anyhow::Error = crate::exit::TypeErrorError {
+            msg: "parent is an array, not an object".into(),
+        }
+        .into();
+        assert_eq!(
+            edit_error_kind(&type_err),
+            Some(EditErrorKind::TypeError),
+            "TypeErrorError must not collapse to InvalidInput (#1883)"
+        );
+
         let format_failed: anyhow::Error =
             crate::exit::FormatFailedError::new("format command failed").into();
         assert_eq!(
@@ -1001,6 +1029,12 @@ mod tests {
         // Intermediate .context() must not hide the typed kind.
         let wrapped = invalid.context("operation 1 (replace) failed");
         assert_eq!(edit_error_kind(&wrapped), Some(EditErrorKind::InvalidInput));
+
+        let type_wrapped = type_err.context("operation 1 (doc.set) failed");
+        assert_eq!(
+            edit_error_kind(&type_wrapped),
+            Some(EditErrorKind::TypeError)
+        );
 
         let plain = anyhow::anyhow!("plain error");
         assert_eq!(edit_error_kind(&plain), None);

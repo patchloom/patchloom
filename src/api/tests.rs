@@ -1500,7 +1500,40 @@ fn doc_get_array_root_bare_key_is_type_error() {
         msg.contains("0.a") || msg.contains("[0].a"),
         "index hint missing: {msg}"
     );
+    // Library hosts branch on kind without scraping English (#1883).
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::TypeError),
+        "TypeErrorError must peel to EditErrorKind::TypeError, not InvalidInput"
+    );
     assert_eq!(doc_get(&file, "0.a").unwrap(), serde_json::json!(1));
+}
+
+#[test]
+fn empty_replace_pattern_is_invalid_input_not_type_error() {
+    // Sibling-path honesty for #1883: empty pattern stays InvalidInput.
+    let err = replace_in_content("a b", "", "x", &ReplaceOptions::default()).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[test]
+fn doc_set_multi_document_bare_key_is_type_error_kind() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    let err = doc_set(&file, "a", serde_json::json!(9), ApplyMode::Preview, None).unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&err),
+        "expected TypeErrorError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::TypeError)
+    );
 }
 
 #[test]
