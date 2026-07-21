@@ -185,7 +185,11 @@ pub enum Operation {
         heading: String,
         content: String,
     },
-    #[serde(rename = "md.insert_before_heading")]
+    /// Alias `md.insert_before_section`: section start == heading line.
+    #[serde(
+        rename = "md.insert_before_heading",
+        alias = "md.insert_before_section"
+    )]
     MdInsertBeforeHeading {
         path: String,
         heading: String,

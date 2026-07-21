@@ -225,6 +225,7 @@ mod tests {
             files_changed: 1,
             files_created: 0,
             files_deleted: 0,
+            files_renamed: 0,
             changes: vec![],
             reads: vec![],
             searches: vec![],

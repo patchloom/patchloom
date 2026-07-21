@@ -186,6 +186,20 @@ fn parse_plan_ops_alias_accepted() {
     assert_eq!(plan.operations.len(), 1);
 }
 
+/// Agents invent `md.insert_before_section` by symmetry with insert_after_section.
+#[test]
+fn parse_md_insert_before_section_alias() {
+    let json = r#"{"version":1,"operations":[{"op":"md.insert_before_section","path":"f.md","heading":"H","content":"x"}]}"#;
+    let plan = parse_plan(json).expect("insert_before_section alias should parse");
+    assert!(
+        matches!(
+            plan.operations[0],
+            crate::plan::Operation::MdInsertBeforeHeading { .. }
+        ),
+        "alias must map to MdInsertBeforeHeading"
+    );
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn parse_all_operation_variants() {

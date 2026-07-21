@@ -29,6 +29,11 @@ pub struct TxOutput {
     pub files_changed: usize,
     pub files_created: usize,
     pub files_deleted: usize,
+    /// Number of `file.rename` pairs reported as a single `action: "renamed"`
+    /// change (not double-counted as create+delete). Fixrealloop 2026-07-20.
+    /// Omitted when zero so agents without renames keep the prior JSON shape.
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
+    pub files_renamed: usize,
     pub changes: Vec<TxChange>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub reads: Vec<TxReadResult>,
@@ -111,6 +116,12 @@ pub struct TxDocMutation {
 pub struct TxChange {
     pub path: String,
     pub action: String,
+    /// Source path when [`Self::action`] is `renamed` (display-relative).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from: Option<String>,
+    /// Destination path when [`Self::action`] is `renamed` (display-relative).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub to: Option<String>,
     /// Replace match honesty for this path (`exact` / `fuzzy` / `anchored`).
     /// Omitted for non-replace changes. See #1674 / #1669.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -250,19 +261,37 @@ fn match_meta_for_path(
     }
 }
 
+fn is_zero_usize(n: &usize) -> bool {
+    *n == 0
+}
+
+/// Staged path/meta inputs for [`build_tx_output_with_meta`] (keeps arg count low).
+pub(crate) struct TxOutputMetaInputs<'a> {
+    pub changes: &'a [(PathBuf, String, String)],
+    pub deletions: &'a HashSet<PathBuf>,
+    pub existed_before: &'a HashSet<PathBuf>,
+    pub replace_match_meta: &'a HashMap<PathBuf, ReplaceMatchMeta>,
+    pub renames: &'a [(PathBuf, PathBuf)],
+}
+
 pub(crate) fn build_tx_output_with_meta(
     status: &'static str,
     ok: bool,
-    changes: &[(PathBuf, String, String)],
-    deletions: &HashSet<PathBuf>,
-    existed_before: &HashSet<PathBuf>,
     cwd: &Path,
-    replace_match_meta: &HashMap<PathBuf, ReplaceMatchMeta>,
+    inputs: TxOutputMetaInputs<'_>,
 ) -> TxOutput {
+    let TxOutputMetaInputs {
+        changes,
+        deletions,
+        existed_before,
+        replace_match_meta,
+        renames,
+    } = inputs;
     let mut tx_changes = Vec::new();
     let mut created = 0usize;
     let mut deleted_count = 0usize;
     let mut modified = 0usize;
+    let mut renamed_count = 0usize;
     let mut agg_mode: Option<crate::api::MatchMode> = None;
     let mut agg_score: Option<f64> = None;
     let mut agg_count: usize = 0;
@@ -275,7 +304,48 @@ pub(crate) fn build_tx_output_with_meta(
             .into_owned()
     };
 
+    // Explicit file.rename pairs: one "renamed" row (not create+delete).
+    let mut rename_from: HashSet<PathBuf> = HashSet::new();
+    let mut rename_to: HashSet<PathBuf> = HashSet::new();
+    for (from, to) in renames {
+        rename_from.insert(from.clone());
+        rename_to.insert(to.clone());
+        let (match_mode, match_score, match_count, matched_text) =
+            match_meta_for_path(to, replace_match_meta);
+        if let Some(m) = replace_match_meta.get(to) {
+            any_replace_meta = true;
+            agg_mode = Some(merge_match_modes(agg_mode, m.mode));
+            if matches!(m.mode, crate::api::MatchMode::Fuzzy)
+                && let Some(s) = m.score
+            {
+                agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
+            }
+            agg_count = agg_count.saturating_add(m.match_count);
+            if top_matched_text.is_none() {
+                top_matched_text = m.matched_text.clone();
+            }
+        }
+        let from_str = display_path(from);
+        let to_str = display_path(to);
+        tx_changes.push(TxChange {
+            // Destination is the surviving path agents care about.
+            path: to_str.clone(),
+            action: "renamed".to_string(),
+            from: Some(from_str),
+            to: Some(to_str),
+            match_mode,
+            match_score,
+            match_count,
+            matched_text,
+        });
+        renamed_count += 1;
+    }
+
     for (path, _original, _) in changes {
+        // Covered by a renamed entry (source deleted / dest created).
+        if rename_from.contains(path) || rename_to.contains(path) {
+            continue;
+        }
         let path_str = display_path(path);
         let (match_mode, match_score, match_count, matched_text) =
             match_meta_for_path(path, replace_match_meta);
@@ -297,6 +367,8 @@ pub(crate) fn build_tx_output_with_meta(
             tx_changes.push(TxChange {
                 path: path_str,
                 action: "deleted".to_string(),
+                from: None,
+                to: None,
                 match_mode,
                 match_score,
                 match_count,
@@ -307,6 +379,8 @@ pub(crate) fn build_tx_output_with_meta(
             tx_changes.push(TxChange {
                 path: path_str,
                 action: "created".to_string(),
+                from: None,
+                to: None,
                 match_mode,
                 match_score,
                 match_count,
@@ -317,6 +391,8 @@ pub(crate) fn build_tx_output_with_meta(
             tx_changes.push(TxChange {
                 path: path_str,
                 action: "modified".to_string(),
+                from: None,
+                to: None,
                 match_mode,
                 match_score,
                 match_count,
@@ -327,6 +403,9 @@ pub(crate) fn build_tx_output_with_meta(
     }
     // Deletions not captured in changes (empty files).
     for path in deletions {
+        if rename_from.contains(path) {
+            continue;
+        }
         if !changes.iter().any(|(c, _, _)| c == path) {
             let (match_mode, match_score, match_count, matched_text) =
                 match_meta_for_path(path, replace_match_meta);
@@ -346,6 +425,8 @@ pub(crate) fn build_tx_output_with_meta(
             tx_changes.push(TxChange {
                 path: display_path(path),
                 action: "deleted".to_string(),
+                from: None,
+                to: None,
                 match_mode,
                 match_score,
                 match_count,
@@ -429,6 +510,7 @@ pub(crate) fn build_tx_output_with_meta(
         files_changed: modified,
         files_created: created,
         files_deleted: deleted_count,
+        files_renamed: renamed_count,
         changes: tx_changes,
         reads: Vec::new(),
         searches: Vec::new(),
@@ -467,11 +549,14 @@ pub(crate) fn build_full_tx_output(
     let mut output = build_tx_output_with_meta(
         status,
         true,
-        &result.changes,
-        &result.deletions,
-        &result.existed_before,
         cwd,
-        &result.replace_match_meta,
+        TxOutputMetaInputs {
+            changes: &result.changes,
+            deletions: &result.deletions,
+            existed_before: &result.existed_before,
+            replace_match_meta: &result.replace_match_meta,
+            renames: &result.renames,
+        },
     );
     output.reads = std::mem::take(&mut result.tx_reads);
     output.searches = std::mem::take(&mut result.tx_searches);
@@ -529,6 +614,7 @@ pub(crate) fn build_error_output(
         files_changed: 0,
         files_created: 0,
         files_deleted: 0,
+        files_renamed: 0,
         changes: Vec::new(),
         reads: Vec::new(),
         searches: Vec::new(),
@@ -699,6 +785,7 @@ mod tests {
             files_changed: 0,
             files_created: 0,
             files_deleted: 0,
+            files_renamed: 0,
             changes: Vec::new(),
             reads: Vec::new(),
             searches: Vec::new(),
@@ -725,6 +812,7 @@ mod tests {
             files_changed: 0,
             files_created: 0,
             files_deleted: 0,
+            files_renamed: 0,
             changes: Vec::new(),
             reads: Vec::new(),
             searches: Vec::new(),
@@ -866,11 +954,14 @@ mod tests {
         let out = build_tx_output_with_meta(
             "success",
             true,
-            &changes,
-            &deletions,
-            &existed,
             cwd,
-            &HashMap::new(),
+            TxOutputMetaInputs {
+                changes: &changes,
+                deletions: &deletions,
+                existed_before: &existed,
+                replace_match_meta: &HashMap::new(),
+                renames: &[],
+            },
         );
         assert!(out.ok);
         assert_eq!(out.files_changed, 1); // existing.txt modified
@@ -884,17 +975,55 @@ mod tests {
         assert!(actions.contains(&"deleted"));
     }
 
+    /// Explicit file.rename must surface as one `renamed` change, not create+delete.
+    #[test]
+    fn build_tx_output_classifies_file_rename() {
+        let cwd = Path::new("/project");
+        let from = PathBuf::from("/project/old.txt");
+        let to = PathBuf::from("/project/new.txt");
+        let changes = vec![
+            (to.clone(), String::new(), "body\n".to_string()),
+            (from.clone(), "body\n".to_string(), String::new()),
+        ];
+        let deletions = HashSet::from([from.clone()]);
+        let renames = vec![(from, to)];
+        let out = build_tx_output_with_meta(
+            "success",
+            true,
+            cwd,
+            TxOutputMetaInputs {
+                changes: &changes,
+                deletions: &deletions,
+                existed_before: &HashSet::new(),
+                replace_match_meta: &HashMap::new(),
+                renames: &renames,
+            },
+        );
+        assert_eq!(out.files_renamed, 1);
+        assert_eq!(out.files_created, 0);
+        assert_eq!(out.files_deleted, 0);
+        assert_eq!(out.files_changed, 0);
+        assert_eq!(out.changes.len(), 1);
+        assert_eq!(out.changes[0].action, "renamed");
+        assert_eq!(out.changes[0].path, "new.txt");
+        assert_eq!(out.changes[0].from.as_deref(), Some("old.txt"));
+        assert_eq!(out.changes[0].to.as_deref(), Some("new.txt"));
+    }
+
     #[test]
     fn build_tx_output_empty_changes() {
         let cwd = Path::new("/project");
         let out = build_tx_output_with_meta(
             "success",
             true,
-            &[],
-            &HashSet::new(),
-            &HashSet::new(),
             cwd,
-            &HashMap::new(),
+            TxOutputMetaInputs {
+                changes: &[],
+                deletions: &HashSet::new(),
+                existed_before: &HashSet::new(),
+                replace_match_meta: &HashMap::new(),
+                renames: &[],
+            },
         );
         assert_eq!(out.files_changed, 0);
         assert_eq!(out.files_created, 0);
@@ -922,11 +1051,14 @@ mod tests {
         let out = build_tx_output_with_meta(
             "success",
             true,
-            &changes,
-            &HashSet::new(),
-            &existed,
             cwd,
-            &meta,
+            TxOutputMetaInputs {
+                changes: &changes,
+                deletions: &HashSet::new(),
+                existed_before: &existed,
+                replace_match_meta: &meta,
+                renames: &[],
+            },
         );
         assert_eq!(out.match_mode.as_deref(), Some("fuzzy"));
         assert_eq!(out.match_score, Some(0.91));
@@ -978,11 +1110,14 @@ mod tests {
         let out = build_tx_output_with_meta(
             "success",
             true,
-            &changes,
-            &HashSet::new(),
-            &existed,
             cwd,
-            &meta,
+            TxOutputMetaInputs {
+                changes: &changes,
+                deletions: &HashSet::new(),
+                existed_before: &existed,
+                replace_match_meta: &meta,
+                renames: &[],
+            },
         );
         assert_eq!(out.match_mode.as_deref(), Some("fuzzy"));
         assert_eq!(
@@ -1023,11 +1158,14 @@ mod tests {
         let out = build_tx_output_with_meta(
             "success",
             true,
-            &changes,
-            &HashSet::new(),
-            &existed,
             cwd,
-            &meta,
+            TxOutputMetaInputs {
+                changes: &changes,
+                deletions: &HashSet::new(),
+                existed_before: &existed,
+                replace_match_meta: &meta,
+                renames: &[],
+            },
         );
         assert_eq!(
             out.matched_text.as_deref(),
@@ -1042,21 +1180,27 @@ mod tests {
         let preview = build_tx_output_with_meta(
             "changes_detected",
             true,
-            &[],
-            &Default::default(),
-            &Default::default(),
             Path::new("/tmp"),
-            &Default::default(),
+            TxOutputMetaInputs {
+                changes: &[],
+                deletions: &Default::default(),
+                existed_before: &Default::default(),
+                replace_match_meta: &Default::default(),
+                renames: &[],
+            },
         );
         assert!(!preview.applied, "preview must set applied=false");
         let applied = build_tx_output_with_meta(
             "success",
             true,
-            &[],
-            &Default::default(),
-            &Default::default(),
             Path::new("/tmp"),
-            &Default::default(),
+            TxOutputMetaInputs {
+                changes: &[],
+                deletions: &Default::default(),
+                existed_before: &Default::default(),
+                replace_match_meta: &Default::default(),
+                renames: &[],
+            },
         );
         assert!(applied.applied, "success must set applied=true");
         let err = build_error_output("invalid_input", "nope", None);

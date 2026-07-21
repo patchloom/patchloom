@@ -995,6 +995,34 @@ fn test_md_insert_before_heading() {
     assert!(content.contains("Inserted before B.\n\n## Section B"));
 }
 
+/// CLI alias: agents invent `insert-before-section` by symmetry with after-section.
+#[test]
+fn test_md_insert_before_section_alias() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("doc.md");
+    fs::write(
+        &file,
+        "# Title\n\nIntro.\n\n## Section A\n\nContent A.\n\n## Section B\n\nContent B.\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("md")
+        .arg("insert-before-section")
+        .arg(file.to_str().unwrap())
+        .arg("--heading")
+        .arg("Section B")
+        .arg("--content")
+        .arg("Inserted via section alias.")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("Inserted via section alias.\n\n## Section B"));
+}
+
 #[test]
 fn test_md_table_append_missing_file_includes_path_in_error() {
     Command::cargo_bin("patchloom")

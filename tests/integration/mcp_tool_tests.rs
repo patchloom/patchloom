@@ -622,8 +622,21 @@ async fn test_mcp_file_rename_round_trip() {
     .await;
     assert!(!is_error, "rename should succeed: {val}");
     assert_eq!(val["ok"], true, "rename ok field: {val}");
-    assert_eq!(val["files_created"], 1, "rename files_created: {val}");
-    assert_eq!(val["files_deleted"], 1, "rename files_deleted: {val}");
+    // file.rename is one renamed change (not create+delete double-count).
+    assert_eq!(val["files_renamed"], 1, "rename files_renamed: {val}");
+    assert_eq!(val["files_created"], 0, "rename files_created: {val}");
+    assert_eq!(val["files_deleted"], 0, "rename files_deleted: {val}");
+    let empty: Vec<serde_json::Value> = Vec::new();
+    let actions: Vec<&str> = val["changes"]
+        .as_array()
+        .unwrap_or(&empty)
+        .iter()
+        .filter_map(|c| c["action"].as_str())
+        .collect();
+    assert!(
+        actions.contains(&"renamed"),
+        "rename changes must include action renamed: {val}"
+    );
     assert!(
         !dir.path().join("old_name.txt").exists(),
         "old file should not exist"

@@ -36,6 +36,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// md.insert_after_heading <path> <heading> <content>
 /// md.insert_after_section <path> <heading> <content>
 /// md.insert_before_heading <path> <heading> <content>
+/// md.insert_before_section <path> <heading> <content> (alias of insert_before_heading)
 /// md.move_section <path> <heading> before|after <target_heading>
 /// md.move_section <path> <heading> <to> before|after <target_heading>
 /// md.dedupe_headings <path>
@@ -54,7 +55,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   doc.update, doc.move, doc.delete_where, replace (optional flags: --fuzzy, …), file.create,
   file.delete, file.rename, file.append, file.prepend, md.upsert_bullet,
   md.table_append, md.replace_section, md.insert_after_heading,
-  md.insert_after_section, md.insert_before_heading, md.move_section, md.dedupe_headings,
+  md.insert_after_section, md.insert_before_heading (alias md.insert_before_section),
+  md.move_section, md.dedupe_headings,
   md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature
 
 EXAMPLES:
@@ -121,7 +123,12 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             msg: format!("line {line_num}: empty operation"),
         }));
     }
-    let op = tokens[0].as_str();
+    // Normalize agent-facing aliases to canonical batch op names before match
+    // (keeps inventory/`"name" =>` collector at one primary name per op).
+    let op = match tokens[0].as_str() {
+        "md.insert_before_section" => "md.insert_before_heading",
+        other => other,
+    };
     let args = &tokens[1..];
 
     match op {
