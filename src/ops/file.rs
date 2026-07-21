@@ -155,8 +155,7 @@ pub fn explicit_multi_path_binary_refused(
                 cwd.join(raw)
             }
         };
-        // Use ensure_not_binary_file (not is_binary_file) so this works under
-        // --features files without the cli-only is_binary_file cfg.
+        // Path preflight via ensure_not_binary_file (typed InvalidInput on NUL).
         if path.is_file() && ensure_not_binary_file(&path, p).is_err() {
             // Keep the user-facing path string (CLI arg), not only the abs path.
             refused.push(PathRefused {
