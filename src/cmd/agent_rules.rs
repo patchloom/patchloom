@@ -223,7 +223,12 @@ success lines are the full path list.\n\n\
              `--latest` flag.\n\
              **Replace mode flags (#1829):** CLI replacement text is `--new` (not positional NEW and not \
              `--to`). Missing mode errors name `--new` / `--insert-before` / `--insert-after` first; \
-             plan/MCP still accept field aliases `new`/`to`.\n\n",
+             plan/MCP still accept field aliases `new`/`to`.\n\
+             **Insert line placement (#1885):** `--insert-before` / `--insert-after` (and plan/MCP \
+             `insert_before` / `insert_after`) are line-oriented by default: payloads that look like a \
+             new line (indent, `//`/`#` comment, embedded newline) or a whole-line anchor get a separating \
+             newline so agents do not glue text onto the match. Pure mid-line inserts (e.g. `X` after \
+             `foo` inside a line) stay byte-exact.\n\n",
         );
         if !show_mcp {
             out.push_str(

@@ -162,6 +162,92 @@ pub fn validate_replace_args(
         .map_err(ReplaceValidationError::Mode)
 }
 
+/// Which side of the match an insert lands on (for line-oriented default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertSide {
+    Before,
+    After,
+}
+
+/// Normalize an insert payload so agent-style inserts land on their own line.
+///
+/// Default for all insert_before / insert_after paths (#1885). Byte-exact
+/// mid-line inserts (e.g. `"X"` after `"foo"` inside a line) are unchanged.
+///
+/// Rules (from Bline host glue, now product default):
+/// - insert_after: prepend `\\n` when the payload looks like a new line, or
+///   every occurrence of `anchor` is alone on its line, unless the payload
+///   already starts with `\\n` or the anchor ends with `\\n`.
+/// - insert_before: append `\\n` under the same conditions (so the anchor
+///   stays on the next line), unless the payload already ends with `\\n`
+///   or the anchor starts with `\\n`.
+pub fn normalize_line_insert(
+    file_content: &str,
+    anchor: &str,
+    insert_content: &str,
+    side: InsertSide,
+) -> String {
+    match side {
+        InsertSide::After => {
+            if insert_content.starts_with('\n') || anchor.ends_with('\n') {
+                return insert_content.to_string();
+            }
+            if looks_like_new_line_payload(insert_content)
+                || anchor_is_whole_line(file_content, anchor)
+            {
+                format!("\n{insert_content}")
+            } else {
+                insert_content.to_string()
+            }
+        }
+        InsertSide::Before => {
+            if insert_content.ends_with('\n') || anchor.starts_with('\n') {
+                return insert_content.to_string();
+            }
+            if looks_like_new_line_payload(insert_content)
+                || anchor_is_whole_line(file_content, anchor)
+            {
+                format!("{insert_content}\n")
+            } else {
+                insert_content.to_string()
+            }
+        }
+    }
+}
+
+fn looks_like_new_line_payload(insert_content: &str) -> bool {
+    let trimmed = insert_content.trim_start_matches([' ', '\t']);
+    insert_content.starts_with([' ', '\t'])
+        || trimmed.starts_with("//")
+        || trimmed.starts_with('#')
+        || insert_content.contains('\n')
+}
+
+/// True when every occurrence of `anchor` is alone on its line (bounded by
+/// newlines / file edges). Empty content or empty anchor → false.
+pub fn anchor_is_whole_line(file_content: &str, anchor: &str) -> bool {
+    if anchor.is_empty() || file_content.is_empty() {
+        return false;
+    }
+    let bytes = file_content.as_bytes();
+    let mut any = false;
+    for (i, _) in file_content.match_indices(anchor) {
+        any = true;
+        let before_ok = i == 0 || bytes[i - 1] == b'\n';
+        let end = i + anchor.len();
+        let after_ok = end == file_content.len() || bytes.get(end) == Some(&b'\n');
+        if !(before_ok && after_ok) {
+            return false;
+        }
+    }
+    any
+}
+
+/// Build the replacement string for replace / insert modes.
+///
+/// `file_content` is the file (or buffer) being edited; it is used to decide
+/// line-oriented insert normalization (#1885). Pass `""` only in pure unit
+/// tests that do not exercise whole-line-anchor detection.
 pub fn replacement_text(
     from: &str,
     to: &Option<String>,
@@ -169,6 +255,7 @@ pub fn replacement_text(
     insert_after: &Option<String>,
     use_match_anchor: bool,
     regex_mode: bool,
+    file_content: &str,
 ) -> String {
     let anchor = if use_match_anchor { "${0}" } else { from };
 
@@ -178,19 +265,23 @@ pub fn replacement_text(
     let needs_escape = use_match_anchor && !regex_mode;
 
     if let Some(text) = insert_before {
+        // Normalize against the literal `from` pattern (not ${0}) so whole-line
+        // detection sees the real anchor text in the file.
+        let normalized = normalize_line_insert(file_content, from, text, InsertSide::Before);
         let safe = if needs_escape {
-            text.replace('$', "$$")
+            normalized.replace('$', "$$")
         } else {
-            text.clone()
+            normalized
         };
         return format!("{safe}{anchor}");
     }
 
     if let Some(text) = insert_after {
+        let normalized = normalize_line_insert(file_content, from, text, InsertSide::After);
         let safe = if needs_escape {
-            text.replace('$', "$$")
+            normalized.replace('$', "$$")
         } else {
-            text.clone()
+            normalized
         };
         return format!("{anchor}{safe}");
     }

@@ -1004,6 +1004,7 @@ fn test_replace_insert_before() {
 fn test_replace_insert_after() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");
+    // Whole-line anchor + leading-space payload → line-oriented insert (#1885).
     fs::write(&file, "line1\nanchor\nline3\n").unwrap();
 
     Command::cargo_bin("patchloom")
@@ -1019,7 +1020,30 @@ fn test_replace_insert_after() {
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
-        "line1\nanchor // tagged\nline3\n"
+        "line1\nanchor\n // tagged\nline3\n"
+    );
+}
+
+#[test]
+fn test_replace_insert_after_midline_bare_stays_exact() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "line1\nxx anchor yy\nline3\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("anchor")
+        .arg("--insert-after")
+        .arg("X")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line1\nxx anchorX yy\nline3\n"
     );
 }
 

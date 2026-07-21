@@ -1602,6 +1602,7 @@ fn replace_text_insert_after() {
     let file = dir.path().join("code.rs");
     fs::write(&file, "hello world\n").unwrap();
 
+    // Leading space looks like a new-line payload (#1885): insert on next line.
     let opts = ReplaceOptions {
         insert_after: Some(" beautiful".to_string()),
         ..ReplaceOptions::default()
@@ -1610,8 +1611,27 @@ fn replace_text_insert_after() {
 
     assert!(result.changed);
     assert!(
-        result.new_content.contains("hello beautiful"),
-        "insert_after should add text after match: {}",
+        result.new_content.contains("hello\n beautiful"),
+        "line-oriented insert_after: {}",
+        result.new_content
+    );
+}
+
+#[test]
+fn replace_text_insert_after_midline_bare() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "hello world\n").unwrap();
+
+    let opts = ReplaceOptions {
+        insert_after: Some("X".to_string()),
+        ..ReplaceOptions::default()
+    };
+    let result = replace_text(&file, "hello", "", &opts, ApplyMode::Preview, None).unwrap();
+    assert!(result.changed);
+    assert!(
+        result.new_content.contains("helloX world"),
+        "mid-line bare insert stays byte-exact: {}",
         result.new_content
     );
 }

@@ -225,6 +225,7 @@ fn replace_write(
             &insert_after,
             compiled_re.is_some(),
             is_regex,
+            &original,
         );
 
         let parsed_range = range.as_deref().map(|r| {
@@ -402,8 +403,20 @@ fn replace_write(
                         return Err(anyhow::Error::new(crate::exit::NoMatchError { msg }));
                     }
                     let to_text = if let Some(ib) = &insert_before {
+                        let ib = ops::replace::normalize_line_insert(
+                            &original,
+                            &anchor.matched_text,
+                            ib,
+                            ops::replace::InsertSide::Before,
+                        );
                         format!("{}{}", ib, anchor.matched_text)
                     } else if let Some(ia) = &insert_after {
+                        let ia = ops::replace::normalize_line_insert(
+                            &original,
+                            &anchor.matched_text,
+                            ia,
+                            ops::replace::InsertSide::After,
+                        );
                         format!("{}{}", anchor.matched_text, ia)
                     } else {
                         new_text.as_deref().unwrap_or("").to_string()
@@ -569,6 +582,7 @@ pub fn replace_in_content(
         &opts.insert_after,
         compiled_re.is_some(),
         is_regex,
+        content,
     );
 
     let parsed_range = opts.range;
@@ -735,8 +749,20 @@ pub fn replace_in_content(
                     .into());
                 }
                 let to_text = if let Some(ib) = &opts.insert_before {
+                    let ib = ops::replace::normalize_line_insert(
+                        content,
+                        &anchor.matched_text,
+                        ib,
+                        ops::replace::InsertSide::Before,
+                    );
                     format!("{}{}", ib, anchor.matched_text)
                 } else if let Some(ia) = &opts.insert_after {
+                    let ia = ops::replace::normalize_line_insert(
+                        content,
+                        &anchor.matched_text,
+                        ia,
+                        ops::replace::InsertSide::After,
+                    );
                     format!("{}{}", anchor.matched_text, ia)
                 } else {
                     to.to_string()
