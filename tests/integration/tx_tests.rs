@@ -1198,6 +1198,48 @@ fn test_tx_file_rename_moves_file() {
     );
 }
 
+/// file.rename JSON must report one `renamed` change (not create+delete).
+#[test]
+fn test_tx_file_rename_json_action_renamed() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["files_renamed"], 1, "{json}");
+    assert_eq!(json["files_created"], 0, "{json}");
+    assert_eq!(json["files_deleted"], 0, "{json}");
+    let changes = json["changes"].as_array().expect("changes array");
+    assert_eq!(changes.len(), 1, "{json}");
+    assert_eq!(changes[0]["action"], "renamed");
+    assert_eq!(changes[0]["from"], "old.txt");
+    assert_eq!(changes[0]["to"], "new.txt");
+    assert_eq!(changes[0]["path"], "new.txt");
+}
+
 #[test]
 fn test_tx_file_rename_fails_if_dst_exists() {
     let dir = TempDir::new().unwrap();

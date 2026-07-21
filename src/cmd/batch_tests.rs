@@ -407,6 +407,20 @@ mod basic {
     }
 
     #[test]
+    fn parse_line_md_insert_before_section_alias() {
+        let op = parse_line(
+            "md.insert_before_section README.md \"## Rules\" \"Preamble\"",
+            1,
+        )
+        .unwrap();
+        assert!(matches!(
+            op,
+            Operation::MdInsertBeforeHeading { path, heading, content }
+            if path == "README.md" && heading == "## Rules" && content == "Preamble"
+        ));
+    }
+
+    #[test]
     fn parse_line_md_dedupe_headings() {
         let op = parse_line("md.dedupe_headings CHANGELOG.md", 1).unwrap();
         assert!(matches!(

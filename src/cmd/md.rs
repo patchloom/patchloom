@@ -82,6 +82,11 @@ pub enum MdAction {
         content: Option<String>,
     },
     /// Insert content immediately before a heading line.
+    ///
+    /// Alias `insert-before-section`: a section starts at its heading, so
+    /// sibling-before-section placement is the same as before-heading
+    /// (symmetry with `insert-after-section` / `insert-after-heading`).
+    #[command(visible_alias = "insert-before-section")]
     InsertBeforeHeading {
         /// Markdown file to edit.
         file: String,
