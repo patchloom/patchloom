@@ -644,6 +644,12 @@ pub fn run(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // outside the workspace while computing matches (precomputed write-path
     // guard remains defense-in-depth).
     global.check_paths_contained(&cwd, &args.paths)?;
+    // Sole non-text before soft-skip scan so stderr is not "skipping" then
+    // invalid_input (fixrealloop 2026-07-21).
+    if let Some(err) = crate::ops::file::single_explicit_binary_target(&args.paths, &cwd) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
     let skipped = crate::files::scan_missing_entries(global, &cwd, &args.paths)?;
 
     // Context / pure fuzzy: route through the tx engine where the

@@ -781,6 +781,11 @@ fn test_replace_sole_invalid_utf8_is_invalid_input() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("skipping"),
+        "sole non-text must not soft-skip first: {stderr}"
+    );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["error_kind"], "invalid_input", "{json}");
     let err = json["error"].as_str().unwrap_or("");
