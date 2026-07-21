@@ -8,8 +8,6 @@
 
 use std::path::Path;
 
-use anyhow::Context;
-
 use crate::containment::PathGuard;
 use crate::ops;
 use crate::ops::doc::query::{QueryResult, query_get, query_has};
@@ -27,8 +25,7 @@ fn cwd_from_path(path: &Path) -> &Path {
 fn load_doc_value(path: &Path) -> anyhow::Result<serde_json::Value> {
     let path_str = path.to_string_lossy();
     let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let original = crate::files::load_text_strict(path, &path_str)?;
     ops::doc::parse_doc(&original, &format)
 }
 
@@ -62,8 +59,7 @@ fn doc_write(
 
     let path_str = path.to_string_lossy().into_owned();
     let format = ops::doc::detect_format(&path_str)?;
-    let original = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let original = crate::files::load_text_strict(path, &path_str)?;
     let value = ops::doc::parse_doc(&original, &format)?;
     let mut new_value = value.clone();
 

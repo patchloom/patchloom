@@ -30,7 +30,11 @@ pub(crate) use policy::{build_write_policy, build_write_policy_with_plan};
 // Pending file changes
 // ---------------------------------------------------------------------------
 
-/// Read file content from the pending map or from disk.
+/// Read file content from the pending map or from disk under **Strict** policy.
+///
+/// Disk loads use [`crate::files::load_text_strict`] so sole-path MCP/tx/api
+/// cannot rewrite binary or invalid UTF-8 as text (#1894). Walks must use
+/// [`read_and_probe`] (SoftSkip) instead.
 ///
 /// When a file is first loaded from disk (Vacant entry), it is recorded in
 /// `existed_before` so the commit/rollback phase knows it was pre-existing.
@@ -44,25 +48,20 @@ pub(crate) fn read_file_content<'a>(
         Entry::Vacant(entry) => {
             // Callers pass already-resolved paths (cwd.join(rel_path)),
             // so read directly without double-joining (#385).
-            if path.exists() && !path.is_file() {
-                return Err(crate::exit::InvalidInputError {
-                    msg: format!("target is not a file: {}", path.display()),
-                }
-                .into());
-            }
-            let content = std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read {}", path.display()))?;
+            let display = path.display().to_string();
+            let content = crate::files::load_text_strict(path, &display)?;
             existed_before.insert(path.to_path_buf());
             Ok(&entry.insert((content.clone(), content)).1)
         }
     }
 }
 
-/// Read file bytes from disk, check for binary content, and if text, populate
-/// the pending map. Returns `Ok(true)` if the file is text (content stored in
-/// pending), `Ok(false)` if binary (skipped). This avoids the double-read that
-/// occurs when `is_binary_file` probes 8 KiB and then `read_file_content`
-/// re-reads the full file.
+/// SoftSkip load for directory walks / multi-path scans (#1894).
+///
+/// Returns `Ok(true)` if the file is text (content stored in pending),
+/// `Ok(false)` if binary or invalid UTF-8 (skipped). Uses
+/// [`crate::files::classify_text_bytes`] so walk policy matches
+/// [`crate::files::read_text_file`].
 pub(crate) fn read_and_probe(
     pending: &mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
@@ -79,15 +78,11 @@ pub(crate) fn read_and_probe(
     }
     let bytes =
         std::fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-    if crate::files::is_binary(&bytes) {
-        return Ok(false);
-    }
-    // Skip files that pass the binary check but contain invalid UTF-8
-    // (e.g., bare continuation bytes without NUL). This matches standalone
-    // search/replace behavior which silently skips such files.
-    let content = match String::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(_) => return Ok(false),
+    let content = match crate::files::classify_text_bytes(&bytes) {
+        crate::files::TextBytesKind::Text(s) => s,
+        crate::files::TextBytesKind::Binary | crate::files::TextBytesKind::InvalidUtf8 => {
+            return Ok(false);
+        }
     };
     existed_before.insert(path.to_path_buf());
     pending.insert(path.to_path_buf(), (content.clone(), content));

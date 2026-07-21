@@ -55,12 +55,9 @@ pub fn replace_text(
         || opts.before_context.is_some()
         || opts.after_context.is_some()
     {
-        let original = std::fs::read_to_string(path).map_err(|e| {
-            crate::fallback::EditError::new(
-                crate::fallback::EditErrorKind::OperationFailed,
-                format!("failed to read {}: {e}", path.display()),
-            )
-        })?;
+        let display = path.to_string_lossy();
+        // Strict sole-path load (#1894); InvalidInputError peels via edit_error_kind.
+        let original = crate::files::load_text_strict(path, &display)?;
         let content_result = replace_in_content(&original, from, to, opts)?;
         let policy = crate::write::WritePolicy::default();
         let (applied, backup_session) =
@@ -170,7 +167,7 @@ fn replace_write(
     fuzzy: bool,
 ) -> anyhow::Result<EditResult> {
     use crate::ops;
-    use anyhow::{Context, bail};
+    use anyhow::bail;
 
     // Fallback for no-cli/files builds: delegate to ops layer directly.
     if let Operation::Replace {
@@ -195,8 +192,7 @@ fn replace_write(
     } = op
     {
         let path_str = path.to_string_lossy();
-        let original = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
+        let original = crate::files::load_text_strict(path, &path_str)?;
 
         let is_regex = regex_mode;
         if old.is_empty() && !is_regex {

@@ -99,8 +99,6 @@ fn tidy_write(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    use anyhow::Context;
-
     // Fallback: apply policy directly through the write module.
     if let Operation::TidyFix {
         ensure_final_newline,
@@ -114,8 +112,7 @@ fn tidy_write(
     } = _op
     {
         let path_str = path.to_string_lossy();
-        let original = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
+        let original = crate::files::load_text_strict(path, &path_str)?;
 
         let eol = normalize_eol
             .as_deref()

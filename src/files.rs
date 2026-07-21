@@ -4,9 +4,18 @@
 //! ignore-aware walks, glob/exclude filtering, binary/UTF-8 guards, and
 //! path-missing helpers used by search/replace/tidy; co-located unit tests push
 //! the file over 1000 lines. Do not split for LOC alone.
+//!
+//! # Text I/O honesty (#1894)
+//!
+//! - **Strict sole-path:** [`load_text_strict`] — binary / invalid UTF-8 →
+//!   `InvalidInputError` (CLI, MCP/tx sole path, library `api::*`).
+//! - **Soft skip (walk / multi-path):** [`read_text_file`] — binary / invalid
+//!   UTF-8 / unreadable → `None`.
+//! - Byte rule: [`classify_text_bytes`] (NUL probe + UTF-8).
 
 #[cfg(feature = "cli")]
 use crate::cli::global::GlobalFlags;
+use anyhow::Context;
 #[cfg(any(feature = "cli", feature = "files"))]
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -50,6 +59,69 @@ pub fn is_binary(data: &[u8]) -> bool {
     memchr::memchr(0, &data[..check_len]).is_some()
 }
 
+/// Result of classifying on-disk (or in-memory) bytes as agent-editable text.
+///
+/// Shared by CLI, MCP/tx, and library loaders so they cannot disagree about
+/// "is this text?" (#1894). Binary uses the same 8 KiB NUL probe as [`is_binary`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextBytesKind {
+    /// Valid UTF-8 text with no NUL in the binary probe window.
+    Text(String),
+    /// NUL in the first 8 KiB (or empty probe treated via [`is_binary`]).
+    Binary,
+    /// Not binary by NUL probe, but not valid UTF-8.
+    InvalidUtf8,
+}
+
+/// Classify bytes as text, binary, or invalid UTF-8.
+///
+/// Empty input is **Text** (empty string). This is the single byte-level rule
+/// for the text I/O honesty layer (#1894).
+pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
+    if is_binary(bytes) {
+        return TextBytesKind::Binary;
+    }
+    match String::from_utf8(bytes.to_vec()) {
+        Ok(s) => TextBytesKind::Text(s),
+        Err(_) => TextBytesKind::InvalidUtf8,
+    }
+}
+
+/// Load a path as UTF-8 text under the **Strict** sole-path policy (#1894).
+///
+/// Use for explicit single-file mutators and sole-path reads (CLI/MCP/tx/`api`).
+///
+/// | Kind | Result |
+/// |------|--------|
+/// | Text | `Ok(String)` |
+/// | Binary | `Err(InvalidInputError)` — `target is a binary file: {display}` |
+/// | Invalid UTF-8 | `Err(InvalidInputError)` — `target is not valid UTF-8 text: {display}` |
+/// | Not a file | `Err(InvalidInputError)` — `target is not a file: {display}` |
+/// | IO (missing, …) | `Err` with context `failed to read {display}` |
+///
+/// Directory walks and multi-path soft-skip must use [`read_text_file`] (or
+/// `tx::read_and_probe`), not this function.
+pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
+    if path.exists() && !path.is_file() {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("target is not a file: {display}"),
+        }
+        .into());
+    }
+    let bytes = std::fs::read(path).with_context(|| format!("failed to read {display}"))?;
+    match classify_text_bytes(&bytes) {
+        TextBytesKind::Text(s) => Ok(s),
+        TextBytesKind::Binary => Err(crate::exit::InvalidInputError {
+            msg: format!("target is a binary file: {display}"),
+        }
+        .into()),
+        TextBytesKind::InvalidUtf8 => Err(crate::exit::InvalidInputError {
+            msg: format!("target is not valid UTF-8 text: {display}"),
+        }
+        .into()),
+    }
+}
+
 /// Returns whether the file at `path` appears to be binary by reading only its
 /// first 8 KiB (streaming, no full allocation for large files).
 ///
@@ -59,7 +131,8 @@ pub fn is_binary(data: &[u8]) -> bool {
 /// the path themselves.
 ///
 /// Public for embedder preflight (#1884) so hosts do not reimplement the
-/// window size or probe semantics. Writers still enforce binary themselves.
+/// window size or probe semantics. Writers still enforce binary themselves
+/// via [`load_text_strict`] or `ops::file::ensure_not_binary_file`.
 /// Available with default features and under `features = ["files"]` (always
 /// compiled; no `cli` gate).
 pub fn is_binary_file(path: &Path) -> bool {
@@ -450,8 +523,10 @@ pub fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
     }
 }
 
-/// Read a file as UTF-8 text, returning `None` for binary, empty,
-/// unreadable, or non-UTF-8 files.
+/// Soft-skip text load for walks and multi-path scans (#1894 SoftSkip policy).
+///
+/// Returns `None` for binary, invalid UTF-8, unreadable, or missing paths.
+/// Empty files return `Some("")`. For sole-path mutators use [`load_text_strict`].
 ///
 /// For files larger than 8 KiB, only the first 8 KiB are read initially
 /// for the binary check. If the file is binary, no further I/O occurs,
@@ -539,13 +614,10 @@ fn read_text_file_inner(path: &Path, log_label: Option<&str>) -> Option<String> 
         return None;
     }
 
-    if is_binary(&bytes) {
-        return None;
-    }
-
-    match String::from_utf8(bytes) {
-        Ok(s) => Some(s),
-        Err(_) => {
+    match classify_text_bytes(&bytes) {
+        TextBytesKind::Text(s) => Some(s),
+        TextBytesKind::Binary => None,
+        TextBytesKind::InvalidUtf8 => {
             if let Some(label) = log_label {
                 eprintln!("{label}: skipping {} (invalid UTF-8)", path.display());
             }
@@ -819,6 +891,74 @@ mod tests {
         std::fs::write(&p, b"hello world\n").unwrap();
         assert!(!is_binary_file(&p));
         assert!(!is_binary_file(&dir.path().join("nope.bin"))); // open fails -> false
+    }
+
+    // ── Text I/O honesty (#1894) ──────────────────────────────────────
+
+    #[test]
+    fn classify_text_bytes_empty_is_text() {
+        assert_eq!(classify_text_bytes(b""), TextBytesKind::Text(String::new()));
+    }
+
+    #[test]
+    fn classify_text_bytes_utf8_text() {
+        assert_eq!(
+            classify_text_bytes(b"hello\n"),
+            TextBytesKind::Text("hello\n".into())
+        );
+    }
+
+    #[test]
+    fn classify_text_bytes_binary_nul() {
+        assert_eq!(
+            classify_text_bytes(b"hello\x00world"),
+            TextBytesKind::Binary
+        );
+    }
+
+    #[test]
+    fn classify_text_bytes_invalid_utf8() {
+        assert_eq!(
+            classify_text_bytes(b"hello \xff world"),
+            TextBytesKind::InvalidUtf8
+        );
+    }
+
+    #[test]
+    fn load_text_strict_ok_for_text() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("t.txt");
+        std::fs::write(&p, "line\n").unwrap();
+        assert_eq!(load_text_strict(&p, "t.txt").unwrap(), "line\n");
+    }
+
+    #[test]
+    fn load_text_strict_rejects_binary() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("b.bin");
+        std::fs::write(&p, b"hello\x00world").unwrap();
+        let err = load_text_strict(&p, "b.bin").unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert!(err.to_string().contains("binary file"), "msg: {err}");
+        assert_eq!(std::fs::read(&p).unwrap(), b"hello\x00world");
+    }
+
+    #[test]
+    fn load_text_strict_rejects_invalid_utf8() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("bad.txt");
+        std::fs::write(&p, b"hello \xff world").unwrap();
+        let err = load_text_strict(&p, "bad.txt").unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert!(err.to_string().contains("UTF-8"), "msg: {err}");
+    }
+
+    #[test]
+    fn load_text_strict_rejects_directory() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let err = load_text_strict(dir.path(), "dir").unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert!(err.to_string().contains("not a file"), "msg: {err}");
     }
 
     #[test]

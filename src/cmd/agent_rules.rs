@@ -152,6 +152,9 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
                `edit_error_kind` / `classify_error` (CLI JSON `error_kind: type_error`; #1883). Do not \
                collapse with `InvalidInput` (empty patterns, bad options, sole binary).\n\
              - Path binary preflight: `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884)\n\
+             - Text I/O honesty (#1894): sole-path loads use `files::load_text_strict` (binary / invalid UTF-8 → \
+               `InvalidInput` / `error_kind: invalid_input`); walks use soft-skip `read_text_file` / \
+               `read_and_probe`. Byte rule: `classify_text_bytes`.\n\
              - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)\n\
              - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts; always check `matched_text` (#1687, #1694, #1736)\n\
              **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). Soft no-match / fuzzy fail-closed refuse sets `ok: false` and `error_kind: no_matches` on CLI, plan/tx, and MCP (body and `is_error` agree; #1791). When some paths write and others soft-refuse or soft-miss, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent`, `below_min_fuzzy_score`, or `no_matches` for exact soft miss on explicit multi-path lists; #1792) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).\n\
@@ -1148,6 +1151,10 @@ mod tests {
         assert!(
             out.contains("is_binary_file"),
             "library hosts need is_binary_file preflight (#1884)"
+        );
+        assert!(
+            out.contains("load_text_strict"),
+            "library hosts need text I/O honesty load_text_strict (#1894)"
         );
         // Line-oriented insert is CLI-facing as well (mode All includes CLI).
         assert!(

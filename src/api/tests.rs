@@ -1651,6 +1651,30 @@ fn replace_text_insert_after() {
 }
 
 #[test]
+fn replace_text_sole_binary_is_invalid_input() {
+    // #1894: library replace_text must match CLI/MCP strict sole-path policy.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bin.dat");
+    fs::write(&file, b"hello\x00world").unwrap();
+
+    let err = replace_text(
+        &file,
+        "hello",
+        "HELLO",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "expected InvalidInput, got {err:#}"
+    );
+    assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
+}
+
+#[test]
 fn replace_text_insert_after_preserves_crlf() {
     // fixrealloop: whole-line insert into CRLF files must use \r\n, not bare LF.
     let dir = TempDir::new().unwrap();
