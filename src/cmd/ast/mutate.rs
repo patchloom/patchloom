@@ -194,9 +194,13 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [&args.path])?;
     let target = cwd.join(&args.path);
-    if let Err(err) = crate::ops::file::ensure_not_binary_file(&target, &args.path) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
-        return Ok(exit::FAILURE);
+    // Strict sole-path preflight (#1894); engine also loads via load_text_strict.
+    if let Err(e) = crate::files::load_text_strict(&target, &args.path) {
+        if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+            global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
+            return Ok(exit::FAILURE);
+        }
+        return Err(e);
     }
 
     let op = Operation::AstReplace {

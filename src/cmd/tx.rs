@@ -305,16 +305,20 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let plan_path = plan_path
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("internal error: plan path missing"))?;
-        std::fs::read_to_string(plan_path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
+        // Strict sole-path plan load (#1894): binary / invalid UTF-8 → InvalidInput.
+        let display = plan_path.display().to_string();
+        crate::files::load_text_strict(plan_path, &display).map_err(|e| {
+            if crate::exit::is_io_not_found(&e) {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("failed to read plan file '{}': {e}", plan_path.display()),
+                    format!("failed to read plan file '{display}': {e}"),
                 )
                 .into()
+            } else if crate::exit::is_invalid_input(&e) {
+                e
             } else {
                 anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("failed to read plan file '{}': {e}", plan_path.display()),
+                    msg: format!("failed to read plan file '{display}': {e}"),
                 })
             }
         })?

@@ -182,7 +182,8 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
         // Single read: extract + attr filter share the same source so a failed
         // second open cannot zero out attrs while symbols still appear (TOCTOU /
         // unwrap_or_default soft-fail). Matches snapshot_symbols_from_pending.
-        let Ok(source) = std::fs::read_to_string(path) else {
+        // SoftSkip multi-path (#1894): binary / invalid UTF-8 → skip file.
+        let Some(source) = crate::files::read_text_file(path) else {
             continue;
         };
         let all_symbols = symbols::extract_symbols(&source, lang);
@@ -253,10 +254,10 @@ pub(crate) fn snapshot_symbols_from_pending(
             continue;
         }
 
-        // Use pending content (post-edit) if available, otherwise read from disk
+        // Use pending content (post-edit) if available, otherwise SoftSkip disk.
         let source = if let Some((_, current)) = pending.get(path) {
             current.clone()
-        } else if let Ok(s) = std::fs::read_to_string(path) {
+        } else if let Some(s) = crate::files::read_text_file(path) {
             s
         } else {
             continue;

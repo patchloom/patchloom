@@ -837,16 +837,20 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         std::io::read_to_string(std::io::stdin())?
     } else {
         let input_path = global.resolve_user_path(&args.input)?;
-        std::fs::read_to_string(&input_path).map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
+        // Strict sole-path input (#1894): binary / invalid UTF-8 → InvalidInput.
+        let display = input_path.display().to_string();
+        crate::files::load_text_strict(&input_path, &display).map_err(|e| {
+            if crate::exit::is_io_not_found(&e) {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("failed to read '{}': {e}", input_path.display()),
+                    format!("failed to read '{display}': {e}"),
                 )
                 .into()
+            } else if crate::exit::is_invalid_input(&e) {
+                e
             } else {
                 anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("failed to read '{}': {e}", input_path.display()),
+                    msg: format!("failed to read '{display}': {e}"),
                 })
             }
         })?

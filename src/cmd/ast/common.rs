@@ -28,9 +28,10 @@ pub(super) fn setup_single_file(
     Ok((cwd, target, lang, source))
 }
 
-/// When the user names exactly one file path that is binary, fail as
-/// `invalid_input` (parity with replace/search/tidy/md). Directory walks still
-/// soft-skip non-source files.
+/// When the user names exactly one file path, fail closed as `invalid_input` for
+/// binary or invalid UTF-8 (parity with replace/search/tidy/md / #1894).
+/// Directory walks still soft-skip non-text files. IO/missing errors are left
+/// to the walk (return `Ok` here).
 pub(super) fn reject_sole_explicit_binary(
     paths: &[PathBuf],
     path_arg: &str,
@@ -38,7 +39,18 @@ pub(super) fn reject_sole_explicit_binary(
     if paths.len() != 1 {
         return Ok(());
     }
-    crate::ops::file::ensure_not_binary_file(&paths[0], path_arg)
+    match crate::files::load_text_strict(&paths[0], path_arg) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+                Err(crate::exit::InvalidInputError {
+                    msg: inv.msg.clone(),
+                })
+            } else {
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Common preamble for multi-file AST commands: resolve cwd, join path, resolve

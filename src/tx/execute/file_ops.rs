@@ -120,18 +120,14 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                         .into());
                     }
                     tx.existed_before.insert(file_path.clone());
-                    // Try to read as text for strict rollback; fall back to
-                    // empty for binary files that cannot be represented as
-                    // UTF-8 (#1163).
-                    match std::fs::read_to_string(&file_path) {
-                        Ok(content) => {
-                            tx.pending
-                                .insert(file_path.clone(), (content.clone(), content));
-                        }
-                        Err(_) => {
-                            tx.pending
-                                .insert(file_path.clone(), (String::new(), String::new()));
-                        }
+                    // Soft text load for rollback snapshot: binary / invalid
+                    // UTF-8 / unreadable → empty pair (#1163 / #1894 SoftSkip).
+                    if let Some(content) = crate::files::read_text_file(&file_path) {
+                        tx.pending
+                            .insert(file_path.clone(), (content.clone(), content));
+                    } else {
+                        tx.pending
+                            .insert(file_path.clone(), (String::new(), String::new()));
                     }
                     false
                 }

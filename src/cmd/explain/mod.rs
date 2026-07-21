@@ -57,8 +57,18 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         };
         let full = global.resolve_user_path(p)?;
-        let content = match std::fs::read_to_string(&full) {
+        // Strict sole-path plan load (#1894).
+        let content = match crate::files::load_text_strict(&full, &full.display().to_string()) {
             Ok(c) => c,
+            Err(e) if crate::exit::is_io_not_found(&e) => {
+                let msg = format!("cannot read {}: {e}", full.display());
+                global.emit_error_json_kind(Some("not_found"), &msg)?;
+                return Ok(exit::FAILURE);
+            }
+            Err(e) if crate::exit::is_invalid_input(&e) => {
+                global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+                return Ok(exit::FAILURE);
+            }
             Err(e) => {
                 let msg = format!("cannot read {}: {e}", full.display());
                 global.emit_error_json_kind(Some("not_found"), &msg)?;
