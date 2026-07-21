@@ -1331,7 +1331,9 @@ The operations below are the building blocks inside `operations`.
 | Need | API |
 |------|-----|
 | Fail-closed text replace | `ReplaceOptions.require_change` + `edit_error_kind` / `classify_error` |
-| Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks |
+| Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks; `EditErrorKind::TypeError` for multi-doc / wrong-root doc navigation (CLI `error_kind: type_error`; #1883) |
+| Path binary preflight | `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884); writers still enforce binary on apply |
+| Line-oriented insert | `insert_before` / `insert_after` default (#1885): newline when payload looks like a new line or anchor is whole-line; mid-line bare stays byte-exact |
 | Shell token rename | `ReplaceOptions.command_position` / `ContentEdit::Replace` (#1666) |
 | Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |
 | Project symbol discovery + multi-file rename | `find_files_with_symbol` then `ast_rename_batch` (#1664); one-shot `ast_rename_project` (#1689) |
