@@ -175,44 +175,71 @@ pub enum InsertSide {
 /// mid-line inserts (e.g. `"X"` after `"foo"` inside a line) are unchanged.
 ///
 /// Rules (from Bline host glue, now product default):
-/// - insert_after: prepend `\\n` when the payload looks like a new line, or
-///   every occurrence of `anchor` is alone on its line, unless the payload
-///   already starts with `\\n` or the anchor ends with `\\n`.
-/// - insert_before: append `\\n` under the same conditions (so the anchor
-///   stays on the next line), unless the payload already ends with `\\n`
-///   or the anchor starts with `\\n`.
+/// - insert_after: prepend a line ending when the payload looks like a new
+///   line, or every occurrence of `anchor` is alone on its line, unless the
+///   payload already starts with a line ending or the anchor ends with one.
+/// - insert_before: append a line ending under the same conditions (so the
+///   anchor stays on the next line), unless the payload already ends with a
+///   line ending or the anchor starts with one.
+///
+/// The separator matches the file's dominant line ending (CRLF / bare CR /
+/// LF) so Windows-style files do not get mixed LF inserts (fixrealloop).
 pub fn normalize_line_insert(
     file_content: &str,
     anchor: &str,
     insert_content: &str,
     side: InsertSide,
 ) -> String {
+    let eol = preferred_line_ending(file_content);
     match side {
         InsertSide::After => {
-            if insert_content.starts_with('\n') || anchor.ends_with('\n') {
+            if starts_with_line_ending(insert_content) || ends_with_line_ending(anchor) {
                 return insert_content.to_string();
             }
             if looks_like_new_line_payload(insert_content)
                 || anchor_is_whole_line(file_content, anchor)
             {
-                format!("\n{insert_content}")
+                format!("{eol}{insert_content}")
             } else {
                 insert_content.to_string()
             }
         }
         InsertSide::Before => {
-            if insert_content.ends_with('\n') || anchor.starts_with('\n') {
+            if ends_with_line_ending(insert_content) || starts_with_line_ending(anchor) {
                 return insert_content.to_string();
             }
             if looks_like_new_line_payload(insert_content)
                 || anchor_is_whole_line(file_content, anchor)
             {
-                format!("{insert_content}\n")
+                format!("{insert_content}{eol}")
             } else {
                 insert_content.to_string()
             }
         }
     }
+}
+
+/// Dominant line ending in `content` for line-oriented insert separators.
+///
+/// Prefer CRLF when present, else bare CR, else LF. Empty content uses LF.
+pub fn preferred_line_ending(content: &str) -> &'static str {
+    if content.contains("\r\n") {
+        "\r\n"
+    } else if content.contains('\r') {
+        "\r"
+    } else {
+        "\n"
+    }
+}
+
+#[inline]
+fn starts_with_line_ending(s: &str) -> bool {
+    s.starts_with("\r\n") || s.starts_with('\n') || s.starts_with('\r')
+}
+
+#[inline]
+fn ends_with_line_ending(s: &str) -> bool {
+    s.ends_with("\r\n") || s.ends_with('\n') || s.ends_with('\r')
 }
 
 fn looks_like_new_line_payload(insert_content: &str) -> bool {
