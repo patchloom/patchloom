@@ -641,11 +641,13 @@ impl PatchloomService {
                 svc.check_path(path)?;
                 let abs = svc.cwd().join(path);
                 // Strict sole-path plan load (#1894).
+                // load_text_strict already prefixes "failed to read {path}";
+                // do not re-wrap (same class as #1916).
                 let content = crate::files::load_text_strict(&abs, path).map_err(|e| {
                     if crate::exit::is_invalid_input(&e) {
                         McpError::invalid_params(e.to_string(), None)
                     } else {
-                        McpError::internal_error(format!("failed to read plan_path: {e}"), None)
+                        McpError::internal_error(format!("{e:#}"), None)
                     }
                 })?;
                 crate::plan::parse_plan_auto(&content, Some(path), None).map_err(|e| {

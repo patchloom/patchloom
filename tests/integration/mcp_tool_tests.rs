@@ -1157,6 +1157,54 @@ async fn test_mcp_doc_merge_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// Multi-doc YAML merge via MCP must honor `selector` (parity with CLI/API #1909).
+#[tokio::test]
+async fn test_mcp_doc_merge_multi_doc_selector() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("stream.yaml"), "a: 1\nb: 2\n---\nx: 9\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_merge",
+        serde_json::json!({
+            "path": "stream.yaml",
+            "selector": "0",
+            "value": {"c": 3}
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_merge multi-doc selector should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "doc_merge ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_merge files_changed: {val}");
+
+    // MCP doc_get returns the bare JSON value (see test_mcp_doc_get_reads_value).
+    let (is_error, got) = call_tool_value(
+        &client,
+        "doc_get",
+        serde_json::json!({"path": "stream.yaml", "selector": "0.c"}),
+    )
+    .await;
+    assert!(!is_error, "doc_get 0.c: {got}");
+    assert_eq!(got, 3, "merged c into doc 0: {got}");
+
+    let (is_error, got) = call_tool_value(
+        &client,
+        "doc_get",
+        serde_json::json!({"path": "stream.yaml", "selector": "1.x"}),
+    )
+    .await;
+    assert!(!is_error, "doc_get 1.x: {got}");
+    assert_eq!(got, 9, "doc 1 must remain: {got}");
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_doc_delete_round_trip() {
     if !has_mcp_support() {

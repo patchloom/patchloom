@@ -143,6 +143,7 @@ fn read_diff_input(
 /// - Missing + not empty: `Err(NotFound)`
 /// - Binary / invalid UTF-8: `Err(InvalidInput)`
 /// - Other IO: `Err(Io)`
+#[derive(Debug)]
 enum PatchTargetError {
     NotFound,
     /// Directory or non-file path (per-file check status `error`, exit 5).
@@ -175,9 +176,11 @@ fn load_patch_target(
                 Err(PatchTargetError::InvalidInput(msg))
             }
         }
-        Err(e) => Err(PatchTargetError::Io(format!(
-            "failed to read {display}: {e}"
-        ))),
+        Err(e) => {
+            // load_text_strict already prefixes "failed to read {display}";
+            // do not double-wrap (same class as #1916 sole-path unreadable).
+            Err(PatchTargetError::Io(format!("{e:#}")))
+        }
     }
 }
 
@@ -369,11 +372,17 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             } else {
                 ("parse_error", exit::PARSE_ERROR)
             };
-            emit_error(
-                global,
-                &format!("patch: failed to read '{path}': {e}"),
-                kind,
-            )?;
+            // load_text_strict (and stdin map) already include path/context in
+            // `e`; do not re-prefix "failed to read" (sibling of #1916).
+            let msg = {
+                let detail = e.to_string();
+                if detail.contains("failed to read") {
+                    format!("patch: {detail}")
+                } else {
+                    format!("patch: failed to read '{path}': {detail}")
+                }
+            };
+            emit_error(global, &msg, kind)?;
             return Ok(code);
         }
         Err(DiffReadError::StdinError(e)) => {
@@ -681,6 +690,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(code, exit::CONFLICTS);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_patch_target_unreadable_does_not_double_wrap() {
+        // Sibling of #1916: load_text_strict already prefixes "failed to read".
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = TempDir::new().unwrap();
+        let file = tmp.path().join("locked.txt");
+        std::fs::write(&file, "secret\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read_to_string(&file).is_ok() {
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let err = load_patch_target(&file, "locked.txt", false).unwrap_err();
+        match err {
+            PatchTargetError::Io(msg) => {
+                assert_eq!(
+                    msg.matches("failed to read").count(),
+                    1,
+                    "must not double-wrap load_text_strict context: {msg}"
+                );
+                assert!(
+                    msg.contains("locked.txt"),
+                    "path should appear in message: {msg}"
+                );
+            }
+            other => panic!("expected Io, got {other:?}"),
+        }
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
 
     #[cfg(unix)]

@@ -1616,6 +1616,34 @@ fn load_text_api_rejects_binary_and_loads_utf8() {
         "is_binary_file should detect NUL probe"
     );
     assert!(!is_binary_file(&text));
+
+    // Docs claim invalid UTF-8 peels to InvalidInput (same as load_text_strict).
+    let bad = dir.path().join("bad.txt");
+    fs::write(&bad, b"hello\xffworld").unwrap();
+    let err = load_text(&bad).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "invalid UTF-8 must be InvalidInput, got: {err}"
+    );
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("UTF-8") || msg.contains("utf-8") || msg.contains("invalid"),
+        "message should name encoding issue: {msg}"
+    );
+
+    let missing = dir.path().join("no-such.txt");
+    let err = load_text(&missing).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("failed to read"),
+        "missing path must keep load_text_strict context: {msg}"
+    );
+    assert_ne!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "missing path is IO, not binary/UTF-8 InvalidInput: {msg}"
+    );
 }
 
 #[test]
