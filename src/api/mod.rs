@@ -80,6 +80,43 @@
 //! Backup sessions use unique directory names (nanosecond timestamp +
 //! monotonic counter), so concurrent `ApplyMode::Apply` calls never collide
 //! on backup directories.
+//!
+//! # Text I/O and multi-doc for embedders (#1894 / #1909 / #1910)
+//!
+//! Prefer these entry points instead of reimplementing binary / UTF-8 probes:
+//!
+//! - [`load_text`] / [`crate::files::load_text_strict`]: sole-path text load;
+//!   binary and invalid UTF-8 become `EditErrorKind::InvalidInput`
+//! - [`is_binary_file`]: cheap 8 KiB NUL preflight (open fail → `false`; use
+//!   `load_text` when you need a typed open error)
+//! - [`edit_error_kind`]: peel `TypeError` (multi-doc bare key / wrong root)
+//!   separately from `InvalidInput` (empty pattern, sole binary, …)
+//! - [`doc_merge`]: optional `selector` for multi-doc YAML (`Some("0")`)
+//!
+//! ```rust,no_run
+//! use patchloom::api::{self, edit_error_kind, EditErrorKind, ApplyMode};
+//! use std::path::Path;
+//!
+//! let path = Path::new("stream.yaml");
+//! if api::is_binary_file(path) {
+//!     // refuse before replace_text
+//! }
+//! match api::load_text(path) {
+//!     Ok(_text) => { /* safe to treat as agent-editable text */ }
+//!     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::InvalidInput)),
+//! }
+//! // Multi-doc merge into document 0 (not root wipe)
+//! let _ = api::doc_merge(
+//!     path,
+//!     serde_json::json!({"c": 3}),
+//!     ApplyMode::Apply,
+//!     None,
+//!     Some("0"),
+//! );
+//! ```
+//!
+//! `EditErrorKind` is `#[non_exhaustive]`; match with a wildcard arm so new
+//! honesty kinds can land in minor releases without breaking hosts.
 
 use std::path::Path;
 
@@ -97,6 +134,24 @@ pub use crate::tx::{
 
 mod doc;
 pub use self::doc::*;
+
+/// Load a path as agent-editable UTF-8 text (sole-path **Strict** policy).
+///
+/// Thin alias of [`crate::files::load_text_strict`] for hosts that follow
+/// `api::*` only (#1910). Binary and invalid UTF-8 return
+/// [`crate::exit::InvalidInputError`] (peels to [`EditErrorKind::InvalidInput`]).
+///
+/// Display string in errors is the path's lossy string form.
+pub fn load_text(path: &Path) -> anyhow::Result<String> {
+    let display = path.to_string_lossy();
+    crate::files::load_text_strict(path, &display)
+}
+
+/// Re-export of [`crate::files::is_binary_file`] for `api::*` discoverability (#1910).
+pub use crate::files::is_binary_file;
+
+/// Re-export of [`crate::files::load_text_strict`] (display string control) (#1910).
+pub use crate::files::load_text_strict;
 
 mod replace;
 pub use self::replace::*;

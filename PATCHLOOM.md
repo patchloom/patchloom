@@ -59,7 +59,10 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).
 - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`
 - Multi-doc / wrong-root doc navigation peels to `EditErrorKind::TypeError` via `edit_error_kind` / `classify_error` (CLI JSON `error_kind: type_error`; #1883). Do not collapse with `InvalidInput` (empty patterns, bad options, sole binary).
-- Path binary preflight: `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884)
+- Multi-doc `api::doc_merge(path, value, mode, guard, selector)`: pass `Some("0")` (or `"[0]"`) to merge into document 0; `None` is root-only and refuses a non-array overlay on multi-doc root with `TypeError` (#1909).
+- Path binary preflight: `api::is_binary_file` / `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884)
+- Sole-path text load for hosts: `api::load_text(path)` or `files::load_text_strict` (#1894, #1910)
+- `EditErrorKind` is `#[non_exhaustive]`; match with a wildcard arm (#1910)
 - Text I/O honesty (#1894):
 | Surface | Binary / invalid UTF-8 | Unreadable (IO) |
 |---------|------------------------|-----------------|

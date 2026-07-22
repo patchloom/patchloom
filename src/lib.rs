@@ -172,8 +172,39 @@
 //! ```
 //!
 //! The `files` module (pure helpers like `is_binary`, `is_binary_file` path preflight,
-//! `read_text_file`, and scanning tools when "files" feature enabled) is always available.
-//! The `cli` and `cmd` modules require the `cli` feature.
+//! `load_text_strict`, `read_text_file`, and scanning tools when "files" feature enabled)
+//! is always available. The `cli` and `cmd` modules require the `cli` feature.
+//!
+//! ## Embedder cookbook: text load, binary preflight, multi-doc (#1910 / #1909)
+//!
+//! | Need | Use |
+//! |------|-----|
+//! | Sole path as editable text (binary / bad UTF-8 → typed error) | [`api::load_text`] or [`files::load_text_strict`] |
+//! | Cheap binary path check before open (open fail → `false`) | [`api::is_binary_file`] / [`files::is_binary_file`] |
+//! | Map multi-doc bare key / wrong-root merge to tool `invalid_args` | [`api::edit_error_kind`] → [`EditErrorKind::TypeError`] |
+//! | Multi-doc YAML merge into document 0 | [`api::doc_merge`](..., `Some("0")`) |
+//! | Map empty pattern / sole binary to `invalid_args` | [`EditErrorKind::InvalidInput`] |
+//!
+//! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
+//!
+//! ```rust,no_run
+//! use patchloom::api::{self, edit_error_kind, EditErrorKind, ApplyMode};
+//! use std::path::Path;
+//!
+//! let path = Path::new("stream.yaml");
+//! if api::is_binary_file(path) {
+//!     // host: refuse tool call as invalid_args
+//! }
+//! let _text = api::load_text(path)?; // InvalidInput if binary / not UTF-8
+//! match api::doc_merge(path, serde_json::json!({"c": 3}), ApplyMode::Apply, None, Some("0")) {
+//!     Ok(r) => assert!(r.changed),
+//!     Err(e) if edit_error_kind(&e) == Some(EditErrorKind::TypeError) => {
+//!         // multi-doc bare root / wrong type
+//!     }
+//!     Err(e) => return Err(e),
+//! }
+//! # Ok::<(), anyhow::Error>(())
+//! ```
 //!
 //! For pure library use with plans and execution (post #792), prefer
 //! `features = ["ast", "files"]` (or "files"). `execute_plan` is available
@@ -255,7 +286,8 @@ pub use api::{
     ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
     apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
     classify_error, classify_error_ref, edit_error_kind, edit_error_ref, format_search_results,
-    merge_match_modes, parse_unified_diff, run_post_write_validation, search_file, text_diff,
+    is_binary_file, load_text, load_text_strict, merge_match_modes, parse_unified_diff,
+    run_post_write_validation, search_file, text_diff,
 };
 pub use plan::Plan;
 
