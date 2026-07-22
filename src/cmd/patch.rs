@@ -143,6 +143,7 @@ fn read_diff_input(
 /// - Missing + not empty: `Err(NotFound)`
 /// - Binary / invalid UTF-8: `Err(InvalidInput)`
 /// - Other IO: `Err(Io)`
+#[derive(Debug)]
 enum PatchTargetError {
     NotFound,
     /// Directory or non-file path (per-file check status `error`, exit 5).
