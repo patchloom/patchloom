@@ -810,6 +810,22 @@ jobs:
       "id-token": "write"
       "packages": "write"
 
+  # Official MCP Registry after crates.io + npm ownership markers exist.
+  # Do not trigger on release:published alone: host creates the GitHub Release
+  # before publish-npm / crates finish, which raced and timed out on 0.16.0.
+  publish-mcp-registry:
+    needs:
+      - plan
+      - publish-npm
+      - custom-publish-crates
+    if: ${{ always() && !cancelled() && !github.event.repository.private && needs.publish-npm.result == 'success' && needs.custom-publish-crates.result == 'success' && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
+    uses: ./.github/workflows/publish-mcp-registry.yml
+    with:
+      version: ${{ fromJson(needs.plan.outputs.val).releases[0].app_version }}
+    permissions:
+      contents: read
+      id-token: write
+
   # Publish Chocolatey Community package (portable zip from GitHub Releases).
   # Soft-skip push when CHOCOLATEY_API_KEY is unset (pack still validates).
   # First listing is subject to community.chocolatey.org moderation.
