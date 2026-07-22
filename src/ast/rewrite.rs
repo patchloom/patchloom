@@ -1222,8 +1222,11 @@ mod tests {
         let span = find_function_span(source, "f", Language::Rust).unwrap();
         let out = splice_function_signature(source, span.signature_range, "   ");
         // Empty after trim: keep original gap + body; do not invent brace glue.
-        assert!(out.contains("{"), "body brace remains: {out}");
-        assert!(!out.contains("i32{"), "got: {out}");
+        assert!(
+            out.contains("{\n    0\n}"),
+            "body brace + body must remain intact: {out}"
+        );
+        assert!(!out.contains("i32{"), "must not invent brace glue: {out}");
     }
 
     // ── find_function_span tests ──────────────────────────────────
