@@ -86,11 +86,13 @@ pub fn ensure_not_binary_file(
 }
 
 /// When the user names exactly one existing file that is not valid text
-/// (binary NUL **or** invalid UTF-8), return `InvalidInput`.
+/// (binary NUL, invalid UTF-8) **or cannot be read** (permission/IO), return
+/// `InvalidInput`.
 ///
 /// Soft walks use [`crate::files::try_read_text_file`]; explicit multi-path
 /// lists use [`explicit_multi_path_non_text_refused`]. Sole explicit non-text
-/// must not report pattern `no_matches` or vacuous tidy "clean" (#1894).
+/// / unreadable must not report pattern `no_matches` or vacuous tidy "clean"
+/// (#1894; fixrealloop sole unreadable).
 ///
 /// Prefer [`sole_explicit_non_text_for_scan`] when `--files-from` may supply
 /// the sole path (positional `paths` is empty).
@@ -116,14 +118,21 @@ pub fn sole_explicit_non_text(
     if !path.is_file() {
         return None;
     }
-    // Full Strict sole-path rule (binary + invalid UTF-8).
+    // Strict sole-path: binary / invalid UTF-8 → InvalidInput; unreadable IO
+    // on an existing file must also hard-fail (not soft no_matches / clean).
     match crate::files::load_text_strict(&path, display) {
         Ok(_) => None,
-        Err(e) => e
-            .downcast_ref::<crate::exit::InvalidInputError>()
-            .map(|inv| crate::exit::InvalidInputError {
-                msg: inv.msg.clone(),
-            }),
+        Err(e) => {
+            if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
+                Some(crate::exit::InvalidInputError {
+                    msg: inv.msg.clone(),
+                })
+            } else {
+                Some(crate::exit::InvalidInputError {
+                    msg: format!("failed to read {display}: {e}"),
+                })
+            }
+        }
     }
 }
 
@@ -379,6 +388,30 @@ mod tests {
         assert!(sole_explicit_non_text(&[], dir.path()).is_none());
         let err = sole_explicit_non_text_for_scan(&[], Some(&list), dir.path()).unwrap();
         assert!(err.msg.contains("binary"), "got: {}", err.msg);
+    }
+
+    #[test]
+    fn sole_explicit_non_text_rejects_unreadable() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("locked.txt");
+        fs::write(&path, "hello\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+            // Root (common in Docker) can still read mode-000 files.
+            if fs::read_to_string(&path).is_ok() {
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+                return;
+            }
+            let err = sole_explicit_non_text(&["locked.txt".into()], dir.path()).unwrap();
+            assert!(
+                err.msg.contains("failed to read") || err.msg.contains("Permission"),
+                "got: {}",
+                err.msg
+            );
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        }
     }
 
     #[test]
