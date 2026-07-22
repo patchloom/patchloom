@@ -11,6 +11,33 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.16.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.3...patchloom-v0.16.0) (2026-07-22)
+
+
+### Features
+
+* doc.merge optional selector for multi-doc ([#1886](https://github.com/patchloom/patchloom/issues/1886)) ([50339e3](https://github.com/patchloom/patchloom/commit/50339e3c458b6537f3a5c6e0854b0e0ef4c03b04))
+* EditErrorKind::TypeError and public is_binary_file ([#1889](https://github.com/patchloom/patchloom/issues/1889)) ([da51b7b](https://github.com/patchloom/patchloom/commit/da51b7bc91f955bafa22be627b3ddd1550556324))
+* one text I/O honesty layer for sole-path loads ([#1895](https://github.com/patchloom/patchloom/issues/1895)) ([11e2539](https://github.com/patchloom/patchloom/commit/11e253968267a5217454927a197fbf6ca60b6de2)), closes [#1894](https://github.com/patchloom/patchloom/issues/1894)
+
+
+### Bug Fixes
+
+* assert-count and ast list honor unreadable empty scans ([#1905](https://github.com/patchloom/patchloom/issues/1905)) ([c2753d6](https://github.com/patchloom/patchloom/commit/c2753d696633c5d9a1cd6821765dd3f97723d7ac))
+* complete text I/O honesty for CLI patch and multi-path refuse ([#1901](https://github.com/patchloom/patchloom/issues/1901)) ([70870e8](https://github.com/patchloom/patchloom/commit/70870e8e200ef24c4565ed0245c308c796d63282)), closes [#1896](https://github.com/patchloom/patchloom/issues/1896) [#1894](https://github.com/patchloom/patchloom/issues/1894)
+* empty multi-path scan must not mask unreadable as no_matches ([#1904](https://github.com/patchloom/patchloom/issues/1904)) ([5a40f52](https://github.com/patchloom/patchloom/commit/5a40f52ad019fc49529d85c87e03b708ea1624cc))
+* fail sole non-text before soft-skip scan log ([#1899](https://github.com/patchloom/patchloom/issues/1899)) ([af40aba](https://github.com/patchloom/patchloom/commit/af40aba2db7db9396d59979de063259bc0ac317c)), closes [#1898](https://github.com/patchloom/patchloom/issues/1898)
+* finish text I/O honesty Strict/SoftSkip loaders ([#1897](https://github.com/patchloom/patchloom/issues/1897)) ([bd27995](https://github.com/patchloom/patchloom/commit/bd27995b5fe2af39b66158b1cdcd7eaad482c22e))
+* line-oriented insert_before/after by default ([#1888](https://github.com/patchloom/patchloom/issues/1888)) ([e099065](https://github.com/patchloom/patchloom/commit/e0990654f07ad83dd1e1b570804d12f1a699abd0))
+* preserve file EOL in line-oriented insert separators ([#1892](https://github.com/patchloom/patchloom/issues/1892)) ([280ec15](https://github.com/patchloom/patchloom/commit/280ec15adeb2c903b12e1a9557ea52f4ae3cb458))
+* refuse sole binary on MCP/tx path replace ([#1893](https://github.com/patchloom/patchloom/issues/1893)) ([983997f](https://github.com/patchloom/patchloom/commit/983997f98787bda911fa0d14e432c26f831651ca))
+* report file.rename as renamed in tx/batch JSON ([#1887](https://github.com/patchloom/patchloom/issues/1887)) ([2e394a3](https://github.com/patchloom/patchloom/commit/2e394a3c40779c8b2f6b15bd01fb3d99b27b07c0))
+* sole explicit binary AST paths are invalid_input ([#1881](https://github.com/patchloom/patchloom/issues/1881)) ([a6cab85](https://github.com/patchloom/patchloom/commit/a6cab85aaa473f2c7356c4b0a5ec5c97a2d06cb7))
+* sole invalid UTF-8 is invalid_input; patch binary kind ([#1898](https://github.com/patchloom/patchloom/issues/1898)) ([fc5972f](https://github.com/patchloom/patchloom/commit/fc5972f7f56562d9d0f260e219d5d6bb9ed15190))
+* sole unreadable path is invalid_input not no_matches ([#1903](https://github.com/patchloom/patchloom/issues/1903)) ([b1e64ce](https://github.com/patchloom/patchloom/commit/b1e64cecfede2c07e94e0f1552e0c59caf161f4a))
+* tidy --files-from non-text honesty and sole-scan helper ([#1902](https://github.com/patchloom/patchloom/issues/1902)) ([5030d94](https://github.com/patchloom/patchloom/commit/5030d942ce8784fe2491f688c7328f3e8f7e9b90))
+* treat CR/CRLF as whole-line insert boundaries ([#1890](https://github.com/patchloom/patchloom/issues/1890)) ([1e12bdc](https://github.com/patchloom/patchloom/commit/1e12bdcf212a48ebbba285757969a01360f4bca1))
+
 ## [0.15.3](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.2...patchloom-v0.15.3) (2026-07-20)
 
 
