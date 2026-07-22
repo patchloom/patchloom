@@ -477,6 +477,23 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // error_kind: changes_detected (agent-rules / tx parity, exit 2).
     if let Some(expected) = args.assert_count {
         let actual: usize = results.file_match_counts.values().sum();
+        // actual==0 with unreadable paths must not count as a clean match
+        // (assert-count 0 would otherwise pass while the scan was masked).
+        if actual == 0 {
+            if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
+                &args.paths,
+                files_from_list.as_deref(),
+                &cwd,
+            ) {
+                global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+                return Ok(exit::FAILURE);
+            }
+            let scanned = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+            if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
+                global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+                return Ok(exit::FAILURE);
+            }
+        }
         let matches = actual == expected;
         let status = if matches {
             "success"
