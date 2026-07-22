@@ -1190,6 +1190,41 @@ fn test_search_multi_path_invalid_utf8_refused() {
     assert_eq!(refused[0]["reason"], "invalid_utf8", "{v}");
 }
 
+/// Sole unreadable path is invalid_input (not pattern no_matches).
+#[test]
+fn test_search_sole_unreadable_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("locked.txt");
+    fs::write(&file, "needle\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_to_string(&file).is_ok() {
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["search", "needle", "locked.txt"])
+            .output()
+            .unwrap();
+        let _ = fs::set_permissions(&file, fs::Permissions::from_mode(0o644));
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["error_kind"], "invalid_input", "{v}");
+        assert_ne!(v["error_kind"], "no_matches", "{v}");
+    }
+}
+
 /// Sole binary via --files-from is invalid_input (not pattern no_matches).
 #[test]
 fn test_search_files_from_sole_binary_is_invalid_input() {

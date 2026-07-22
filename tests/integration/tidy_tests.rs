@@ -286,6 +286,41 @@ fn test_tidy_skips_binary_files() {
     assert_eq!(bin_after, bin_content, "binary file should not be modified");
 }
 
+/// Sole unreadable tidy check is invalid_input (not vacuous clean).
+#[test]
+fn test_tidy_check_sole_unreadable_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("locked.txt");
+    fs::write(&file, "trail  \n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_to_string(&file).is_ok() {
+            fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["tidy", "check", "locked.txt"])
+            .output()
+            .unwrap();
+        let _ = fs::set_permissions(&file, fs::Permissions::from_mode(0o644));
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["error_kind"], "invalid_input", "{v}");
+        assert_ne!(v["ok"], true, "must not report vacuous clean: {v}");
+    }
+}
+
 /// Sole binary via --files-from is invalid_input (not vacuous clean/tidy).
 #[test]
 fn test_tidy_check_files_from_sole_binary_is_invalid_input() {
