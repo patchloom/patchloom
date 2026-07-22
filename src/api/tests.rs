@@ -193,17 +193,29 @@ fn doc_merge_multi_doc_selector_preserves_second_document() {
 
     assert!(result.changed);
     assert!(result.applied);
-    let on_disk = fs::read_to_string(&file).unwrap();
-    assert!(
-        on_disk.contains("c:") || on_disk.contains("c: 3"),
-        "merged key missing: {on_disk}"
-    );
-    assert!(
-        on_disk.contains("x:") || on_disk.contains("x: 9"),
-        "second document must be preserved: {on_disk}"
-    );
-    // First document should still have a/b and gain c.
+    // Prefer typed gets over weak substring contains (MPI Test Auditor).
     assert_eq!(doc_get(&file, "0.a").unwrap(), serde_json::json!(1));
+    assert_eq!(doc_get(&file, "0.b").unwrap(), serde_json::json!(2));
+    assert_eq!(doc_get(&file, "0.c").unwrap(), serde_json::json!(3));
+    assert_eq!(doc_get(&file, "1.x").unwrap(), serde_json::json!(9));
+}
+
+#[test]
+fn doc_merge_multi_doc_bracket_index_selector() {
+    // Docs claim Some("[0]") works; lock it at the library API (#1909 review).
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("stream.yaml");
+    fs::write(&file, "a: 1\n---\nx: 9\n").unwrap();
+
+    let result = doc_merge(
+        &file,
+        serde_json::json!({"c": 3}),
+        ApplyMode::Apply,
+        None,
+        Some("[0]"),
+    )
+    .unwrap();
+    assert!(result.changed);
     assert_eq!(doc_get(&file, "0.c").unwrap(), serde_json::json!(3));
     assert_eq!(doc_get(&file, "1.x").unwrap(), serde_json::json!(9));
 }

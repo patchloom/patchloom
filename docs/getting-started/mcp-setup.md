@@ -173,7 +173,7 @@ AST tools so `list_tools` stays honest about what is callable.
 |------|-------------|
 | `doc_set` | Set a value by selector path in a JSON, YAML, or TOML file |
 | `doc_delete` | Delete a value by selector path from a structured file |
-| `doc_merge` | Deep-merge an object into a document |
+| `doc_merge` | Deep-merge an object into a document (optional `selector`, e.g. `0` for multi-doc YAML) |
 | `doc_append` | Append a value to an array |
 | `doc_prepend` | Prepend a value to an array |
 | `doc_ensure` | Set a value only if the selector path does not exist |

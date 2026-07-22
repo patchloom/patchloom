@@ -322,9 +322,21 @@ api::doc_set(
     ApplyMode::Apply,
     None,
 )?;
+
+// Multi-doc YAML: merge into document 0 (selector None = root only)
+api::doc_merge(
+    Path::new("stream.yaml"),
+    serde_json::json!({"env": "prod"}),
+    ApplyMode::Apply,
+    None,
+    Some("0"),
+)?;
+
+// Sole-path text load: binary / invalid UTF-8 → EditErrorKind::InvalidInput
+let _text = api::load_text(Path::new("notes.md"))?;
 ```
 
-All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking and binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs.
+All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking, `load_text_strict`, binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs. Multi-doc bare keys and wrong-root merges peel to `EditErrorKind::TypeError` via `edit_error_kind`.
 
 Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
 
