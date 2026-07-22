@@ -1187,3 +1187,38 @@ fn test_ast_rename_dir_binary_only_is_no_matches() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["error_kind"], "no_matches", "{json}");
 }
+
+/// Directory ast list with only unreadable sources is not no_matches.
+#[test]
+fn test_ast_list_dir_all_unreadable_not_no_matches() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.rs");
+    fs::write(&a, "fn foo() {}\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&a, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_to_string(&a).is_ok() {
+            fs::set_permissions(&a, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["ast", "list", "."])
+            .output()
+            .unwrap();
+        let _ = fs::set_permissions(&a, fs::Permissions::from_mode(0o644));
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["error_kind"], "invalid_input", "{v}");
+        assert_ne!(v["error_kind"], "no_matches", "{v}");
+    }
+}

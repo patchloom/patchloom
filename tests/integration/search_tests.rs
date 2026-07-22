@@ -1741,3 +1741,38 @@ fn test_search_dir_all_unreadable_not_no_matches() {
         );
     }
 }
+
+/// --assert-count 0 must not succeed when the scan is all-unreadable.
+#[test]
+fn test_search_assert_count_zero_all_unreadable_not_success() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    fs::write(&a, "needle\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&a, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_to_string(&a).is_ok() {
+            fs::set_permissions(&a, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["search", "needle", ".", "--assert-count", "0"])
+            .output()
+            .unwrap();
+        let _ = fs::set_permissions(&a, fs::Permissions::from_mode(0o644));
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["error_kind"], "invalid_input", "{v}");
+        assert_ne!(v["ok"], true, "must not claim assert-count success: {v}");
+    }
+}

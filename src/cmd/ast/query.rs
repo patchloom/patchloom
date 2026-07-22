@@ -128,6 +128,13 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
         if structured && !structured_items.is_empty() {
             print_symbol_items_json(&structured_items, global)?;
         }
+        if !any_output {
+            // Unreadable files soft-skip to empty; do not claim "no symbols".
+            if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+                global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+                return Ok(exit::FAILURE);
+            }
+        }
     } else {
         let msg = format!("path not found: {}", args.path);
         global.emit_error_json_kind(Some("not_found"), &msg)?;
@@ -685,6 +692,10 @@ pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8>
     let entries = crate::ast::map::generate_map(&file_pairs, &opts);
 
     if entries.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let msg = format!("no symbols found in {}", args.path);
         global.emit_error_json_kind(Some("no_matches"), &msg)?;
         return Ok(exit::NO_MATCHES);
