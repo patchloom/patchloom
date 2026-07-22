@@ -92,8 +92,11 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             report.agent_rules = "appended".into();
             status!("appended patchloom rules to {rel_target}");
         } else {
-            report.agent_rules = "skipped".into();
-            status!("skipped {rel_target}");
+            // Non-interactive decline (no TTY, no --yes/--json): explain next step.
+            report.agent_rules = "skipped_use_yes".into();
+            status!(
+                "skipped {rel_target} (declined or non-interactive; re-run with --yes or --json)"
+            );
         }
     } else if auto_agent_rules || confirm(&format!("Create {rel_target}?")) {
         std::fs::write(&target_path, &rules)
@@ -101,8 +104,8 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         report.agent_rules = "created".into();
         status!("created {rel_target}");
     } else {
-        report.agent_rules = "skipped".into();
-        status!("skipped {rel_target}");
+        report.agent_rules = "skipped_use_yes".into();
+        status!("skipped {rel_target} (declined or non-interactive; re-run with --yes or --json)");
     }
 
     // 2. Shell completions: auto-install or hint.
@@ -405,6 +408,34 @@ mod tests {
     fn find_agent_file_none_in_empty_dir() {
         let dir = tempfile::TempDir::new().unwrap();
         assert!(find_agent_file(dir.path()).is_none());
+    }
+
+    /// fixrealloop: plain `init` without --yes on non-TTY must not look like
+    /// a silent no-op; report.agent_rules names the remediation.
+    #[test]
+    fn init_without_yes_noninteractive_reports_skipped_use_yes() {
+        let _guard = crate::cli::global::ConfirmAnswerGuard::force(false);
+        let dir = tempfile::TempDir::new().unwrap();
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            json: false,
+            quiet: true,
+            ..GlobalFlags::default()
+        };
+        let code = run(InitArgs { yes: false }, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        // No AGENTS.md written when confirm declines.
+        assert!(
+            !dir.path().join("AGENTS.md").exists(),
+            "must not create AGENTS.md without --yes when confirm declines"
+        );
+        // --yes still creates.
+        let code = run(InitArgs { yes: true }, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(
+            dir.path().join("AGENTS.md").exists(),
+            "init --yes must create AGENTS.md"
+        );
     }
 
     #[test]
