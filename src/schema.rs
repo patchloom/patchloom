@@ -277,12 +277,18 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "doc.merge",
-        description: "Deep-merge a JSON object into the root of a document.",
+        description: "Deep-merge a JSON object into a document root, or into a selector path (e.g. multi-doc YAML `0` / `[0]`).",
         tier: Tier::Medium,
-        examples: &[(
-            "Add database config",
-            r###"{"op":"doc.merge","path":"config.yaml","value":{"database":{"host":"localhost","port":5432}}}"###,
-        )],
+        examples: &[
+            (
+                "Add database config at root",
+                r###"{"op":"doc.merge","path":"config.yaml","value":{"database":{"host":"localhost","port":5432}}}"###,
+            ),
+            (
+                "Merge into multi-document YAML document 0",
+                r###"{"op":"doc.merge","path":"services.yaml","selector":"0","value":{"env":"prod"}}"###,
+            ),
+        ],
     },
     OpMeta {
         name: "doc.append",
