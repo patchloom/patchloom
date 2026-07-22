@@ -8895,3 +8895,41 @@ fn test_tx_json_includes_applied_field() {
     assert_eq!(v["applied"], true, "apply must set applied=true: {v}");
     assert_eq!(fs::read_to_string(&file).unwrap(), "yo\n");
 }
+
+/// Unreadable plan file must surface one "failed to read" prefix (#1918).
+#[cfg(unix)]
+#[test]
+fn test_tx_unreadable_plan_does_not_double_wrap() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(&plan, r#"{"version":1,"operations":[]}"#).unwrap();
+    fs::set_permissions(&plan, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&plan).is_ok() {
+        fs::set_permissions(&plan, fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json"])
+        .output()
+        .unwrap();
+    let _ = fs::set_permissions(&plan, fs::Permissions::from_mode(0o644));
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert_eq!(
+        err.matches("failed to read").count(),
+        1,
+        "must not double-wrap load_text_strict: {v}"
+    );
+}

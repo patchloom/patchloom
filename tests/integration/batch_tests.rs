@@ -978,3 +978,41 @@ fn test_batch_tidy_fix_trims_trailing_whitespace_by_default() {
         "trailing spaces must be trimmed by default"
     );
 }
+
+/// Unreadable batch input must surface one "failed to read" prefix (#1918).
+#[cfg(unix)]
+#[test]
+fn test_batch_unreadable_input_does_not_double_wrap() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new().unwrap();
+    let batch = dir.path().join("ops.batch");
+    fs::write(&batch, "file.create x.txt hi\n").unwrap();
+    fs::set_permissions(&batch, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&batch).is_ok() {
+        fs::set_permissions(&batch, fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["batch", "ops.batch"])
+        .output()
+        .unwrap();
+    let _ = fs::set_permissions(&batch, fs::Permissions::from_mode(0o644));
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert_eq!(
+        err.matches("failed to read").count(),
+        1,
+        "must not double-wrap load_text_strict: {v}"
+    );
+}
