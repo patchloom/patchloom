@@ -215,6 +215,16 @@ mod basic {
             names.contains(&"doc.merge"),
             "medium tier must include doc.merge"
         );
+        let merge_desc =
+            crate::schema::operation_description("doc.merge").expect("doc.merge is registered");
+        assert!(
+            merge_desc.contains("selector") || merge_desc.contains("multi-doc"),
+            "doc.merge catalog must mention selector/multi-doc (explain honesty; fixrealloop): {merge_desc}"
+        );
+        assert!(
+            !merge_desc.contains("into the root of a document."),
+            "doc.merge must not claim root-only when selector is supported: {merge_desc}"
+        );
     }
 
     #[test]

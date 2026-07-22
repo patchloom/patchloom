@@ -427,7 +427,7 @@ dependencies[name=react].version # predicate filter
 - `tidy.fix`: Normalize whitespace in a file. When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; normalize_eol stays keep). Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).
 - `doc.set`: Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.
 - `doc.delete`: Delete a value at a selector path in a JSON, YAML, or TOML file. CLI --json and MCP/tx success include changed and removed (0 on missing key; exit 0 / ok is idempotent).
-- `doc.merge`: Deep-merge a JSON object into the root of a document.
+- `doc.merge`: Deep-merge a JSON object into a document root, or into a selector path (e.g. multi-doc YAML `0` / `[0]`).
 - `doc.append`: Append a value to an array at a selector path.
 - `doc.move`: Move a value from one selector path to another within the same file.
 - `doc.ensure`: Set a value only if the selector path does not already exist.
