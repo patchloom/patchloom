@@ -155,7 +155,14 @@ fn doc_merge_merges_values() {
     let file = dir.path().join("config.json");
     fs::write(&file, r#"{"a": 1}"#).unwrap();
 
-    let result = doc_merge(&file, serde_json::json!({"b": 2}), ApplyMode::Apply, None).unwrap();
+    let result = doc_merge(
+        &file,
+        serde_json::json!({"b": 2}),
+        ApplyMode::Apply,
+        None,
+        None,
+    )
+    .unwrap();
 
     assert!(result.changed);
     let on_disk = fs::read_to_string(&file).unwrap();
@@ -166,6 +173,64 @@ fn doc_merge_merges_values() {
         "merge must preserve existing keys"
     );
     assert_eq!(parsed["b"], serde_json::json!(2), "merge must add new keys");
+}
+
+#[test]
+fn doc_merge_multi_doc_selector_preserves_second_document() {
+    // Library hosts must multi-doc merge without execute_plan (#1909).
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("stream.yaml");
+    fs::write(&file, "a: 1\nb: 2\n---\nx: 9\n").unwrap();
+
+    let result = doc_merge(
+        &file,
+        serde_json::json!({"c": 3}),
+        ApplyMode::Apply,
+        None,
+        Some("0"),
+    )
+    .unwrap();
+
+    assert!(result.changed);
+    assert!(result.applied);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.contains("c:") || on_disk.contains("c: 3"),
+        "merged key missing: {on_disk}"
+    );
+    assert!(
+        on_disk.contains("x:") || on_disk.contains("x: 9"),
+        "second document must be preserved: {on_disk}"
+    );
+    // First document should still have a/b and gain c.
+    assert_eq!(doc_get(&file, "0.a").unwrap(), serde_json::json!(1));
+    assert_eq!(doc_get(&file, "0.c").unwrap(), serde_json::json!(3));
+    assert_eq!(doc_get(&file, "1.x").unwrap(), serde_json::json!(9));
+}
+
+#[test]
+fn doc_merge_multi_doc_root_object_overlay_is_type_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("stream.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    let err = doc_merge(
+        &file,
+        serde_json::json!({"c": 3}),
+        ApplyMode::Preview,
+        None,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&err),
+        "expected TypeErrorError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::TypeError),
+        "root multi-doc merge must peel to TypeError for hosts (#1909)"
+    );
 }
 
 #[test]
@@ -1517,6 +1582,28 @@ fn empty_replace_pattern_is_invalid_input_not_type_error() {
         crate::fallback::edit_error_kind(&err),
         Some(EditErrorKind::InvalidInput)
     );
+}
+
+#[test]
+fn load_text_api_rejects_binary_and_loads_utf8() {
+    // api::load_text discoverability (#1910)
+    let dir = TempDir::new().unwrap();
+    let text = dir.path().join("ok.txt");
+    fs::write(&text, "hello\n").unwrap();
+    assert_eq!(load_text(&text).unwrap(), "hello\n");
+
+    let bin = dir.path().join("blob.bin");
+    fs::write(&bin, b"a\0b").unwrap();
+    let err = load_text(&bin).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+    assert!(
+        is_binary_file(&bin),
+        "is_binary_file should detect NUL probe"
+    );
+    assert!(!is_binary_file(&text));
 }
 
 #[test]

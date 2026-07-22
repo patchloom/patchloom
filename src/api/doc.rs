@@ -122,16 +122,50 @@ pub fn doc_delete(
     doc_write(op, path, mode, guard, "doc.delete")
 }
 
-/// Deep-merge a value into the root of a JSON, YAML, or TOML file.
+/// Deep-merge a value into a JSON, YAML, or TOML file.
+///
+/// When `selector` is [`None`], merges into the document root (single-document
+/// files). For multi-document YAML (top-level array of documents), pass
+/// `Some("0")` or `Some("[0]")` to merge into the first document without
+/// replacing the whole stream. Merging a non-array overlay into a multi-doc
+/// **root** returns [`crate::exit::TypeErrorError`] (peels to
+/// [`crate::fallback::EditErrorKind::TypeError`]).
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use patchloom::api::{self, ApplyMode};
+/// use std::path::Path;
+///
+/// // Root merge (single-doc JSON/YAML/TOML)
+/// let _ = api::doc_merge(
+///     Path::new("config.json"),
+///     serde_json::json!({"debug": true}),
+///     ApplyMode::Apply,
+///     None,
+///     None,
+/// )?;
+///
+/// // Multi-doc YAML: merge into document 0 only
+/// let _ = api::doc_merge(
+///     Path::new("stream.yaml"),
+///     serde_json::json!({"c": 3}),
+///     ApplyMode::Apply,
+///     None,
+///     Some("0"),
+/// )?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
 pub fn doc_merge(
     path: &Path,
     value: serde_json::Value,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+    selector: Option<&str>,
 ) -> anyhow::Result<EditResult> {
     let op = Operation::DocMerge {
         path: path.to_string_lossy().into(),
-        selector: None,
+        selector: selector.map(|s| s.into()),
         value,
     };
     doc_write(op, path, mode, guard, "doc.merge")

@@ -151,7 +151,12 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              - Multi-doc / wrong-root doc navigation peels to `EditErrorKind::TypeError` via \
                `edit_error_kind` / `classify_error` (CLI JSON `error_kind: type_error`; #1883). Do not \
                collapse with `InvalidInput` (empty patterns, bad options, sole binary).\n\
-             - Path binary preflight: `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884)\n\
+             - Multi-doc `api::doc_merge(path, value, mode, guard, selector)`: pass `Some(\"0\")` \
+               (or `\"[0]\"`) to merge into document 0; `None` is root-only and refuses a non-array \
+               overlay on multi-doc root with `TypeError` (#1909).\n\
+             - Path binary preflight: `api::is_binary_file` / `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884)\n\
+             - Sole-path text load for hosts: `api::load_text(path)` or `files::load_text_strict` (#1894, #1910)\n\
+             - `EditErrorKind` is `#[non_exhaustive]`; match with a wildcard arm (#1910)\n\
              - Text I/O honesty (#1894):\n\
                | Surface | Binary / invalid UTF-8 | Unreadable (IO) |\n\
                |---------|------------------------|-----------------|\n\
@@ -1160,6 +1165,18 @@ mod tests {
         assert!(
             out.contains("load_text_strict"),
             "library hosts need text I/O honesty load_text_strict (#1894)"
+        );
+        assert!(
+            out.contains("api::load_text"),
+            "library hosts need api::load_text alias (#1910)"
+        );
+        assert!(
+            out.contains("api::doc_merge") && out.contains("Some(\"0\")"),
+            "library hosts need multi-doc doc_merge selector (#1909)"
+        );
+        assert!(
+            out.contains("non_exhaustive"),
+            "library hosts need EditErrorKind non_exhaustive note (#1910)"
         );
         // Line-oriented insert is CLI-facing as well (mode All includes CLI).
         assert!(
