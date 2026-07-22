@@ -128,8 +128,10 @@ pub fn sole_explicit_non_text(
                     msg: inv.msg.clone(),
                 })
             } else {
+                // load_text_strict already prefixes "failed to read {display}";
+                // do not double-wrap (fixrealloop: "failed to read x: failed to read x").
                 Some(crate::exit::InvalidInputError {
-                    msg: format!("failed to read {display}: {e}"),
+                    msg: format!("{e:#}"),
                 })
             }
         }
@@ -488,6 +490,18 @@ mod tests {
             assert!(
                 err.msg.contains("failed to read") || err.msg.contains("Permission"),
                 "got: {}",
+                err.msg
+            );
+            // Single prefix only (not "failed to read x: failed to read x").
+            let failed_count = err.msg.matches("failed to read").count();
+            assert_eq!(
+                failed_count, 1,
+                "unreadable error must not double-wrap load_text_strict context: {}",
+                err.msg
+            );
+            assert!(
+                err.msg.contains("locked.txt"),
+                "path should appear once in message: {}",
                 err.msg
             );
             fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
