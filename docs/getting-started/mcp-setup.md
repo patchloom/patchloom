@@ -18,10 +18,11 @@ root. Ownership markers (required by the registry) are:
 - **npm:** `mcpName` in the published `package.json` (injected during the
   release `publish-npm` job; cargo-dist does not emit it).
 
-After each GitHub Release, the `Publish MCP Registry` workflow stamps the
-version into `server.json`, waits for those markers, authenticates with
-GitHub OIDC, and runs `mcp-publisher publish`. You can re-run it manually
-via `workflow_dispatch` with an explicit version.
+On each release, after crates.io and npm publish succeed, the Release workflow
+calls `Publish MCP Registry`, which stamps the version into `server.json`,
+confirms those markers, authenticates with GitHub OIDC, and runs
+`mcp-publisher publish`. You can re-run it manually via `workflow_dispatch`
+with an explicit version (for example after a failed publish).
 
 ## Smithery (local MCPB)
 

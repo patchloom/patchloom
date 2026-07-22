@@ -1,4 +1,12 @@
-# Publish server.json to the official MCP Registry after a GitHub Release.
+# Publish server.json to the official MCP Registry after crates.io + npm
+# ownership markers exist for the version.
+#
+# Triggers:
+#   - workflow_call from release.yml after publish-npm + custom-publish-crates
+#     (primary path; avoids the race where release:published fires when the
+#     GitHub Release is created, ~15+ minutes before crates/npm finish)
+#   - workflow_dispatch for manual re-publish / recovery
+#
 # Ownership verification:
 #   - cargo: visible `mcp-name: io.github.patchloom/patchloom` in crates.io README
 #   - npm: package.json `mcpName` injected in release.yml publish-npm job
@@ -7,17 +15,21 @@
 name: Publish MCP Registry
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      version:
+        description: "Package version to publish (e.g. 0.16.0)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish (e.g. 0.15.3). Empty uses the latest GitHub Release tag."
+        description: "Version to publish (e.g. 0.16.0). Empty uses the latest GitHub Release tag."
         required: false
         type: string
 
 concurrency:
-  group: publish-mcp-registry-${{ github.ref }}
+  group: publish-mcp-registry-${{ inputs.version || github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -26,7 +38,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    # CDN lag buffer after packages exist, plus publish + verify.
+    timeout-minutes: 30
     # Do not publish while the repository is private.
     if: ${{ !github.event.repository.private }}
     permissions:
@@ -47,16 +60,10 @@ jobs:
         id: version
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           version="${INPUT_VERSION:-}"
-          if [ -z "$version" ] && [ -n "${RELEASE_TAG:-}" ]; then
-            # cargo-dist tags look like patchloom-v0.15.2
-            version="${RELEASE_TAG#patchloom-v}"
-            version="${version#v}"
-          fi
           if [ -z "$version" ]; then
             tag=$(gh release view --json tagName --jq .tagName)
             version="${tag#patchloom-v}"
@@ -77,10 +84,12 @@ jobs:
           CRATES_UA: patchloom-mcp-registry-ci (https://github.com/patchloom/patchloom)
         run: |
           set -euo pipefail
-          # crates.io and npm can lag the GitHub Release by a few minutes.
-          # Ownership checks fail if we publish before markers are live.
-          attempts=30
-          sleep_s=20
+          # Called after publish-npm + crates in release.yml, so markers should
+          # appear quickly. Keep a long CDN/registry lag buffer for both the
+          # primary path and manual workflow_dispatch recovery.
+          # 60 * 30s = 30 minutes (within job timeout).
+          attempts=60
+          sleep_s=30
           cargo_ok=0
           npm_ok=0
           for i in $(seq 1 "$attempts"); do
@@ -88,26 +97,34 @@ jobs:
 
             # Cargo ownership: visible mcp-name token in rendered README HTML.
             # crates.io strips HTML comments; marker must be plain markdown text.
+            # /readme returns 302 to static.crates.io; curl -L follows it.
             if [ "$cargo_ok" -eq 0 ]; then
-              readme_html=$(curl -fsSL -A "$CRATES_UA" \
+              http_code=$(curl -sS -L -o /tmp/crates-readme.html -w '%{http_code}' \
+                -A "$CRATES_UA" \
                 "https://crates.io/api/v1/crates/patchloom/${VERSION}/readme" \
-                || true)
-              if printf '%s' "$readme_html" | grep -Fq "mcp-name: ${MCP_NAME}"; then
+                || echo "000")
+              if [ "$http_code" = "200" ] \
+                && grep -Fq "mcp-name: ${MCP_NAME}" /tmp/crates-readme.html; then
                 echo "cargo marker present on crates.io ${VERSION}"
                 cargo_ok=1
               else
-                echo "cargo marker not yet visible for ${VERSION}"
+                echo "cargo marker not yet visible for ${VERSION} (http=${http_code})"
               fi
             fi
 
             if [ "$npm_ok" -eq 0 ]; then
-              mcp=$(curl -fsSL "https://registry.npmjs.org/patchloom/${VERSION}" \
-                | jq -r '.mcpName // empty' || true)
+              http_code=$(curl -sS -o /tmp/npm-meta.json -w '%{http_code}' \
+                "https://registry.npmjs.org/patchloom/${VERSION}" \
+                || echo "000")
+              mcp=""
+              if [ "$http_code" = "200" ]; then
+                mcp=$(jq -r '.mcpName // empty' /tmp/npm-meta.json || true)
+              fi
               if [ "$mcp" = "$MCP_NAME" ]; then
                 echo "npm mcpName present for ${VERSION}"
                 npm_ok=1
               else
-                echo "npm mcpName not yet visible for ${VERSION} (got: '${mcp:-none}')"
+                echo "npm mcpName not yet visible for ${VERSION} (http=${http_code}, got: '${mcp:-none}')"
               fi
             fi
 
@@ -159,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           # Registry search can lag briefly; retry a few times.
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3 4 5 6 7 8 9 10; do
             body=$(curl -fsSL \
               "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.patchloom/patchloom")
             if printf '%s' "$body" | jq -e --arg v "$VERSION" '
@@ -171,8 +188,8 @@ jobs:
               echo "Verified io.github.patchloom/patchloom@${VERSION} in registry search"
               exit 0
             fi
-            echo "Listing not visible yet (attempt ${i}); sleeping 10s"
-            sleep 10
+            echo "Listing not visible yet (attempt ${i}); sleeping 15s"
+            sleep 15
           done
           echo "Published successfully but search verification timed out; check the registry UI" >&2
           exit 0
