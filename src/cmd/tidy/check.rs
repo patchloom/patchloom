@@ -256,6 +256,14 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
     let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(paths);
     let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
     let issues = collect_issues(paths, global)?;
+    if issues.is_empty() {
+        // Unreadable paths soft-skipped as "clean" would mask permission failures.
+        let scanned = crate::collect_file_paths_opts(paths, global, true, Some(&cwd))?;
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
+    }
     if !global.quiet || global.json || global.jsonl {
         render_issues(&issues, global, skipped, refused)?;
     }
