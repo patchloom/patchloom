@@ -310,6 +310,12 @@ pub(super) fn run_fix(
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }
+        // Dir walk: unreadable must not look like "already tidy".
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&fix_file_paths, &cwd)
+        {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(&paths);
         let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
         emit_tidy_fix_output(global, &[], None, Some(false), None, skipped, refused)?;

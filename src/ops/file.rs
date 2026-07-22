@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Pure helpers for file append/prepend content computation.
 /// Used by api::file_* , plan execution (tx), and cmd/append for consistency.
@@ -151,6 +151,54 @@ pub fn sole_explicit_non_text_for_scan(
         Some(list) => sole_explicit_non_text(list, cwd),
         None => sole_explicit_non_text(paths, cwd),
     }
+}
+
+/// When a multi-path / directory walk produced zero useful results, sample
+/// unreadable paths so callers do **not** report pattern `no_matches` or
+/// vacuous tidy "clean" (SoftTextSkip: unreadable may have masked the scan).
+///
+/// Content SoftSkip (binary / invalid UTF-8) alone does not trigger this.
+pub fn empty_scan_masked_by_unreadable(
+    file_paths: &[PathBuf],
+    cwd: &Path,
+) -> Option<crate::exit::InvalidInputError> {
+    const SAMPLE_LIMIT: usize = 8;
+    let mut sample = Vec::new();
+    let mut count = 0usize;
+    for path in file_paths {
+        if !path.is_file() {
+            continue;
+        }
+        if matches!(
+            crate::files::try_read_text_file(path),
+            Err(crate::files::SoftTextSkip::Unreadable)
+        ) {
+            count += 1;
+            if sample.len() < SAMPLE_LIMIT {
+                #[cfg(any(feature = "cli", feature = "files"))]
+                let display = crate::files::relative_display(path, cwd)
+                    .to_string_lossy()
+                    .into_owned();
+                #[cfg(not(any(feature = "cli", feature = "files")))]
+                let display = path
+                    .strip_prefix(cwd)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .into_owned();
+                sample.push(display);
+            }
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+    let sample_s = sample.join(", ");
+    Some(crate::exit::InvalidInputError {
+        msg: format!(
+            "could not read {count} path(s) while scanning (e.g. {sample_s}); \
+             not reporting as no matches / clean"
+        ),
+    })
 }
 
 /// Path soft-refused for non-pattern reasons (parity with replace/search `refused[]`).
@@ -388,6 +436,38 @@ mod tests {
         assert!(sole_explicit_non_text(&[], dir.path()).is_none());
         let err = sole_explicit_non_text_for_scan(&[], Some(&list), dir.path()).unwrap();
         assert!(err.msg.contains("binary"), "got: {}", err.msg);
+    }
+
+    #[test]
+    fn empty_scan_masked_by_unreadable_samples() {
+        let dir = TempDir::new().unwrap();
+        let locked = dir.path().join("locked.txt");
+        fs::write(&locked, "x\n").unwrap();
+        fs::write(dir.path().join("ok.txt"), "y\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+            if fs::read_to_string(&locked).is_ok() {
+                fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+                return;
+            }
+            let paths = vec![locked.clone(), dir.path().join("ok.txt")];
+            // ok.txt is readable → still report unreadable co-path when asked
+            // only about the locked file set:
+            let only_locked = vec![locked.clone()];
+            let err = empty_scan_masked_by_unreadable(&only_locked, dir.path()).unwrap();
+            assert!(err.msg.contains("could not read"), "got: {}", err.msg);
+            assert!(err.msg.contains("locked.txt"), "got: {}", err.msg);
+            // Mixed: still reports when unreadable present among scanned paths
+            let err2 = empty_scan_masked_by_unreadable(&paths, dir.path()).unwrap();
+            assert!(err2.msg.contains("could not read"), "got: {}", err2.msg);
+            // Readable-only: no mask error
+            assert!(
+                empty_scan_masked_by_unreadable(&[dir.path().join("ok.txt")], dir.path()).is_none()
+            );
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+        }
     }
 
     #[test]

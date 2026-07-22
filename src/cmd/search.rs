@@ -539,6 +539,12 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }
+        // Multi-path / dir walk: unreadable may have masked the scan (#1894).
+        let scanned = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let path_desc = global.path_scope_description(&args.paths);
         let payload = SearchOutput {
             ok: false,
