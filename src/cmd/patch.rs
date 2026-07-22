@@ -372,11 +372,17 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             } else {
                 ("parse_error", exit::PARSE_ERROR)
             };
-            emit_error(
-                global,
-                &format!("patch: failed to read '{path}': {e}"),
-                kind,
-            )?;
+            // load_text_strict (and stdin map) already include path/context in
+            // `e`; do not re-prefix "failed to read" (sibling of #1916).
+            let msg = {
+                let detail = e.to_string();
+                if detail.contains("failed to read") {
+                    format!("patch: {detail}")
+                } else {
+                    format!("patch: failed to read '{path}': {detail}")
+                }
+            };
+            emit_error(global, &msg, kind)?;
             return Ok(code);
         }
         Err(DiffReadError::StdinError(e)) => {

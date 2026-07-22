@@ -839,18 +839,16 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let input_path = global.resolve_user_path(&args.input)?;
         // Strict sole-path input (#1894): binary / invalid UTF-8 → InvalidInput.
         let display = input_path.display().to_string();
+        // load_text_strict already prefixes "failed to read {display}"; do not
+        // re-wrap (same class as #1916 / patch target IO).
         crate::files::load_text_strict(&input_path, &display).map_err(|e| {
             if crate::exit::is_io_not_found(&e) {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("failed to read '{display}': {e}"),
-                )
-                .into()
+                std::io::Error::new(std::io::ErrorKind::NotFound, format!("{e:#}")).into()
             } else if crate::exit::is_invalid_input(&e) {
                 e
             } else {
                 anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("failed to read '{display}': {e}"),
+                    msg: format!("{e:#}"),
                 })
             }
         })?
