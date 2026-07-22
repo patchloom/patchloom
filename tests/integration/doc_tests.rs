@@ -2917,8 +2917,11 @@ fn test_doc_keys_multi_document_root_hints_index() {
         let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(v["error_kind"], "type_error", "selector {root_sel:?}: {v}");
         let err = v["error"].as_str().unwrap_or("");
+        // Prefer multi-char guidance over bare "0" (matches any digit noise).
         assert!(
-            err.contains("array") && (err.contains("0") || err.contains("index")),
+            err.contains("top-level array")
+                && err.contains("index")
+                && (err.contains("`0`") || err.contains("[0]")),
             "expected multi-doc keys guidance for {root_sel:?}, got: {v}"
         );
     }
