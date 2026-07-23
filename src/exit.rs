@@ -300,6 +300,28 @@ pub fn is_io_is_a_directory(err: &anyhow::Error) -> bool {
     })
 }
 
+/// Format an error for agent-facing surfaces (JSON `error`, typed msg fields).
+///
+/// Prefer [`Display`] when the outer context already embeds every cause message
+/// (common after `context(format!("…: {e}"))` on IO errors). In that case
+/// `{:#}` only doubles the OS detail (e.g. `…: No such file …: No such file …`).
+/// Otherwise use the full chain (`{:#}`) so multi-layer context stays complete.
+///
+/// [`Display`]: std::fmt::Display
+#[must_use]
+pub fn agent_error_message(err: &anyhow::Error) -> String {
+    let top = err.to_string();
+    let mut complete = true;
+    for cause in err.chain().skip(1) {
+        let c = cause.to_string();
+        if !c.is_empty() && !top.contains(&c) {
+            complete = false;
+            break;
+        }
+    }
+    if complete { top } else { format!("{err:#}") }
+}
+
 /// Build the shared JSON error envelope + exit code for agent `--json` paths.
 ///
 /// Includes `error_kind` when classifiable and `backup_session` when a
@@ -312,7 +334,7 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
     };
     let mut output = serde_json::json!({
         "ok": false,
-        "error": format!("{err:#}")
+        "error": agent_error_message(err)
     });
     if let Some(k) = kind {
         output["error_kind"] = serde_json::Value::String(k.to_string());
@@ -521,6 +543,59 @@ mod tests {
         assert_eq!(
             p["applied"], false,
             "pre-write not_found must set applied:false: {p}"
+        );
+    }
+
+    #[test]
+    fn agent_error_message_avoids_double_os_when_context_embeds_cause() {
+        // Mirrors load_text_strict NotFound: context already includes `{e}`.
+        let io = std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory");
+        let msg = format!("failed to read missing.txt: {io}");
+        let err = anyhow::Error::new(io).context(msg);
+        let agent = agent_error_message(&err);
+        assert!(
+            agent.contains("failed to read missing.txt"),
+            "path context missing: {agent}"
+        );
+        assert!(agent.contains("No such file"), "OS detail missing: {agent}");
+        assert_eq!(
+            agent.matches("No such file").count(),
+            1,
+            "OS detail must not double under agent_error_message: {agent}"
+        );
+        // {:#} still doubles — that is what we are avoiding.
+        let raw = format!("{err:#}");
+        assert!(
+            raw.matches("No such file").count() >= 2,
+            "test premise: raw {{:#}} should double: {raw}"
+        );
+        let (payload, _) = structured_error_payload(&err);
+        let json_err = payload["error"].as_str().unwrap_or("");
+        assert_eq!(
+            json_err.matches("No such file").count(),
+            1,
+            "structured_error_payload must not double OS detail: {json_err}"
+        );
+    }
+
+    #[test]
+    fn agent_error_message_keeps_multi_layer_chain_when_causes_add_info() {
+        let root = std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory");
+        let err = anyhow::Error::new(root)
+            .context("failed to read plan.yaml")
+            .context("operation 1 (doc.get) failed");
+        let agent = agent_error_message(&err);
+        assert!(
+            agent.contains("operation 1"),
+            "outer context missing: {agent}"
+        );
+        assert!(
+            agent.contains("failed to read plan.yaml"),
+            "middle context missing: {agent}"
+        );
+        assert!(
+            agent.contains("No such file"),
+            "root OS detail missing: {agent}"
         );
     }
 

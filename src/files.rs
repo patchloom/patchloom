@@ -1075,6 +1075,17 @@ mod tests {
             1,
             "must not double-wrap: {msg}"
         );
+        // Agent JSON / {:#} consumers must not double the OS detail either.
+        let agent = crate::exit::agent_error_message(&err);
+        let os_hits = agent
+            .matches("No such file")
+            .count()
+            .max(agent.matches("os error 2").count())
+            .max(agent.matches("not found").count());
+        assert_eq!(
+            os_hits, 1,
+            "agent_error_message must keep OS detail once: {agent}"
+        );
     }
 
     #[test]
