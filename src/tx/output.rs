@@ -602,11 +602,23 @@ pub(crate) fn format_error_with_backup_hint(error: &str, backup_session: Option<
     }
 }
 
+/// Prefix `error` with `error_kind:` unless it already starts with that kind
+/// (EditError Display is already `{kind}: {message}`).
+fn format_error_with_kind(error_kind: &str, error: &str) -> String {
+    let prefix = format!("{error_kind}: ");
+    if error.starts_with(&prefix) || error.starts_with(&format!("{error_kind}:")) {
+        error.to_string()
+    } else {
+        format!("{prefix}{error}")
+    }
+}
+
 pub(crate) fn build_error_output(
     error_kind: &str,
     error: &str,
     backup_session: Option<&str>,
 ) -> TxOutput {
+    let body = format_error_with_backup_hint(error, backup_session);
     TxOutput {
         ok: false,
         status: "error".to_string(),
@@ -623,10 +635,7 @@ pub(crate) fn build_error_output(
         changed: None,
         removed: None,
         error_kind: Some(error_kind.to_string()),
-        error: Some(format!(
-            "{error_kind}: {}",
-            format_error_with_backup_hint(error, backup_session)
-        )),
+        error: Some(format_error_with_kind(error_kind, &body)),
         backup_session: backup_session.map(str::to_string),
         match_mode: None,
         match_score: None,
@@ -652,10 +661,8 @@ pub(crate) fn build_applied_with_error_output(
     // Writes already committed before this error path.
     output.applied = true;
     output.error_kind = Some(error_kind.to_string());
-    output.error = Some(format!(
-        "{error_kind}: {}",
-        format_error_with_backup_hint(error, backup_session)
-    ));
+    let body = format_error_with_backup_hint(error, backup_session);
+    output.error = Some(format_error_with_kind(error_kind, &body));
     if output.backup_session.is_none() {
         output.backup_session = backup_session.map(str::to_string);
     }
@@ -766,6 +773,20 @@ mod tests {
         assert!(out.error.as_ref().unwrap().contains("bad plan"));
         assert_eq!(out.files_changed, 0);
         assert!(out.backup_session.is_none());
+    }
+
+    #[test]
+    fn format_error_with_kind_skips_duplicate_prefix() {
+        let already = "guard_rejected: path rejected by workspace guard: escapes";
+        assert_eq!(
+            format_error_with_kind("guard_rejected", already),
+            already,
+            "must not double-prefix EditError Display"
+        );
+        assert_eq!(
+            format_error_with_kind("parse_error", "bad plan"),
+            "parse_error: bad plan"
+        );
     }
 
     #[test]

@@ -295,7 +295,7 @@ fn test_contain_help_documents_allow_absolute_under_workspace() {
 }
 
 #[test]
-fn test_contain_json_escape_sets_invalid_input_error_kind() {
+fn test_contain_json_escape_sets_guard_rejected_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
 
@@ -317,7 +317,7 @@ fn test_contain_json_escape_sets_invalid_input_error_kind() {
     let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(
-        json["error_kind"], "invalid_input",
+        json["error_kind"], "guard_rejected",
         "containment rejections must set error_kind for agents: {json}"
     );
     assert!(

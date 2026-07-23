@@ -420,11 +420,9 @@ impl GlobalFlags {
         // When --contain is on, return PathGuard's resolved path (dunce-stripped
         // absolute) so downstream I/O does not keep a raw \\?\ form (#1931).
         if let Some(guard) = self.workspace_guard(&cwd)? {
-            return guard.check_path(path_str.as_ref()).map_err(|e| {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("path rejected by workspace guard: {e}"),
-                })
-            });
+            return guard
+                .check_path(path_str.as_ref())
+                .map_err(crate::fallback::EditError::guard_rejected);
         }
         if path.is_absolute() {
             Ok(dunce::simplified(path).to_path_buf())
@@ -450,11 +448,9 @@ impl GlobalFlags {
             .into());
         }
         if let Some(guard) = self.workspace_guard(cwd)? {
-            return guard.check_path(path).map_err(|e| {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("path rejected by workspace guard: {e}"),
-                })
-            });
+            return guard
+                .check_path(path)
+                .map_err(crate::fallback::EditError::guard_rejected);
         }
         let p = std::path::Path::new(path);
         if p.is_absolute() {
@@ -549,11 +545,9 @@ impl GlobalFlags {
         };
         for p in paths {
             let p = p.as_ref();
-            guard.check_path(p).map_err(|e| {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("path rejected by workspace guard: {e}"),
-                })
-            })?;
+            guard
+                .check_path(p)
+                .map_err(crate::fallback::EditError::guard_rejected)?;
         }
         Ok(())
     }

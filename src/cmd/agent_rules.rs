@@ -146,6 +146,8 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
              - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)\n\
              - `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)\n\
+             - `backup::find_backup_roots(path)` — walk path and parents for roots that own `.patchloom/backups` (nearest first; #1934)\n\
+             - File create/delete/rename/append and `ast_rewrite_signature` peel via `edit_error_kind`: exists/dir/binary → `InvalidInput`, missing symbol → `NoMatch`, PathGuard → `GuardRejected` (#1935 / #1936)\n\
              - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).\n\
              - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
              - Multi-doc / wrong-root doc navigation peels to `EditErrorKind::TypeError` via \
@@ -172,7 +174,7 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              **Empty `--files-from`:** An empty list file or empty stdin (`--files-from -`) is `error_kind: invalid_input` (exit 1) for **search**, **replace**, and **tidy** (not pattern `no_matches`, and not tidy `ok:true` with zero issues). Fix the path list; do not widen the pattern or treat the workspace as clean (#1796).\n\
              **`--files-from` comments (#1811):** Lines whose first non-whitespace character is `#` are comments and are ignored (gitignore-style). Blank lines are ignored. Do not emit markdown headers as path lines.\n\
              **Do not branch on `ok` alone (#1804):** Prefer `applied: true` (CLI write JSON) or MCP/tx `files_changed > 0` with `status: success` for \"edit landed.\" Soft refuse / no match uses `error_kind`/`status: no_matches` (and `applied: false` / `files_changed: 0`). Partial multi-path: read `refused[]` / `skipped[]`. Format failure: `error_kind: format_failed` with `applied: true` means the write already landed on disk (also `write_applied` for one release; prefer `applied`; #1831).\n\
-             **`applied: false` with no write:** When a write was requested but no bytes change (doc ensure/set identity, empty append/prepend, identity replace), JSON still sets `applied: false` and omits `backup_session`. Do not treat success alone as a write. Pre-write hard failures (`already_exists`, `not_found`, `invalid_input`, `parse_error`, `type_error`, `conflicts`, `ambiguous`, `no_matches`, `changes_detected`) also set `applied: false` so agents can branch on `applied` alone.\n\
+             **`applied: false` with no write:** When a write was requested but no bytes change (doc ensure/set identity, empty append/prepend, identity replace), JSON still sets `applied: false` and omits `backup_session`. Do not treat success alone as a write. Pre-write hard failures (`already_exists`, `not_found`, `invalid_input`, `guard_rejected`, `parse_error`, `type_error`, `conflicts`, `ambiguous`, `no_matches`, `changes_detected`) also set `applied: false` so agents can branch on `applied` alone.\n\
              **Batch `replace` order:** Batch lines are `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). Pasting CLI order fails with a parse hint when the third token is an existing file.\n\
              **`identity: true` (#1801):** Replace JSON when the pattern matched but every replacement was identical (`old == new`); `match_count > 0` but `file_count: 0` / empty `files` and no write.\n\
              **`require_change` + `if_exists` (#1800):** When both are set, `if_exists` wins: zero matches → success (`ok: true`, `match_count: 0`), not fail-closed `no_matches`.\n\
@@ -631,11 +633,12 @@ success lines are the full path list.\n\n\
              match with live match count in the message, \
              `status` outside a git repo, AST map non-dir, doc merge flag conflicts, invalid `normalize_eol`, \
              md table-append row/table failures, bad selector/for_each templates, MCP bind/TLS config, \
-             CLI usage errors under `--json`/`--jsonl`, `--contain` path rejections / empty paths, \
+             CLI usage errors under `--json`/`--jsonl`, empty path arguments, \
              all-explicit-paths-missing for search/replace/tidy, \
              invalid search/replace regex patterns (unclosed groups, etc.), \
              and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, \
              md.move_section before/after, search invert_match+multiline), \
+             `guard_rejected` (PathGuard / `--contain` path escape or plan cwd escape; #1935; not empty-path `invalid_input`), \
              `format_failed` (post-write `--format` command non-zero exit or format-timeout; write may already be on disk; JSON includes `backup_session` when a session was created so agents can `patchloom undo --session <id>`, plus `applied: true` (canonical; #1831), `write_applied: true` (deprecated alias), `files_changed`, and `files[].path` for every path already written so agents need not re-scan disk (#1795); re-run the formatter or undo). Empty `--files-from` is `invalid_input` (not `no_matches`; #1796). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type, library doc mutation type errors). \
              Clap usage failures with `--json`/`--jsonl` emit the same envelope on stdout before any subcommand runs.\n\n\

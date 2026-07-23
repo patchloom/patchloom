@@ -517,7 +517,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         if let Some(guard) = tx.guard {
             for path in &candidate_paths {
                 let rel = path.strip_prefix(tx.cwd).unwrap_or(path).to_string_lossy();
-                guard.check_path(&rel)?;
+                guard
+                    .check_path(&rel)
+                    .map_err(crate::fallback::EditError::guard_rejected)?;
             }
         }
 

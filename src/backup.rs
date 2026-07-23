@@ -252,6 +252,41 @@ pub fn backup_write_files(
     Ok(())
 }
 
+/// Walk `path` and its parent directories for roots that contain `.patchloom/backups`.
+///
+/// Returns project roots (directories that own a `.patchloom/backups` child),
+/// nearest first. When `path` is a file, the walk starts at its parent.
+/// When `path` is a directory, the walk starts at `path` itself.
+///
+/// The walk is **uncapped** (climbs to the filesystem root). That matches the
+/// common embedder undo helper; contrast [`list_sessions_under`] which caps
+/// ancestor depth via [`ListSessionsOptions::max_depth`]. An empty
+/// `.patchloom/backups` directory still counts as a root (presence of the
+/// directory, not non-empty sessions).
+///
+/// Embedders use this for undo/restore discovery without reimplementing the
+/// parent walk or hard-coding [`BACKUP_DIR`] (#1934). Prefer
+/// [`list_sessions_under`] when you need session manifests under a known root;
+/// this helper only answers "where are backup directories?" along the ancestor chain.
+pub fn find_backup_roots(path: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let mut current = if path.is_dir() {
+        path.to_path_buf()
+    } else {
+        path.parent().unwrap_or(path).to_path_buf()
+    };
+    loop {
+        let backup_dir = current.join(BACKUP_DIR);
+        if backup_dir.is_dir() {
+            roots.push(current.clone());
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    roots
+}
+
 /// List available backup sessions, most recent first.
 pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
     let backup_dir = project_root.join(BACKUP_DIR);
@@ -1249,6 +1284,67 @@ mod tests {
         assert!(!ok, "basename-only match would restore the wrong path");
         assert_eq!(std::fs::read_to_string(&file_a).unwrap(), "A2");
         assert_eq!(std::fs::read_to_string(&file_b).unwrap(), "B");
+    }
+
+    /// #1934: find_backup_roots walks parents and returns nearest roots first.
+    #[test]
+    fn find_backup_roots_walks_parents_nearest_first() {
+        let outer = tempfile::TempDir::new().unwrap();
+        let nested = outer.path().join("crates").join("pkg");
+        std::fs::create_dir_all(&nested).unwrap();
+        let nested_file = nested.join("src").join("lib.rs");
+        std::fs::create_dir_all(nested_file.parent().unwrap()).unwrap();
+        std::fs::write(&nested_file, "fn main() {}").unwrap();
+
+        // Outer root has backups; nested crate also has its own.
+        let outer_marker = outer.path().join("outer.txt");
+        std::fs::write(&outer_marker, "o").unwrap();
+        let mut s = BackupSession::new(outer.path()).unwrap();
+        s.save_before_write(&outer_marker).unwrap();
+        s.finalize().unwrap();
+
+        let nested_marker = nested.join("inner.txt");
+        std::fs::write(&nested_marker, "i").unwrap();
+        let mut s = BackupSession::new(&nested).unwrap();
+        s.save_before_write(&nested_marker).unwrap();
+        s.finalize().unwrap();
+
+        // From a file under nested: nested root first, then outer.
+        let from_file = find_backup_roots(&nested_file);
+        assert!(
+            from_file.len() >= 2,
+            "expected nested + outer roots, got {from_file:?}"
+        );
+        assert_eq!(from_file[0], nested, "nearest root first: {from_file:?}");
+        assert!(
+            from_file.iter().any(|r| r == outer.path()),
+            "must include outer root: {from_file:?}"
+        );
+
+        // From a directory: start at that directory when it has backups.
+        let from_dir = find_backup_roots(&nested);
+        assert_eq!(from_dir[0], nested);
+
+        // Path with no backup ancestors under a fresh empty tree.
+        let empty = tempfile::TempDir::new().unwrap();
+        let alone = empty.path().join("alone.txt");
+        std::fs::write(&alone, "x").unwrap();
+        let none = find_backup_roots(&alone);
+        assert!(
+            !none.iter().any(|r| r == empty.path()),
+            "empty tree must not invent a backup root: {none:?}"
+        );
+
+        // Empty `.patchloom/backups` directory still counts as a root.
+        let bare = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(bare.path().join(BACKUP_DIR)).unwrap();
+        let f = bare.path().join("f.txt");
+        std::fs::write(&f, "x").unwrap();
+        let roots = find_backup_roots(&f);
+        assert!(
+            roots.iter().any(|r| r == bare.path()),
+            "empty backups dir must still be a root: {roots:?}"
+        );
     }
 
     /// #1688: ancestors walk is capped by max_depth (does not climb to FS root).

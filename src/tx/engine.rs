@@ -185,11 +185,8 @@ pub fn execute_precomputed(
 
     if let Some(g) = options.guard {
         for (rel_path, _, _) in &changes {
-            g.check_path(rel_path).map_err(|e| {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("path rejected by workspace guard: {e}"),
-                })
-            })?;
+            g.check_path(rel_path)
+                .map_err(crate::fallback::EditError::guard_rejected)?;
         }
     }
 
@@ -267,14 +264,12 @@ fn execute_plan_inner(
     }
 
     // PathGuard enforcement (same pattern as lifecycle.rs execute_plan_direct).
+    // Use GuardRejected (not InvalidInput) so edit_error_kind peels correctly (#1935).
     if let Some(g) = options.guard {
         for op in &operations {
             for p in op.declared_paths() {
-                g.check_path(&p).map_err(|e| {
-                    anyhow::Error::new(crate::exit::InvalidInputError {
-                        msg: format!("path rejected by workspace guard: {e}"),
-                    })
-                })?;
+                g.check_path(&p)
+                    .map_err(crate::fallback::EditError::guard_rejected)?;
             }
         }
     }

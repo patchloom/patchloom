@@ -106,25 +106,19 @@ pub fn execute_plan_direct(
             let canon_cwd = crate::containment::safe_canonicalize(&effective_cwd)
                 .unwrap_or_else(|_| effective_cwd.clone());
             if !canon_cwd.starts_with(g.canon_root()) {
-                return Err(crate::exit::InvalidInputError {
-                    msg: format!(
-                        "plan cwd '{}' escapes workspace root '{}'",
-                        effective_cwd.display(),
-                        g.root().display()
-                    ),
-                }
-                .into());
+                return Err(crate::fallback::EditError::guard_rejected(format!(
+                    "plan cwd '{}' escapes workspace root '{}'",
+                    effective_cwd.display(),
+                    g.root().display()
+                )));
             }
         }
         // Upfront check on declared paths using shared helper; dynamic (globs
         // patterns, patch embedded paths) are best-effort or handled by loaders.
         for op in &plan.operations {
             for p in op.declared_paths() {
-                g.check_path(&p).map_err(|e| {
-                    anyhow::Error::new(crate::exit::InvalidInputError {
-                        msg: format!("path rejected by workspace guard: {e}"),
-                    })
-                })?;
+                g.check_path(&p)
+                    .map_err(crate::fallback::EditError::guard_rejected)?;
             }
         }
     }

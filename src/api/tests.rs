@@ -6143,3 +6143,310 @@ fn fuzzy_absent_old_fails_closed_by_default() {
     assert!(r.new_content.contains("compute_digest"));
     assert!(!r.new_content.contains("compute_checksum"));
 }
+
+// ── #1935 structured EditErrorKind for file create/delete/rename ───────────
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_create_already_exists_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "x\n").unwrap();
+    let err = file_create(&file, "y", false, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "already-exists must peel without string scrape: {err}"
+    );
+    assert!(
+        err.to_string().contains("already exists"),
+        "message should stay useful: {err}"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_destination_exists_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    let dst = dir.path().join("b.txt");
+    fs::write(&file, "x\n").unwrap();
+    fs::write(&dst, "z\n").unwrap();
+    let err = file_rename(&file, &dst, false, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "dest exists must peel: {err}"
+    );
+    assert!(err.to_string().contains("already exists"), "message: {err}");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_delete_directory_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let sub = dir.path().join("subdir");
+    fs::create_dir(&sub).unwrap();
+    let err = file_delete(&sub, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "directory delete must peel as InvalidInput: {err}"
+    );
+    assert!(err.to_string().contains("not a file"), "message: {err}");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_append_binary_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let bin = dir.path().join("b.bin");
+    fs::write(&bin, b"x\x00y").unwrap();
+    let err = file_append(&bin, "z\n", ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "binary append must peel: {err}"
+    );
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("binary"),
+        "message: {err}"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_binary_is_invalid_input() {
+    // Text-oriented rename refuses binary sources so embedders can fall back to
+    // std::fs::rename after branching on InvalidInput (#1935).
+    let dir = TempDir::new().unwrap();
+    let bin = dir.path().join("b.bin");
+    let bin_dst = dir.path().join("c.bin");
+    fs::write(&bin, b"x\x00y").unwrap();
+    let err = file_rename(&bin, &bin_dst, false, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "binary rename must peel InvalidInput: {err}"
+    );
+    assert!(
+        err.to_string().to_ascii_lowercase().contains("binary"),
+        "message: {err}"
+    );
+    assert!(bin.exists());
+    assert!(!bin_dst.exists());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_create_guard_rejected_is_guard_rejected() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-file-create-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let err = file_create(&outside, "n", false, ApplyMode::Apply, Some(&guard)).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "engine PathGuard must peel as GuardRejected not InvalidInput: {err}"
+    );
+    assert!(
+        err.to_string().contains("guard") || err.to_string().contains("escapes"),
+        "message: {err}"
+    );
+    assert!(!outside.exists());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_append_guard_rejected_is_guard_rejected() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-file-append-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "secret\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let err = file_append(&outside, "x\n", ApplyMode::Apply, Some(&guard)).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "file_append guard: {err}"
+    );
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "secret\n");
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_delete_guard_rejected_is_guard_rejected() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-file-delete-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "secret\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let err = file_delete(&outside, ApplyMode::Apply, Some(&guard)).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "file_delete guard: {err}"
+    );
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "secret\n");
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_guard_rejected_is_guard_rejected() {
+    let dir = TempDir::new().unwrap();
+    let inside = dir.path().join("a.txt");
+    fs::write(&inside, "x\n").unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-file-rename-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let err = file_rename(&inside, &outside, false, ApplyMode::Apply, Some(&guard)).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "file_rename dest guard: {err}"
+    );
+    assert!(inside.exists());
+    assert!(!outside.exists());
+}
+
+// ── #1936 structured EditErrorKind for ast_rewrite_signature ───────────────
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_missing_function_is_no_match() {
+    use crate::ast::rewrite::FunctionSigEdit;
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn keep() {}\n").unwrap();
+    let edit = FunctionSigEdit {
+        parameters: Some("(x: i32)".into()),
+        ..Default::default()
+    };
+    let err = ast_rewrite_signature(&file, "missing", &edit, None, ApplyMode::Apply, None)
+        .expect_err("missing function");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch),
+        "must peel NoMatch without English scrape: {err}"
+    );
+    assert!(
+        err.to_string().contains("missing") || err.to_string().contains("not found"),
+        "message should name the function: {err}"
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_binary_is_invalid_input() {
+    use crate::ast::rewrite::FunctionSigEdit;
+    let dir = TempDir::new().unwrap();
+    let bin = dir.path().join("x.bin");
+    fs::write(&bin, b"\x00").unwrap();
+    let edit = FunctionSigEdit {
+        parameters: Some("(x: i32)".into()),
+        ..Default::default()
+    };
+    let err =
+        ast_rewrite_signature(&bin, "x", &edit, None, ApplyMode::Apply, None).expect_err("binary");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "binary AST rewrite must peel InvalidInput: {err}"
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_guard_rejected() {
+    use crate::ast::rewrite::FunctionSigEdit;
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-ast-sig-escape-{}.rs",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "fn keep() {}\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let edit = FunctionSigEdit {
+        parameters: Some("(x: i32)".into()),
+        ..Default::default()
+    };
+    let err = ast_rewrite_signature(
+        &outside,
+        "keep",
+        &edit,
+        None,
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .expect_err("outside path");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "ast_rewrite_signature guard: {err}"
+    );
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "fn keep() {}\n");
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rewrite_signature_empty_edit_is_invalid_input() {
+    use crate::ast::rewrite::FunctionSigEdit;
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn keep() {}\n").unwrap();
+    let edit = FunctionSigEdit::default();
+    let err = ast_rewrite_signature(&file, "keep", &edit, None, ApplyMode::Apply, None)
+        .expect_err("empty edit");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "empty edit fields: {err}"
+    );
+}

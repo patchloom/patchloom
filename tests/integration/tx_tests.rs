@@ -8110,8 +8110,8 @@ fn test_tx_contain_rejects_parent_escape_in_plan() {
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert_eq!(
-        v["error_kind"], "invalid_input",
-        "contain escape should be invalid_input: {stdout}"
+        v["error_kind"], "guard_rejected",
+        "contain escape should be guard_rejected: {stdout}"
     );
     let err = v["error"].as_str().unwrap_or("");
     assert!(
