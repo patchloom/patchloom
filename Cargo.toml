@@ -89,6 +89,8 @@ similar = { version = "3", features = ["text"] }
 strsim = "0.11"
 tempfile = "3"
 anyhow = "1"
+# Strip Windows \\?\ UNC prefix from canonicalize results (PathGuard starts_with + display).
+dunce = "1"
 anstream = { version = "1", optional = true }
 ec4rs = { version = "1", optional = true }
 clap_complete = { version = "4", optional = true }

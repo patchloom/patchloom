@@ -141,7 +141,10 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
             let same_file = to.is_none()
                 || source_path == dest_path
                 || matches!(
-                    (source_path.canonicalize(), dest_path.canonicalize()),
+                    (
+                        crate::containment::safe_canonicalize(&source_path),
+                        crate::containment::safe_canonicalize(&dest_path)
+                    ),
                     (Ok(ref s), Ok(ref d)) if s == d
                 );
             let source_content =

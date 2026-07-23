@@ -1444,6 +1444,7 @@ dependencies = [
  "axum-server",
  "clap",
  "clap_complete",
+ "dunce",
  "ec4rs",
  "expectrl",
  "globset",

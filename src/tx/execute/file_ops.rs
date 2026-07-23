@@ -176,7 +176,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             if !case_only
                 && (src_path == dst_path
                     || matches!(
-                        (src_path.canonicalize(), dst_path.canonicalize()),
+                        (
+                            crate::containment::safe_canonicalize(&src_path),
+                            crate::containment::safe_canonicalize(&dst_path)
+                        ),
                         (Ok(ref s), Ok(ref d)) if s == d
                     ))
             {
