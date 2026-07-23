@@ -181,7 +181,8 @@ fn load_patch_target(
         Err(e) => {
             // load_text_strict already prefixes "failed to read {display}";
             // do not double-wrap (same class as #1916 sole-path unreadable).
-            Err(PatchTargetError::Io(format!("{e:#}")))
+            // Prefer agent_error_message so embedded OS detail is not doubled.
+            Err(PatchTargetError::Io(crate::exit::agent_error_message(&e)))
         }
     }
 }

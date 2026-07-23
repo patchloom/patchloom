@@ -130,8 +130,9 @@ pub fn sole_explicit_non_text(
             } else {
                 // load_text_strict already prefixes "failed to read {display}";
                 // do not double-wrap (fixrealloop: "failed to read x: failed to read x").
+                // Prefer agent_error_message so embedded OS detail is not doubled.
                 Some(crate::exit::InvalidInputError {
-                    msg: format!("{e:#}"),
+                    msg: crate::exit::agent_error_message(&e),
                 })
             }
         }

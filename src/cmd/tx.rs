@@ -310,14 +310,13 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // load_text_strict already prefixes "failed to read {display}"; do not
         // re-wrap (same class as #1916).
         crate::files::load_text_strict(plan_path, &display).map_err(|e| {
+            let msg = crate::exit::agent_error_message(&e);
             if crate::exit::is_io_not_found(&e) {
-                std::io::Error::new(std::io::ErrorKind::NotFound, format!("{e:#}")).into()
+                std::io::Error::new(std::io::ErrorKind::NotFound, msg).into()
             } else if crate::exit::is_invalid_input(&e) {
                 e
             } else {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("{e:#}"),
-                })
+                anyhow::Error::new(crate::exit::InvalidInputError { msg })
             }
         })?
     };

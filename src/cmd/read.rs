@@ -63,9 +63,10 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
                     msg: inv.msg.clone(),
                 });
             }
-            // Missing path and other IO. Prefer `{:#}` so anyhow cause chains
-            // keep the OS detail (Permission denied); Display alone drops it.
-            let full = format!("{e:#}");
+            // Missing path and other IO. Prefer agent_error_message so embedded
+            // OS detail is kept once (Display alone drops chains; `{:#}` can
+            // double when load_text_strict already embeds the cause).
+            let full = crate::exit::agent_error_message(&e);
             let kind = if full.contains("No such file")
                 || full.contains("not found")
                 || full.contains("failed to read")
