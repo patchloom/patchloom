@@ -433,10 +433,16 @@ mod tests {
             result.is_err(),
             "should reject plan.cwd that escapes workspace"
         );
-        let msg = result.unwrap_err().to_string();
+        let err = result.unwrap_err();
+        let msg = err.to_string();
         assert!(
             msg.contains("escapes workspace root"),
             "error should mention escape: {msg}"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::GuardRejected),
+            "plan cwd escape must peel as GuardRejected: {err}"
         );
     }
 
