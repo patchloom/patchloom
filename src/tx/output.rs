@@ -776,6 +776,20 @@ mod tests {
     }
 
     #[test]
+    fn format_error_with_kind_skips_duplicate_prefix() {
+        let already = "guard_rejected: path rejected by workspace guard: escapes";
+        assert_eq!(
+            format_error_with_kind("guard_rejected", already),
+            already,
+            "must not double-prefix EditError Display"
+        );
+        assert_eq!(
+            format_error_with_kind("parse_error", "bad plan"),
+            "parse_error: bad plan"
+        );
+    }
+
+    #[test]
     fn build_error_output_with_backup() {
         let out = build_error_output("rollback", "fail", Some("ts123"));
         assert_eq!(out.backup_session.as_deref(), Some("ts123"));

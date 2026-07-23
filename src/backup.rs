@@ -258,6 +258,12 @@ pub fn backup_write_files(
 /// nearest first. When `path` is a file, the walk starts at its parent.
 /// When `path` is a directory, the walk starts at `path` itself.
 ///
+/// The walk is **uncapped** (climbs to the filesystem root). That matches the
+/// common embedder undo helper; contrast [`list_sessions_under`] which caps
+/// ancestor depth via [`ListSessionsOptions::max_depth`]. An empty
+/// `.patchloom/backups` directory still counts as a root (presence of the
+/// directory, not non-empty sessions).
+///
 /// Embedders use this for undo/restore discovery without reimplementing the
 /// parent walk or hard-coding [`BACKUP_DIR`] (#1934). Prefer
 /// [`list_sessions_under`] when you need session manifests under a known root;
@@ -1327,6 +1333,17 @@ mod tests {
         assert!(
             !none.iter().any(|r| r == empty.path()),
             "empty tree must not invent a backup root: {none:?}"
+        );
+
+        // Empty `.patchloom/backups` directory still counts as a root.
+        let bare = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(bare.path().join(BACKUP_DIR)).unwrap();
+        let f = bare.path().join("f.txt");
+        std::fs::write(&f, "x").unwrap();
+        let roots = find_backup_roots(&f);
+        assert!(
+            roots.iter().any(|r| r == bare.path()),
+            "empty backups dir must still be a root: {roots:?}"
         );
     }
 

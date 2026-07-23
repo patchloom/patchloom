@@ -106,14 +106,11 @@ pub fn execute_plan_direct(
             let canon_cwd = crate::containment::safe_canonicalize(&effective_cwd)
                 .unwrap_or_else(|_| effective_cwd.clone());
             if !canon_cwd.starts_with(g.canon_root()) {
-                return Err(crate::exit::InvalidInputError {
-                    msg: format!(
-                        "plan cwd '{}' escapes workspace root '{}'",
-                        effective_cwd.display(),
-                        g.root().display()
-                    ),
-                }
-                .into());
+                return Err(crate::fallback::EditError::guard_rejected(format!(
+                    "plan cwd '{}' escapes workspace root '{}'",
+                    effective_cwd.display(),
+                    g.root().display()
+                )));
             }
         }
         // Upfront check on declared paths using shared helper; dynamic (globs

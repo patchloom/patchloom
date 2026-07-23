@@ -6268,6 +6268,33 @@ fn file_create_guard_rejected_is_guard_rejected() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn file_append_guard_rejected_is_guard_rejected() {
+    let dir = TempDir::new().unwrap();
+    let outside = dir.path().parent().unwrap().join(format!(
+        "patchloom-file-append-escape-{}.txt",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    ));
+    fs::write(&outside, "secret\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let err = file_append(&outside, "x\n", ApplyMode::Apply, Some(&guard)).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "file_append guard: {err}"
+    );
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "secret\n");
+    let _ = fs::remove_file(&outside);
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn file_delete_guard_rejected_is_guard_rejected() {
     let dir = TempDir::new().unwrap();
     let outside = dir.path().parent().unwrap().join(format!(
