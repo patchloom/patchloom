@@ -59,6 +59,12 @@ fn test_tidy_check_json_output() {
     assert_eq!(json["ok"], false);
     assert!(json["issue_count"].as_u64().unwrap() >= 2);
     assert!(json["issues"].is_array());
+    // Agents branch on error_kind (parity with search --assert-count).
+    assert_eq!(
+        json["error_kind"], "changes_detected",
+        "tidy check with issues must set error_kind: {json}"
+    );
+    assert_eq!(json["status"], "changes_detected");
 }
 
 #[test]
