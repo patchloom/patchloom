@@ -152,6 +152,19 @@ impl EditError {
         }
     }
 
+    /// PathGuard rejection as an `anyhow` error (`edit_error_kind` → [`EditErrorKind::GuardRejected`]).
+    ///
+    /// Prefer this over [`crate::exit::InvalidInputError`] for guard failures so
+    /// library hosts and CLI JSON can branch on `guard_rejected` without scraping
+    /// English (#1935 / engine PathGuard paths).
+    pub fn guard_rejected(detail: impl std::fmt::Display) -> anyhow::Error {
+        Self::new(
+            EditErrorKind::GuardRejected,
+            format!("path rejected by workspace guard: {detail}"),
+        )
+        .into()
+    }
+
     /// Attach similar-target suggestions (did-you-mean).
     pub fn with_similar(mut self, similar: Vec<String>) -> Self {
         self.similar_targets = similar;

@@ -589,12 +589,8 @@ pub(crate) fn maybe_post_write(
 /// write path.
 pub(crate) fn ensure_contained(guard: Option<&PathGuard>, path: &Path) -> anyhow::Result<()> {
     if let Some(g) = guard {
-        g.check_path(&path.to_string_lossy()).map_err(|e| {
-            crate::fallback::EditError::new(
-                crate::fallback::EditErrorKind::GuardRejected,
-                format!("path rejected by workspace guard: {e}"),
-            )
-        })?;
+        g.check_path(&path.to_string_lossy())
+            .map_err(crate::fallback::EditError::guard_rejected)?;
     }
     Ok(())
 }

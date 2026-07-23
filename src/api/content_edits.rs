@@ -157,12 +157,8 @@ pub fn apply_content_edits_to_file(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     if let Some(g) = guard {
-        g.check_path(&path.to_string_lossy()).map_err(|e| {
-            EditError::new(
-                EditErrorKind::GuardRejected,
-                format!("path rejected by workspace guard: {e}"),
-            )
-        })?;
+        g.check_path(&path.to_string_lossy())
+            .map_err(EditError::guard_rejected)?;
     }
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {

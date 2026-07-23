@@ -379,6 +379,7 @@ pub fn error_kind_implies_not_applied(kind: &str) -> bool {
         "no_matches"
             | "ambiguous"
             | "invalid_input"
+            | "guard_rejected"
             | "not_found"
             | "already_exists"
             | "type_error"
@@ -418,6 +419,26 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
         Some(("changes_detected", CHANGES_DETECTED))
     } else if is_format_failed(err) {
         Some(("format_failed", FAILURE))
+    } else if let Some(edit) = err
+        .chain()
+        .find_map(|c| c.downcast_ref::<crate::fallback::EditError>())
+    {
+        // Library/engine PathGuard and other EditError-only kinds (#1935).
+        // Keep exit-typed arms above so already_exists / type_error stay distinct
+        // (edit_error_kind maps some exit types onto coarser EditErrorKind values).
+        use crate::fallback::EditErrorKind;
+        match edit.kind {
+            EditErrorKind::GuardRejected => Some(("guard_rejected", FAILURE)),
+            EditErrorKind::NoMatch => Some(("no_matches", NO_MATCHES)),
+            EditErrorKind::AmbiguousTarget => Some(("ambiguous", AMBIGUOUS)),
+            EditErrorKind::InvalidInput => Some(("invalid_input", FAILURE)),
+            EditErrorKind::TypeError => Some(("type_error", FAILURE)),
+            EditErrorKind::ParseError => Some(("parse_error", PARSE_ERROR)),
+            EditErrorKind::FormatFailed => Some(("format_failed", FAILURE)),
+            EditErrorKind::SyntaxInvalid
+            | EditErrorKind::ConflictingEdit
+            | EditErrorKind::OperationFailed => Some(("operation_failed", OPERATION_FAILED)),
+        }
     } else {
         None
     }
@@ -604,7 +625,22 @@ mod tests {
         assert!(error_kind_implies_not_applied("already_exists"));
         assert!(error_kind_implies_not_applied("not_found"));
         assert!(error_kind_implies_not_applied("parse_error"));
+        assert!(error_kind_implies_not_applied("guard_rejected"));
         assert!(!error_kind_implies_not_applied("format_failed"));
+    }
+
+    #[test]
+    fn classify_typed_error_maps_guard_rejected_edit_error() {
+        let err = crate::fallback::EditError::guard_rejected("escapes workspace");
+        let wrapped = err.context("file.create failed");
+        assert_eq!(
+            classify_typed_error(&wrapped),
+            Some(("guard_rejected", FAILURE))
+        );
+        let (payload, code) = structured_error_payload(&wrapped);
+        assert_eq!(code, FAILURE);
+        assert_eq!(payload["error_kind"], "guard_rejected");
+        assert_eq!(payload["applied"], false);
     }
 
     #[test]
