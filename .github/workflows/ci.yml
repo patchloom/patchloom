@@ -167,16 +167,14 @@ jobs:
 
       - name: Install Rust and run platform path tests in WSL
         shell: wsl-bash {0}
-        env:
-          # GITHUB_WORKSPACE is Windows-style; convert once for WSL.
-          WS_WIN: ${{ github.workspace }}
         run: |
           set -euo pipefail
+          # Inline workspace path (wsl-bash does not always inherit step env).
+          WS_WIN='${{ github.workspace }}'
           SRC="$(wslpath -a "$WS_WIN")"
           # Copy into the WSL ext4 home. Building under /mnt/c is extremely slow.
           rm -rf "$HOME/patchloom"
           mkdir -p "$HOME/patchloom"
-          # Prefer rsync when present; otherwise tar excludes target/.git.
           if command -v rsync >/dev/null 2>&1; then
             rsync -a --delete --exclude target --exclude .git "$SRC/" "$HOME/patchloom/"
           else
@@ -193,7 +191,6 @@ jobs:
           . "$HOME/.cargo/env"
           rustc --version
           cargo --version
-          # PathGuard + CLI absolute/--contain locks (minimum great suite).
           cargo test --lib --all-features containment -- --nocapture
           cargo test --test integration --all-features platform_path -- --nocapture
 
