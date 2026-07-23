@@ -19,7 +19,6 @@
 
 #[cfg(feature = "cli")]
 use crate::cli::global::GlobalFlags;
-use anyhow::Context;
 #[cfg(any(feature = "cli", feature = "files"))]
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -101,7 +100,13 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// | Binary | `Err(InvalidInputError)` — `target is a binary file: {display}` |
 /// | Invalid UTF-8 | `Err(InvalidInputError)` — `target is not valid UTF-8 text: {display}` |
 /// | Not a file | `Err(InvalidInputError)` — `target is not a file: {display}` |
-/// | IO (missing, …) | `Err` with context `failed to read {display}` |
+/// | IO NotFound | `Err` with `io::Error` + context `failed to read {display}` (`is_io_not_found`) |
+/// | IO other (permission, …) | `Err(InvalidInputError)` — `failed to read {display}: {os error}` |
+///
+/// Non-NotFound IO is typed so agent JSON gets `error_kind: invalid_input` and a
+/// single complete message that includes the OS error even when callers format
+/// with `Display` / `to_string()` (which drops anyhow cause chains). NotFound
+/// stays an IO error so [`crate::exit::is_io_not_found`] keeps working.
 ///
 /// Directory walks and multi-path soft-skip must use [`read_text_file`] (or
 /// `tx::read_and_probe`), not this function.
@@ -112,7 +117,21 @@ pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
         }
         .into());
     }
-    let bytes = std::fs::read(path).with_context(|| format!("failed to read {display}"))?;
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(anyhow::Error::new(e).context(format!("failed to read {display}")));
+        }
+        Err(e) => {
+            // Full message in InvalidInputError so Display and JSON envelopes
+            // keep "Permission denied" without requiring `{:#}` (fixrealloop
+            // 2026-07-23: CLI read / MCP read dropped the OS detail).
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("failed to read {display}: {e}"),
+            }
+            .into());
+        }
+    };
     match classify_text_bytes(&bytes) {
         TextBytesKind::Text(s) => Ok(s),
         TextBytesKind::Binary => Err(crate::exit::InvalidInputError {
@@ -991,6 +1010,54 @@ mod tests {
         let err = load_text_strict(dir.path(), "dir").unwrap_err();
         assert!(crate::exit::is_invalid_input(&err), "{err:#}");
         assert!(err.to_string().contains("not a file"), "msg: {err}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn load_text_strict_unreadable_is_invalid_input_with_os_detail() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("locked.txt");
+        std::fs::write(&p, "secret\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root (common in Docker) can still read mode-000 files.
+        if std::fs::read_to_string(&p).is_ok() {
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let err = load_text_strict(&p, "locked.txt").unwrap_err();
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644));
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        // Display (not only {:#}) must include OS detail for agent JSON paths
+        // that use e.to_string().
+        let msg = err.to_string();
+        assert!(msg.contains("failed to read locked.txt"), "msg: {msg}");
+        assert!(
+            msg.contains("Permission denied")
+                || msg.contains("PermissionDenied")
+                || msg.contains("os error"),
+            "OS detail missing from Display: {msg}"
+        );
+        assert_eq!(
+            msg.matches("failed to read").count(),
+            1,
+            "must not double-wrap: {msg}"
+        );
+    }
+
+    #[test]
+    fn load_text_strict_missing_is_io_not_found() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let p = dir.path().join("nope.txt");
+        let err = load_text_strict(&p, "nope.txt").unwrap_err();
+        assert!(
+            crate::exit::is_io_not_found(&err),
+            "expected is_io_not_found, got: {err:#}"
+        );
+        assert!(
+            !crate::exit::is_invalid_input(&err),
+            "NotFound must not be invalid_input: {err:#}"
+        );
     }
 
     #[test]

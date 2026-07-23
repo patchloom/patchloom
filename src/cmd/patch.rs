@@ -141,14 +141,16 @@ fn read_diff_input(
 /// - Text: `Ok(content)`
 /// - Missing + `missing_as_empty`: `Ok("")` (creation / merge check)
 /// - Missing + not empty: `Err(NotFound)`
-/// - Binary / invalid UTF-8: `Err(InvalidInput)`
-/// - Other IO: `Err(Io)`
+/// - Binary / invalid UTF-8 / permission (and other non-NotFound IO from
+///   `load_text_strict`): `Err(InvalidInput)`
+/// - Residual IO: `Err(Io)`
 #[derive(Debug)]
 enum PatchTargetError {
     NotFound,
     /// Directory or non-file path (per-file check status `error`, exit 5).
     NotAFile(String),
-    /// Binary or invalid UTF-8 (fail-closed `invalid_input`, exit 1).
+    /// Binary, invalid UTF-8, or unreadable existing path (fail-closed
+    /// `invalid_input`, exit 1).
     InvalidInput(String),
     Io(String),
 }
@@ -739,6 +741,7 @@ mod tests {
     #[test]
     fn load_patch_target_unreadable_does_not_double_wrap() {
         // Sibling of #1916: load_text_strict already prefixes "failed to read".
+        // Permission is typed InvalidInput with OS detail in Display (2026-07-23).
         use std::os::unix::fs::PermissionsExt;
         let tmp = TempDir::new().unwrap();
         let file = tmp.path().join("locked.txt");
@@ -750,7 +753,7 @@ mod tests {
         }
         let err = load_patch_target(&file, "locked.txt", false).unwrap_err();
         match err {
-            PatchTargetError::Io(msg) => {
+            PatchTargetError::InvalidInput(msg) => {
                 assert_eq!(
                     msg.matches("failed to read").count(),
                     1,
@@ -760,8 +763,14 @@ mod tests {
                     msg.contains("locked.txt"),
                     "path should appear in message: {msg}"
                 );
+                assert!(
+                    msg.contains("Permission denied")
+                        || msg.contains("PermissionDenied")
+                        || msg.contains("os error"),
+                    "OS detail missing: {msg}"
+                );
             }
-            other => panic!("expected Io, got {other:?}"),
+            other => panic!("expected InvalidInput, got {other:?}"),
         }
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     }

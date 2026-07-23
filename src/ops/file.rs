@@ -487,9 +487,13 @@ mod tests {
                 return;
             }
             let err = sole_explicit_non_text(&["locked.txt".into()], dir.path()).unwrap();
+            assert!(err.msg.contains("failed to read"), "got: {}", err.msg);
+            // OS detail must appear in Display/msg (not only via {:#} on a chain).
             assert!(
-                err.msg.contains("failed to read") || err.msg.contains("Permission"),
-                "got: {}",
+                err.msg.contains("Permission denied")
+                    || err.msg.contains("PermissionDenied")
+                    || err.msg.contains("os error"),
+                "OS detail missing: {}",
                 err.msg
             );
             // Single prefix only (not "failed to read x: failed to read x").
