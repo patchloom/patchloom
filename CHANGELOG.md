@@ -11,6 +11,25 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.17.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.16.0...patchloom-v0.17.0) (2026-07-23)
+
+
+### Features
+
+* library doc_merge selector and embedder text I/O surface ([#1913](https://github.com/patchloom/patchloom/issues/1913)) ([0abfb40](https://github.com/patchloom/patchloom/commit/0abfb40d0b78d901112eba227e5d5a1d506deb47)), closes [#1909](https://github.com/patchloom/patchloom/issues/1909) [#1910](https://github.com/patchloom/patchloom/issues/1910)
+
+
+### Bug Fixes
+
+* clarify init skip when AGENTS.md is not written ([#1922](https://github.com/patchloom/patchloom/issues/1922)) ([4323811](https://github.com/patchloom/patchloom/commit/4323811d91c651c8b2fae2ad5fb1feab8a25ae18))
+* doc.merge catalog blurb mentions multi-doc selector ([#1917](https://github.com/patchloom/patchloom/issues/1917)) ([58e3f7a](https://github.com/patchloom/patchloom/commit/58e3f7a7e441450493ae69ef42d164319e33323c))
+* keep Permission denied and invalid_input on unreadable sole paths ([#1925](https://github.com/patchloom/patchloom/issues/1925)) ([cec22bd](https://github.com/patchloom/patchloom/commit/cec22bd920798a0ddc509d2bf7dbac8cc88597be))
+* load errors keep OS detail without double-wrap ([#1926](https://github.com/patchloom/patchloom/issues/1926)) ([8dd6987](https://github.com/patchloom/patchloom/commit/8dd698735451e6d2c4e1501e3dec74f9fccee6d5))
+* publish MCP Registry after crates and npm ([#1908](https://github.com/patchloom/patchloom/issues/1908)) ([4ee64e8](https://github.com/patchloom/patchloom/commit/4ee64e8f401fb786403b033f8ca432cbc71e398e))
+* set error_kind on patch check multi-file JSON failures ([#1924](https://github.com/patchloom/patchloom/issues/1924)) ([322486c](https://github.com/patchloom/patchloom/commit/322486cf22563700cf2233d7ec9a1698f4ab1a83))
+* sole unreadable path error without double-wrap ([#1916](https://github.com/patchloom/patchloom/issues/1916)) ([ec40404](https://github.com/patchloom/patchloom/commit/ec4040411fb8a169d84e90199fb9659c11f4dec2))
+* stop double-wrapping load_text_strict IO errors ([#1918](https://github.com/patchloom/patchloom/issues/1918)) ([8df2b48](https://github.com/patchloom/patchloom/commit/8df2b48c90513681109120d5477e94d00936272a))
+
 ## [0.16.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.15.3...patchloom-v0.16.0) (2026-07-22)
 
 
