@@ -63,11 +63,12 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
                     msg: inv.msg.clone(),
                 });
             }
-            // Missing path and other IO.
-            let msg = e.to_string();
-            let kind = if msg.contains("No such file")
-                || msg.contains("not found")
-                || msg.contains("failed to read")
+            // Missing path and other IO. Prefer `{:#}` so anyhow cause chains
+            // keep the OS detail (Permission denied); Display alone drops it.
+            let full = format!("{e:#}");
+            let kind = if full.contains("No such file")
+                || full.contains("not found")
+                || full.contains("failed to read")
             {
                 // Prefer not_found when the path is missing.
                 if !p.exists() {
@@ -80,7 +81,13 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
             };
             return Err(ReadFail {
                 kind,
-                msg: format!("{path}: {e}"),
+                // Avoid `{path}: failed to read {path}` when the load error
+                // already names the display path.
+                msg: if full.contains(path) {
+                    full
+                } else {
+                    format!("{path}: {full}")
+                },
             });
         }
     };
@@ -448,6 +455,36 @@ mod tests {
         let err = result.expect_err("directory must fail");
         assert_eq!(err.kind, "invalid_input");
         assert!(err.msg.contains("not a file"), "got: {err}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn read_one_file_unreadable_keeps_permission_detail() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("locked.txt");
+        fs::write(&path, "secret\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_to_string(&path).is_ok() {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let err = read_one_file(path.to_str().unwrap(), None).expect_err("mode 000 must fail");
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o644));
+        assert_eq!(err.kind, "invalid_input", "got: {err:?}");
+        assert!(
+            err.msg.contains("Permission denied")
+                || err.msg.contains("PermissionDenied")
+                || err.msg.contains("os error"),
+            "OS detail missing: {}",
+            err.msg
+        );
+        assert_eq!(
+            err.msg.matches("failed to read").count(),
+            1,
+            "double-wrap: {}",
+            err.msg
+        );
     }
 
     #[test]

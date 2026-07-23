@@ -28,10 +28,11 @@ pub(super) fn setup_single_file(
     Ok((cwd, target, lang, source))
 }
 
-/// When the user names exactly one file path, fail closed as `invalid_input` for
-/// binary or invalid UTF-8 (parity with replace/search/tidy/md / #1894).
-/// Directory walks soft-skip content kinds; IO is handled by the walk
-/// (return `Ok` here so missing sole paths can soft-fail later).
+/// When the user names exactly one **file** path, fail closed as `invalid_input`
+/// for binary, invalid UTF-8, or unreadable (parity with replace/search/tidy/md
+/// / #1894). Directory walks soft-skip content kinds and report unreadable via
+/// the scan mask ("could not read N path(s)…"); do not treat a dir that happens
+/// to resolve to a single file as sole-path (#fixrealloop 2026-07-23).
 pub(super) fn reject_sole_explicit_non_text(
     paths: &[PathBuf],
     path_arg: &str,
@@ -39,7 +40,13 @@ pub(super) fn reject_sole_explicit_non_text(
     if paths.len() != 1 {
         return Ok(());
     }
-    match crate::files::load_text_strict(&paths[0], path_arg) {
+    // path_arg must name this file (not a parent directory). Otherwise the
+    // multi-file walk owns Unreadable policy.
+    let sole = &paths[0];
+    if !sole.ends_with(Path::new(path_arg)) {
+        return Ok(());
+    }
+    match crate::files::load_text_strict(sole, path_arg) {
         Ok(_) => Ok(()),
         Err(e) => {
             if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {

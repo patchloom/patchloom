@@ -83,13 +83,18 @@ pub(crate) fn read_and_probe(
             return Ok(false);
         }
         Err(crate::files::SoftTextSkip::Unreadable) => {
-            // Re-open so NotFound / PermissionDenied stay in the error chain
-            // for exit::is_io_not_found and agent remapping.
+            // Re-open so NotFound stays in the chain for is_io_not_found, and
+            // permission/other IO become typed InvalidInput with a complete
+            // Display message (fixrealloop 2026-07-23).
             return match std::fs::read(path) {
                 Ok(_) => Err(anyhow::anyhow!("failed to read {}", path.display())),
-                Err(e) => {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     Err(anyhow::Error::new(e).context(format!("failed to read {}", path.display())))
                 }
+                Err(e) => Err(crate::exit::InvalidInputError {
+                    msg: format!("failed to read {}: {e}", path.display()),
+                }
+                .into()),
             };
         }
     };
@@ -682,7 +687,10 @@ pub(crate) fn execute_and_collect(
                 }
                 // Keep a readable Display string for stderr/tests, and re-emit
                 // typed kinds so CLI/tx --json can map error_kind without
-                // scraping English.
+                // scraping English. Use Display (not `{:#}`): `path_err`
+                // already embeds the prior Display text into its context, so
+                // `{:#}` would double the message (fixrealloop 2026-07-23).
+                // OS detail comes from load_text_strict InvalidInput Display.
                 let msg = format!("operation {} ({}) failed: {e}", i + 1, op_label(op));
                 if crate::exit::is_io_not_found(&e) {
                     return Err(std::io::Error::new(std::io::ErrorKind::NotFound, msg).into());
