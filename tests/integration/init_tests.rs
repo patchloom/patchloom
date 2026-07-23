@@ -249,7 +249,37 @@ fn test_init_confirm_eof_skips_agents_creation() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Create AGENTS.md? [Y/n]"));
-    assert!(stdout.contains("skipped AGENTS.md"));
+    assert!(
+        stdout.contains("skipped AGENTS.md")
+            && stdout.contains("--yes")
+            && stdout.contains("--json"),
+        "decline must name remediation flags: {stdout}"
+    );
+}
+
+/// Non-TTY plain `init` (no --yes) declines confirm and must not look like a silent no-op (#1922 / fixrealloop).
+#[test]
+fn test_init_noninteractive_without_yes_hints_use_yes() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["init", "--cwd"])
+        .arg(dir.path())
+        .env("SHELL", "unknown")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(
+        !dir.path().join("AGENTS.md").exists(),
+        "non-interactive init without --yes must not create AGENTS.md"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("skipped AGENTS.md")
+            && stderr.contains("--yes")
+            && stderr.contains("--json"),
+        "stderr must explain how to create rules: {stderr}"
+    );
 }
 
 #[cfg(feature = "mcp")]

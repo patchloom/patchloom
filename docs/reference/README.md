@@ -401,6 +401,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **Notable flags:**
   - `-y, --yes`: Skip confirmation prompts and auto-accept all actions (agent rules + shell completions install).
   - With global `--json` / `--jsonl`: agent-rules create/append is auto-accepted without `-y` so agent bootstrap does not report `ok: true` with `agent_rules: skipped` (#1833). Shell completion install still requires `-y` / interactive confirm.
+  - Without `-y` and without `--json`/`--jsonl`, a non-interactive decline does not write `AGENTS.md` and reports `agent_rules: skipped_use_yes` (stderr names `--yes` / `--json`).
 - **Prefer instead:** `agent-rules` if you only need the rules text, or `completions` if you only need shell completions.
 - **Related:** `agent-rules`, `completions`, `mcp-server`, `status`, `undo`
 
