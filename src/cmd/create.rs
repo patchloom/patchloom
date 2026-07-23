@@ -40,7 +40,7 @@ struct CreateOutput {
     backup_session: Option<String>,
 }
 
-pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub fn run(mut args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("create: file={}, force={}", args.file, args.force);
     if args.content.is_some() && args.stdin {
         let msg = "--content and --stdin cannot be combined";
@@ -59,7 +59,7 @@ pub fn run(args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     let cwd = global.resolve_cwd()?;
-    global.check_paths_contained(&cwd, [&args.file])?;
+    args.file = global.rewrite_user_path_arg(&cwd, &args.file)?;
     let path = cwd.join(&args.file);
     if path.exists() && !path.is_file() {
         let msg = format!("target is not a file: {}", args.file);

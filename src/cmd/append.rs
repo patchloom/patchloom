@@ -84,9 +84,9 @@ pub(crate) fn run_content_inject(
     };
 
     let cwd = global.resolve_cwd()?;
-    // Containment before existence so --contain cannot be distinguished from
-    // "missing file" for escaped paths (agent sandbox).
-    global.check_paths_contained(&cwd, [file])?;
+    // Containment + absolute-path rewrite before existence checks (#1931).
+    let file = global.rewrite_user_path_arg(&cwd, file)?;
+    let file = file.as_str();
     let path = cwd.join(file);
     if !path.exists() {
         let msg = format!("file does not exist: {file}");

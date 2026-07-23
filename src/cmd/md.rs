@@ -197,19 +197,39 @@ struct MdOutput {
     backup_session: Option<String>,
 }
 
+/// Keep Operation.path aligned with the rewritten CLI path (#1931).
+fn set_md_op_path(op: &mut Operation, path: String) {
+    match op {
+        Operation::MdReplaceSection { path: p, .. }
+        | Operation::MdInsertAfterHeading { path: p, .. }
+        | Operation::MdInsertAfterSection { path: p, .. }
+        | Operation::MdInsertBeforeHeading { path: p, .. }
+        | Operation::MdUpsertBullet { path: p, .. }
+        | Operation::MdDedupeHeadings { path: p, .. }
+        | Operation::MdTableAppend { path: p, .. }
+        | Operation::MdLintAgents { path: p, .. }
+        | Operation::MdMoveSection { path: p, .. } => {
+            *p = path;
+        }
+        _ => {}
+    }
+}
+
 /// Execute a single md operation through the engine, mapping "not found"
 /// errors to `exit::NO_MATCHES`.
 fn execute_md_op(
-    op: Operation,
+    mut op: Operation,
     global: &GlobalFlags,
     file: &str,
     check_msg: &str,
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
-    // Shared empty-path + --contain gate (engine also checks under --contain).
-    global.check_paths_contained(&cwd, [file])?;
-    let file_owned = file.to_string();
+    // Rewrite absolute paths for I/O; keep relative spellings (#1931 suite).
+    let file = global.rewrite_user_path_arg(&cwd, file)?;
+    set_md_op_path(&mut op, file.clone());
+    let file_owned = file;
+    // Callers may mention multiple paths (move-section cross-file); keep them.
     match execute_via_engine(
         op,
         global,
@@ -374,12 +394,12 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             )
         }
 
-        MdAction::DedupeHeadings { file } => {
+        MdAction::DedupeHeadings { mut file } => {
             crate::verbose!("md: dedupe-headings file={}", file);
             // Pre-read to compute removed headings for structured output,
             // then route the actual write through the engine.
             let cwd = global.resolve_cwd()?;
-            global.check_paths_contained(&cwd, [&file])?;
+            file = global.rewrite_user_path_arg(&cwd, &file)?;
             let path = cwd.join(&file);
             let original = match crate::files::load_text_strict(&path, &file) {
                 Ok(s) => s,
@@ -493,10 +513,10 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             )
         }
 
-        MdAction::LintAgents { file } => {
+        MdAction::LintAgents { mut file } => {
             crate::verbose!("md: lint-agents file={}", file);
             let cwd = global.resolve_cwd()?;
-            global.check_paths_contained(&cwd, [&file])?;
+            file = global.rewrite_user_path_arg(&cwd, &file)?;
             let path = cwd.join(&file);
             let content = match crate::files::load_text_strict(&path, &file) {
                 Ok(s) => s,
@@ -551,13 +571,17 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        MdAction::TableAppend { file, heading, row } => {
+        MdAction::TableAppend {
+            mut file,
+            heading,
+            row,
+        } => {
             crate::verbose!("md: table-append file={}, heading={:?}", file, heading);
             // Pre-validate: distinguish "heading not found" (NO_MATCHES)
             // from "no table under heading" (error), which the engine
             // conflates into a single None.
             let cwd = global.resolve_cwd()?;
-            global.check_paths_contained(&cwd, [&file])?;
+            file = global.rewrite_user_path_arg(&cwd, &file)?;
             let path = cwd.join(&file);
             let content = match crate::files::load_text_strict(&path, &file) {
                 Ok(s) => s,
@@ -612,9 +636,9 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
 
         MdAction::MoveSection {
-            file,
+            mut file,
             heading,
-            to,
+            mut to,
             before,
             after,
         } => {
@@ -633,6 +657,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::FAILURE);
             }
 
+            let cwd = global.resolve_cwd()?;
+            file = global.rewrite_user_path_arg(&cwd, &file)?;
+            if let Some(dest) = to.take() {
+                to = Some(global.rewrite_user_path_arg(&cwd, &dest)?);
+            }
             let dest_file = to.as_deref().unwrap_or(&file);
             let (check_msg, apply_msg) = if dest_file != file {
                 (

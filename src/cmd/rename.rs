@@ -39,7 +39,7 @@ struct RenameOutput {
     backup_session: Option<String>,
 }
 
-pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!(
         "rename: from={}, to={}, force={}",
         args.from,
@@ -47,11 +47,10 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         args.force
     );
     let cwd = global.resolve_cwd()?;
-    // Empty-path + --contain for all rename paths (engine-backed text and
-    // binary/case-only callback via write_dispatch). Engine-backed ops also
-    // check declared_paths in the tx engine; this early check covers the
-    // callback path that never reaches the engine (#1409).
-    global.check_paths_contained(&cwd, [args.from.as_str(), args.to.as_str()])?;
+    // Empty-path + --contain, and rewrite absolute paths so case-only / backup
+    // I/O never sees Windows \\?\ UNC forms (#1931 / platform path suite).
+    args.from = global.rewrite_user_path_arg(&cwd, &args.from)?;
+    args.to = global.rewrite_user_path_arg(&cwd, &args.to)?;
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
