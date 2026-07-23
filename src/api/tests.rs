@@ -757,6 +757,11 @@ fn execute_plan_rejects_on_guard() {
     let plan = parse_plan(&plan_json).unwrap();
     let err = execute_plan(plan, dir.path(), Some(&guard)).unwrap_err();
     assert!(err.to_string().contains("path rejected by workspace guard"));
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "execute_plan PathGuard must peel as GuardRejected: {err}"
+    );
     // No mutation
     assert!(fs::read_to_string(&file).unwrap().contains("content"));
 }

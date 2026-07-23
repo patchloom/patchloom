@@ -59,7 +59,7 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Full CI gate (run before every commit) |
 | `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README test count) |
-| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo, plan key alias); not part of `check` |
+| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo, plan key alias, `--contain` → `guard_rejected`); not part of `check` |
 | `make audit` | Run `cargo audit` for known vulnerabilities (also in CI) |
 | `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; also in CI) |
 | `make update-readme` | Update README.md rounded test count |
@@ -91,6 +91,9 @@ See the "Adding a new MCP tool" section in [AGENTS.md](./AGENTS.md).
 | `make fmt-check` | Run `make fmt` to auto-format, then re-run `make check`. |
 | `make clippy` | Address the specific warning shown in the output. Clippy treats all warnings as errors (`-D warnings`). |
 | `make test-mcp-no-ast` | MCP inventory/router/instructions must stay honest without the `ast` feature. Fix `surface.rs` / `handlers.rs` feature gates and re-run `make test-mcp-no-ast`. |
+| `make test-no-default` / `test-ast-only` / `test-library-hygiene` | Feature-matrix or pure-library hygiene failed. Reproduce with the same make target; often dead_code under `--no-default-features`. |
+| `make verify-release-notes` | `RELEASE_NOTES.md` is present when it should not be (or fails validation). See release-notes workflow in AGENTS.md. |
+| `make audit-test-hygiene` | Stale test names or weak assertions after a refactor. Strengthen or rename tests, then re-run. |
 | `make check-patchloom-md` | The agent-rules output changed. Run `make sync-patchloom-md` to regenerate `PATCHLOOM.md`. |
 | `make check-readme` | Test counts drifted. Run `make update-readme` to refresh `README.md`. |
 

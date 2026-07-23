@@ -175,7 +175,7 @@ cargo install patchloom
 scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
 scoop install patchloom/patchloom
 
-# Chocolatey (Windows; first listing may wait on community moderation)
+# Chocolatey (Windows; community feed — newer versions may lag moderation)
 choco install patchloom
 ```
 
@@ -477,7 +477,7 @@ flowchart LR
 
 | Component | Status |
 |---|---|
-| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [Chocolatey](https://community.chocolatey.org/packages/patchloom) (`choco install patchloom`; first version under moderation), and [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`) |
+| CLI | Published on [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [Chocolatey](https://community.chocolatey.org/packages/patchloom) (`choco install patchloom`), and [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`). winget package under community review. |
 | MCP server | Official [MCP Registry](https://registry.modelcontextprotocol.io/) name `io.github.patchloom/patchloom` (stdio; crates.io / npm packages; see `server.json`). Local MCPB for [Smithery](https://smithery.ai/) / desktop hosts: `make pack-mcpb` (`mcpb/`). [Glama](https://glama.ai/mcp/servers) directory prep: root `glama.json` + manual **Add MCP Server** (see [MCP setup](./docs/getting-started/mcp-setup.md#glama-directory)) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 

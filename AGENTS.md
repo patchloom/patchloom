@@ -31,7 +31,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make pack-mcpb` | Pack `mcpb/` into `target/mcpb/patchloom-<ver>.mcpb` (Smithery / desktop). Honors `$VERSION` over Cargo.toml |
 | `make pack-mcpb-test` | Unit tests for pack version override and stamped manifest (`scripts/test_pack_mcpb.py`; skips full pack when `mcpb` CLI missing) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-gpt-5-4`) |
-| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo list, plan `key` alias). Not part of `check`; run before tagging a release |
+| `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`). Not part of `check`; run before tagging a release |
 | `make fuzz` | Run fuzz tests (11 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
 | `make bench-mcp` | Run MCP benchmarks: per-call latency vs CLI process spawn (not part of `check`) |

@@ -50,8 +50,9 @@ The package downloads the portable Windows zip from GitHub Releases and
 shims `patchloom.exe`. Each product release packs and pushes a new nupkg
 when `CHOCOLATEY_API_KEY` is configured. The **first** listing is subject
 to [community.chocolatey.org](https://community.chocolatey.org/packages)
-moderation (often multi-day); later version-only updates are usually
-auto-approved. If `choco install` reports the package is not found yet,
+moderation. Version `0.13.0` is approved on the public feed; newer pushes
+may lag until moderators clear them. If `choco install` reports the package
+is not found yet (or only an older version installs),
 use Scoop or the [GitHub Release](https://github.com/patchloom/patchloom/releases/latest)
 zip meanwhile.
 
