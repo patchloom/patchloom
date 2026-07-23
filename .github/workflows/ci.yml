@@ -120,8 +120,79 @@ jobs:
       - name: Integration tests (including MCP)
         run: cargo test --test integration --all-features
 
+      # Explicit filters so Windows path / UNC regressions (#1931) are visible
+      # in the job log even when the full suite is green for other reasons.
+      - name: Platform path unit tests (PathGuard / dunce)
+        run: cargo test --lib --all-features containment -- --nocapture
+
+      - name: Platform path integration tests (UNC / absolute --contain)
+        run: cargo test --test integration --all-features platform_path -- --nocapture
+
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # WSL2 on windows-latest (free GHA runner). Path semantics are Linux-like,
+  # but absolute paths and --contain must still work when the checkout lives
+  # under the WSL filesystem. Scope is intentionally narrow: full matrix
+  # already runs on ubuntu-latest; this job locks interop smoke only.
+  ci-wsl:
+    needs: [changes]
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || (
+        github.event.pull_request.draft == false &&
+        !startsWith(github.head_ref, 'release-please')
+      ))
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - name: Disable autocrlf
+        run: git config --global core.autocrlf false
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup WSL (Ubuntu)
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        with:
+          distribution: Ubuntu-24.04
+          update: true
+          additional-packages: build-essential curl ca-certificates pkg-config libssl-dev
+
+      - name: Install Rust and run platform path tests in WSL
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          # Inline workspace path (wsl-bash does not always inherit step env).
+          WS_WIN='${{ github.workspace }}'
+          SRC="$(wslpath -a "$WS_WIN")"
+          # Copy into the WSL ext4 home. Building under /mnt/c is extremely slow.
+          rm -rf "$HOME/patchloom"
+          mkdir -p "$HOME/patchloom"
+          if command -v rsync >/dev/null 2>&1; then
+            rsync -a --delete --exclude target --exclude .git "$SRC/" "$HOME/patchloom/"
+          else
+            tar -C "$SRC" \
+              --exclude=target --exclude=.git \
+              -cf - . | tar -C "$HOME/patchloom" -xf -
+          fi
+          cd "$HOME/patchloom"
+          if ! command -v rustc >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --default-toolchain stable --profile minimal
+          fi
+          # shellcheck source=/dev/null
+          . "$HOME/.cargo/env"
+          rustc --version
+          cargo --version
+          cargo test --lib --all-features containment -- --nocapture
+          cargo test --test integration --all-features platform_path -- --nocapture
 
   ci-macos:
     needs: [changes]
@@ -628,14 +699,14 @@ jobs:
     # Lightweight gate that satisfies the "ci" required status check.
     # Reports success when build-and-test passes OR was skipped (docs-only,
     # draft, or release-please light path). Skipped expensive jobs count as OK.
-    needs: [build-and-test, ci-windows, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny]
+    needs: [build-and-test, ci-windows, ci-wsl, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
       - name: Gate
         run: |
-          results=("$BUILD" "$WINDOWS" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY")
+          results=("$BUILD" "$WINDOWS" "$WSL" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY")
           for r in "${results[@]}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "Upstream job failed or was cancelled: $r"
@@ -645,6 +716,7 @@ jobs:
         env:
           BUILD: ${{ needs.build-and-test.result }}
           WINDOWS: ${{ needs.ci-windows.result }}
+          WSL: ${{ needs.ci-wsl.result }}
           MACOS: ${{ needs.ci-macos.result }}
           MSRV: ${{ needs.msrv.result }}
           MSRV_MACOS: ${{ needs.msrv-macos.result }}

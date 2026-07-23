@@ -52,6 +52,10 @@ pub struct Manifest {
 /// strips the root `/` (or drive prefix on Windows) so the path can be safely
 /// joined under the session directory without replacing it.
 fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
+    // Strip Windows \\?\ (and //?/) so strip_prefix and drive-letter parsing
+    // work when the caller passed a std::fs::canonicalize path (#1931).
+    let file_path = dunce::simplified(file_path);
+    let project_root = dunce::simplified(project_root);
     if let Ok(rel) = file_path.strip_prefix(project_root) {
         return rel.to_path_buf();
     }

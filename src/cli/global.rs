@@ -417,9 +417,51 @@ impl GlobalFlags {
             .into());
         }
         let cwd = self.resolve_cwd()?;
-        // Always run empty-path + optional --contain checks via the shared helper.
-        self.check_paths_contained(&cwd, std::iter::once(path_str.as_ref()))?;
-        Ok(cwd.join(path))
+        // When --contain is on, return PathGuard's resolved path (dunce-stripped
+        // absolute) so downstream I/O does not keep a raw \\?\ form (#1931).
+        if let Some(guard) = self.workspace_guard(&cwd)? {
+            return guard.check_path(path_str.as_ref()).map_err(|e| {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("path rejected by workspace guard: {e}"),
+                })
+            });
+        }
+        if path.is_absolute() {
+            Ok(dunce::simplified(path).to_path_buf())
+        } else {
+            Ok(cwd.join(path))
+        }
+    }
+
+    /// Normalize a user path for disk I/O after optional `--contain` check.
+    ///
+    /// Absolute paths are simplified (Windows UNC stripped). When `--contain`
+    /// is set, returns the PathGuard-resolved path so write/backup paths match
+    /// the sandbox root representation.
+    pub fn normalize_io_path(
+        &self,
+        cwd: &std::path::Path,
+        path: &str,
+    ) -> anyhow::Result<std::path::PathBuf> {
+        if path.trim().is_empty() {
+            return Err(crate::exit::InvalidInputError {
+                msg: "path must not be empty".into(),
+            }
+            .into());
+        }
+        if let Some(guard) = self.workspace_guard(cwd)? {
+            return guard.check_path(path).map_err(|e| {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("path rejected by workspace guard: {e}"),
+                })
+            });
+        }
+        let p = std::path::Path::new(path);
+        if p.is_absolute() {
+            Ok(dunce::simplified(p).to_path_buf())
+        } else {
+            Ok(cwd.join(p))
+        }
     }
 
     /// Build a workspace [`PathGuard`] when `--contain` is set.
@@ -1061,7 +1103,16 @@ mod tests {
             ..GlobalFlags::default()
         };
         let resolved = g.resolve_user_path(&abs).unwrap();
-        assert_eq!(resolved, abs);
+        // PathGuard returns a canonicalized form (macOS /var → /private/var).
+        assert!(resolved.is_absolute(), "{resolved:?}");
+        assert!(
+            resolved.ends_with("ops.txt"),
+            "expected ops.txt suffix, got {resolved:?}"
+        );
+        assert!(
+            !resolved.to_string_lossy().starts_with(r"\\?\"),
+            "must not keep Windows UNC: {resolved:?}"
+        );
     }
 
     #[test]
@@ -1073,7 +1124,15 @@ mod tests {
             ..GlobalFlags::default()
         };
         let resolved = g.resolve_user_path("ops.txt").unwrap();
-        assert_eq!(resolved, dir.path().join("ops.txt"));
+        assert!(resolved.is_absolute(), "{resolved:?}");
+        assert!(
+            resolved.ends_with("ops.txt"),
+            "expected ops.txt suffix, got {resolved:?}"
+        );
+        assert!(
+            !resolved.to_string_lossy().starts_with(r"\\?\"),
+            "must not keep Windows UNC: {resolved:?}"
+        );
     }
 
     #[test]

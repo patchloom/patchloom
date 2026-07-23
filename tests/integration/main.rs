@@ -711,6 +711,7 @@ mod misc_tests;
 mod module_hygiene_tests;
 mod parse_tests;
 mod patch_tests;
+mod platform_path_tests;
 mod read_tests;
 mod reference_docs_tests;
 mod rename_tests;

@@ -277,7 +277,10 @@ impl PathGuard {
         let contained = allowed_roots.iter().any(|r| canon.starts_with(r));
         if !contained {
             return Err(ContainmentError::Escaped {
-                path: path.to_string(),
+                // Prefer dunce-simplified display so agent JSON does not echo \\?\ (#1931).
+                path: dunce::simplified(Path::new(path))
+                    .to_string_lossy()
+                    .into_owned(),
                 root: self.root.display().to_string(),
             });
         }
@@ -294,7 +297,9 @@ impl PathGuard {
             })?;
         if !canon.starts_with(&self.canon_root) {
             return Err(ContainmentError::Escaped {
-                path: path.to_string(),
+                path: dunce::simplified(Path::new(path))
+                    .to_string_lossy()
+                    .into_owned(),
                 root: self.root.display().to_string(),
             });
         }
