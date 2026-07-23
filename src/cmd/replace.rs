@@ -641,21 +641,11 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Fail closed before the parallel scan so --contain does not read
     // outside the workspace while computing matches (precomputed write-path
     // guard remains defense-in-depth).
-    // Absolute paths: validate (if --contain) and rewrite to dunce-simplified /
-    // guard-resolved forms so backup/apply never see Windows \\?\ UNC (#1931).
-    // Relative paths keep their agent-facing spelling in skipped/refused JSON.
+    // Absolute paths: dunce/guard rewrite so backup never sees \\?\ UNC (#1931).
+    // Relative paths keep agent-facing spelling in skipped/refused JSON.
     let mut normalized_paths = Vec::with_capacity(args.paths.len());
     for p in &args.paths {
-        if std::path::Path::new(p).is_absolute() {
-            let resolved = global.normalize_io_path(&cwd, p)?;
-            normalized_paths.push(resolved.to_string_lossy().into_owned());
-        } else {
-            if global.contain {
-                // Validate only; keep the relative path string for display.
-                global.normalize_io_path(&cwd, p)?;
-            }
-            normalized_paths.push(p.clone());
-        }
+        normalized_paths.push(global.rewrite_user_path_arg(&cwd, p)?);
     }
     args.paths = normalized_paths;
     // Sole non-text before soft-skip scan (file-backed --files-from; not stdin).

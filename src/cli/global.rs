@@ -464,6 +464,36 @@ impl GlobalFlags {
         }
     }
 
+    /// Rewrite a CLI path argument for I/O while preserving relative spellings.
+    ///
+    /// - **Absolute:** validate (`--contain`) and return the dunce/guard form
+    ///   so backup and apply never see raw Windows `\\?\` paths (#1931).
+    /// - **Relative:** optionally validate under `--contain`, but keep the
+    ///   original string for agent JSON (`skipped` / `refused` / plan paths).
+    pub fn rewrite_user_path_arg(
+        &self,
+        cwd: &std::path::Path,
+        path: &str,
+    ) -> anyhow::Result<String> {
+        if std::path::Path::new(path).is_absolute() {
+            Ok(self
+                .normalize_io_path(cwd, path)?
+                .to_string_lossy()
+                .into_owned())
+        } else {
+            // Validate only when sandboxing; keep relative display form.
+            if self.contain {
+                self.normalize_io_path(cwd, path)?;
+            } else if path.trim().is_empty() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "path must not be empty".into(),
+                }
+                .into());
+            }
+            Ok(path.to_string())
+        }
+    }
+
     /// Build a workspace [`PathGuard`] when `--contain` is set.
     ///
     /// Uses [`AbsolutePathPolicy::AllowIfContained`]: absolute paths are OK
