@@ -120,7 +120,12 @@ pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(anyhow::Error::new(e).context(format!("failed to read {display}")));
+            // Keep io::Error in the chain for `is_io_not_found`, and put the
+            // OS detail in the context string so Display (not only `{:#}`)
+            // includes "No such file" for agent JSON (MPI 2026-07-23: explain
+            // showed "cannot read X: failed to read X" with no OS detail).
+            let msg = format!("failed to read {display}: {e}");
+            return Err(anyhow::Error::new(e).context(msg));
         }
         Err(e) => {
             // Full message in InvalidInputError so Display and JSON envelopes
@@ -1057,6 +1062,18 @@ mod tests {
         assert!(
             !crate::exit::is_invalid_input(&err),
             "NotFound must not be invalid_input: {err:#}"
+        );
+        // Display must include OS detail (not only `{:#}`).
+        let msg = err.to_string();
+        assert!(msg.contains("failed to read nope.txt"), "msg: {msg}");
+        assert!(
+            msg.contains("No such file") || msg.contains("os error 2") || msg.contains("not found"),
+            "OS detail missing from Display: {msg}"
+        );
+        assert_eq!(
+            msg.matches("failed to read").count(),
+            1,
+            "must not double-wrap: {msg}"
         );
     }
 

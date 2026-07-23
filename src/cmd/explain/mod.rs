@@ -60,9 +60,11 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Strict sole-path plan load (#1894).
         let content = match crate::files::load_text_strict(&full, &full.display().to_string()) {
             Ok(c) => c,
+            // load_text_strict already names the path + OS detail; do not
+            // prefix "cannot read {path}:" again (double-wrap / missing OS
+            // detail on Display; MPI 2026-07-23).
             Err(e) if crate::exit::is_io_not_found(&e) => {
-                let msg = format!("cannot read {}: {e}", full.display());
-                global.emit_error_json_kind(Some("not_found"), &msg)?;
+                global.emit_error_json_kind(Some("not_found"), &e.to_string())?;
                 return Ok(exit::FAILURE);
             }
             Err(e) if crate::exit::is_invalid_input(&e) => {
@@ -70,8 +72,7 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::FAILURE);
             }
             Err(e) => {
-                let msg = format!("cannot read {}: {e}", full.display());
-                global.emit_error_json_kind(Some("not_found"), &msg)?;
+                global.emit_error_json_kind(Some("not_found"), &e.to_string())?;
                 return Ok(exit::FAILURE);
             }
         };

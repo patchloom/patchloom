@@ -488,10 +488,12 @@ impl PatchloomService {
             let abs = svc.cwd().join(&p.path);
             // Strict sole-path (#1894): binary / invalid UTF-8 → invalid_params.
             let content = crate::files::load_text_strict(&abs, &p.path).map_err(|e| {
-                if crate::exit::is_invalid_input(&e) {
+                // load_text_strict messages already include path + OS detail;
+                // do not prefix "reading {path}:" again (MPI 2026-07-23).
+                if crate::exit::is_invalid_input(&e) || crate::exit::is_io_not_found(&e) {
                     McpError::invalid_params(e.to_string(), None)
                 } else {
-                    McpError::internal_error(format!("reading {}: {e}", p.path), None)
+                    McpError::internal_error(e.to_string(), None)
                 }
             })?;
             let issues = crate::ops::md::lint_agents_content(&content);
@@ -644,10 +646,11 @@ impl PatchloomService {
                 // load_text_strict already prefixes "failed to read {path}";
                 // do not re-wrap (same class as #1916).
                 let content = crate::files::load_text_strict(&abs, path).map_err(|e| {
-                    if crate::exit::is_invalid_input(&e) {
+                    // Display already has path + OS detail (MPI 2026-07-23).
+                    if crate::exit::is_invalid_input(&e) || crate::exit::is_io_not_found(&e) {
                         McpError::invalid_params(e.to_string(), None)
                     } else {
-                        McpError::internal_error(format!("{e:#}"), None)
+                        McpError::internal_error(e.to_string(), None)
                     }
                 })?;
                 crate::plan::parse_plan_auto(&content, Some(path), None).map_err(|e| {
