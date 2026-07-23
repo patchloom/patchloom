@@ -686,7 +686,8 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
     // with a regular file, destroying the symlink and leaving the target unchanged.
     let resolved;
     let write_path = if path.is_symlink() {
-        resolved = std::fs::canonicalize(path)
+        // dunce: strip Windows \\?\ so display and multi-link checks stay clean.
+        resolved = crate::containment::safe_canonicalize(path)
             .with_context(|| format!("failed to resolve symlink {}", path.display()))?;
         resolved.as_path()
     } else {

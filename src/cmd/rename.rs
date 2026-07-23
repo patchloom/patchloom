@@ -77,8 +77,9 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // Same-file no-op check. On case-insensitive filesystems (macOS APFS),
-    // canonicalize() treats case differences as identical. Allow the rename
+    // canonicalize treats case differences as identical. Allow the rename
     // when only the case differs so users can change filename casing (#1167).
+    // Use safe_canonicalize (dunce) so Windows UNC prefixes do not diverge.
     let is_case_only_change = src != dst
         && src.parent() == dst.parent()
         && src.file_name().map(|n| n.to_ascii_lowercase())
@@ -86,7 +87,10 @@ pub fn run(args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if !is_case_only_change
         && (src == dst
             || matches!(
-                (src.canonicalize(), dst.canonicalize()),
+                (
+                    crate::containment::safe_canonicalize(&src),
+                    crate::containment::safe_canonicalize(&dst)
+                ),
                 (Ok(ref s), Ok(ref d)) if s == d
             ))
     {

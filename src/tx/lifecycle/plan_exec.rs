@@ -101,8 +101,9 @@ pub fn execute_plan_direct(
         // workspace root (MCP and library callers both honor plan.cwd when
         // contained; escapes must fail closed).
         if plan.cwd.is_some() {
-            let canon_cwd = effective_cwd
-                .canonicalize()
+            // Must use the same canonicalize as PathGuard (dunce) so Windows
+            // UNC prefixes do not break starts_with against canon_root (#1931).
+            let canon_cwd = crate::containment::safe_canonicalize(&effective_cwd)
                 .unwrap_or_else(|_| effective_cwd.clone());
             if !canon_cwd.starts_with(g.canon_root()) {
                 return Err(crate::exit::InvalidInputError {
