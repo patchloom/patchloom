@@ -436,6 +436,41 @@ fn test_patch_check_exits_5_when_stale() {
         .code(5);
 }
 
+/// fixrealloop: agents branch on error_kind; stale check must not leave it null.
+#[test]
+fn test_patch_check_json_stale_sets_error_kind_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+
+    let patch_file = dir.path().join("stale.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "check"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(5), "stale → exit 5");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    assert_eq!(v["files"][0]["status"], "stale", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("stale"),
+        "error summary should mention stale: {v}"
+    );
+}
+
 #[test]
 fn test_patch_check_stale_human_readable_output() {
     let dir = TempDir::new().unwrap();

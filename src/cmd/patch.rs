@@ -198,6 +198,12 @@ struct PatchFileResult {
 struct PatchFilesOutput {
     ok: bool,
     files: Vec<PatchFileResult>,
+    /// Agent branch key when `ok` is false (e.g. stale check → `ambiguous`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
+    /// Human/agent summary when `ok` is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
     /// Whether bytes were written (#1812). `false` for preview/`--check`.
     #[serde(skip_serializing_if = "Option::is_none")]
     applied: Option<bool>,
@@ -273,6 +279,35 @@ fn emit_error(global: &GlobalFlags, error: &str, error_kind: &str) -> anyhow::Re
     Ok(())
 }
 
+/// Top-level error_kind for multi-file patch JSON when `ok` is false.
+/// Matches CLI exit codes agents already branch on (stale → exit 5 / ambiguous).
+fn patch_problem_error_kind(results: &[PatchFileResult]) -> (&'static str, String) {
+    let has_stale = results.iter().any(|r| r.status == "stale");
+    let has_missing = results.iter().any(|r| r.status == "missing");
+    let has_error = results.iter().any(|r| r.status == "error");
+    let has_conflict = results.iter().any(|r| r.status == "conflict");
+    if has_conflict {
+        (
+            "conflicts",
+            "one or more patch targets have merge conflicts".into(),
+        )
+    } else if has_stale {
+        (
+            "ambiguous",
+            "one or more patch targets are stale (context no longer matches)".into(),
+        )
+    } else if has_missing && !has_error {
+        ("not_found", "one or more patch targets are missing".into())
+    } else if has_error {
+        (
+            "invalid_input",
+            "one or more patch targets could not be read".into(),
+        )
+    } else {
+        ("ambiguous", "one or more patch targets failed".into())
+    }
+}
+
 fn emit_patch_files_output(
     global: &GlobalFlags,
     ok: bool,
@@ -281,9 +316,17 @@ fn emit_patch_files_output(
     backup_session: Option<String>,
 ) -> anyhow::Result<()> {
     if global.json {
+        let (error_kind, error) = if ok {
+            (None, None)
+        } else {
+            let (k, e) = patch_problem_error_kind(results);
+            (Some(k), Some(e))
+        };
         let output = PatchFilesOutput {
             ok,
             files: results.to_vec(),
+            error_kind,
+            error,
             applied,
             backup_session,
         };
