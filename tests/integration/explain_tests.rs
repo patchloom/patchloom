@@ -222,6 +222,54 @@ fn test_explain_invalid_plan_fails() {
     );
 }
 
+/// Missing plan file: not_found with a single path prefix + OS detail.
+/// MPI 2026-07-23: previously "cannot read X: failed to read X" without OS text.
+#[test]
+fn test_explain_missing_plan_is_not_found_with_os_detail() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nope.json");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["explain", "nope.json"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "not_found", "{json}");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("failed to read"),
+        "expected load_text_strict message: {json}"
+    );
+    assert!(
+        !err.contains("cannot read"),
+        "must not double-prefix cannot read: {json}"
+    );
+    assert_eq!(
+        err.matches("failed to read").count(),
+        1,
+        "must not double-wrap: {json}"
+    );
+    assert!(
+        err.contains("No such file")
+            || err.contains("os error 2")
+            || err.contains("not found")
+            || err.contains("not exist"),
+        "OS detail missing: {json}"
+    );
+    let _ = missing; // path intentionally absent
+}
+
 #[test]
 fn test_explain_stdin() {
     Command::cargo_bin("patchloom")

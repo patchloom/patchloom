@@ -650,6 +650,54 @@ async fn test_mcp_symlink_within_cwd_allowed() {
 // Permission error integration tests (unix only)
 // ---------------------------------------------------------------------------
 
+/// Sole unreadable path is invalid_input with OS detail (not a bare
+/// "failed to read path" without Permission denied). MPI 2026-07-23 / #1925.
+#[cfg(unix)]
+#[test]
+fn test_read_sole_unreadable_is_invalid_input_with_os_detail() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("locked.txt");
+    fs::write(&file, "secret\n").unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read_to_string(&file).is_ok() {
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["read", "locked.txt"])
+        .output()
+        .unwrap();
+    let _ = fs::set_permissions(&file, fs::Permissions::from_mode(0o644));
+
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("Permission denied")
+            || err.contains("PermissionDenied")
+            || err.contains("os error"),
+        "OS detail missing: {v}"
+    );
+    assert_eq!(
+        err.matches("failed to read").count(),
+        1,
+        "must not double-wrap: {v}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // --contain on read (read-side sandbox) (MPI cycle 18)
 // ---------------------------------------------------------------------------

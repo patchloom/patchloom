@@ -104,10 +104,11 @@ pub(super) fn handle_ast_read(
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
     // Strict sole-path text load (#1894): binary / invalid UTF-8 → invalid_params.
     let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
-        if crate::exit::is_invalid_input(&e) {
+        // load_text_strict already names path + OS detail (MPI 2026-07-23).
+        if crate::exit::is_invalid_input(&e) || crate::exit::is_io_not_found(&e) {
             McpError::invalid_params(e.to_string(), None)
         } else {
-            McpError::internal_error(format!("reading {}: {e}", p.path), None)
+            McpError::internal_error(e.to_string(), None)
         }
     })?;
     let all_symbols = crate::ast::symbols::extract_symbols(&source, lang);
@@ -562,10 +563,10 @@ pub(super) fn handle_ast_diff(
     } else {
         // Strict sole-path (#1894): working-tree binary / invalid UTF-8.
         crate::files::load_text_strict(&target, &p.path).map_err(|e| {
-            if crate::exit::is_invalid_input(&e) {
+            if crate::exit::is_invalid_input(&e) || crate::exit::is_io_not_found(&e) {
                 McpError::invalid_params(e.to_string(), None)
             } else {
-                McpError::internal_error(format!("reading {}: {e}", p.path), None)
+                McpError::internal_error(e.to_string(), None)
             }
         })?
     };
@@ -715,10 +716,10 @@ pub(super) fn handle_ast_imports(
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
         // Strict sole-path (#1894).
         let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
-            if crate::exit::is_invalid_input(&e) {
+            if crate::exit::is_invalid_input(&e) || crate::exit::is_io_not_found(&e) {
                 McpError::invalid_params(e.to_string(), None)
             } else {
-                McpError::internal_error(format!("reading {}: {e}", p.path), None)
+                McpError::internal_error(e.to_string(), None)
             }
         })?;
         let imports = crate::ast::imports::list_imports(&source, lang);
