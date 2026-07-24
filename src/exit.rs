@@ -425,7 +425,8 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
     {
         // Library/engine PathGuard and other EditError-only kinds (#1935).
         // Keep exit-typed arms above so already_exists / type_error stay distinct
-        // (edit_error_kind maps some exit types onto coarser EditErrorKind values).
+        // when both layers appear in a chain. EditErrorKind now peels the same
+        // honesty kinds for library hosts (#1947).
         use crate::fallback::EditErrorKind;
         match edit.kind {
             EditErrorKind::GuardRejected => Some(("guard_rejected", FAILURE)),
@@ -433,6 +434,10 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
             EditErrorKind::AmbiguousTarget => Some(("ambiguous", AMBIGUOUS)),
             EditErrorKind::InvalidInput => Some(("invalid_input", FAILURE)),
             EditErrorKind::TypeError => Some(("type_error", FAILURE)),
+            EditErrorKind::AlreadyExists => Some(("already_exists", FAILURE)),
+            EditErrorKind::NotFound => Some(("not_found", FAILURE)),
+            EditErrorKind::Conflicts => Some(("conflicts", CONFLICTS)),
+            EditErrorKind::ChangesDetected => Some(("changes_detected", CHANGES_DETECTED)),
             EditErrorKind::ParseError => Some(("parse_error", PARSE_ERROR)),
             EditErrorKind::FormatFailed => Some(("format_failed", FAILURE)),
             EditErrorKind::SyntaxInvalid

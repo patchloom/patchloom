@@ -89,12 +89,16 @@
 //!   binary and invalid UTF-8 become `EditErrorKind::InvalidInput`
 //! - [`is_binary_file`]: cheap 8 KiB NUL preflight (open fail → `false`; use
 //!   `load_text` when you need a typed open error)
-//! - [`edit_error_kind`]: peel `TypeError` (multi-doc bare key / wrong root)
-//!   separately from `InvalidInput` (empty pattern, sole binary, …)
+//! - [`edit_error_kind`]: peel `TypeError` (multi-doc bare key / wrong root),
+//!   `AlreadyExists` (create/rename dest), `NotFound`, `Conflicts`, etc.
+//!   separately from coarse `InvalidInput` / `OperationFailed`
+//! - [`error_kind_str`]: same CLI JSON kind strings (`already_exists`, …) for
+//!   host envelopes that mirror agent JSON (#1948)
+//! - [`is_already_exists`]: bool peel for force/overwrite recovery (#1947)
 //! - [`doc_merge`]: optional `selector` for multi-doc YAML (`Some("0")`)
 //!
 //! ```rust,no_run
-//! use patchloom::api::{self, edit_error_kind, EditErrorKind, ApplyMode};
+//! use patchloom::api::{self, edit_error_kind, error_kind_str, EditErrorKind, ApplyMode};
 //! use std::path::Path;
 //!
 //! let path = Path::new("stream.yaml");
@@ -113,6 +117,13 @@
 //!     None,
 //!     Some("0"),
 //! );
+//! // Dest-exists → AlreadyExists / "already_exists" (not InvalidInput)
+//! match api::file_create(path, "x\n", false, ApplyMode::Apply, None) {
+//!     Err(e) if edit_error_kind(&e) == Some(EditErrorKind::AlreadyExists) => {
+//!         assert_eq!(error_kind_str(&e), Some("already_exists"));
+//!     }
+//!     _ => {}
+//! }
 //! ```
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`; match with a wildcard arm so new
@@ -397,10 +408,10 @@ pub struct ReplaceOptions {
     pub post_write_cwd: Option<std::path::PathBuf>,
 }
 
-// Re-export structured edit errors for embedders (#1492, #1659).
+// Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948).
 pub use crate::fallback::{
     EditError, EditErrorKind, classify_error, classify_error_ref, edit_error_kind, edit_error_ref,
-    find_similar_targets,
+    error_kind_str, find_similar_targets, is_already_exists,
 };
 
 /// Write policy options for controlling file write transformations.
