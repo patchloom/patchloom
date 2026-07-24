@@ -2129,6 +2129,43 @@ fn test_replace_cli_json_no_matches_includes_similar_targets() {
 }
 
 #[test]
+fn test_replace_cli_json_no_matches_omits_weak_similar_targets() {
+    // Multi-file / large-tree no-match must not invent short-token hints
+    // for long unrelated patterns (fixrealloop stress: "did you mean: nold?").
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "fn nold() {}\nlet compute = 1;\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace",
+            "this_string_should_not_exist_xyzzy",
+            "--new",
+            "x",
+            "a.txt",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["error_kind"], "no_matches");
+    let similar = v["similar_targets"].as_array().cloned().unwrap_or_default();
+    assert!(
+        similar.is_empty(),
+        "weak JW noise must not populate similar_targets: {v}"
+    );
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        !err.contains("did you mean"),
+        "no-match prose must omit weak did-you-mean: {v}"
+    );
+}
+
+#[test]
 fn test_replace_cli_json_error_kind_ambiguous() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("a.txt");
