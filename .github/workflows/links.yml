@@ -65,7 +65,11 @@ jobs:
       - name: Check links
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --no-progress --config lychee.toml '**/*.md' '!RELEASE_NOTES.md'
+          # Do NOT pass '!RELEASE_NOTES.md' as an input path: lychee treats it as a
+          # missing file/URL and fails parse (main Links red after #1946). Path
+          # filters above still skip RELEASE_NOTES-only cleanup PRs; this flag
+          # excludes the file if it is present during a scan of **/*.md.
+          args: --no-progress --config lychee.toml --exclude-path RELEASE_NOTES.md '**/*.md'
           # PRs: report only (required "Check Links" stays green). Main/schedule: fail.
           fail: ${{ github.event_name != 'pull_request' }}
 

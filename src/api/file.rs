@@ -57,7 +57,10 @@ fn file_write(
             let force = force.unwrap_or(false);
             if !force && path.exists() && mode != ApplyMode::Preview {
                 return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
-                    msg: format!("file already exists: {}", path.display()),
+                    msg: format!(
+                        "file already exists: {} (use force to overwrite)",
+                        path.display()
+                    ),
                 }));
             }
             let policy = crate::write::WritePolicy::default();

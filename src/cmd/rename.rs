@@ -108,7 +108,10 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     if !args.force && !is_case_only_change && dst.exists() {
-        let msg = format!("destination already exists: {}", args.to);
+        let msg = format!(
+            "destination already exists: {} (use --force to overwrite)",
+            args.to
+        );
         global.emit_error_json_kind(Some("already_exists"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }

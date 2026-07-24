@@ -93,7 +93,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
                 if exists_in_tx || (!tx.deletions.contains(&file_path) && file_path.exists()) {
                     return Err(crate::exit::AlreadyExistsError {
-                        msg: format!("file already exists: {path}"),
+                        msg: format!("file already exists: {path} (use force to overwrite)"),
                     }
                     .into());
                 }
@@ -197,7 +197,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     || (!tx.deletions.contains(&dst_path) && dst_path.exists());
                 if dst_exists {
                     return Err(crate::exit::AlreadyExistsError {
-                        msg: format!("destination already exists: {to}"),
+                        msg: format!("destination already exists: {to} (use force to overwrite)"),
                     }
                     .into());
                 }
