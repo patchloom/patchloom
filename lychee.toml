@@ -30,6 +30,9 @@ exclude = [
   "patchloom\\.github\\.io",
   # npmjs.com returns 403 to many CI link-checkers (bot protection) for public packages
   "npmjs\\.com",
+  # glama.ai MCP directory/inspector timeouts from CI runners (PR #1945 flake;
+  # Links on PRs are soft-fail, but main/schedule still hard-fail)
+  "glama\\.ai",
 ]
 
 # 502/503/504: GitHub (and occasional other hosts) return gateway errors under
