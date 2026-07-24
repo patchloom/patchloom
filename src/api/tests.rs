@@ -6153,15 +6153,24 @@ fn fuzzy_absent_old_fails_closed_by_default() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
-fn file_create_already_exists_is_invalid_input() {
+fn file_create_already_exists_is_already_exists() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("a.txt");
     fs::write(&file, "x\n").unwrap();
     let err = file_create(&file, "y", false, ApplyMode::Apply, None).unwrap_err();
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput),
-        "already-exists must peel without string scrape: {err}"
+        Some(EditErrorKind::AlreadyExists),
+        "already-exists must peel without string scrape (#1947): {err}"
+    );
+    assert!(
+        crate::fallback::is_already_exists(&err),
+        "is_already_exists must see dest-exists: {err}"
+    );
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("already_exists"),
+        "CLI-stable kind string (#1948): {err}"
     );
     assert!(
         err.to_string().contains("already exists"),
@@ -6171,7 +6180,7 @@ fn file_create_already_exists_is_invalid_input() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
-fn file_rename_destination_exists_is_invalid_input() {
+fn file_rename_destination_exists_is_already_exists() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("a.txt");
     let dst = dir.path().join("b.txt");
@@ -6180,10 +6189,81 @@ fn file_rename_destination_exists_is_invalid_input() {
     let err = file_rename(&file, &dst, false, ApplyMode::Apply, None).unwrap_err();
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput),
-        "dest exists must peel: {err}"
+        Some(EditErrorKind::AlreadyExists),
+        "dest exists must peel as AlreadyExists (#1947): {err}"
+    );
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("already_exists"),
+        "CLI-stable kind string (#1948): {err}"
+    );
+    assert!(
+        crate::fallback::is_already_exists(&err),
+        "rename dest-exists must set is_already_exists: {err}"
     );
     assert!(err.to_string().contains("already exists"), "message: {err}");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_delete_missing_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("gone.txt");
+    let err = file_delete(&missing, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "missing delete must peel as NotFound not OperationFailed: {err}"
+    );
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("not_found"),
+        "CLI-stable not_found (#1948 sibling): {err}"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn execute_plan_patch_merge_conflict_is_conflicts() {
+    // Real library path: on_stale merge without allow_conflicts → ConflictsError.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\ncompletely different\nline3\n").unwrap();
+    let diff =
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+    let plan = crate::plan::Plan {
+        version: 1,
+        cwd: Some(dir.path().to_string_lossy().into()),
+        write_policy: None,
+        strict: None,
+        operations: vec![crate::plan::Operation::PatchApply {
+            diff: diff.into(),
+            on_stale: crate::ops::patch::OnStale::Merge,
+            allow_conflicts: false,
+        }],
+        format: None,
+        validate: None,
+        verify: None,
+        for_each: None,
+    };
+    // Plan failures return Ok(PlanReport) with ok:false + error_kind (not Err).
+    let report = execute_plan(plan, dir.path(), None).expect("plan report");
+    assert!(!report.ok, "merge conflict plan must fail: {report:?}");
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("conflicts"),
+        "PlanReport must carry CLI-stable conflicts kind: {report:?}"
+    );
+    // When hosts wrap the report error string as anyhow, typed peel still works
+    // if the underlying ConflictsError remains in the chain; for plan reports
+    // the string field is the primary branch point.
+    assert!(
+        report
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("conflict")),
+        "error message should mention conflict: {report:?}"
+    );
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]

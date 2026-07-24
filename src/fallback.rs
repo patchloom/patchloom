@@ -116,6 +116,24 @@ pub enum EditErrorKind {
     /// "type_error"`. Distinct from [`Self::InvalidInput`] so hosts can
     /// recover with `0.key` / `[0].key` without scraping English (#1883).
     TypeError,
+    /// Create/rename destination already exists without force.
+    /// CLI JSON uses `error_kind: "already_exists"`. Distinct from
+    /// [`Self::InvalidInput`] (binary, empty path, directory target) so hosts
+    /// can hint `overwrite`/`force` without scraping English (#1947).
+    AlreadyExists,
+    /// Path not found (`std::io::ErrorKind::NotFound`). CLI JSON uses
+    /// `error_kind: "not_found"`. Distinct from generic [`Self::OperationFailed`]
+    /// so hosts can treat missing paths separately from other I/O failures.
+    NotFound,
+    /// Patch/apply produced merge conflict markers. CLI JSON uses
+    /// `error_kind: "conflicts"`. Distinct from [`Self::ConflictingEdit`]
+    /// (batch region overlap) and generic [`Self::OperationFailed`].
+    Conflicts,
+    /// Check/preview reported pending changes, or soft assert-count mismatch
+    /// (`error_kind: "changes_detected"`, exit 2). Distinct from
+    /// [`Self::OperationFailed`] so hosts can mirror CLI exit-2 semantics
+    /// without scraping English.
+    ChangesDetected,
     /// I/O or other operational failure.
     OperationFailed,
     /// Post-write format/lint hook failed (`format_failed` / #1663).
@@ -135,6 +153,10 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::GuardRejected => write!(f, "guard_rejected"),
             EditErrorKind::InvalidInput => write!(f, "invalid_input"),
             EditErrorKind::TypeError => write!(f, "type_error"),
+            EditErrorKind::AlreadyExists => write!(f, "already_exists"),
+            EditErrorKind::NotFound => write!(f, "not_found"),
+            EditErrorKind::Conflicts => write!(f, "conflicts"),
+            EditErrorKind::ChangesDetected => write!(f, "changes_detected"),
             EditErrorKind::OperationFailed => write!(f, "operation_failed"),
             EditErrorKind::FormatFailed => write!(f, "format_failed"),
         }
@@ -232,11 +254,13 @@ pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErr
         if e.downcast_ref::<crate::exit::AmbiguousError>().is_some() {
             return Some(EditErrorKind::AmbiguousTarget);
         }
-        if e.downcast_ref::<crate::exit::InvalidInputError>().is_some()
-            || e.downcast_ref::<crate::exit::AlreadyExistsError>()
-                .is_some()
-        {
+        if e.downcast_ref::<crate::exit::InvalidInputError>().is_some() {
             return Some(EditErrorKind::InvalidInput);
+        }
+        if e.downcast_ref::<crate::exit::AlreadyExistsError>()
+            .is_some()
+        {
+            return Some(EditErrorKind::AlreadyExists);
         }
         if e.downcast_ref::<crate::exit::TypeErrorError>().is_some() {
             return Some(EditErrorKind::TypeError);
@@ -247,21 +271,45 @@ pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErr
         if e.downcast_ref::<crate::exit::FormatFailedError>().is_some() {
             return Some(EditErrorKind::FormatFailed);
         }
-        // Closest library kind for hosts that only branch on EditErrorKind.
-        if e.downcast_ref::<crate::exit::ConflictsError>().is_some()
-            || e.downcast_ref::<crate::exit::ChangesDetectedError>()
-                .is_some()
+        if e.downcast_ref::<crate::exit::ConflictsError>().is_some() {
+            return Some(EditErrorKind::Conflicts);
+        }
+        if e.downcast_ref::<crate::exit::ChangesDetectedError>()
+            .is_some()
         {
-            return Some(EditErrorKind::OperationFailed);
+            return Some(EditErrorKind::ChangesDetected);
         }
         if e.downcast_ref::<std::io::Error>()
             .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
         {
-            return Some(EditErrorKind::OperationFailed);
+            return Some(EditErrorKind::NotFound);
         }
         current = e.source();
     }
     None
+}
+
+/// Same stable kind string CLI JSON uses (`already_exists`, `guard_rejected`, …).
+///
+/// Library hosts that mirror agent JSON envelopes should use this instead of
+/// re-implementing [`crate::exit::classify_typed_error`] or scraping Display
+/// (#1948). Returns `None` when the chain has no recognized typed kind.
+///
+/// Prefer this over matching only [`edit_error_kind`] when you need CLI-stable
+/// strings (for example `no_matches` vs Display `no_match`).
+#[must_use]
+pub fn error_kind_str(err: &anyhow::Error) -> Option<&'static str> {
+    crate::exit::classify_typed_error(err).map(|(kind, _)| kind)
+}
+
+/// Whether the error peels as dest-exists create/rename conflict.
+///
+/// True for both [`crate::exit::AlreadyExistsError`] and
+/// [`EditError`] with [`EditErrorKind::AlreadyExists`], so the bool matches
+/// what hosts get from [`edit_error_kind`] (#1947).
+#[must_use]
+pub fn is_already_exists(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::AlreadyExists)
 }
 
 /// Downcast a bare `dyn Error` chain to [`EditError`] when present (#1659).
@@ -980,6 +1028,13 @@ mod tests {
         assert_eq!(EditErrorKind::ParseError.to_string(), "parse_error");
         assert_eq!(EditErrorKind::TypeError.to_string(), "type_error");
         assert_eq!(EditErrorKind::InvalidInput.to_string(), "invalid_input");
+        assert_eq!(EditErrorKind::AlreadyExists.to_string(), "already_exists");
+        assert_eq!(EditErrorKind::NotFound.to_string(), "not_found");
+        assert_eq!(EditErrorKind::Conflicts.to_string(), "conflicts");
+        assert_eq!(
+            EditErrorKind::ChangesDetected.to_string(),
+            "changes_detected"
+        );
         assert_eq!(EditErrorKind::FormatFailed.to_string(), "format_failed");
     }
 
@@ -1007,6 +1062,32 @@ mod tests {
         assert_eq!(
             classify_error(&e as &(dyn Error + 'static)),
             Some(EditErrorKind::TypeError)
+        );
+        let e = crate::exit::AlreadyExistsError {
+            msg: "exists".into(),
+        };
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::AlreadyExists)
+        );
+        let e = crate::exit::ConflictsError {
+            msg: "conflict".into(),
+        };
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::Conflicts)
+        );
+        let e = crate::exit::ChangesDetectedError {
+            msg: "would change".into(),
+        };
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::ChangesDetected)
+        );
+        let e = std::io::Error::new(std::io::ErrorKind::NotFound, "gone");
+        assert_eq!(
+            classify_error(&e as &(dyn Error + 'static)),
+            Some(EditErrorKind::NotFound)
         );
     }
 
@@ -1043,7 +1124,24 @@ mod tests {
             msg: "file already exists".into(),
         }
         .into();
-        assert_eq!(edit_error_kind(&exists), Some(EditErrorKind::InvalidInput));
+        assert_eq!(
+            edit_error_kind(&exists),
+            Some(EditErrorKind::AlreadyExists),
+            "AlreadyExistsError must not collapse to InvalidInput (#1947)"
+        );
+        assert!(is_already_exists(&exists));
+        assert_eq!(error_kind_str(&exists), Some("already_exists"));
+
+        let exists_edit: anyhow::Error =
+            EditError::new(EditErrorKind::AlreadyExists, "dest taken").into();
+        assert!(
+            is_already_exists(&exists_edit),
+            "is_already_exists must match EditErrorKind::AlreadyExists too"
+        );
+        assert_eq!(
+            edit_error_kind(&exists_edit),
+            Some(EditErrorKind::AlreadyExists)
+        );
 
         let type_err: anyhow::Error = crate::exit::TypeErrorError {
             msg: "parent is an array, not an object".into(),
@@ -1067,9 +1165,27 @@ mod tests {
         let not_found = not_found.context("failed to read path");
         assert_eq!(
             edit_error_kind(&not_found),
-            Some(EditErrorKind::OperationFailed),
-            "IO NotFound should peel via classify not_found"
+            Some(EditErrorKind::NotFound),
+            "IO NotFound must peel as NotFound not OperationFailed"
         );
+        assert_eq!(error_kind_str(&not_found), Some("not_found"));
+
+        let conflicts: anyhow::Error = crate::exit::ConflictsError {
+            msg: "merge conflict".into(),
+        }
+        .into();
+        assert_eq!(edit_error_kind(&conflicts), Some(EditErrorKind::Conflicts));
+        assert_eq!(error_kind_str(&conflicts), Some("conflicts"));
+
+        let changes: anyhow::Error = crate::exit::ChangesDetectedError {
+            msg: "would change".into(),
+        }
+        .into();
+        assert_eq!(
+            edit_error_kind(&changes),
+            Some(EditErrorKind::ChangesDetected)
+        );
+        assert_eq!(error_kind_str(&changes), Some("changes_detected"));
 
         // Intermediate .context() must not hide the typed kind.
         let wrapped = invalid.context("operation 1 (replace) failed");

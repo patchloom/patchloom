@@ -1332,7 +1332,8 @@ The operations below are the building blocks inside `operations`.
 | Need | API |
 |------|-----|
 | Fail-closed text replace | `ReplaceOptions.require_change` + `edit_error_kind` / `classify_error` |
-| Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks; `EditErrorKind::TypeError` for multi-doc / wrong-root doc navigation (CLI `error_kind: type_error`; #1883) |
+| Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks; `EditErrorKind::TypeError` for multi-doc / wrong-root doc navigation (CLI `error_kind: type_error`; #1883); `EditErrorKind::AlreadyExists` for create/rename dest-exists (#1947); `EditErrorKind::NotFound` / `Conflicts` / `ChangesDetected` for peels that previously collapsed to `OperationFailed` |
+| CLI-stable error kind strings | `api::error_kind_str(&err)` returns the same strings as CLI JSON (`already_exists`, `not_found`, `guard_rejected`, …) without scraping Display (#1948); `api::is_already_exists` for force/overwrite branches |
 | Path binary preflight | `api::is_binary_file` / `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884 / #1910); writers still enforce binary on apply |
 | Text I/O honesty | Sole path: `api::load_text` / `files::load_text_strict` (binary / invalid UTF-8 → `InvalidInput`; #1894 / #1910); walks: `try_read_text_file` / `SoftTextSkip` / `read_text_file`; tx probe `read_and_probe` (content soft, IO hard); sole helper `ops::file::sole_explicit_non_text`; multi-path `explicit_multi_path_non_text_refused`; patch file+targets Strict (#1896) |
 | Multi-doc library merge | `api::doc_merge(path, value, mode, guard, selector)` with `Some("0")` / `Some("[0]")` for document 0; root object overlay on multi-doc is `TypeError` (#1909) |
