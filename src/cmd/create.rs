@@ -75,7 +75,10 @@ pub fn run(mut args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Catch exists before the engine so --json gets error_kind (apply and
     // preview). --force continues into FileCreate overwrite.
     if !args.force && path.exists() {
-        let msg = format!("file already exists: {}", args.file);
+        let msg = format!(
+            "file already exists: {} (use --force to overwrite)",
+            args.file
+        );
         global.emit_error_json_kind(Some("already_exists"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }

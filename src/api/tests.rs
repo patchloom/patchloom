@@ -6176,6 +6176,10 @@ fn file_create_already_exists_is_already_exists() {
         err.to_string().contains("already exists"),
         "message should stay useful: {err}"
     );
+    assert!(
+        err.to_string().contains("force"),
+        "create dest-exists should hint force: {err}"
+    );
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -6219,6 +6223,24 @@ fn file_delete_missing_is_not_found() {
         crate::fallback::error_kind_str(&err),
         Some("not_found"),
         "CLI-stable not_found (#1948 sibling): {err}"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_append_missing_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("gone.txt");
+    let err = file_append(&missing, "x\n", ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "missing append must peel as NotFound: {err}"
+    );
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("not_found"),
+        "CLI-stable not_found for append: {err}"
     );
 }
 

@@ -178,7 +178,10 @@ fn safe_canonicalize_existing_dir() {
 #[test]
 fn safe_canonicalize_nonexistent_returns_error() {
     let result = safe_canonicalize(Path::new("/nonexistent/patchloom_dunce_xyz"));
-    assert!(result.is_err());
+    assert!(
+        result.is_err(),
+        "missing path must error, got Ok: {result:?}"
+    );
 }
 
 #[test]
