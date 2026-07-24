@@ -462,6 +462,29 @@ fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> 
     Ok(())
 }
 
+/// CLI-only replace flags agents paste into batch. Batch uses positionals
+/// `PATH OLD NEW`, not `replace OLD --new NEW path`.
+fn batch_replace_cli_flag_confusion(tok: &str) -> Option<&str> {
+    let bare = tok.split_once('=').map(|(k, _)| k).unwrap_or(tok);
+    match bare {
+        // CLI: `replace OLD --new NEW path`
+        "--new" => Some("--new"),
+        // Invented / plan-shaped flags LLMs try on the batch line
+        "--old" | "--from" | "--to" => Some(bare),
+        _ => None,
+    }
+}
+
+fn batch_replace_cli_shape_hint(line_num: usize, flag: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::ParseErrorError {
+        msg: format!(
+            "line {line_num}: batch replace does not accept CLI flag '{flag}'. \
+             Batch is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). \
+             Example: replace README.md \"old text\" \"new text\""
+        ),
+    })
+}
+
 /// Parse batch `replace path old new [--flags…]` (#1724).
 ///
 /// First three non-flag tokens are path/old/new. Remaining tokens are optional
@@ -491,6 +514,11 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
 
     while i < args.len() {
         let tok = args[i].as_str();
+        // Reject CLI/plan flag shapes before they are absorbed as positionals
+        // (`replace hello --new hi f.txt` → old="--new") or as "unknown flag".
+        if let Some(flag) = batch_replace_cli_flag_confusion(tok) {
+            return Err(batch_replace_cli_shape_hint(line_num, flag));
+        }
         // Known flags only. Unknown dash-leading tokens remain positionals so
         // `replace f.md "- old" "- new"` still works (review #1724).
         let is_flag = matches!(
@@ -587,8 +615,9 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
         } else {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: format!(
-                    "line {line_num}: unexpected argument '{}' after replace path/old/new \
-                     (use flags like --fuzzy, or `tx` for full replace options)",
+                    "line {line_num}: unexpected argument '{}' after replace PATH OLD NEW. \
+                     Batch is `replace path old new` (not CLI `replace OLD --new NEW path`). \
+                     Use flags like --fuzzy, or `tx` for full replace options",
                     args[i]
                 ),
             }));

@@ -243,6 +243,40 @@ mod basic {
     }
 
     #[test]
+    fn parse_line_replace_cli_new_flag_hints_path_old_new() {
+        // Agents paste CLI `replace OLD --new NEW path` into batch.
+        let err = parse_line(r#"replace hello --new hi README.md"#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--new")
+                && msg.contains("PATH OLD NEW")
+                && msg.contains("replace OLD --new NEW path"),
+            "expected --new CLI-shape hint, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_line_replace_cli_new_flag_after_path_still_hints() {
+        // `replace path old --new new` (CLI flag mid-line).
+        let err = parse_line(r#"replace README.md hello --new hi"#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--new") && msg.contains("PATH OLD NEW"),
+            "expected --new hint after path, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_line_replace_cli_from_to_flags_hint() {
+        let err = parse_line(r#"replace f.txt --from a --to b"#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--from") && msg.contains("PATH OLD NEW"),
+            "expected plan-flag hint, got: {msg}"
+        );
+    }
+
+    #[test]
     fn parse_line_replace_dash_prefixed_values_are_positionals() {
         // Bullet renames and flag-like strings must not be misread as flags.
         let op = parse_line(r#"replace f.md "- old bullet" "- new bullet" --fuzzy"#, 1).unwrap();
