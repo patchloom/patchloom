@@ -189,6 +189,13 @@ struct TidyCheckOutput {
     ok: bool,
     issue_count: usize,
     issues: Vec<TidyIssue>,
+    /// When issues exist: `changes_detected` so agents can branch without
+    /// scraping `issue_count` (parity with search `--assert-count` JSON).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<&'static str>,
+    /// Set with [`Self::status`] when `ok` is false due to tidy issues.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
     /// Paths from `--files-from` that were missing (agent honesty).
     #[serde(skip_serializing_if = "Option::is_none")]
     skipped: Option<Vec<String>>,
@@ -209,10 +216,13 @@ pub(super) fn render_issues(
     refused: Option<Vec<crate::ops::file::PathRefused>>,
 ) -> anyhow::Result<()> {
     if global.json {
+        let dirty = !issues.is_empty();
         let output = TidyCheckOutput {
-            ok: issues.is_empty(),
+            ok: !dirty,
             issue_count: issues.len(),
             issues: issues.to_vec(),
+            status: dirty.then_some("changes_detected"),
+            error_kind: dirty.then_some("changes_detected"),
             skipped,
             refused,
         };

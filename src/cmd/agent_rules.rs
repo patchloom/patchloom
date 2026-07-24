@@ -200,7 +200,9 @@ Do not put `for_each` inside `operations` and do not pass a bare path array.\n\
              **Diagnostic envelopes:** `md lint-agents --json` and MCP `md_lint` emit a single object \
              `{ok, path, issue_count, issues}` (not a bare array). `tidy check --json` is the multi-file \
              sibling: `{ok, issue_count, issues}` with `path` on each issue (optional `skipped[]`), not a \
-             top-level path. Branch on `ok` / `issue_count`. MCP `md_lint` keeps isError=false when issues \
+             top-level path. When issues exist: `ok: false`, exit 2, and `error_kind`/`status` \
+             `changes_detected` (same kind as search `--assert-count` mismatch). Branch on `error_kind` \
+             or `issue_count`. MCP `md_lint` keeps isError=false when issues \
              are present (same as clean file success with `ok: true`). CLI JSONL stays one issue object per \
              line. (#1854, #1859)\n\n",
         );

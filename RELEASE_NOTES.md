@@ -36,6 +36,9 @@ doubling the OS detail when context already embeds it.
 
 ## Bug fixes
 
+- **`tidy check --json` sets `error_kind: changes_detected` when issues exist.**
+  Agents can branch like search `--assert-count` (exit 2 unchanged). (#1940)
+
 - **Windows PathGuard UNC.** dunce canonicalize / simplified paths keep
   contain and backup relative paths valid under `\\?\`. (#1931, #1932)
 - **Agent JSON no double OS detail.** When outer context already embeds
