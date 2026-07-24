@@ -1,10 +1,19 @@
 name: Links
 
+# Policy:
+# - PRs: link issues are warnings only (do not block merge). External hosts
+#   (glama.ai, intermittent GitHub 5xx) flake and blocked cleanup PRs that only
+#   touch RELEASE_NOTES.md or other small edits.
+# - main push + weekly schedule: still fail hard so broken links get attention.
+# - RELEASE_NOTES.md is excluded from path filters: it is a short-lived release
+#   override, not durable docs. Cleanup PRs that only delete it skip the scan.
+
 on:
   push:
     branches: [main]
     paths:
       - "**/*.md"
+      - "!RELEASE_NOTES.md"
       - "lychee.toml"
       - ".github/workflows/links.yml"
   pull_request:
@@ -35,6 +44,7 @@ jobs:
           filters: |
             docs:
               - '**/*.md'
+              - '!RELEASE_NOTES.md'
               - 'lychee.toml'
               - '.github/workflows/links.yml'
 
@@ -55,8 +65,9 @@ jobs:
       - name: Check links
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
-          args: --no-progress --config lychee.toml '**/*.md'
-          fail: true
+          args: --no-progress --config lychee.toml '**/*.md' '!RELEASE_NOTES.md'
+          # PRs: report only (required "Check Links" stays green). Main/schedule: fail.
+          fail: ${{ github.event_name != 'pull_request' }}
 
   check-links:
     # Lightweight gate satisfying the "Check Links" required status check.
@@ -68,9 +79,23 @@ jobs:
     steps:
       - name: Gate
         run: |
+          set -euo pipefail
+          echo "links-run result: $RESULT (event=$EVENT)"
+          # Skipped = no durable docs changed (e.g. RELEASE_NOTES-only cleanup).
+          if [ "$RESULT" = "skipped" ] || [ "$RESULT" = "success" ]; then
+            echo "Check Links: OK ($RESULT)"
+            exit 0
+          fi
+          # PRs: never block merge on link flakes (warnings only).
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "::warning::Link check $RESULT on PR (non-blocking). Fix broken links before they hit main."
+            exit 0
+          fi
           if [ "$RESULT" = "failure" ] || [ "$RESULT" = "cancelled" ]; then
             echo "Link check failed or was cancelled"
             exit 1
           fi
+          echo "Check Links: OK (result=$RESULT)"
         env:
           RESULT: ${{ needs.links-run.result }}
+          EVENT: ${{ github.event_name }}
