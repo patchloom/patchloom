@@ -249,7 +249,10 @@ success lines are the full path list.\n\n\
              `insert_before` / `insert_after`) are line-oriented by default: payloads that look like a \
              new line (indent, `//`/`#` comment, embedded newline) or a whole-line anchor get a separating \
              newline so agents do not glue text onto the match. Pure mid-line inserts (e.g. `X` after \
-             `foo` inside a line) stay byte-exact.\n\n",
+             `foo` inside a line) stay byte-exact.\n\
+             Example (anchor is positional OLD; insert text is on the flag; path last; never \
+             `replace ANCHOR NEW path`):\n\
+             `patchloom replace 'use std::io;' --insert-after 'use std::fs;' src/main.rs --apply`\n\n",
         );
         if !show_mcp {
             out.push_str(
@@ -299,6 +302,8 @@ success lines are the full path list.\n\n\
          | AST refs / impact | symbol first | `ast refs SYMBOL PATH` / `ast impact SYMBOL PATH` (no `--name` flag; #1841). |\n\
          | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |\n\n\
          Replace example: `patchloom replace OLD --new NEW path` (positional OLD + `--new`; never `replace --old …`).\n\
+         Insert example: `patchloom replace ANCHOR --insert-after 'new line' path` (or `--insert-before`; \
+         insert text is never a second positional).\n\
          Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector, \
          `ops` for the plan `operations` array) so older agent prompts keep working, but examples and new plans \
          must use the canonical names above.\n\n",
@@ -441,6 +446,17 @@ success lines are the full path list.\n\n\
              Default: `replace --fuzzy` with a misspelled `old` that is **not** in the file \
              refuses the write (#1758). Opt in only with `--allow-absent-old` for deliberate \
              approximate recovery, then check `matched_text` (#1736).\n\n",
+        );
+
+        out.push_str(
+            "### Insert a line after an anchor\n\n\
+             ```bash\n\
+             # OLD is the preserved anchor; payload goes on --insert-after (not positional NEW)\n\
+             patchloom replace 'use std::io;' --insert-after 'use std::fs;' src/main.rs --apply\n\
+             # Same idea before a match:\n\
+             patchloom replace 'fn main() {' --insert-before '// entry point' src/main.rs --apply\n\
+             ```\n\n\
+             Whole-line anchors and line-like payloads get a separating newline by default (#1885).\n\n",
         );
 
         out.push_str(
@@ -1187,6 +1203,17 @@ mod tests {
         assert!(
             out.contains("Insert line placement"),
             "agents need line-oriented insert default (#1885)"
+        );
+        // Copy-paste shape: anchor + flag + path (not positional NEW / wrong order).
+        assert!(
+            out.contains(
+                "patchloom replace 'use std::io;' --insert-after 'use std::fs;' src/main.rs --apply"
+            ),
+            "agents need a full CLI insert-after recipe, not prose-only flags"
+        );
+        assert!(
+            out.contains("Insert a line after an anchor"),
+            "workflow examples must include insert-after"
         );
     }
 

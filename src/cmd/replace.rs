@@ -17,7 +17,9 @@ use serde::Serialize;
 EXAMPLES:
   patchloom replace 'old_name' --new 'new_name' src/
   patchloom replace 'http://' --new 'https://' src/ --apply
-  patchloom replace 'v1\\.0' --new 'v2.0' --regex README.md")]
+  patchloom replace 'v1\\.0' --new 'v2.0' --regex README.md
+  patchloom replace 'use std::io;' --insert-after 'use std::fs;' src/main.rs --apply
+  patchloom replace 'fn main() {' --insert-before '// entry' src/main.rs --apply")]
 pub struct ReplaceArgs {
     /// Pattern to find.
     pub old: String,

@@ -118,6 +118,8 @@ Use patchloom when:
 **CLI undo (dry-run by default):** `patchloom undo` only previews the most recent backup and exits 2 with `applied: false` and `status: changes_detected`. Restore with `patchloom undo --apply` (optional `--session <timestamp>`), which sets `applied: true` and `status: restored` (#1830). List sessions with `patchloom undo --list`. There is no `--latest` flag.
 **Replace mode flags (#1829):** CLI replacement text is `--new` (not positional NEW and not `--to`). Missing mode errors name `--new` / `--insert-before` / `--insert-after` first; plan/MCP still accept field aliases `new`/`to`.
 **Insert line placement (#1885):** `--insert-before` / `--insert-after` (and plan/MCP `insert_before` / `insert_after`) are line-oriented by default: payloads that look like a new line (indent, `//`/`#` comment, embedded newline) or a whole-line anchor get a separating newline so agents do not glue text onto the match. Pure mid-line inserts (e.g. `X` after `foo` inside a line) stay byte-exact.
+Example (anchor is positional OLD; insert text is on the flag; path last; never `replace ANCHOR NEW path`):
+`patchloom replace 'use std::io;' --insert-after 'use std::fs;' src/main.rs --apply`
 
 ## MCP mode
 
@@ -159,6 +161,7 @@ Use these names in plans, MCP args, and CLI flags (do not invent alternates):
 | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |
 
 Replace example: `patchloom replace OLD --new NEW path` (positional OLD + `--new`; never `replace --old …`).
+Insert example: `patchloom replace ANCHOR --insert-after 'new line' path` (or `--insert-before`; insert text is never a second positional).
 Some plan/MCP fields still **accept** legacy aliases (`from`/`to` for replace, `key` for doc selector, `ops` for the plan `operations` array) so older agent prompts keep working, but examples and new plans must use the canonical names above.
 
 ## Batching (the main speed win)
@@ -253,6 +256,17 @@ patchloom replace "old_function_name" --new "new_function_name" src/ --apply
 ```
 
 Default: `replace --fuzzy` with a misspelled `old` that is **not** in the file refuses the write (#1758). Opt in only with `--allow-absent-old` for deliberate approximate recovery, then check `matched_text` (#1736).
+
+### Insert a line after an anchor
+
+```bash
+# OLD is the preserved anchor; payload goes on --insert-after (not positional NEW)
+patchloom replace 'use std::io;' --insert-after 'use std::fs;' src/main.rs --apply
+# Same idea before a match:
+patchloom replace 'fn main() {' --insert-before '// entry point' src/main.rs --apply
+```
+
+Whole-line anchors and line-like payloads get a separating newline by default (#1885).
 
 ### Delete lines matching a pattern
 
