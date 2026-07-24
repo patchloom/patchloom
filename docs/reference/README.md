@@ -529,6 +529,7 @@ These are meaningful command-specific modes that change how a top-level command 
 
 - **What it does:** Inserts text before each match instead of replacing it. The matched text is preserved.
 - **Use when:** You need to add a line or annotation above an existing anchor without repeating the anchor in the replacement text.
+- **Example:** `patchloom replace 'fn main() {' --insert-before '// entry' src/main.rs --apply`
 - **Prefer instead:** Use `--new` when the matched text should actually change, not just receive a prefix.
 
 <!-- ref:replace-mode:insert-after -->
@@ -536,6 +537,7 @@ These are meaningful command-specific modes that change how a top-level command 
 
 - **What it does:** Inserts text after each match instead of replacing it. The matched text is preserved.
 - **Use when:** You need to append content after an existing anchor, such as adding a comment or tag after a specific line.
+- **Example:** `patchloom replace 'use std::io;' --insert-after 'use std::fs;' src/main.rs --apply` (anchor is positional OLD; insert text is on the flag; path last; never a second positional NEW).
 - **Prefer instead:** Use `--new` when the matched text should actually change, not just receive a suffix.
 
 <!-- ref:replace-mode:multiline -->

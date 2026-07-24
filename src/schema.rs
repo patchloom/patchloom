@@ -191,6 +191,10 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
                 r###"{"op":"replace","path":"src/main.rs","old":"old_name","new":"new_name"}"###,
             ),
             (
+                "Insert a line after an anchor",
+                r###"{"op":"replace","path":"src/main.rs","old":"use std::io;","insert_after":"use std::fs;"}"###,
+            ),
+            (
                 "Rewrite shell command tokens only",
                 r###"{"op":"replace","path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}"###,
             ),
