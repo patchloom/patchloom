@@ -315,6 +315,34 @@ fn test_batch_malformed_line_fails() {
         .stderr(predicates::str::contains("unknown operation"));
 }
 
+/// CLI path: agents paste `replace OLD --new NEW path` into batch (fixrealloop/MPI).
+#[test]
+fn test_batch_replace_cli_new_flag_hints_path_old_new() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("README.md"), "hello\n").unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "batch", "-"])
+        .write_stdin("replace hello --new hi README.md\n")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(4)); // PARSE_ERROR
+    let v: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("parse_error JSON on stdout");
+    assert_eq!(v["error_kind"], "parse_error");
+    assert_eq!(v["applied"], false);
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("--new") && err.contains("PATH OLD NEW"),
+        "expected CLI --new shape hint: {v}"
+    );
+    // Must not have mutated the file
+    assert_eq!(
+        fs::read_to_string(dir.path().join("README.md")).unwrap(),
+        "hello\n"
+    );
+}
+
 /// CLI path for agent-facing batch parse hints (#1483): bare leaf → namespaced op.
 #[test]
 fn test_batch_bare_create_suggests_file_create() {
