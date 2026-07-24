@@ -427,6 +427,28 @@ pub fn validate_edit_nth(
     }
 }
 
+/// Minimum Jaro-Winkler score for a did-you-mean candidate.
+///
+/// Kept in line with anchor matching (0.85). The previous 0.7 floor
+/// admitted noise like `nold` for long unrelated patterns when scanning
+/// large trees (fixrealloop stress, 2026-07-23).
+const SIMILAR_TARGET_MIN_SCORE: f64 = 0.85;
+
+/// Whether `candidate` is a plausible typo of `target` by length.
+///
+/// Jaro-Winkler can score short tokens above the floor against long
+/// strings (shared characters / prefixes). Reject extreme length skew
+/// so agents do not chase nonsense suggestions.
+fn similar_target_length_plausible(candidate: &str, target: &str) -> bool {
+    let (ca, ta) = (candidate.len(), target.len());
+    if ca == 0 || ta == 0 {
+        return false;
+    }
+    let (shorter, longer) = if ca < ta { (ca, ta) } else { (ta, ca) };
+    // Allow ~2x length difference, or a small absolute gap for short ids.
+    shorter.saturating_mul(2) >= longer || longer - shorter <= 3
+}
+
 /// Find similar text targets in file content using Jaro-Winkler similarity.
 ///
 /// Extracts identifiers and substrings from the content and returns the top
@@ -445,8 +467,11 @@ pub fn find_similar_targets(content: &str, target: &str, max_results: usize) -> 
             if !seen.insert(word.clone()) {
                 continue;
             }
+            if word == target || !similar_target_length_plausible(&word, target) {
+                continue;
+            }
             let score = strsim::jaro_winkler(&word, target);
-            if score > 0.7 && word != target {
+            if score > SIMILAR_TARGET_MIN_SCORE {
                 candidates.push((word, score));
             }
         }
@@ -460,8 +485,11 @@ pub fn find_similar_targets(content: &str, target: &str, max_results: usize) -> 
                 continue;
             }
             seen.insert(trimmed.clone());
+            if trimmed == target || !similar_target_length_plausible(&trimmed, target) {
+                continue;
+            }
             let score = strsim::jaro_winkler(&trimmed, target);
-            if score > 0.7 && trimmed != target {
+            if score > SIMILAR_TARGET_MIN_SCORE {
                 candidates.push((trimmed, score));
             }
         }
@@ -1117,6 +1145,25 @@ mod tests {
         let similar = find_similar_targets(content, "process_requst", 3);
         assert!(!similar.is_empty());
         assert!(similar.iter().any(|s| s.contains("process_request")));
+    }
+
+    #[test]
+    fn find_similar_targets_rejects_length_skew_noise() {
+        // Real multi-file no-match noise (fixrealloop stress): long invented
+        // pattern vs short tokens like "nold" can clear a loose JW floor.
+        let content = "fn nold() {}\nlet compute = 1;\nfn process_request() {}\n";
+        let similar = find_similar_targets(content, "this_string_should_not_exist_xyzzy", 5);
+        assert!(
+            similar.is_empty(),
+            "unrelated long pattern must not suggest short tokens: {similar:?}"
+        );
+        let similar = find_similar_targets(content, "completely_bogus_token_zzz", 5);
+        assert!(
+            !similar
+                .iter()
+                .any(|s| s == "compute" || s == "let" || s == "nold"),
+            "bogus pattern must not surface weak short-token hints: {similar:?}"
+        );
     }
 
     #[test]
