@@ -11,6 +11,22 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.18.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.17.0...patchloom-v0.18.0) (2026-07-24)
+
+
+### Features
+
+* find_backup_roots and structured GuardRejected for file ops ([#1938](https://github.com/patchloom/patchloom/issues/1938)) ([c1ee516](https://github.com/patchloom/patchloom/commit/c1ee5169963164db08d8aee86cc611fac1185f44))
+
+
+### Bug Fixes
+
+* batch replace --new flag gets PATH OLD NEW hint ([#1942](https://github.com/patchloom/patchloom/issues/1942)) ([757879f](https://github.com/patchloom/patchloom/commit/757879fdde7af5127e3d4dcc6a907f3b41ba32e7))
+* raise did-you-mean bar for similar_targets noise ([#1941](https://github.com/patchloom/patchloom/issues/1941)) ([01a2387](https://github.com/patchloom/patchloom/commit/01a238783298527536e34d3067c8f7505f2f512d))
+* stop doubling OS detail in agent error JSON ([#1929](https://github.com/patchloom/patchloom/issues/1929)) ([35b9a29](https://github.com/patchloom/patchloom/commit/35b9a29ff84245795ed1aa74973271000b889b8a))
+* tidy check JSON error_kind changes_detected ([#1940](https://github.com/patchloom/patchloom/issues/1940)) ([1d7e185](https://github.com/patchloom/patchloom/commit/1d7e1856d4b68114289de4f98031d51c77f6a9bd))
+* use dunce::canonicalize for PathGuard (Windows UNC) ([#1932](https://github.com/patchloom/patchloom/issues/1932)) ([14bfa87](https://github.com/patchloom/patchloom/commit/14bfa87992ced00655d6f55f1def8075dc5532e6)), closes [#1931](https://github.com/patchloom/patchloom/issues/1931)
+
 ## [0.17.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.16.0...patchloom-v0.17.0) (2026-07-23)
 
 
