@@ -93,6 +93,11 @@ impl std::error::Error for EditError {}
 ///
 /// Marked `non_exhaustive` so new honesty kinds (for example [`Self::TypeError`])
 /// can land in minor releases without breaking external exhaustive matches.
+///
+/// **Append-only variants:** new kinds must be added **after** the last existing
+/// variant. Inserting in the middle shifts discriminants of later variants and
+/// fails `cargo-semver-checks` (`enum_no_repr_variant_discriminant_changed`),
+/// which blocks patch releases (see #1950 order fix for #1951).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[non_exhaustive]
 #[serde(rename_all = "snake_case")]
@@ -116,10 +121,17 @@ pub enum EditErrorKind {
     /// "type_error"`. Distinct from [`Self::InvalidInput`] so hosts can
     /// recover with `0.key` / `[0].key` without scraping English (#1883).
     TypeError,
+    /// I/O or other operational failure.
+    OperationFailed,
+    /// Post-write format/lint hook failed (`format_failed` / #1663).
+    /// Distinct from generic [`Self::OperationFailed`] so hosts can branch
+    /// without scraping English.
+    FormatFailed,
     /// Create/rename destination already exists without force.
     /// CLI JSON uses `error_kind: "already_exists"`. Distinct from
     /// [`Self::InvalidInput`] (binary, empty path, directory target) so hosts
     /// can hint `overwrite`/`force` without scraping English (#1947).
+    /// Appended after [`Self::FormatFailed`] so 0.18.0 discriminants stay stable.
     AlreadyExists,
     /// Path not found (`std::io::ErrorKind::NotFound`). CLI JSON uses
     /// `error_kind: "not_found"`. Distinct from generic [`Self::OperationFailed`]
@@ -134,12 +146,6 @@ pub enum EditErrorKind {
     /// [`Self::OperationFailed`] so hosts can mirror CLI exit-2 semantics
     /// without scraping English.
     ChangesDetected,
-    /// I/O or other operational failure.
-    OperationFailed,
-    /// Post-write format/lint hook failed (`format_failed` / #1663).
-    /// Distinct from generic [`Self::OperationFailed`] so hosts can branch
-    /// without scraping English.
-    FormatFailed,
 }
 
 impl std::fmt::Display for EditErrorKind {
@@ -153,12 +159,12 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::GuardRejected => write!(f, "guard_rejected"),
             EditErrorKind::InvalidInput => write!(f, "invalid_input"),
             EditErrorKind::TypeError => write!(f, "type_error"),
+            EditErrorKind::OperationFailed => write!(f, "operation_failed"),
+            EditErrorKind::FormatFailed => write!(f, "format_failed"),
             EditErrorKind::AlreadyExists => write!(f, "already_exists"),
             EditErrorKind::NotFound => write!(f, "not_found"),
             EditErrorKind::Conflicts => write!(f, "conflicts"),
             EditErrorKind::ChangesDetected => write!(f, "changes_detected"),
-            EditErrorKind::OperationFailed => write!(f, "operation_failed"),
-            EditErrorKind::FormatFailed => write!(f, "format_failed"),
         }
     }
 }
@@ -1036,6 +1042,27 @@ mod tests {
             "changes_detected"
         );
         assert_eq!(EditErrorKind::FormatFailed.to_string(), "format_failed");
+    }
+
+    /// Locks discriminants published in 0.18.0 so new kinds stay append-only
+    /// (`enum_no_repr_variant_discriminant_changed` / release PR #1951).
+    #[test]
+    fn edit_error_kind_stable_discriminants_since_0_18_0() {
+        assert_eq!(EditErrorKind::AmbiguousTarget as u8, 0);
+        assert_eq!(EditErrorKind::NoMatch as u8, 1);
+        assert_eq!(EditErrorKind::SyntaxInvalid as u8, 2);
+        assert_eq!(EditErrorKind::ConflictingEdit as u8, 3);
+        assert_eq!(EditErrorKind::ParseError as u8, 4);
+        assert_eq!(EditErrorKind::GuardRejected as u8, 5);
+        assert_eq!(EditErrorKind::InvalidInput as u8, 6);
+        assert_eq!(EditErrorKind::TypeError as u8, 7);
+        assert_eq!(EditErrorKind::OperationFailed as u8, 8);
+        assert_eq!(EditErrorKind::FormatFailed as u8, 9);
+        // #1947/#1950 kinds must follow FormatFailed (never insert above).
+        assert_eq!(EditErrorKind::AlreadyExists as u8, 10);
+        assert_eq!(EditErrorKind::NotFound as u8, 11);
+        assert_eq!(EditErrorKind::Conflicts as u8, 12);
+        assert_eq!(EditErrorKind::ChangesDetected as u8, 13);
     }
 
     #[test]
