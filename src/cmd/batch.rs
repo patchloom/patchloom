@@ -22,7 +22,9 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// doc.update <path> <selector> <value>
 /// doc.move <path> <from> <to>
 /// doc.delete_where <path> <selector> <predicate>
-/// replace <path> <from> <to> [--fuzzy] [--min-fuzzy-score N] [-i] …
+/// replace <path> <old> <new> [--fuzzy] [--min-fuzzy-score N] [-i] …
+///   Batch is PATH OLD NEW positionals (not CLI `replace OLD --new NEW path`).
+///   CLI/plan flags `--new`, `--old`, `--from`, `--to` are rejected with a shape hint.
 ///   Optional flags (phase 1, #1724): --fuzzy, --min-fuzzy-score, --word-boundary/-w,
 ///   --command-position, --require-change, -i/--case-insensitive, --if-exists
 /// file.create <path> <content>
@@ -58,6 +60,11 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   md.insert_after_section, md.insert_before_heading (alias md.insert_before_section),
   md.move_section, md.dedupe_headings,
   md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature
+
+REPLACE SHAPE:
+  Batch:  replace PATH OLD NEW [--fuzzy …]
+  CLI:    patchloom replace OLD --new NEW path
+  Do not paste CLI --new into a batch line (parse error with PATH OLD NEW hint).
 
 EXAMPLES:
   printf 'doc.set config.json version "2.0"\nreplace README.md v1 v2\n' | patchloom batch
