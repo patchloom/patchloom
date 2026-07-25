@@ -318,6 +318,31 @@ pub fn is_already_exists(err: &anyhow::Error) -> bool {
     edit_error_kind(err) == Some(EditErrorKind::AlreadyExists)
 }
 
+/// Whether the error peels as missing path I/O ([`EditErrorKind::NotFound`]).
+///
+/// Matches IO `NotFound` (including through `anyhow::Context`) and
+/// [`EditError`] with [`EditErrorKind::NotFound`]. Prefer this over scraping
+/// Display for host recovery when a path is simply absent.
+#[must_use]
+pub fn is_not_found(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::NotFound)
+}
+
+/// Whether the error peels as patch/apply merge conflict markers
+/// ([`EditErrorKind::Conflicts`]). Distinct from batch
+/// [`EditErrorKind::ConflictingEdit`].
+#[must_use]
+pub fn is_conflicts(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::Conflicts)
+}
+
+/// Whether the error peels as check/preview pending changes or soft
+/// assert-count mismatch ([`EditErrorKind::ChangesDetected`], CLI exit 2).
+#[must_use]
+pub fn is_changes_detected(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::ChangesDetected)
+}
+
 /// Downcast a bare `dyn Error` chain to [`EditError`] when present (#1659).
 ///
 /// Prefer this when you need `similar_targets` / `suggestion` without
@@ -1196,6 +1221,11 @@ mod tests {
             "IO NotFound must peel as NotFound not OperationFailed"
         );
         assert_eq!(error_kind_str(&not_found), Some("not_found"));
+        assert!(
+            is_not_found(&not_found),
+            "is_not_found must match IO NotFound peel"
+        );
+        assert!(!is_already_exists(&not_found));
 
         let conflicts: anyhow::Error = crate::exit::ConflictsError {
             msg: "merge conflict".into(),
@@ -1203,6 +1233,8 @@ mod tests {
         .into();
         assert_eq!(edit_error_kind(&conflicts), Some(EditErrorKind::Conflicts));
         assert_eq!(error_kind_str(&conflicts), Some("conflicts"));
+        assert!(is_conflicts(&conflicts));
+        assert!(!is_not_found(&conflicts));
 
         let changes: anyhow::Error = crate::exit::ChangesDetectedError {
             msg: "would change".into(),
@@ -1213,6 +1245,8 @@ mod tests {
             Some(EditErrorKind::ChangesDetected)
         );
         assert_eq!(error_kind_str(&changes), Some("changes_detected"));
+        assert!(is_changes_detected(&changes));
+        assert!(!is_conflicts(&changes));
 
         // Intermediate .context() must not hide the typed kind.
         let wrapped = invalid.context("operation 1 (replace) failed");

@@ -158,7 +158,8 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
                | Patch merge conflict markers | `Conflicts` / `conflicts` (not batch `ConflictingEdit`) |\n\
                | Check/assert-count exit-2 soft fail | `ChangesDetected` / `changes_detected` |\n\
                | AST missing symbol | `NoMatch` / `no_matches` |\n\
-             - Bool peel: `api::is_already_exists` for force/overwrite recovery; string peel: \
+             - Bool peels (match `edit_error_kind`): `api::is_already_exists` (force/overwrite), \
+               `api::is_not_found`, `api::is_conflicts`, `api::is_changes_detected`; string peel: \
                `api::error_kind_str` for CLI-stable envelopes (#1947 / #1948).\n\
              - New `EditErrorKind` variants must be **appended** (after the last variant) so \
                discriminants of published kinds stay stable under cargo-semver-checks (#1955).\n\
@@ -1201,6 +1202,12 @@ mod tests {
         assert!(
             out.contains("is_already_exists") && out.contains("error_kind_str"),
             "library hosts need api::is_already_exists and error_kind_str (#1948)"
+        );
+        assert!(
+            out.contains("is_not_found")
+                && out.contains("is_conflicts")
+                && out.contains("is_changes_detected"),
+            "library hosts need sibling bool peels for NotFound/Conflicts/ChangesDetected"
         );
         assert!(
             !out.contains("exists/dir/binary → `InvalidInput`")

@@ -135,10 +135,21 @@ embedder-smoke: build ## Pre-release host contracts (fuzzy token span, nested un
 	bash scripts/embedder-smoke.sh target/debug/patchloom
 
 windows-smoke: build ## Windows/PowerShell dogfood (create/replace/doc/tx/paths). Requires pwsh + Windows-style binary.
+	@# Prefer .exe on Windows; omit -Bin so the script auto-picks debug/release + .exe.
 	@if command -v pwsh >/dev/null 2>&1; then \
-		pwsh -NoProfile -File scripts/windows-smoke.ps1 -Bin target/debug/patchloom; \
+		if [ -f target/debug/patchloom.exe ]; then \
+			pwsh -NoProfile -File scripts/windows-smoke.ps1 -Bin target/debug/patchloom.exe; \
+		elif [ -f target/debug/patchloom ]; then \
+			pwsh -NoProfile -File scripts/windows-smoke.ps1 -Bin target/debug/patchloom; \
+		else \
+			pwsh -NoProfile -File scripts/windows-smoke.ps1; \
+		fi; \
 	elif command -v powershell >/dev/null 2>&1; then \
-		powershell -NoProfile -File scripts/windows-smoke.ps1 -Bin target/debug/patchloom; \
+		if [ -f target/debug/patchloom.exe ]; then \
+			powershell -NoProfile -File scripts/windows-smoke.ps1 -Bin target/debug/patchloom.exe; \
+		else \
+			powershell -NoProfile -File scripts/windows-smoke.ps1; \
+		fi; \
 	else \
 		echo "windows-smoke: pwsh/powershell not found (run on Windows or install PowerShell)"; exit 1; \
 	fi

@@ -192,9 +192,9 @@
 //! | Map empty pattern / sole binary to `invalid_args` | [`EditErrorKind::InvalidInput`] |
 //! | Map create/rename dest-exists to force/overwrite recovery | [`EditErrorKind::AlreadyExists`] / [`api::is_already_exists`] |
 //! | CLI-stable kind string for host JSON envelopes | [`api::error_kind_str`] (`already_exists`, `not_found`, …) |
-//! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] |
-//! | Map patch merge conflict markers | [`EditErrorKind::Conflicts`] (distinct from batch [`EditErrorKind::ConflictingEdit`]) |
-//! | Map check/assert-count exit-2 soft failures | [`EditErrorKind::ChangesDetected`] |
+//! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] / [`api::is_not_found`] |
+//! | Map patch merge conflict markers | [`EditErrorKind::Conflicts`] / [`api::is_conflicts`] (distinct from batch [`EditErrorKind::ConflictingEdit`]) |
+//! | Map check/assert-count exit-2 soft failures | [`EditErrorKind::ChangesDetected`] / [`api::is_changes_detected`] |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
 //!
@@ -297,8 +297,9 @@ pub use api::{
     ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
     apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
     classify_error, classify_error_ref, edit_error_kind, edit_error_ref, error_kind_str,
-    format_search_results, is_already_exists, is_binary_file, load_text, load_text_strict,
-    merge_match_modes, parse_unified_diff, run_post_write_validation, search_file, text_diff,
+    format_search_results, is_already_exists, is_binary_file, is_changes_detected, is_conflicts,
+    is_not_found, load_text, load_text_strict, merge_match_modes, parse_unified_diff,
+    run_post_write_validation, search_file, text_diff,
 };
 pub use plan::Plan;
 
