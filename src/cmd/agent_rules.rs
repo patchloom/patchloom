@@ -147,7 +147,21 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)\n\
              - `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)\n\
              - `backup::find_backup_roots(path)` — walk path and parents for roots that own `.patchloom/backups` (nearest first; #1934)\n\
-             - File create/delete/rename/append and `ast_rewrite_signature` peel via `edit_error_kind`: exists/dir/binary → `InvalidInput`, missing symbol → `NoMatch`, PathGuard → `GuardRejected` (#1935 / #1936)\n\
+             - File create/delete/rename/append and `ast_rewrite_signature` peel via `edit_error_kind` \
+               / `error_kind_str` (#1935 / #1936 / #1947 / #1948):\n\
+               | Condition | `EditErrorKind` / CLI string |\n\
+               |-----------|-----------------------------|\n\
+               | Create/rename dest exists without force | `AlreadyExists` / `already_exists` (not `InvalidInput`; use force/overwrite) |\n\
+               | Missing path I/O | `NotFound` / `not_found` |\n\
+               | Directory target / binary / empty path | `InvalidInput` / `invalid_input` |\n\
+               | PathGuard / `--contain` escape | `GuardRejected` / `guard_rejected` |\n\
+               | Patch merge conflict markers | `Conflicts` / `conflicts` (not batch `ConflictingEdit`) |\n\
+               | Check/assert-count exit-2 soft fail | `ChangesDetected` / `changes_detected` |\n\
+               | AST missing symbol | `NoMatch` / `no_matches` |\n\
+             - Bool peel: `api::is_already_exists` for force/overwrite recovery; string peel: \
+               `api::error_kind_str` for CLI-stable envelopes (#1947 / #1948).\n\
+             - New `EditErrorKind` variants must be **appended** (after the last variant) so \
+               discriminants of published kinds stay stable under cargo-semver-checks (#1955).\n\
              - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).\n\
              - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`\n\
              - Multi-doc / wrong-root doc navigation peels to `EditErrorKind::TypeError` via \
@@ -1178,6 +1192,24 @@ mod tests {
         assert!(
             out.contains("EditErrorKind::TypeError"),
             "library hosts need TypeError peel docs (#1883)"
+        );
+        // #1947/#1948: dest-exists is AlreadyExists, not InvalidInput (stale #1935 bullet).
+        assert!(
+            out.contains("AlreadyExists") && out.contains("already_exists"),
+            "library hosts need AlreadyExists / already_exists peels (#1947)"
+        );
+        assert!(
+            out.contains("is_already_exists") && out.contains("error_kind_str"),
+            "library hosts need api::is_already_exists and error_kind_str (#1948)"
+        );
+        assert!(
+            !out.contains("exists/dir/binary → `InvalidInput`")
+                && !out.contains("exists/dir/binary → InvalidInput"),
+            "must not claim create dest-exists peels as InvalidInput after #1950"
+        );
+        assert!(
+            out.contains("appended") || out.contains("append"),
+            "library hosts need EditErrorKind append-only discriminant note (#1955)"
         );
         assert!(
             out.contains("is_binary_file"),
