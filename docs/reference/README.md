@@ -1348,7 +1348,7 @@ The operations below are the building blocks inside `operations`.
 | Apply session id for surgical undo | `EditResult.backup_session` after Apply (#1686); pair with `restore_path_from_session` |
 | Nested monorepo backup listing | `backup::list_sessions_under` + `ListSessionsOptions` (#1688) |
 | Ancestor backup root discovery | `backup::find_backup_roots(path)` walks parents for `.patchloom/backups` (#1934) |
-| File op structured kinds | `file_create` / `file_delete` / `file_rename` / `file_append`: exists/dir/binary → `InvalidInput`; PathGuard → `GuardRejected` (#1935) |
+| File op structured kinds | `file_create` / `file_delete` / `file_rename` / `file_append`: dest-exists without force → `AlreadyExists` (#1947); missing path → `NotFound`; dir/binary/empty path → `InvalidInput`; PathGuard → `GuardRejected` (#1935) |
 | AST signature rewrite kinds | `ast_rewrite_signature`: missing fn → `NoMatch`; binary → `InvalidInput`; guard → `GuardRejected` (#1936) |
 | In-memory multi-op with real diff headers | `apply_content_edits_with_label` (#1665) |
 | Surgical undo one path | `backup::restore_path_from_session(root, ts, path)` (#1660) |

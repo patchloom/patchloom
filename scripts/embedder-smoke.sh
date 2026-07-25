@@ -56,6 +56,21 @@ echo "$contain_json" | grep -q '"error_kind": "guard_rejected"' \
   || fail "contain escape must set error_kind guard_rejected: $contain_json"
 pass "CLI --contain JSON error_kind is guard_rejected (#1935)"
 
+# --- #1947: create without force peels already_exists (not invalid_input) ---
+printf 'existing\n' >"$tmpdir/ws/taken.txt"
+create_json=$("$BIN" --json --cwd "$tmpdir/ws" create taken.txt --content 'new' 2>/dev/null || true)
+echo "$create_json" | grep -q '"error_kind": "already_exists"' \
+  || echo "$create_json" | grep -q '"error_kind":"already_exists"' \
+  || fail "create dest-exists must set error_kind already_exists: $create_json"
+echo "$create_json" | grep -q '"applied": false\|"applied":false' \
+  || fail "create dest-exists must set applied:false: $create_json"
+# Must not claim invalid_input for dest-exists (hosts branch on kind for force).
+echo "$create_json" | grep -q '"error_kind": "invalid_input"' \
+  && fail "create dest-exists must not be invalid_input: $create_json"
+echo "$create_json" | grep -q '"error_kind":"invalid_input"' \
+  && fail "create dest-exists must not be invalid_input: $create_json"
+pass "CLI create dest-exists JSON error_kind is already_exists (#1947)"
+
 # --- nested undo still works after contain smoke (sessions already created) ---
 # Library-only find_backup_roots is unit-tested; CLI hosts use undo --list (#1695).
 

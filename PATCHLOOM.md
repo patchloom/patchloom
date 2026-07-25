@@ -57,7 +57,18 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)
 - `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)
 - `backup::find_backup_roots(path)` — walk path and parents for roots that own `.patchloom/backups` (nearest first; #1934)
-- File create/delete/rename/append and `ast_rewrite_signature` peel via `edit_error_kind`: exists/dir/binary → `InvalidInput`, missing symbol → `NoMatch`, PathGuard → `GuardRejected` (#1935 / #1936)
+- File create/delete/rename/append and `ast_rewrite_signature` peel via `edit_error_kind` / `error_kind_str` (#1935 / #1936 / #1947 / #1948):
+| Condition | `EditErrorKind` / CLI string |
+|-----------|-----------------------------|
+| Create/rename dest exists without force | `AlreadyExists` / `already_exists` (not `InvalidInput`; use force/overwrite) |
+| Missing path I/O | `NotFound` / `not_found` |
+| Directory target / binary / empty path | `InvalidInput` / `invalid_input` |
+| PathGuard / `--contain` escape | `GuardRejected` / `guard_rejected` |
+| Patch merge conflict markers | `Conflicts` / `conflicts` (not batch `ConflictingEdit`) |
+| Check/assert-count exit-2 soft fail | `ChangesDetected` / `changes_detected` |
+| AST missing symbol | `NoMatch` / `no_matches` |
+- Bool peel: `api::is_already_exists` for force/overwrite recovery; string peel: `api::error_kind_str` for CLI-stable envelopes (#1947 / #1948).
+- New `EditErrorKind` variants must be **appended** (after the last variant) so discriminants of published kinds stay stable under cargo-semver-checks (#1955).
 - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).
 - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`
 - Multi-doc / wrong-root doc navigation peels to `EditErrorKind::TypeError` via `edit_error_kind` / `classify_error` (CLI JSON `error_kind: type_error`; #1883). Do not collapse with `InvalidInput` (empty patterns, bad options, sole binary).

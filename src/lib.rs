@@ -124,9 +124,10 @@
 //! descendant `.patchloom/backups` roots (#1688). Ancestor discovery:
 //! `backup::find_backup_roots(path)` walks parents for roots that contain
 //! `.patchloom/backups` (#1934). File create/delete/rename/append and
-//! `ast_rewrite_signature` peel via `edit_error_kind` (`InvalidInput` for
-//! exists/dir/binary, `NoMatch` for missing symbols, `GuardRejected` for
-//! PathGuard; #1935 / #1936). Fuzzy policy:
+//! `ast_rewrite_signature` peel via `edit_error_kind` (`AlreadyExists` for
+//! dest-exists without force, `NotFound` for missing path I/O, `InvalidInput`
+//! for dir/binary/empty path, `NoMatch` for missing AST symbols, `GuardRejected`
+//! for PathGuard; #1935 / #1936 / #1947). Fuzzy policy:
 //! `ReplaceOptions.min_fuzzy_score` rejects weak similarity matches (#1687).
 //! Project-wide rename: `api::ast_rename_project` (#1689). Post-Apply hooks:
 //! `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` / batch
