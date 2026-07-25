@@ -93,7 +93,7 @@ jobs:
       ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -131,10 +131,18 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  # WSL2 on windows-latest (free GHA runner). Path semantics are Linux-like,
-  # but absolute paths and --contain must still work when the checkout lives
-  # under the WSL filesystem. Scope is intentionally narrow: full matrix
-  # already runs on ubuntu-latest; this job locks interop smoke only.
+      # PowerShell dogfood: backslash paths, absolute paths, peels, tx, CRLF.
+      # Fixrealloop-style scenarios under pwsh (not covered by assert_cmd alone).
+      - name: Windows PowerShell smoke (create/replace/doc/tx/paths)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          pwsh -NoProfile -File scripts/windows-smoke.ps1 -Bin target\debug\patchloom.exe
+
+  # WSL2 on windows-latest (free GHA runner). Path semantics are Linux-like;
+  # checkout is copied to ext4 home (building under /mnt/c is too slow).
+  # Expanded beyond path-only smoke: full lib + integration (no clippy/fuzz/pty;
+  # those stay on ubuntu-latest). Keeps WSL interop honest for agents in WSL.
   ci-wsl:
     needs: [changes]
     if: >
@@ -145,7 +153,7 @@ jobs:
       ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -165,7 +173,7 @@ jobs:
           update: true
           additional-packages: build-essential curl ca-certificates pkg-config libssl-dev
 
-      - name: Install Rust and run platform path tests in WSL
+      - name: Install Rust and run lib + integration tests in WSL
         shell: wsl-bash {0}
         run: |
           set -euo pipefail
@@ -191,8 +199,13 @@ jobs:
           . "$HOME/.cargo/env"
           rustc --version
           cargo --version
+          # Path-focused filters first (fast feedback on #1931-class bugs).
           cargo test --lib --all-features containment -- --nocapture
           cargo test --test integration --all-features platform_path -- --nocapture
+          # Full lib + integration subset (no --test pty: expectrl PTY matrix is
+          # covered on ubuntu/macos; WSL job budget is for path + CLI honesty).
+          cargo test --lib --all-features
+          cargo test --test integration --all-features
 
   ci-macos:
     needs: [changes]

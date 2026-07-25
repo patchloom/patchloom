@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -133,6 +133,15 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Use MOD
 
 embedder-smoke: build ## Pre-release host contracts (fuzzy token span, nested undo list, plan key alias)
 	bash scripts/embedder-smoke.sh target/debug/patchloom
+
+windows-smoke: build ## Windows/PowerShell dogfood (create/replace/doc/tx/paths). Requires pwsh + Windows-style binary.
+	@if command -v pwsh >/dev/null 2>&1; then \
+		pwsh -NoProfile -File scripts/windows-smoke.ps1 -Bin target/debug/patchloom; \
+	elif command -v powershell >/dev/null 2>&1; then \
+		powershell -NoProfile -File scripts/windows-smoke.ps1 -Bin target/debug/patchloom; \
+	else \
+		echo "windows-smoke: pwsh/powershell not found (run on Windows or install PowerShell)"; exit 1; \
+	fi
 
 bench-cli: build ## Run CLI benchmarks vs native tools (requires hyperfine)
 	cd benches/cli && bash run.sh
