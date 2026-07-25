@@ -59,7 +59,8 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Full CI gate (run before every commit) |
 | `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README test count) |
-| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo, plan key alias, `--contain` → `guard_rejected`); not part of `check` |
+| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo, plan key alias, `--contain` → `guard_rejected`, create dest-exists → `already_exists`); not part of `check` |
+| `make windows-smoke` | Windows/PowerShell dogfood (`scripts/windows-smoke.ps1`; backslash paths, peels, tx, CRLF). Not part of `check`; runs in CI `ci-windows`. Requires `pwsh` |
 | `make audit` | Run `cargo audit` for known vulnerabilities (also in CI) |
 | `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; also in CI) |
 | `make update-readme` | Update README.md rounded test count |
