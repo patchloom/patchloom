@@ -44,7 +44,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 
 Always run `make check` before committing. It is the full CI gate.
 
-Before tagging a release, also run `make embedder-smoke` (host-facing contracts that unit tests historically missed).
+Before tagging a release, also run `make embedder-smoke` (host-facing contracts that unit tests historically missed). On Windows (or with `pwsh`), also run `make windows-smoke` (CI already runs it on `ci-windows`).
 
 ## Git hygiene
 

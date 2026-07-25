@@ -343,6 +343,41 @@ pub fn is_changes_detected(err: &anyhow::Error) -> bool {
     edit_error_kind(err) == Some(EditErrorKind::ChangesDetected)
 }
 
+/// Whether the error peels as multi-doc / wrong-root type mismatch
+/// ([`EditErrorKind::TypeError`]). Distinct from [`EditErrorKind::InvalidInput`].
+#[must_use]
+pub fn is_type_error(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::TypeError)
+}
+
+/// Whether the error peels as post-write format/lint failure
+/// ([`EditErrorKind::FormatFailed`]). Files may already be written.
+#[must_use]
+pub fn is_format_failed(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::FormatFailed)
+}
+
+/// Whether the error peels as PathGuard / `--contain` rejection
+/// ([`EditErrorKind::GuardRejected`]).
+#[must_use]
+pub fn is_guard_rejected(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::GuardRejected)
+}
+
+/// Whether the error peels as invalid arguments / sole binary / bad options
+/// ([`EditErrorKind::InvalidInput`]).
+#[must_use]
+pub fn is_invalid_input(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::InvalidInput)
+}
+
+/// Whether the error peels as soft no-match ([`EditErrorKind::NoMatch`]).
+/// CLI JSON kind is `no_matches` via [`error_kind_str`].
+#[must_use]
+pub fn is_no_match(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::NoMatch)
+}
+
 /// Downcast a bare `dyn Error` chain to [`EditError`] when present (#1659).
 ///
 /// Prefer this when you need `similar_targets` / `suggestion` without
@@ -1150,12 +1185,17 @@ mod tests {
         }
         .into();
         assert_eq!(edit_error_kind(&invalid), Some(EditErrorKind::InvalidInput));
+        assert!(is_invalid_input(&invalid));
+        assert!(!is_guard_rejected(&invalid));
 
         let no_match: anyhow::Error = crate::exit::NoMatchError {
             msg: "no matches".into(),
         }
         .into();
         assert_eq!(edit_error_kind(&no_match), Some(EditErrorKind::NoMatch));
+        assert!(is_no_match(&no_match));
+        assert_eq!(error_kind_str(&no_match), Some("no_matches"));
+        assert!(!is_not_found(&no_match));
 
         let ambiguous: anyhow::Error = crate::exit::AmbiguousError {
             msg: "multiple matches".into(),
@@ -1204,6 +1244,8 @@ mod tests {
             Some(EditErrorKind::TypeError),
             "TypeErrorError must not collapse to InvalidInput (#1883)"
         );
+        assert!(is_type_error(&type_err));
+        assert!(!is_invalid_input(&type_err));
 
         let format_failed: anyhow::Error =
             crate::exit::FormatFailedError::new("format command failed").into();
@@ -1211,6 +1253,14 @@ mod tests {
             edit_error_kind(&format_failed),
             Some(EditErrorKind::FormatFailed)
         );
+        assert!(is_format_failed(&format_failed));
+        assert!(!is_type_error(&format_failed));
+
+        let guard: anyhow::Error =
+            EditError::new(EditErrorKind::GuardRejected, "path escapes").into();
+        assert!(is_guard_rejected(&guard));
+        assert_eq!(error_kind_str(&guard), Some("guard_rejected"));
+        assert!(!is_invalid_input(&guard));
 
         let not_found: anyhow::Error =
             std::io::Error::new(std::io::ErrorKind::NotFound, "missing").into();
