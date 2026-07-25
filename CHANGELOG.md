@@ -11,6 +11,21 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.19.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.18.0...patchloom-v0.19.0) (2026-07-25)
+
+
+### Features
+
+* complete public EditErrorKind bool peels ([#1959](https://github.com/patchloom/patchloom/issues/1959)) ([a4a3136](https://github.com/patchloom/patchloom/commit/a4a3136509c59b4e53594705ff693cd4600a6d95))
+* public is_not_found/is_conflicts/is_changes_detected peels ([#1958](https://github.com/patchloom/patchloom/issues/1958)) ([0287d97](https://github.com/patchloom/patchloom/commit/0287d97443585d30278880989995becc9dcb0c3a))
+
+
+### Bug Fixes
+
+* append EditErrorKind variants after FormatFailed ([#1955](https://github.com/patchloom/patchloom/issues/1955)) ([4b3ea56](https://github.com/patchloom/patchloom/commit/4b3ea568bc7ef6a22df76bf192d509c2eaff65e3))
+* library peels for already_exists and CLI error_kind strings ([#1950](https://github.com/patchloom/patchloom/issues/1950)) ([888227a](https://github.com/patchloom/patchloom/commit/888227a06f0a0219a8cc96738135ffc49312770b)), closes [#1947](https://github.com/patchloom/patchloom/issues/1947) [#1948](https://github.com/patchloom/patchloom/issues/1948)
+* lychee exclude-path for RELEASE_NOTES; create force hints ([#1952](https://github.com/patchloom/patchloom/issues/1952)) ([8a8f92b](https://github.com/patchloom/patchloom/commit/8a8f92bea5cb142fe5996082639b8c2901e3a39b))
+
 ## [0.18.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.17.0...patchloom-v0.18.0) (2026-07-24)
 
 
