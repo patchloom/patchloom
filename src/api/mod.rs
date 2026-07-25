@@ -94,9 +94,10 @@
 //!   separately from coarse `InvalidInput` / `OperationFailed`
 //! - [`error_kind_str`]: same CLI JSON kind strings (`already_exists`, …) for
 //!   host envelopes that mirror agent JSON (#1948)
-//! - [`is_already_exists`]: bool peel for force/overwrite recovery (#1947)
-//! - [`is_not_found`] / [`is_conflicts`] / [`is_changes_detected`]: sibling bool
-//!   peels for the other fine-grained kinds (same chain as `edit_error_kind`)
+//! - Bool peels (same chain as [`edit_error_kind`]): [`is_already_exists`],
+//!   [`is_not_found`], [`is_conflicts`], [`is_changes_detected`],
+//!   [`is_type_error`], [`is_format_failed`], [`is_guard_rejected`],
+//!   [`is_invalid_input`], [`is_no_match`]
 //! - [`doc_merge`]: optional `selector` for multi-doc YAML (`Some("0")`)
 //!
 //! ```rust,no_run
@@ -414,7 +415,8 @@ pub struct ReplaceOptions {
 pub use crate::fallback::{
     EditError, EditErrorKind, classify_error, classify_error_ref, edit_error_kind, edit_error_ref,
     error_kind_str, find_similar_targets, is_already_exists, is_changes_detected, is_conflicts,
-    is_not_found,
+    is_format_failed, is_guard_rejected, is_invalid_input, is_no_match, is_not_found,
+    is_type_error,
 };
 
 /// Write policy options for controlling file write transformations.

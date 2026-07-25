@@ -6224,6 +6224,10 @@ fn file_delete_missing_is_not_found() {
         Some("not_found"),
         "CLI-stable not_found (#1948 sibling): {err}"
     );
+    assert!(
+        crate::fallback::is_not_found(&err),
+        "is_not_found bool peel for missing delete: {err}"
+    );
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -6241,6 +6245,10 @@ fn file_append_missing_is_not_found() {
         crate::fallback::error_kind_str(&err),
         Some("not_found"),
         "CLI-stable not_found for append: {err}"
+    );
+    assert!(
+        crate::fallback::is_not_found(&err),
+        "is_not_found bool peel for missing append: {err}"
     );
 }
 

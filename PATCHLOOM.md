@@ -67,7 +67,7 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 | Patch merge conflict markers | `Conflicts` / `conflicts` (not batch `ConflictingEdit`) |
 | Check/assert-count exit-2 soft fail | `ChangesDetected` / `changes_detected` |
 | AST missing symbol | `NoMatch` / `no_matches` |
-- Bool peels (match `edit_error_kind`): `api::is_already_exists` (force/overwrite), `api::is_not_found`, `api::is_conflicts`, `api::is_changes_detected`; string peel: `api::error_kind_str` for CLI-stable envelopes (#1947 / #1948).
+- Bool peels (match `edit_error_kind`): `api::is_already_exists`, `is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_no_match`; string peel: `api::error_kind_str` for CLI-stable envelopes (#1947 / #1948).
 - New `EditErrorKind` variants must be **appended** (after the last variant) so discriminants of published kinds stay stable under cargo-semver-checks (#1955).
 - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).
 - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`
