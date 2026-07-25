@@ -197,8 +197,12 @@ jobs:
           fi
           # shellcheck source=/dev/null
           . "$HOME/.cargo/env"
+          # Example-plan smoke tests (02-multi-file-batch, 05-strict-mode) run
+          # cargo fmt as a format step; minimal profile omits rustfmt.
+          rustup component add rustfmt
           rustc --version
           cargo --version
+          cargo fmt --version
           # Path-focused filters first (fast feedback on #1931-class bugs).
           cargo test --lib --all-features containment -- --nocapture
           cargo test --test integration --all-features platform_path -- --nocapture
