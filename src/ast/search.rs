@@ -110,7 +110,7 @@ pub fn search_file(
     if !lang.has_grammar() {
         return Ok(Vec::new());
     }
-    // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+    // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
     let source = crate::files::load_text_strict(path, &path.display().to_string())?;
     search_query(&source, query_str, lang, max_results)
 }
