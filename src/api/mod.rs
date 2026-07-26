@@ -21,8 +21,8 @@
 //! ).unwrap();
 //! println!("diff:\n{}", result.diff);
 //!
-//! // Fail closed when the pattern is missing (agent hosts; #1492)
-//! let opts = ReplaceOptions { require_change: true, ..Default::default() };
+//! // Agent hosts: share one policy across primary + fallback paths (#1965)
+//! let opts = ReplaceOptions::for_agent();
 //! let _ = api::replace_in_content("src", "old_value", "new_value", &opts);
 //! ```
 //!
@@ -357,7 +357,21 @@ pub enum ApplyMode {
     Check,
 }
 
+/// Recommended fuzzy similarity floor for [`ReplaceOptions::for_agent`] (#1965).
+///
+/// Exact and anchored matches ignore the floor. Similarity/fuzzy rewrites of a
+/// live span must score at least this value when hosts use the agent preset.
+pub const AGENT_MIN_FUZZY_SCORE: f64 = 0.90;
+
 /// Options for text replacement operations.
+///
+/// # Agent hosts (#1965)
+///
+/// Prefer [`Self::for_agent`] for primary and fallback replace paths so both
+/// call sites share one policy. Override fields with struct update syntax
+/// (`ReplaceOptions { unique: false, ..ReplaceOptions::for_agent() }` for
+/// replace-all). Do **not** treat [`Default`] as agent-oriented: it keeps
+/// historical soft no-match and fuzzy-off library defaults.
 #[derive(Debug, Clone, Default)]
 pub struct ReplaceOptions {
     /// Use regex mode for the `from` pattern.
@@ -448,6 +462,73 @@ pub struct ReplaceOptions {
     /// Working directory for [`Self::post_write`] shell commands.
     /// Defaults to the written file's parent when unset.
     pub post_write_cwd: Option<std::path::PathBuf>,
+}
+
+impl ReplaceOptions {
+    /// Shared replace policy for coding-agent hosts (primary + fallback) (#1965).
+    ///
+    /// Use this constructor in **every** host path that applies text replace so
+    /// options cannot drift between engine and recovery. Fields:
+    ///
+    /// | Field | Value | Why |
+    /// |-------|-------|-----|
+    /// | `unique` | `true` | One unambiguous target (or error) |
+    /// | `require_change` | `true` | Zero matches is [`EditErrorKind::NoMatch`], not soft success |
+    /// | `fuzzy` | `true` | Enables anchor/similarity machinery (Similarity rewrite of missing `old` still needs `allow_absent_old`) |
+    /// | `min_fuzzy_score` | [`AGENT_MIN_FUZZY_SCORE`] (`0.90`) | Reject weak similarity rewrites |
+    /// | `allow_absent_old` | `false` | Fail closed when exact `old` is gone (#1758); report candidate |
+    /// | other fields | [`Default`] | Hosts opt into word_boundary, command_position, etc. |
+    ///
+    /// ## Overrides (struct update)
+    ///
+    /// ```rust
+    /// use patchloom::api::ReplaceOptions;
+    ///
+    /// // Replace every match (not unique).
+    /// let replace_all = ReplaceOptions {
+    ///     unique: false,
+    ///     ..ReplaceOptions::for_agent()
+    /// };
+    ///
+    /// // Deliberate approximate recovery when exact old is absent.
+    /// let recovery = ReplaceOptions {
+    ///     allow_absent_old: true,
+    ///     ..ReplaceOptions::for_agent()
+    /// };
+    ///
+    /// // Exact word-boundary rename: disable fuzzy so recovery does not override `\b` misses.
+    /// let word = ReplaceOptions {
+    ///     fuzzy: false,
+    ///     min_fuzzy_score: None,
+    ///     word_boundary: true,
+    ///     ..ReplaceOptions::for_agent()
+    /// };
+    /// # let _ = (replace_all, recovery, word);
+    /// ```
+    ///
+    /// ## Interaction rules
+    ///
+    /// - `command_position` cannot combine with `fuzzy`, `word_boundary`, regex,
+    ///   whole_line, multiline, nth, case_insensitive, insert_before/after, or
+    ///   context anchors (see `COMMAND_POSITION_COMBO_MSG`).
+    /// - `require_change` + `if_exists`: `if_exists` wins (soft zero matches).
+    /// - Anchored context (`before_context` / `after_context`) still applies when
+    ///   `allow_absent_old` is false.
+    ///
+    /// This is **not** Bline's historical host glue (`allow_absent_old: true`).
+    /// That remains an explicit host override so patchloom keeps fail-closed
+    /// defaults for approximate rewrites of missing text.
+    #[must_use]
+    pub fn for_agent() -> Self {
+        Self {
+            unique: true,
+            require_change: true,
+            fuzzy: true,
+            min_fuzzy_score: Some(AGENT_MIN_FUZZY_SCORE),
+            allow_absent_old: false,
+            ..Self::default()
+        }
+    }
 }
 
 // Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948, #1963, #1964).

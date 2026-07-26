@@ -135,6 +135,15 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n\
+             **Library `ReplaceOptions::for_agent` (#1965):** Rust hosts with primary + fallback \
+replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
+`ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \
+`min_fuzzy_score=Some(AGENT_MIN_FUZZY_SCORE)` (`0.90`), **`allow_absent_old=false`** (fail closed). \
+Overrides via struct update: replace-all → `unique: false`; deliberate approximate recovery → \
+`allow_absent_old: true`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, \
+`word_boundary: true`. `command_position` cannot combine with fuzzy/word_boundary/regex/whole_line \
+(typed `invalid_input`). This is **not** a host-specific recovery policy; approximate rewrite of \
+missing `old` stays an explicit opt-in.\n\n\
              **Fuzzy defaults fail closed when exact old is absent (#1758):**\n\
              - If `old` is not present, fuzzy will **not** rewrite a nearby live span by default, even when \
 score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_absent_old=true` only for deliberate approximate recovery.\n\
@@ -190,7 +199,7 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
                | Tx multi-path probe (`read_and_probe`) | SoftSkip `Ok(false)` | Hard `Err` (plan names paths) |\n\
                Byte rule: `classify_text_bytes`. Patch file + patch targets use Strict (#1896).\n\
              - Project rename: `api::ast_rename_project(root, old, new, &opts, guard)` (#1689)\n\
-             - Fuzzy tip: bare-identifier typos use token span matching; prefer `min_fuzzy_score` (e.g. 0.80) for agent hosts; always check `matched_text` (#1687, #1694, #1736)\n\
+             - Fuzzy tip: bare-identifier typos use token span matching. Library agent hosts: `ReplaceOptions::for_agent()` uses `AGENT_MIN_FUZZY_SCORE` (0.90). CLI examples may use 0.80 as a looser floor. Always check `matched_text` (#1687, #1694, #1736, #1965)\n\
              **Match reporting in JSON:** CLI `replace --json`, MCP `replace_text` / `batch_replace` / `execute_plan`, and library `EditResult` report `match_mode` (`exact`/`fuzzy`/`anchored`), optional `match_score`, optional `matched_text` (actual span for fuzzy/anchored; may differ from `old`), and replace `match_count` (plan/tx also on each change + sum) so agents can verify fuzzy sites. Multi-file / multi-op aggregates use worst-case rollup (`fuzzy` > `anchored` > `exact`) and the **minimum** fuzzy `match_score` across paths/ops (lowest confidence). Soft no-match / fuzzy fail-closed refuse sets `ok: false` and `error_kind: no_matches` on CLI, plan/tx, and MCP (body and `is_error` agree; #1791). When some paths write and others soft-refuse or soft-miss, overall ok/success may still be true: check `refused[]` (path, match_mode, match_score, matched_text, reason=`exact_old_absent`, `below_min_fuzzy_score`, or `no_matches` for exact soft miss on explicit multi-path lists; #1792) so partial apply is not mistaken for full coverage. Soft no-match CLI JSON may include `similar_targets` (did-you-mean) for literal patterns (#1669, #1674, #1736, #1747).\n\
              **Missing paths CLI vs MCP (#1793):** CLI multi-path `replace` soft-skips missing explicit paths under `skipped[]` and still applies the rest. Plan/batch path ops hard-fail missing files with `not_found` and roll back (atomic) unless `if_exists` / `--if-exists` is set, which soft-skips the missing path like CLI. Soft zero-match on existing paths still applies matches and lists `refused[]` with overall success. Under `--json`/`--jsonl`, CLI does not also print a human stderr \"No such file\" line for paths already in `skipped[]` (#1797).\n\
              **Empty `--files-from`:** An empty list file or empty stdin (`--files-from -`) is `error_kind: invalid_input` (exit 1) for **search**, **replace**, and **tidy** (not pattern `no_matches`, and not tidy `ok:true` with zero issues). Fix the path list; do not widen the pattern or treat the workspace as clean (#1796).\n\
@@ -1209,6 +1218,10 @@ mod tests {
         assert!(
             out.contains("is_already_exists") && out.contains("error_kind_str"),
             "library hosts need api::is_already_exists and error_kind_str (#1948)"
+        );
+        assert!(
+            out.contains("ReplaceOptions::for_agent") && out.contains("AGENT_MIN_FUZZY_SCORE"),
+            "library hosts need for_agent replace preset docs (#1965)"
         );
         assert!(
             out.contains("is_not_found")
