@@ -67,8 +67,14 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 global.emit_error_json_kind(Some("not_found"), &e.to_string())?;
                 return Ok(exit::FAILURE);
             }
-            Err(e) if crate::exit::is_invalid_input(&e) => {
-                global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+            Err(e)
+                if crate::exit::is_binary(&e)
+                    || crate::exit::is_invalid_encoding(&e)
+                    || crate::exit::is_invalid_input(&e) =>
+            {
+                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&e);
+                global.emit_error_json_kind(Some(kind), &msg)?;
                 return Ok(exit::FAILURE);
             }
             Err(e) => {
