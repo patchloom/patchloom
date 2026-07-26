@@ -129,8 +129,9 @@ pub enum EditErrorKind {
     FormatFailed,
     /// Create/rename destination already exists without force.
     /// CLI JSON uses `error_kind: "already_exists"`. Distinct from
-    /// [`Self::InvalidInput`] (binary, empty path, directory target) so hosts
-    /// can hint `overwrite`/`force` without scraping English (#1947).
+    /// [`Self::InvalidInput`] (empty path, directory target) and content SoftSkip
+    /// ([`Self::Binary`] / [`Self::InvalidEncoding`]) so hosts can hint
+    /// `overwrite`/`force` without scraping English (#1947 / #1963).
     /// Appended after [`Self::FormatFailed`] so 0.18.0 discriminants stay stable.
     AlreadyExists,
     /// Path not found (`std::io::ErrorKind::NotFound`). CLI JSON uses

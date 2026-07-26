@@ -62,14 +62,7 @@ fn file_write(
             let original = if path.exists() {
                 match crate::files::load_text_strict(path, &path_str) {
                     Ok(s) => s,
-                    Err(e)
-                        if force
-                            && (crate::fallback::is_binary(&e)
-                                || crate::fallback::is_invalid_encoding(&e)
-                                || crate::exit::is_invalid_input(&e)) =>
-                    {
-                        String::new()
-                    }
+                    Err(e) if force && crate::exit::is_load_text_strict_fail(&e) => String::new(),
                     Err(e) => return Err(e),
                 }
             } else {

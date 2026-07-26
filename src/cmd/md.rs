@@ -403,13 +403,13 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let path = cwd.join(&file);
             let original = match crate::files::load_text_strict(&path, &file) {
                 Ok(s) => s,
-                Err(e) => {
-                    if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-                        global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
-                        return Ok(exit::FAILURE);
-                    }
-                    return Err(e).with_context(|| format!("reading {file}"));
+                Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&e);
+                    global.emit_error_json_kind(Some(kind), &msg)?;
+                    return Ok(exit::FAILURE);
                 }
+                Err(e) => return Err(e).with_context(|| format!("reading {file}")),
             };
             let (_new, removed) = dedupe_headings_in(&original);
 
@@ -520,13 +520,13 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let path = cwd.join(&file);
             let content = match crate::files::load_text_strict(&path, &file) {
                 Ok(s) => s,
-                Err(e) => {
-                    if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-                        global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
-                        return Ok(exit::FAILURE);
-                    }
-                    return Err(e).with_context(|| format!("reading {file}"));
+                Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&e);
+                    global.emit_error_json_kind(Some(kind), &msg)?;
+                    return Ok(exit::FAILURE);
                 }
+                Err(e) => return Err(e).with_context(|| format!("reading {file}")),
             };
             let issues = lint_agents_content(&content);
 
@@ -585,13 +585,13 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let path = cwd.join(&file);
             let content = match crate::files::load_text_strict(&path, &file) {
                 Ok(s) => s,
-                Err(e) => {
-                    if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-                        global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
-                        return Ok(exit::FAILURE);
-                    }
-                    return Err(e).with_context(|| format!("reading {file}"));
+                Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&e);
+                    global.emit_error_json_kind(Some(kind), &msg)?;
+                    return Ok(exit::FAILURE);
                 }
+                Err(e) => return Err(e).with_context(|| format!("reading {file}")),
             };
             match find_section(&content, &heading) {
                 None => {

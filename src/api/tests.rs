@@ -467,6 +467,37 @@ fn file_create_force_overwrites_invalid_utf8_prior() {
 }
 
 #[test]
+#[cfg(unix)]
+fn file_create_force_binary_preserves_hardlinks() {
+    // #1962: force overwrite of binary prior must not unlink+recreate (nlink stays).
+    use std::os::unix::fs::MetadataExt;
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("blob.bin");
+    let link = dir.path().join("blob-link.bin");
+    fs::write(&file, b"a\0b").unwrap();
+    std::fs::hard_link(&file, &link).unwrap();
+    let nlink_before = fs::metadata(&file).unwrap().nlink();
+    assert!(nlink_before >= 2, "hardlink setup: nlink={nlink_before}");
+    let guard = PathGuard::builder(dir.path().to_path_buf())
+        .allow_temp_directory()
+        .build()
+        .unwrap();
+    let result = file_create(&file, "text\n", true, ApplyMode::Apply, Some(&guard)).unwrap();
+    assert!(result.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "text\n");
+    assert_eq!(
+        fs::read_to_string(&link).unwrap(),
+        "text\n",
+        "hardlink sibling must see same content"
+    );
+    let nlink_after = fs::metadata(&file).unwrap().nlink();
+    assert!(
+        nlink_after >= 2,
+        "force create must preserve hardlinks, nlink before={nlink_before} after={nlink_after}"
+    );
+}
+
+#[test]
 fn load_text_binary_peel_error_helper() {
     let dir = TempDir::new().unwrap();
     let bin = dir.path().join("x.bin");

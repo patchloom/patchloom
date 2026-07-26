@@ -63,7 +63,7 @@ fn patch_write(
         // Apply to the first file in the patch.
         let pf = &patch_files[0];
         let file_path = cwd.join(&pf.path);
-        // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+        // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
         let original = crate::files::load_text_strict(&file_path, &pf.path)?;
 
         let new_content = ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {

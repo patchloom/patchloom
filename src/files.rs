@@ -7,8 +7,7 @@
 //!
 //! # Text I/O honesty (#1894)
 //!
-//! - **Strict sole-path:** [`load_text_strict`] — binary / invalid UTF-8 →
-//!   `InvalidInputError` (CLI, MCP/tx sole path, library `api::*`).
+//! - **Strict sole-path:** [`load_text_strict`] — binary → `BinaryError`, invalid UTF-8 → `InvalidEncodingError` (CLI, MCP/tx sole path, library `api::*`).
 //! - **Soft content skip (walks):** [`try_read_text_file`] / [`read_text_file`] —
 //!   binary / invalid UTF-8 → [`SoftTextSkip`] (content not agent-editable).
 //! - **Unreadable is not content SoftSkip:** open/read IO is

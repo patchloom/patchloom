@@ -305,7 +305,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let plan_path = plan_path
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("internal error: plan path missing"))?;
-        // Strict sole-path plan load (#1894): binary / invalid UTF-8 → InvalidInput.
+        // Strict sole-path plan load (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
         let display = plan_path.display().to_string();
         // load_text_strict already prefixes "failed to read {display}"; do not
         // re-wrap (same class as #1916).
@@ -313,10 +313,7 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let msg = crate::exit::agent_error_message(&e);
             if crate::exit::is_io_not_found(&e) {
                 std::io::Error::new(std::io::ErrorKind::NotFound, msg).into()
-            } else if crate::exit::is_binary(&e)
-                || crate::exit::is_invalid_encoding(&e)
-                || crate::exit::is_invalid_input(&e)
-            {
+            } else if crate::exit::is_load_text_strict_fail(&e) {
                 e
             } else {
                 anyhow::Error::new(crate::exit::InvalidInputError { msg })

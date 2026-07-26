@@ -74,13 +74,7 @@ pub(crate) fn read_file_content_for_force_create<'a>(
             let display = path.display().to_string();
             let content = match crate::files::load_text_strict(path, &display) {
                 Ok(s) => s,
-                Err(e)
-                    if crate::fallback::is_binary(&e)
-                        || crate::fallback::is_invalid_encoding(&e)
-                        || crate::exit::is_invalid_input(&e) =>
-                {
-                    String::new()
-                }
+                Err(e) if crate::exit::is_load_text_strict_fail(&e) => String::new(),
                 Err(e) => return Err(e),
             };
             if path.exists() {
