@@ -624,7 +624,7 @@ These are meaningful command-specific modes that change how a top-level command 
 ### `replace --min-fuzzy-score` / library `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score`
 
 - **What it does:** When a fuzzy match is found, reject it if its similarity score is below this floor (`0.0..=1.0`). Exact and anchored matches are unaffected. Available on CLI (`--min-fuzzy-score`), plan/MCP (`min_fuzzy_score`), and `ReplaceOptions` (#1687).
-- **Use when:** Agent hosts want fuzzy recovery for small typos but must refuse weak similarity hits (typical floor: `0.80`).
+- **Use when:** Refuse weak similarity hits. Agent hosts using [`ReplaceOptions::for_agent`] get floor **0.90** (`AGENT_MIN_FUZZY_SCORE`). CLI examples may still use `0.80` as a looser floor.
 - **Does not mean:** `score >= min_fuzzy_score` alone authorizes a write when exact `old` is absent; that still requires `allow_absent_old` (#1758).
 - **Prefer instead:** Exact replace when the target string is known.
 

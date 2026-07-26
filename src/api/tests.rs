@@ -2976,6 +2976,34 @@ fn replace_options_for_agent_unique_multi_is_ambiguous() {
 }
 
 #[test]
+fn replace_options_for_agent_absent_old_fails_closed() {
+    // #1758 via for_agent: exact old absent must not rewrite the live identifier.
+    use crate::api::{ReplaceOptions, replace_in_content};
+    let content = "def compute_checksum(payload: bytes) -> str:\n    return payload.hex()\n";
+    let err = replace_in_content(
+        content,
+        "compute_cheksum",
+        "compute_digest",
+        &ReplaceOptions::for_agent(),
+    )
+    .expect_err("for_agent must refuse fuzzy rewrite without allow_absent_old");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("exact old absent") && msg.contains("compute_checksum"),
+        "error must name candidate: {msg}"
+    );
+    let recovery = ReplaceOptions {
+        allow_absent_old: true,
+        ..ReplaceOptions::for_agent()
+    };
+    let r = replace_in_content(content, "compute_cheksum", "compute_digest", &recovery)
+        .expect("opt-in recovery must apply fuzzy candidate");
+    assert!(r.changed);
+    assert!(r.new_content.contains("compute_digest"));
+    assert!(!r.new_content.contains("compute_checksum"));
+}
+
+#[test]
 fn replace_in_content_literal() {
     let content = "fn hello() {}\nfn world() {}\n";
     let result =

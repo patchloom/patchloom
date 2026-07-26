@@ -474,7 +474,7 @@ impl ReplaceOptions {
     /// |-------|-------|-----|
     /// | `unique` | `true` | One unambiguous target (or error) |
     /// | `require_change` | `true` | Zero matches is [`EditErrorKind::NoMatch`], not soft success |
-    /// | `fuzzy` | `true` | Anchor/similarity when exact misses a live span |
+    /// | `fuzzy` | `true` | Enables anchor/similarity machinery (Similarity rewrite of missing `old` still needs `allow_absent_old`) |
     /// | `min_fuzzy_score` | [`AGENT_MIN_FUZZY_SCORE`] (`0.90`) | Reject weak similarity rewrites |
     /// | `allow_absent_old` | `false` | Fail closed when exact `old` is gone (#1758); report candidate |
     /// | other fields | [`Default`] | Hosts opt into word_boundary, command_position, etc. |
@@ -496,7 +496,7 @@ impl ReplaceOptions {
     ///     ..ReplaceOptions::for_agent()
     /// };
     ///
-    /// // Word-boundary rename: turn fuzzy off (incompatible combo).
+    /// // Exact word-boundary rename: disable fuzzy so recovery does not override `\b` misses.
     /// let word = ReplaceOptions {
     ///     fuzzy: false,
     ///     min_fuzzy_score: None,
