@@ -478,6 +478,27 @@ fn load_text_binary_peel_error_helper() {
 }
 
 #[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn apply_content_edits_to_file_binary_is_binary() {
+    use crate::api::{ContentEdit, apply_content_edits_to_file};
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("b.bin");
+    fs::write(&file, b"a\x00b").unwrap();
+    let edits = [ContentEdit::Replace {
+        old: "a".into(),
+        new: "z".into(),
+        options: ReplaceOptions::default(),
+    }];
+    let err = apply_content_edits_to_file(&file, &edits, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::Binary),
+        "content edits must not collapse Binary to OperationFailed: {err}"
+    );
+    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
+}
+
+#[test]
 fn file_rename_works() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("old.txt");

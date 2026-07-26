@@ -681,6 +681,8 @@ mod tests {
         assert!(error_kind_implies_not_applied("not_found"));
         assert!(error_kind_implies_not_applied("parse_error"));
         assert!(error_kind_implies_not_applied("guard_rejected"));
+        assert!(error_kind_implies_not_applied("binary"));
+        assert!(error_kind_implies_not_applied("invalid_encoding"));
         assert!(!error_kind_implies_not_applied("format_failed"));
     }
 
@@ -725,6 +727,22 @@ mod tests {
             (
                 InvalidInputError { msg: "bad".into() }.into(),
                 "invalid_input",
+                FAILURE,
+            ),
+            (
+                BinaryError {
+                    msg: "binary file".into(),
+                }
+                .into(),
+                "binary",
+                FAILURE,
+            ),
+            (
+                InvalidEncodingError {
+                    msg: "not utf-8".into(),
+                }
+                .into(),
+                "invalid_encoding",
                 FAILURE,
             ),
             (
