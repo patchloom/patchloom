@@ -57,22 +57,10 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
     let content = match crate::files::load_text_strict(p, path) {
         Ok(s) => s,
         Err(e) => {
-            if crate::exit::is_binary(&e) {
+            if crate::exit::is_load_text_strict_fail(&e) {
                 return Err(ReadFail {
-                    kind: "binary",
-                    msg: e.to_string(),
-                });
-            }
-            if crate::exit::is_invalid_encoding(&e) {
-                return Err(ReadFail {
-                    kind: "invalid_encoding",
-                    msg: e.to_string(),
-                });
-            }
-            if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-                return Err(ReadFail {
-                    kind: "invalid_input",
-                    msg: inv.msg.clone(),
+                    kind: crate::fallback::error_kind_str(&e).unwrap_or("invalid_input"),
+                    msg: crate::exit::agent_error_message(&e),
                 });
             }
             // Missing path and other IO. Prefer agent_error_message so embedded
