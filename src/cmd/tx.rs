@@ -313,7 +313,10 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             let msg = crate::exit::agent_error_message(&e);
             if crate::exit::is_io_not_found(&e) {
                 std::io::Error::new(std::io::ErrorKind::NotFound, msg).into()
-            } else if crate::exit::is_invalid_input(&e) {
+            } else if crate::exit::is_binary(&e)
+                || crate::exit::is_invalid_encoding(&e)
+                || crate::exit::is_invalid_input(&e)
+            {
                 e
             } else {
                 anyhow::Error::new(crate::exit::InvalidInputError { msg })

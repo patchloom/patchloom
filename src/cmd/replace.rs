@@ -677,9 +677,14 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // the same path walk so --files-from - is only read once (#1796).
     let (mut replacements, zero_match_refused) = match collect_replacements(&args, global) {
         Ok(r) => r,
-        Err(e) if crate::exit::is_invalid_input(&e) => {
-            let msg = e.to_string();
-            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        Err(e)
+            if crate::exit::is_binary(&e)
+                || crate::exit::is_invalid_encoding(&e)
+                || crate::exit::is_invalid_input(&e) =>
+        {
+            let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+            let msg = crate::exit::agent_error_message(&e);
+            global.emit_error_json_kind(Some(kind), &msg)?;
             return Ok(exit::FAILURE);
         }
         Err(e) => return Err(e),
