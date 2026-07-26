@@ -226,8 +226,10 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
     let target = cwd.join(&args.path);
     // Strict sole-path preflight (#1894); engine also loads via load_text_strict.
     if let Err(e) = crate::files::load_text_strict(&target, &args.path) {
-        if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-            global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
+        if crate::exit::is_load_text_strict_fail(&e) {
+            let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+            let msg = crate::exit::agent_error_message(&e);
+            global.emit_error_json_kind(Some(kind), &msg)?;
             return Ok(exit::FAILURE);
         }
         return Err(e);

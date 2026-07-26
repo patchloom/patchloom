@@ -54,13 +54,13 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
         // Strict sole-path (#1894): binary / invalid UTF-8 before language miss.
         let source = match crate::files::load_text_strict(&target, &args.path) {
             Ok(s) => s,
-            Err(e) => {
-                if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-                    global.emit_error_json_kind(Some("invalid_input"), &inv.msg)?;
-                    return Ok(exit::FAILURE);
-                }
-                return Err(e);
+            Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&e);
+                global.emit_error_json_kind(Some(kind), &msg)?;
+                return Ok(exit::FAILURE);
             }
+            Err(e) => return Err(e),
         };
         let lang = resolve_lang(lang_hint, &target);
         crate::verbose!("ast list: detected language={lang} for {}", args.path);
