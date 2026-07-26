@@ -243,6 +243,17 @@ pub fn is_invalid_encoding(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<InvalidEncodingError>().is_some())
 }
 
+/// True when [`crate::files::load_text_strict`] (or an equivalent sole-path load)
+/// failed with a typed content or argument error that hosts should branch on
+/// without collapsing to a generic op failure (#1963).
+///
+/// Matches [`BinaryError`], [`InvalidEncodingError`], and [`InvalidInputError`].
+/// Does **not** match IO NotFound (use [`is_io_not_found`]).
+#[must_use]
+pub fn is_load_text_strict_fail(err: &anyhow::Error) -> bool {
+    is_binary(err) || is_invalid_encoding(err) || is_invalid_input(err)
+}
+
 /// Typed error for post-write `--format` / format-step failures that map to
 /// exit [`FAILURE`] (1) with JSON `error_kind: "format_failed"`.
 ///
@@ -709,6 +720,27 @@ mod tests {
             classify_typed_error(&wrapped),
             Some(("invalid_input", FAILURE))
         );
+    }
+
+    #[test]
+    fn is_load_text_strict_fail_covers_content_and_invalid_input() {
+        let bin: anyhow::Error = BinaryError {
+            msg: "binary".into(),
+        }
+        .into();
+        assert!(is_load_text_strict_fail(&bin));
+        assert!(!is_io_not_found(&bin));
+        let enc: anyhow::Error = InvalidEncodingError { msg: "utf8".into() }.into();
+        assert!(is_load_text_strict_fail(&enc));
+        let inv: anyhow::Error = InvalidInputError {
+            msg: "not a file".into(),
+        }
+        .into();
+        assert!(is_load_text_strict_fail(&inv));
+        let missing: anyhow::Error =
+            std::io::Error::new(std::io::ErrorKind::NotFound, "gone").into();
+        assert!(!is_load_text_strict_fail(&missing));
+        assert!(is_io_not_found(&missing));
     }
 
     #[test]

@@ -332,7 +332,7 @@ api::doc_merge(
     Some("0"),
 )?;
 
-// Sole-path text load: binary / invalid UTF-8 → EditErrorKind::InvalidInput
+// Sole-path text load: binary → EditErrorKind::Binary; invalid UTF-8 → InvalidEncoding
 let _text = api::load_text(Path::new("notes.md"))?;
 ```
 

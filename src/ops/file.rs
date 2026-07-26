@@ -120,10 +120,7 @@ pub fn sole_explicit_non_text(paths: &[String], cwd: &Path) -> Option<anyhow::Er
     match crate::files::load_text_strict(&path, display) {
         Ok(_) => None,
         Err(e) => {
-            if crate::fallback::is_binary(&e)
-                || crate::fallback::is_invalid_encoding(&e)
-                || crate::exit::is_invalid_input(&e)
-            {
+            if crate::exit::is_load_text_strict_fail(&e) {
                 Some(e)
             } else {
                 // load_text_strict already prefixes "failed to read {display}";

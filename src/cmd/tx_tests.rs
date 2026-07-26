@@ -710,11 +710,14 @@ mod edge_cases {
     fn validation_pass_with_large_stderr_output() {
         let dir = TempDir::new().unwrap();
 
+        // Windows CI can be slow to spawn PowerShell even with -NoProfile;
+        // 10s timed out on GHA (exit 7 ROLLBACK). Keep a larger budget there.
+        let timeout_secs = if cfg!(windows) { 60 } else { 10 };
         let plan_json = serde_json::json!({
             "version": 1,
             "operations": [],
             "validate": [
-                {"cmd": shell_stderr_spam(), "required": true, "timeout": 10}
+                {"cmd": shell_stderr_spam(), "required": true, "timeout": timeout_secs}
             ]
         });
 
