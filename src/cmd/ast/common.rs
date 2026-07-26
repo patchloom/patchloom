@@ -28,15 +28,16 @@ pub(super) fn setup_single_file(
     Ok((cwd, target, lang, source))
 }
 
-/// When the user names exactly one **file** path, fail closed as `invalid_input`
-/// for binary, invalid UTF-8, or unreadable (parity with replace/search/tidy/md
-/// / #1894). Directory walks soft-skip content kinds and report unreadable via
-/// the scan mask ("could not read N path(s)…"); do not treat a dir that happens
-/// to resolve to a single file as sole-path (#fixrealloop 2026-07-23).
+/// When the user names exactly one **file** path, fail closed for binary,
+/// invalid UTF-8, or unreadable (parity with replace/search/tidy/md / #1894).
+/// Content SoftSkip peels to `binary` / `invalid_encoding` (#1963); unreadable
+/// IO stays `invalid_input`. Directory walks soft-skip content kinds and report
+/// unreadable via the scan mask; do not treat a dir that happens to resolve to
+/// a single file as sole-path (#fixrealloop 2026-07-23).
 pub(super) fn reject_sole_explicit_non_text(
     paths: &[PathBuf],
     path_arg: &str,
-) -> Result<(), crate::exit::InvalidInputError> {
+) -> Result<(), anyhow::Error> {
     if paths.len() != 1 {
         return Ok(());
     }
@@ -49,10 +50,11 @@ pub(super) fn reject_sole_explicit_non_text(
     match crate::files::load_text_strict(sole, path_arg) {
         Ok(_) => Ok(()),
         Err(e) => {
-            if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-                Err(crate::exit::InvalidInputError {
-                    msg: inv.msg.clone(),
-                })
+            if crate::fallback::is_binary(&e)
+                || crate::fallback::is_invalid_encoding(&e)
+                || crate::exit::is_invalid_input(&e)
+            {
+                Err(e)
             } else {
                 Ok(())
             }

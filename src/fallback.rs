@@ -146,6 +146,16 @@ pub enum EditErrorKind {
     /// [`Self::OperationFailed`] so hosts can mirror CLI exit-2 semantics
     /// without scraping English.
     ChangesDetected,
+    /// Target contains NUL in the binary probe window (not agent-editable text).
+    /// CLI JSON uses `error_kind: "binary"`. Distinct from [`Self::InvalidInput`]
+    /// (empty path, directory target, empty pattern) so hosts can recover
+    /// overwrite/delete/rename without treating all invalid input as binary (#1963).
+    /// Appended after [`Self::ChangesDetected`] so 0.18/0.19 discriminants stay stable.
+    Binary,
+    /// Target is not valid UTF-8 (and not binary by NUL probe). CLI JSON uses
+    /// `error_kind: "invalid_encoding"`. Distinct from [`Self::Binary`] and
+    /// [`Self::InvalidInput`] (#1963).
+    InvalidEncoding,
 }
 
 impl std::fmt::Display for EditErrorKind {
@@ -165,6 +175,8 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::NotFound => write!(f, "not_found"),
             EditErrorKind::Conflicts => write!(f, "conflicts"),
             EditErrorKind::ChangesDetected => write!(f, "changes_detected"),
+            EditErrorKind::Binary => write!(f, "binary"),
+            EditErrorKind::InvalidEncoding => write!(f, "invalid_encoding"),
         }
     }
 }
@@ -285,6 +297,14 @@ pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErr
         {
             return Some(EditErrorKind::ChangesDetected);
         }
+        if e.downcast_ref::<crate::exit::BinaryError>().is_some() {
+            return Some(EditErrorKind::Binary);
+        }
+        if e.downcast_ref::<crate::exit::InvalidEncodingError>()
+            .is_some()
+        {
+            return Some(EditErrorKind::InvalidEncoding);
+        }
         if e.downcast_ref::<std::io::Error>()
             .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
         {
@@ -386,6 +406,58 @@ pub fn is_no_match(err: &anyhow::Error) -> bool {
 #[must_use]
 pub fn is_ambiguous(err: &anyhow::Error) -> bool {
     edit_error_kind(err) == Some(EditErrorKind::AmbiguousTarget)
+}
+
+/// Whether the error peels as binary/NUL content ([`EditErrorKind::Binary`]).
+///
+/// Distinct from [`is_invalid_input`] (argument mistakes) and
+/// [`is_invalid_encoding`] (non-UTF-8 text without NUL). Hosts that recover
+/// overwrite of non-text priors should branch on this (or [`is_invalid_encoding`])
+/// rather than all of `InvalidInput` (#1963).
+#[must_use]
+pub fn is_binary(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::Binary)
+}
+
+/// Whether the error peels as invalid UTF-8 content
+/// ([`EditErrorKind::InvalidEncoding`]). Distinct from [`is_binary`] and
+/// [`is_invalid_input`] (#1963).
+#[must_use]
+pub fn is_invalid_encoding(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::InvalidEncoding)
+}
+
+/// One-shot peel of a library/CLI error for host tool envelopes (#1964).
+///
+/// Combines [`error_kind_str`], [`edit_error_ref`], and agent-facing message
+/// so embedders do not reimplement `edit_error_kind` + `error_kind_str` +
+/// Display formatting. Returns `None` when the chain has no recognized kind.
+#[derive(Debug, Clone)]
+pub struct PeeledError {
+    /// CLI-stable kind string (`already_exists`, `binary`, …).
+    pub kind_str: &'static str,
+    /// Agent-facing message (same as CLI JSON `error` when possible).
+    pub message: String,
+    /// Optional suggestion from [`EditError`].
+    pub suggestion: Option<String>,
+    /// Similar targets from [`EditError`] (did-you-mean).
+    pub similar_targets: Vec<String>,
+}
+
+/// Peel kind string + message + optional suggestion from an error chain (#1964).
+#[must_use]
+pub fn peel_error(err: &anyhow::Error) -> Option<PeeledError> {
+    let kind_str = error_kind_str(err)?;
+    let (suggestion, similar_targets) = match edit_error_ref(err) {
+        Some(e) => (e.suggestion.clone(), e.similar_targets.clone()),
+        None => (None, Vec::new()),
+    };
+    Some(PeeledError {
+        kind_str,
+        message: crate::exit::agent_error_message(err),
+        suggestion,
+        similar_targets,
+    })
 }
 
 /// Downcast a bare `dyn Error` chain to [`EditError`] when present (#1659).
@@ -1112,6 +1184,11 @@ mod tests {
             "changes_detected"
         );
         assert_eq!(EditErrorKind::FormatFailed.to_string(), "format_failed");
+        assert_eq!(EditErrorKind::Binary.to_string(), "binary");
+        assert_eq!(
+            EditErrorKind::InvalidEncoding.to_string(),
+            "invalid_encoding"
+        );
     }
 
     /// Locks discriminants published in 0.18.0 so new kinds stay append-only
@@ -1133,6 +1210,9 @@ mod tests {
         assert_eq!(EditErrorKind::NotFound as u8, 11);
         assert_eq!(EditErrorKind::Conflicts as u8, 12);
         assert_eq!(EditErrorKind::ChangesDetected as u8, 13);
+        // #1963 kinds append after ChangesDetected (never insert above).
+        assert_eq!(EditErrorKind::Binary as u8, 14);
+        assert_eq!(EditErrorKind::InvalidEncoding as u8, 15);
     }
 
     #[test]

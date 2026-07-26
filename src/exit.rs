@@ -201,6 +201,48 @@ pub fn is_changes_detected(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<ChangesDetectedError>().is_some())
 }
 
+/// Typed error for binary/NUL content that maps to exit [`FAILURE`] (1)
+/// with JSON `error_kind: "binary"` (#1963).
+#[derive(Debug)]
+pub struct BinaryError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for BinaryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for BinaryError {}
+
+/// Check whether an `anyhow::Error` chain contains a [`BinaryError`].
+pub fn is_binary(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<BinaryError>().is_some())
+}
+
+/// Typed error for invalid UTF-8 content that maps to exit [`FAILURE`] (1)
+/// with JSON `error_kind: "invalid_encoding"` (#1963).
+#[derive(Debug)]
+pub struct InvalidEncodingError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for InvalidEncodingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for InvalidEncodingError {}
+
+/// Check whether an `anyhow::Error` chain contains an [`InvalidEncodingError`].
+pub fn is_invalid_encoding(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<InvalidEncodingError>().is_some())
+}
+
 /// Typed error for post-write `--format` / format-step failures that map to
 /// exit [`FAILURE`] (1) with JSON `error_kind: "format_failed"`.
 ///
@@ -379,6 +421,8 @@ pub fn error_kind_implies_not_applied(kind: &str) -> bool {
         "no_matches"
             | "ambiguous"
             | "invalid_input"
+            | "binary"
+            | "invalid_encoding"
             | "guard_rejected"
             | "not_found"
             | "already_exists"
@@ -399,6 +443,10 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
         Some(("no_matches", NO_MATCHES))
     } else if is_ambiguous(err) {
         Some(("ambiguous", AMBIGUOUS))
+    } else if is_binary(err) {
+        Some(("binary", FAILURE))
+    } else if is_invalid_encoding(err) {
+        Some(("invalid_encoding", FAILURE))
     } else if is_invalid_input(err) {
         Some(("invalid_input", FAILURE))
     } else if is_io_not_found(err) {
@@ -426,13 +474,15 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
         // Library/engine PathGuard and other EditError-only kinds (#1935).
         // Keep exit-typed arms above so already_exists / type_error stay distinct
         // when both layers appear in a chain. EditErrorKind now peels the same
-        // honesty kinds for library hosts (#1947).
+        // honesty kinds for library hosts (#1947 / #1963).
         use crate::fallback::EditErrorKind;
         match edit.kind {
             EditErrorKind::GuardRejected => Some(("guard_rejected", FAILURE)),
             EditErrorKind::NoMatch => Some(("no_matches", NO_MATCHES)),
             EditErrorKind::AmbiguousTarget => Some(("ambiguous", AMBIGUOUS)),
             EditErrorKind::InvalidInput => Some(("invalid_input", FAILURE)),
+            EditErrorKind::Binary => Some(("binary", FAILURE)),
+            EditErrorKind::InvalidEncoding => Some(("invalid_encoding", FAILURE)),
             EditErrorKind::TypeError => Some(("type_error", FAILURE)),
             EditErrorKind::AlreadyExists => Some(("already_exists", FAILURE)),
             EditErrorKind::NotFound => Some(("not_found", FAILURE)),

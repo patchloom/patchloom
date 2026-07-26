@@ -58,10 +58,9 @@ pub fn ensure_parent_components_are_directories(
 /// NUL bytes are valid UTF-8, so `read_to_string` succeeds and used to rewrite
 /// binaries as text. Matches replace/search skip policy (`is_binary` on the
 /// first 8 KiB). `display` is the path shown in the error (CLI arg or op path).
-pub fn ensure_not_binary_file(
-    path: &Path,
-    display: &str,
-) -> Result<(), crate::exit::InvalidInputError> {
+/// Returns [`crate::exit::BinaryError`] (`error_kind: binary`) so hosts can
+/// distinguish content SoftSkip from argument `invalid_input` (#1963).
+pub fn ensure_not_binary_file(path: &Path, display: &str) -> Result<(), crate::exit::BinaryError> {
     use std::io::Read;
 
     if !path.exists() {
@@ -78,7 +77,7 @@ pub fn ensure_not_binary_file(
         Err(_) => return Ok(()),
     };
     if crate::files::is_binary(&buf[..n]) {
-        return Err(crate::exit::InvalidInputError {
+        return Err(crate::exit::BinaryError {
             msg: format!("target is a binary file: {display}"),
         });
     }
@@ -87,19 +86,17 @@ pub fn ensure_not_binary_file(
 
 /// When the user names exactly one existing file that is not valid text
 /// (binary NUL, invalid UTF-8) **or cannot be read** (permission/IO), return
-/// `InvalidInput`.
+/// a typed error (`BinaryError` / `InvalidEncodingError` / `InvalidInputError`).
 ///
 /// Soft walks use [`crate::files::try_read_text_file`]; explicit multi-path
 /// lists use [`explicit_multi_path_non_text_refused`]. Sole explicit non-text
 /// / unreadable must not report pattern `no_matches` or vacuous tidy "clean"
-/// (#1894; fixrealloop sole unreadable).
+/// (#1894; fixrealloop sole unreadable). Content SoftSkip peels to
+/// `binary` / `invalid_encoding` (#1963), not coarse `invalid_input`.
 ///
 /// Prefer [`sole_explicit_non_text_for_scan`] when `--files-from` may supply
 /// the sole path (positional `paths` is empty).
-pub fn sole_explicit_non_text(
-    paths: &[String],
-    cwd: &Path,
-) -> Option<crate::exit::InvalidInputError> {
+pub fn sole_explicit_non_text(paths: &[String], cwd: &Path) -> Option<anyhow::Error> {
     if paths.len() != 1 {
         return None;
     }
@@ -118,22 +115,25 @@ pub fn sole_explicit_non_text(
     if !path.is_file() {
         return None;
     }
-    // Strict sole-path: binary / invalid UTF-8 → InvalidInput; unreadable IO
+    // Strict sole-path: binary / invalid UTF-8 → typed kinds; unreadable IO
     // on an existing file must also hard-fail (not soft no_matches / clean).
     match crate::files::load_text_strict(&path, display) {
         Ok(_) => None,
         Err(e) => {
-            if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
-                Some(crate::exit::InvalidInputError {
-                    msg: inv.msg.clone(),
-                })
+            if crate::fallback::is_binary(&e)
+                || crate::fallback::is_invalid_encoding(&e)
+                || crate::exit::is_invalid_input(&e)
+            {
+                Some(e)
             } else {
                 // load_text_strict already prefixes "failed to read {display}";
                 // do not double-wrap (fixrealloop: "failed to read x: failed to read x").
-                // Prefer agent_error_message so embedded OS detail is not doubled.
-                Some(crate::exit::InvalidInputError {
-                    msg: crate::exit::agent_error_message(&e),
-                })
+                Some(
+                    crate::exit::InvalidInputError {
+                        msg: crate::exit::agent_error_message(&e),
+                    }
+                    .into(),
+                )
             }
         }
     }
@@ -149,7 +149,7 @@ pub fn sole_explicit_non_text_for_scan(
     paths: &[String],
     files_from: Option<&[String]>,
     cwd: &Path,
-) -> Option<crate::exit::InvalidInputError> {
+) -> Option<anyhow::Error> {
     match files_from {
         Some(list) => sole_explicit_non_text(list, cwd),
         None => sole_explicit_non_text(paths, cwd),
@@ -389,6 +389,11 @@ mod tests {
         let err = ensure_not_binary_file(&path, "b.bin").unwrap_err();
         assert!(err.msg.contains("binary file"), "got: {}", err.msg);
         assert!(err.msg.contains("b.bin"));
+        let ae: anyhow::Error = err.into();
+        assert_eq!(
+            crate::fallback::edit_error_kind(&ae),
+            Some(crate::fallback::EditErrorKind::Binary)
+        );
     }
 
     #[test]
@@ -403,7 +408,12 @@ mod tests {
         let path = dir.path().join("b.bin");
         fs::write(&path, b"x\x00y").unwrap();
         let err = sole_explicit_non_text(&["b.bin".into()], dir.path()).unwrap();
-        assert!(err.msg.contains("binary"));
+        assert!(err.to_string().contains("binary"));
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("binary"),
+            "sole binary must peel to error_kind binary (#1963)"
+        );
     }
 
     #[test]
@@ -422,12 +432,14 @@ mod tests {
         let path = dir.path().join("bad.txt");
         fs::write(&path, b"hello \xff world\n").unwrap();
         let err = sole_explicit_non_text(&["bad.txt".into()], dir.path()).unwrap();
-        assert!(
-            err.msg.contains("UTF-8") || err.msg.contains("utf"),
-            "got: {}",
-            err.msg
+        let msg = err.to_string();
+        assert!(msg.contains("UTF-8") || msg.contains("utf"), "got: {msg}");
+        assert!(msg.contains("bad.txt"), "got: {msg}");
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("invalid_encoding"),
+            "sole invalid UTF-8 must peel to invalid_encoding (#1963)"
         );
-        assert!(err.msg.contains("bad.txt"), "got: {}", err.msg);
     }
 
     #[test]
@@ -438,7 +450,8 @@ mod tests {
         // Positionals empty (typical --files-from only).
         assert!(sole_explicit_non_text(&[], dir.path()).is_none());
         let err = sole_explicit_non_text_for_scan(&[], Some(&list), dir.path()).unwrap();
-        assert!(err.msg.contains("binary"), "got: {}", err.msg);
+        assert!(err.to_string().contains("binary"), "got: {err}");
+        assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
     }
 
     #[test]
@@ -488,26 +501,24 @@ mod tests {
                 return;
             }
             let err = sole_explicit_non_text(&["locked.txt".into()], dir.path()).unwrap();
-            assert!(err.msg.contains("failed to read"), "got: {}", err.msg);
+            let msg = err.to_string();
+            assert!(msg.contains("failed to read"), "got: {msg}");
             // OS detail must appear in Display/msg (not only via {:#} on a chain).
             assert!(
-                err.msg.contains("Permission denied")
-                    || err.msg.contains("PermissionDenied")
-                    || err.msg.contains("os error"),
-                "OS detail missing: {}",
-                err.msg
+                msg.contains("Permission denied")
+                    || msg.contains("PermissionDenied")
+                    || msg.contains("os error"),
+                "OS detail missing: {msg}"
             );
             // Single prefix only (not "failed to read x: failed to read x").
-            let failed_count = err.msg.matches("failed to read").count();
+            let failed_count = msg.matches("failed to read").count();
             assert_eq!(
                 failed_count, 1,
-                "unreadable error must not double-wrap load_text_strict context: {}",
-                err.msg
+                "unreadable error must not double-wrap load_text_strict context: {msg}"
             );
             assert!(
-                err.msg.contains("locked.txt"),
-                "path should appear once in message: {}",
-                err.msg
+                msg.contains("locked.txt"),
+                "path should appear once in message: {msg}"
             );
             fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         }

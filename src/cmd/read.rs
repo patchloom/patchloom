@@ -53,10 +53,22 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
             msg: format!("{path}: target is not a file"),
         });
     }
-    // Strict text load (#1894): binary / invalid UTF-8 → invalid_input.
+    // Strict text load (#1894 / #1963): binary / invalid_encoding / invalid_input.
     let content = match crate::files::load_text_strict(p, path) {
         Ok(s) => s,
         Err(e) => {
+            if crate::exit::is_binary(&e) {
+                return Err(ReadFail {
+                    kind: "binary",
+                    msg: e.to_string(),
+                });
+            }
+            if crate::exit::is_invalid_encoding(&e) {
+                return Err(ReadFail {
+                    kind: "invalid_encoding",
+                    msg: e.to_string(),
+                });
+            }
             if let Some(inv) = e.downcast_ref::<crate::exit::InvalidInputError>() {
                 return Err(ReadFail {
                     kind: "invalid_input",
@@ -140,11 +152,24 @@ fn classify_read_failures(errors: &[ReadFail]) -> (&'static str, u8) {
     if errors.iter().all(|e| e.kind == "no_matches") {
         return ("no_matches", exit::NO_MATCHES);
     }
+    if errors.iter().all(|e| e.kind == "binary") {
+        return ("binary", exit::FAILURE);
+    }
+    if errors.iter().all(|e| e.kind == "invalid_encoding") {
+        return ("invalid_encoding", exit::FAILURE);
+    }
     if errors.iter().all(|e| e.kind == "invalid_input") {
         return ("invalid_input", exit::FAILURE);
     }
     if errors.iter().all(|e| e.kind == "not_found") {
         return ("not_found", exit::FAILURE);
+    }
+    // Content SoftSkip mixed with other failures: prefer binary / encoding.
+    if errors.iter().any(|e| e.kind == "binary") {
+        return ("binary", exit::FAILURE);
+    }
+    if errors.iter().any(|e| e.kind == "invalid_encoding") {
+        return ("invalid_encoding", exit::FAILURE);
     }
     // Mixed failures (e.g. missing + directory): prefer invalid_input so agents
     // do not treat a directory path as create-missing.

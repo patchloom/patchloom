@@ -1079,7 +1079,7 @@ fn test_search_sole_explicit_binary_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(err.contains("binary"), "expected binary guidance, got: {v}");
 }
@@ -1111,7 +1111,7 @@ fn test_search_sole_invalid_utf8_is_invalid_input() {
         "sole non-text must not soft-skip first: {stderr}"
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "invalid_encoding", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
         err.contains("UTF-8") || err.contains("utf"),
@@ -1246,7 +1246,7 @@ fn test_search_files_from_sole_binary_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     assert!(v["error"].as_str().unwrap_or("").contains("binary"), "{v}");
 }
 

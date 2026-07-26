@@ -189,9 +189,12 @@
 //! | Cheap binary path check before open (open fail → `false`) | [`api::is_binary_file`] / [`files::is_binary_file`] |
 //! | Map multi-doc bare key / wrong-root merge to tool `invalid_args` | [`EditErrorKind::TypeError`] / [`api::is_type_error`] |
 //! | Multi-doc YAML merge into document 0 | [`api::doc_merge`](..., `Some("0")`) |
-//! | Map empty pattern / sole binary to `invalid_args` | [`EditErrorKind::InvalidInput`] / [`api::is_invalid_input`] |
+//! | Map empty pattern / directory target to `invalid_args` | [`EditErrorKind::InvalidInput`] / [`api::is_invalid_input`] |
+//! | Map sole binary / NUL content | [`EditErrorKind::Binary`] / [`api::is_binary`] (`binary`) |
+//! | Map invalid UTF-8 content | [`EditErrorKind::InvalidEncoding`] / [`api::is_invalid_encoding`] |
+//! | Force create over binary/unreadable prior | [`api::file_create`](..., `force: true`) (#1962) |
 //! | Map create/rename dest-exists to force/overwrite recovery | [`EditErrorKind::AlreadyExists`] / [`api::is_already_exists`] |
-//! | CLI-stable kind string for host JSON envelopes | [`api::error_kind_str`] (`already_exists`, `not_found`, …) |
+//! | CLI-stable kind string for host JSON envelopes | [`api::error_kind_str`] / [`api::peel_error`] |
 //! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] / [`api::is_not_found`] |
 //! | Map patch merge conflict markers | [`EditErrorKind::Conflicts`] / [`api::is_conflicts`] (distinct from batch [`EditErrorKind::ConflictingEdit`]) |
 //! | Map check/assert-count exit-2 soft failures | [`EditErrorKind::ChangesDetected`] / [`api::is_changes_detected`] |
@@ -210,7 +213,7 @@
 //! if api::is_binary_file(path) {
 //!     // host: refuse tool call as invalid_args
 //! }
-//! let _text = api::load_text(path)?; // InvalidInput if binary / not UTF-8
+//! let _text = api::load_text(path)?; // Binary / InvalidEncoding if non-text
 //! match api::doc_merge(path, serde_json::json!({"c": 3}), ApplyMode::Apply, None, Some("0")) {
 //!     Ok(r) => assert!(r.changed),
 //!     Err(e) if edit_error_kind(&e) == Some(EditErrorKind::TypeError) => {
@@ -297,14 +300,15 @@ pub use api::apply_content_edits_to_file;
 pub use api::search_one_file;
 pub use api::{
     ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult, EditError, EditErrorKind,
-    EditResult, Hunk, MatchMode, PatchFile, PatchLine, PostWriteHooks, PostWriteOnFailure,
-    ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
-    apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
-    classify_error, classify_error_ref, edit_error_kind, edit_error_ref, error_kind_str,
-    format_search_results, is_already_exists, is_ambiguous, is_binary_file, is_changes_detected,
-    is_conflicts, is_format_failed, is_guard_rejected, is_invalid_input, is_no_match, is_not_found,
-    is_type_error, load_text, load_text_strict, merge_match_modes, parse_unified_diff,
-    run_post_write_validation, search_file, text_diff,
+    EditResult, Hunk, MatchMode, PatchFile, PatchLine, PeeledError, PostWriteHooks,
+    PostWriteOnFailure, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
+    apply_content_edits, apply_content_edits_with_label, apply_post_write_validator,
+    build_context_lines, classify_error, classify_error_ref, edit_error_kind, edit_error_ref,
+    error_kind_str, format_search_results, is_already_exists, is_ambiguous, is_binary,
+    is_binary_file, is_changes_detected, is_conflicts, is_format_failed, is_guard_rejected,
+    is_invalid_encoding, is_invalid_input, is_no_match, is_not_found, is_type_error, load_text,
+    load_text_strict, merge_match_modes, parse_unified_diff, peel_error, run_post_write_validation,
+    search_file, text_diff,
 };
 pub use plan::Plan;
 

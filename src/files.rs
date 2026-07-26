@@ -97,16 +97,18 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// | Kind | Result |
 /// |------|--------|
 /// | Text | `Ok(String)` |
-/// | Binary | `Err(InvalidInputError)` — `target is a binary file: {display}` |
-/// | Invalid UTF-8 | `Err(InvalidInputError)` — `target is not valid UTF-8 text: {display}` |
+/// | Binary | `Err(BinaryError)` — `target is a binary file: {display}` (`error_kind: binary`) |
+/// | Invalid UTF-8 | `Err(InvalidEncodingError)` — `target is not valid UTF-8 text: {display}` (`error_kind: invalid_encoding`) |
 /// | Not a file | `Err(InvalidInputError)` — `target is not a file: {display}` |
 /// | IO NotFound | `Err` with `io::Error` + context `failed to read {display}` (`is_io_not_found`) |
 /// | IO other (permission, …) | `Err(InvalidInputError)` — `failed to read {display}: {os error}` |
 ///
-/// Non-NotFound IO is typed so agent JSON gets `error_kind: invalid_input` and a
-/// single complete message that includes the OS error even when callers format
-/// with `Display` / `to_string()` (which drops anyhow cause chains). NotFound
-/// stays an IO error so [`crate::exit::is_io_not_found`] keeps working.
+/// Binary / invalid UTF-8 are distinct from argument `invalid_input` so hosts can
+/// recover overwrite without treating empty paths the same as content SoftSkip
+/// (#1963). Non-NotFound IO is typed so agent JSON gets `error_kind: invalid_input`
+/// and a single complete message that includes the OS error even when callers
+/// format with `Display` / `to_string()` (which drops anyhow cause chains).
+/// NotFound stays an IO error so [`crate::exit::is_io_not_found`] keeps working.
 ///
 /// Directory walks and multi-path soft-skip must use [`read_text_file`] (or
 /// `tx::read_and_probe`), not this function.
@@ -139,11 +141,11 @@ pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
     };
     match classify_text_bytes(&bytes) {
         TextBytesKind::Text(s) => Ok(s),
-        TextBytesKind::Binary => Err(crate::exit::InvalidInputError {
+        TextBytesKind::Binary => Err(crate::exit::BinaryError {
             msg: format!("target is a binary file: {display}"),
         }
         .into()),
-        TextBytesKind::InvalidUtf8 => Err(crate::exit::InvalidInputError {
+        TextBytesKind::InvalidUtf8 => Err(crate::exit::InvalidEncodingError {
             msg: format!("target is not valid UTF-8 text: {display}"),
         }
         .into()),
@@ -994,8 +996,14 @@ mod tests {
         let p = dir.path().join("b.bin");
         std::fs::write(&p, b"hello\x00world").unwrap();
         let err = load_text_strict(&p, "b.bin").unwrap_err();
-        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert!(crate::exit::is_binary(&err), "{err:#}");
+        assert!(!crate::exit::is_invalid_input(&err), "{err:#}");
         assert!(err.to_string().contains("binary file"), "msg: {err}");
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::Binary)
+        );
+        assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
         assert_eq!(std::fs::read(&p).unwrap(), b"hello\x00world");
     }
 
@@ -1005,8 +1013,17 @@ mod tests {
         let p = dir.path().join("bad.txt");
         std::fs::write(&p, b"hello \xff world").unwrap();
         let err = load_text_strict(&p, "bad.txt").unwrap_err();
-        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert!(crate::exit::is_invalid_encoding(&err), "{err:#}");
+        assert!(!crate::exit::is_invalid_input(&err), "{err:#}");
         assert!(err.to_string().contains("UTF-8"), "msg: {err}");
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::InvalidEncoding)
+        );
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("invalid_encoding")
+        );
     }
 
     #[test]

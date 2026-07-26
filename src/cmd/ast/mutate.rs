@@ -43,7 +43,9 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
 
     // Sole non-text must not look like "symbol not found" (NUL is valid UTF-8).
     if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+        let msg = crate::exit::agent_error_message(&err);
+        global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
 

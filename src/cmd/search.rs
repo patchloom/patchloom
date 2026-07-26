@@ -465,7 +465,11 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         files_from_list.as_deref(),
         &cwd,
     ) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        {
+            let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+            let msg = crate::exit::agent_error_message(&err);
+            global.emit_error_json_kind(Some(kind), &msg)?;
+        }
         return Ok(exit::FAILURE);
     }
     let results = collect_matches(&args, global)?;
@@ -485,7 +489,11 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 files_from_list.as_deref(),
                 &cwd,
             ) {
-                global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+                {
+                    let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&err);
+                    global.emit_error_json_kind(Some(kind), &msg)?;
+                }
                 return Ok(exit::FAILURE);
             }
             let scanned = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
@@ -553,7 +561,11 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             files_from_list.as_deref(),
             &cwd,
         ) {
-            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            {
+                let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&err);
+                global.emit_error_json_kind(Some(kind), &msg)?;
+            }
             return Ok(exit::FAILURE);
         }
         // Multi-path / dir walk: unreadable may have masked the scan (#1894).
