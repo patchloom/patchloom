@@ -86,19 +86,49 @@
 //! Prefer these entry points instead of reimplementing binary / UTF-8 probes:
 //!
 //! - [`load_text`] / [`crate::files::load_text_strict`]: sole-path text load;
-//!   binary and invalid UTF-8 become `EditErrorKind::InvalidInput`
+//!   binary → `EditErrorKind::Binary`, invalid UTF-8 → `InvalidEncoding` (#1963)
 //! - [`is_binary_file`]: cheap 8 KiB NUL preflight (open fail → `false`; use
 //!   `load_text` when you need a typed open error)
-//! - [`edit_error_kind`]: peel `TypeError` (multi-doc bare key / wrong root),
-//!   `AlreadyExists` (create/rename dest), `NotFound`, `Conflicts`, etc.
-//!   separately from coarse `InvalidInput` / `OperationFailed`
-//! - [`error_kind_str`]: same CLI JSON kind strings (`already_exists`, …) for
-//!   host envelopes that mirror agent JSON (#1948)
+//! - [`edit_error_kind`]: peel `TypeError`, `AlreadyExists`, `Binary`,
+//!   `InvalidEncoding`, `NotFound`, `Conflicts`, etc. separately from coarse
+//!   `InvalidInput` / `OperationFailed`
+//! - [`error_kind_str`] / [`peel_error`]: CLI-stable kind strings for host
+//!   envelopes (`already_exists`, `binary`, `invalid_encoding`, …) (#1948 / #1964)
 //! - Bool peels (same chain as [`edit_error_kind`]): [`is_already_exists`],
 //!   [`is_not_found`], [`is_conflicts`], [`is_changes_detected`],
 //!   [`is_type_error`], [`is_format_failed`], [`is_guard_rejected`],
-//!   [`is_invalid_input`], [`is_no_match`], [`is_ambiguous`]
+//!   [`is_invalid_input`], [`is_binary`], [`is_invalid_encoding`],
+//!   [`is_no_match`], [`is_ambiguous`]
+//! - [`file_create`] with `force: true` overwrites unreadable/binary priors
+//!   without a host remove+recreate loop (#1962); hardlinks stay on the normal
+//!   Apply write path
 //! - [`doc_merge`]: optional `selector` for multi-doc YAML (`Some("0")`)
+//!
+//! ## Frozen `error_kind_str` contract for embedders (#1964)
+//!
+//! For a given failure, [`error_kind_str`] returns the **same** string CLI
+//! `--json` puts in `error_kind`. Stable strings after 0.19 (plus #1963):
+//!
+//! | String | Typical cause |
+//! |--------|----------------|
+//! | `already_exists` | create/rename dest without force |
+//! | `not_found` | missing path I/O |
+//! | `binary` | NUL binary probe (#1963) |
+//! | `invalid_encoding` | non-UTF-8 text (#1963) |
+//! | `invalid_input` | empty path, directory target, empty pattern, unreadable IO |
+//! | `guard_rejected` | PathGuard / `--contain` |
+//! | `no_matches` | soft zero matches |
+//! | `ambiguous` | unique multi-match |
+//! | `type_error` | multi-doc / wrong-root doc nav |
+//! | `conflicts` | patch merge conflict markers |
+//! | `changes_detected` | check/assert-count exit 2 |
+//! | `parse_error` | plan/patch/doc parse |
+//! | `format_failed` | post-write format/lint |
+//! | `operation_failed` | generic op failure |
+//!
+//! New kinds are **append-only** on [`EditErrorKind`]; hosts must keep a
+//! wildcard / default arm. Prefer [`peel_error`] when you need kind + message
+//! + suggestion in one call.
 //!
 //! ```rust,no_run
 //! use patchloom::api::{self, edit_error_kind, error_kind_str, EditErrorKind, ApplyMode};
@@ -110,7 +140,13 @@
 //! }
 //! match api::load_text(path) {
 //!     Ok(_text) => { /* safe to treat as agent-editable text */ }
-//!     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::InvalidInput)),
+//!     Err(e) if edit_error_kind(&e) == Some(EditErrorKind::Binary) => {
+//!         assert_eq!(error_kind_str(&e), Some("binary"));
+//!     }
+//!     Err(e) if edit_error_kind(&e) == Some(EditErrorKind::InvalidEncoding) => {
+//!         assert_eq!(error_kind_str(&e), Some("invalid_encoding"));
+//!     }
+//!     Err(_) => {}
 //! }
 //! // Multi-doc merge into document 0 (not root wipe)
 //! let _ = api::doc_merge(
@@ -127,6 +163,8 @@
 //!     }
 //!     _ => {}
 //! }
+//! // Force create overwrites binary prior (#1962)
+//! let _ = api::file_create(path, "fresh\n", true, ApplyMode::Apply, None);
 //! ```
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`; match with a wildcard arm so new
@@ -152,8 +190,9 @@ pub use self::doc::*;
 /// Load a path as agent-editable UTF-8 text (sole-path **Strict** policy).
 ///
 /// Thin alias of [`crate::files::load_text_strict`] for hosts that follow
-/// `api::*` only (#1910). Binary and invalid UTF-8 return
-/// [`crate::exit::InvalidInputError`] (peels to [`EditErrorKind::InvalidInput`]).
+/// `api::*` only (#1910). Binary returns [`EditErrorKind::Binary`]; invalid
+/// UTF-8 returns [`EditErrorKind::InvalidEncoding`] (#1963). Directory /
+/// unreadable IO stay [`EditErrorKind::InvalidInput`].
 ///
 /// Display string in errors is the path's lossy string form.
 pub fn load_text(path: &Path) -> anyhow::Result<String> {
@@ -411,12 +450,12 @@ pub struct ReplaceOptions {
     pub post_write_cwd: Option<std::path::PathBuf>,
 }
 
-// Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948).
+// Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948, #1963, #1964).
 pub use crate::fallback::{
-    EditError, EditErrorKind, classify_error, classify_error_ref, edit_error_kind, edit_error_ref,
-    error_kind_str, find_similar_targets, is_already_exists, is_ambiguous, is_changes_detected,
-    is_conflicts, is_format_failed, is_guard_rejected, is_invalid_input, is_no_match, is_not_found,
-    is_type_error,
+    EditError, EditErrorKind, PeeledError, classify_error, classify_error_ref, edit_error_kind,
+    edit_error_ref, error_kind_str, find_similar_targets, is_already_exists, is_ambiguous,
+    is_binary, is_changes_detected, is_conflicts, is_format_failed, is_guard_rejected,
+    is_invalid_encoding, is_invalid_input, is_no_match, is_not_found, is_type_error, peel_error,
 };
 
 /// Write policy options for controlling file write transformations.

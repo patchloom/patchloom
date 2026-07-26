@@ -348,7 +348,7 @@ fn test_tidy_check_files_from_sole_binary_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     assert!(v["error"].as_str().unwrap_or("").contains("binary"), "{v}");
 }
 

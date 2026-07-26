@@ -1,5 +1,5 @@
 //! File create/append/prepend/delete/rename for the tx engine.
-use super::{TxState, read_file_content};
+use super::{TxState, read_file_content, read_file_content_for_force_create};
 use crate::plan::Operation;
 
 // op_to_doc_mutation moved to plan.rs as the single source of truth for
@@ -84,8 +84,16 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // does not leave a bare tempfile error or a backup for an unwritten path.
             crate::ops::file::ensure_parent_components_are_directories(&file_path)?;
             if force.unwrap_or(false) {
+                // Force overwrite: soft-load prior text for backup/diff. Binary,
+                // invalid UTF-8, or unreadable prior → empty original so hosts
+                // need no remove+recreate loop (#1962). PathGuard still applies
+                // at plan entry; hardlink-preserving write stays on commit path.
                 if tx.pending.contains_key(&file_path) || file_path.exists() {
-                    let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
+                    let _ = read_file_content_for_force_create(
+                        tx.pending,
+                        tx.existed_before,
+                        &file_path,
+                    )?;
                 }
                 tx.write_file(&file_path, content.clone());
             } else {

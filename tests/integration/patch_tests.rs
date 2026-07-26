@@ -990,7 +990,7 @@ fn test_patch_diff_file_binary_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
         err.contains("binary") || err.contains("UTF-8") || err.contains("utf"),
@@ -1023,7 +1023,7 @@ fn test_patch_check_invalid_utf8_target_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "invalid_encoding", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(err.contains("UTF-8") || err.contains("utf"), "{v}");
 }
@@ -1053,7 +1053,7 @@ fn test_patch_check_binary_target_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     assert!(v["error"].as_str().unwrap_or("").contains("binary"), "{v}");
     assert_eq!(
         fs::read(dir.path().join("bin_line.bin")).unwrap(),
@@ -1087,7 +1087,7 @@ fn test_patch_apply_binary_target_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(err.contains("binary"), "expected binary guidance, got: {v}");
     assert!(

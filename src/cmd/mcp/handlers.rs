@@ -490,7 +490,11 @@ impl PatchloomService {
             let content = crate::files::load_text_strict(&abs, &p.path).map_err(|e| {
                 // load_text_strict messages already include path + OS detail;
                 // do not prefix "reading {path}:" again (MPI 2026-07-23).
-                if crate::exit::is_invalid_input(&e) || crate::exit::is_io_not_found(&e) {
+                if crate::exit::is_binary(&e)
+                    || crate::exit::is_invalid_encoding(&e)
+                    || crate::exit::is_invalid_input(&e)
+                    || crate::exit::is_io_not_found(&e)
+                {
                     McpError::invalid_params(e.to_string(), None)
                 } else {
                     McpError::internal_error(e.to_string(), None)
@@ -647,7 +651,11 @@ impl PatchloomService {
                 // do not re-wrap (same class as #1916).
                 let content = crate::files::load_text_strict(&abs, path).map_err(|e| {
                     // Display already has path + OS detail (MPI 2026-07-23).
-                    if crate::exit::is_invalid_input(&e) || crate::exit::is_io_not_found(&e) {
+                    if crate::exit::is_binary(&e)
+                    || crate::exit::is_invalid_encoding(&e)
+                    || crate::exit::is_invalid_input(&e)
+                    || crate::exit::is_io_not_found(&e)
+                {
                         McpError::invalid_params(e.to_string(), None)
                     } else {
                         McpError::internal_error(e.to_string(), None)

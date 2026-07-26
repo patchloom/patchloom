@@ -74,17 +74,19 @@ enum DiffReadError {
     NoSource,
     IoError(String, std::io::Error),
     StdinError(std::io::Error),
-    /// Diff bytes are binary or not valid UTF-8 (#1896).
-    InvalidInput(String),
+    /// Diff bytes are binary (#1896 / #1963).
+    Binary(String),
+    /// Diff bytes are not valid UTF-8 (#1896 / #1963).
+    InvalidEncoding(String),
 }
 
 fn classify_diff_bytes(bytes: Vec<u8>, display: &str) -> Result<String, DiffReadError> {
     match crate::files::classify_text_bytes(&bytes) {
         crate::files::TextBytesKind::Text(s) => Ok(s),
-        crate::files::TextBytesKind::Binary => Err(DiffReadError::InvalidInput(format!(
+        crate::files::TextBytesKind::Binary => Err(DiffReadError::Binary(format!(
             "patch input is a binary file: {display}"
         ))),
-        crate::files::TextBytesKind::InvalidUtf8 => Err(DiffReadError::InvalidInput(format!(
+        crate::files::TextBytesKind::InvalidUtf8 => Err(DiffReadError::InvalidEncoding(format!(
             "patch input is not valid UTF-8 text: {display}"
         ))),
     }
@@ -117,8 +119,14 @@ fn read_diff_input(
             let display = full.display().to_string();
             // Strict sole-path for the patch file itself (#1896).
             crate::files::load_text_strict(&full, &display).map_err(|e| {
-                if crate::exit::is_invalid_input(&e) {
-                    DiffReadError::InvalidInput(e.to_string())
+                if crate::exit::is_binary(&e) {
+                    DiffReadError::Binary(e.to_string())
+                } else if crate::exit::is_invalid_encoding(&e) {
+                    DiffReadError::InvalidEncoding(e.to_string())
+                } else if crate::exit::is_invalid_input(&e) {
+                    // Directory / non-file / unreadable treated as IO for patch
+                    // input (agents still get a fail-closed read error).
+                    DiffReadError::IoError(display.clone(), std::io::Error::other(e.to_string()))
                 } else if crate::exit::is_io_not_found(&e) {
                     DiffReadError::IoError(
                         display.clone(),
@@ -141,16 +149,19 @@ fn read_diff_input(
 /// - Text: `Ok(content)`
 /// - Missing + `missing_as_empty`: `Ok("")` (creation / merge check)
 /// - Missing + not empty: `Err(NotFound)`
-/// - Binary / invalid UTF-8 / permission (and other non-NotFound IO from
-///   `load_text_strict`): `Err(InvalidInput)`
+/// - Binary / invalid UTF-8: `Err(Binary)` / `Err(InvalidEncoding)` (#1963)
+/// - Permission / other non-NotFound IO from `load_text_strict`: `Err(InvalidInput)`
 /// - Residual IO: `Err(Io)`
 #[derive(Debug)]
 enum PatchTargetError {
     NotFound,
     /// Directory or non-file path (per-file check status `error`, exit 5).
     NotAFile(String),
-    /// Binary, invalid UTF-8, or unreadable existing path (fail-closed
-    /// `invalid_input`, exit 1).
+    /// Binary target (fail-closed `binary`, exit 1) (#1963).
+    Binary(String),
+    /// Invalid UTF-8 target (fail-closed `invalid_encoding`, exit 1) (#1963).
+    InvalidEncoding(String),
+    /// Unreadable existing path (fail-closed `invalid_input`, exit 1).
     InvalidInput(String),
     Io(String),
 }
@@ -168,6 +179,10 @@ fn load_patch_target(
             } else {
                 Err(PatchTargetError::NotFound)
             }
+        }
+        Err(e) if crate::exit::is_binary(&e) => Err(PatchTargetError::Binary(e.to_string())),
+        Err(e) if crate::exit::is_invalid_encoding(&e) => {
+            Err(PatchTargetError::InvalidEncoding(e.to_string()))
         }
         Err(e) if crate::exit::is_invalid_input(&e) => {
             let msg = e.to_string();
@@ -439,8 +454,12 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             )?;
             return Ok(exit::PARSE_ERROR);
         }
-        Err(DiffReadError::InvalidInput(msg)) => {
-            emit_error(global, &format!("patch: {msg}"), "invalid_input")?;
+        Err(DiffReadError::Binary(msg)) => {
+            emit_error(global, &format!("patch: {msg}"), "binary")?;
+            return Ok(exit::FAILURE);
+        }
+        Err(DiffReadError::InvalidEncoding(msg)) => {
+            emit_error(global, &format!("patch: {msg}"), "invalid_encoding")?;
             return Ok(exit::FAILURE);
         }
     };
@@ -485,8 +504,16 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     any_problem = true;
                     continue;
                 }
+                Err(PatchTargetError::Binary(msg)) => {
+                    global.emit_error_json_kind(Some("binary"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
+                Err(PatchTargetError::InvalidEncoding(msg)) => {
+                    global.emit_error_json_kind(Some("invalid_encoding"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
                 Err(PatchTargetError::InvalidInput(msg)) => {
-                    // Binary / invalid UTF-8: hard fail-closed for agents.
+                    // Unreadable prior: hard fail-closed for agents.
                     global.emit_error_json_kind(Some("invalid_input"), &msg)?;
                     return Ok(exit::FAILURE);
                 }
@@ -560,9 +587,17 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut all_ok = true;
         for pf in &patch_files {
             let file_path = cwd.join(&pf.path);
-            // Merge check: missing target → empty; binary/utf8 → invalid_input.
+            // Merge check: missing target → empty; binary/utf8 → typed kinds.
             let original = match load_patch_target(&file_path, &pf.path, true) {
                 Ok(s) => s,
+                Err(PatchTargetError::Binary(msg)) => {
+                    global.emit_error_json_kind(Some("binary"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
+                Err(PatchTargetError::InvalidEncoding(msg)) => {
+                    global.emit_error_json_kind(Some("invalid_encoding"), &msg)?;
+                    return Ok(exit::FAILURE);
+                }
                 Err(PatchTargetError::InvalidInput(msg)) => {
                     global.emit_error_json_kind(Some("invalid_input"), &msg)?;
                     return Ok(exit::FAILURE);
@@ -631,6 +666,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // STALE/ambiguous labels (fixrealloop 2026-07-21).
                 let (exit_code, kind) = if exit::is_conflicts(&e) || msg.contains("conflict(s)") {
                     (exit::CONFLICTS, "conflicts")
+                } else if exit::is_binary(&e) {
+                    (exit::FAILURE, "binary")
+                } else if exit::is_invalid_encoding(&e) {
+                    (exit::FAILURE, "invalid_encoding")
                 } else if exit::is_invalid_input(&e) {
                     (exit::FAILURE, "invalid_input")
                 } else {

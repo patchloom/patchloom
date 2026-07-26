@@ -62,16 +62,19 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 |-----------|-----------------------------|
 | Create/rename dest exists without force | `AlreadyExists` / `already_exists` (not `InvalidInput`; use force/overwrite) |
 | Missing path I/O | `NotFound` / `not_found` |
-| Directory target / binary / empty path | `InvalidInput` / `invalid_input` |
+| Directory target / empty path / unreadable IO | `InvalidInput` / `invalid_input` |
+| Binary (NUL probe) | `Binary` / `binary` (#1963) |
+| Invalid UTF-8 text | `InvalidEncoding` / `invalid_encoding` (#1963) |
+| Force create over binary/unreadable prior | succeeds with empty original (#1962) |
 | PathGuard / `--contain` escape | `GuardRejected` / `guard_rejected` |
 | Patch merge conflict markers | `Conflicts` / `conflicts` (not batch `ConflictingEdit`) |
 | Check/assert-count exit-2 soft fail | `ChangesDetected` / `changes_detected` |
 | AST missing symbol | `NoMatch` / `no_matches` |
-- Bool peels (match `edit_error_kind`): `api::is_already_exists`, `is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_no_match`, `is_ambiguous`; string peel: `api::error_kind_str` for CLI-stable envelopes (#1947 / #1948).
+- Bool peels (match `edit_error_kind`): `api::is_already_exists`, `is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_binary`, `is_invalid_encoding`, `is_no_match`, `is_ambiguous`; string peel: `api::error_kind_str` / one-shot `api::peel_error` (kind + message + suggestion) for CLI-stable envelopes (#1947 / #1948 / #1963 / #1964).
 - New `EditErrorKind` variants must be **appended** (after the last variant) so discriminants of published kinds stay stable under cargo-semver-checks (#1955).
 - CLI: `patchloom undo --list` walks nested `.patchloom/backups` under the cwd (#1695). Bare CLI undo is dry-run (exit 2); restore needs the write apply flag (see CLI agent-rules).
 - `api::run_post_write_validation` / `ReplaceOptions.post_write` / `WritePolicyOptions.post_write` (#1663, #1690) maps to `format_failed` / `EditErrorKind::FormatFailed`
-- Multi-doc / wrong-root doc navigation peels to `EditErrorKind::TypeError` via `edit_error_kind` / `classify_error` (CLI JSON `error_kind: type_error`; #1883). Do not collapse with `InvalidInput` (empty patterns, bad options, sole binary).
+- Multi-doc / wrong-root doc navigation peels to `EditErrorKind::TypeError` via `edit_error_kind` / `classify_error` (CLI JSON `error_kind: type_error`; #1883). Do not collapse with `InvalidInput` (empty patterns, bad options) or `Binary` / `InvalidEncoding` for content SoftSkip (#1963).
 - Multi-doc `api::doc_merge(path, value, mode, guard, selector)`: pass `Some("0")` (or `"[0]"`) to merge into document 0; `None` is root-only and refuses a non-array overlay on multi-doc root with `TypeError` (#1909).
 - Path binary preflight: `api::is_binary_file` / `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884)
 - Sole-path text load for hosts: `api::load_text(path)` or `files::load_text_strict` (#1894, #1910)
@@ -79,7 +82,7 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - Text I/O honesty (#1894):
 | Surface | Binary / invalid UTF-8 | Unreadable (IO) |
 |---------|------------------------|-----------------|
-| Sole explicit path (`load_text_strict` / `sole_explicit_non_text`) | `error_kind: invalid_input` | IO / `not_found` |
+| Sole explicit path (`load_text_strict` / `sole_explicit_non_text`) | `binary` / `invalid_encoding` / `invalid_input` | IO / `not_found` |
 | Explicit multi-file list | `refused[]` reason `binary` or `invalid_utf8` | `refused[]` reason `unreadable` |
 | Directory walk (`try_read_text_file`) | content SoftSkip (silent) | SoftSkip; empty scan must not report pattern `no_matches` if unreadable may have masked it (AST rename) |
 | Tx multi-path probe (`read_and_probe`) | SoftSkip `Ok(false)` | Hard `Err` (plan names paths) |
@@ -106,7 +109,7 @@ Byte rule: `classify_text_bytes`. Patch file + patch targets use Strict (#1896).
 }
 ```
 Placeholders: `{path}`, `{item}` (alias of `{path}`), `{dir}`, `{stem}`, `{ext}`, `{name}`. Unknown lone `{name}` in path/from/to fields fails with `invalid_input` (not opaque `not_found`). Do not put `for_each` inside `operations` and do not pass a bare path array.
-**Binary / non-text / unreadable paths (#1813 / SoftTextSkip):** Sole explicit **binary, invalid UTF-8, or unreadable** path on **replace**, **search**, **tidy**, **read**, **md**, **ast**, or **patch** is `invalid_input` (not pattern `no_matches` / not vacuous tidy clean / not unsupported-language / not missing-symbol; NUL is valid UTF-8 so a text load can succeed without a binary probe). This includes a **sole path supplied only via file-backed `--files-from`** (not stdin `-`). Multi-file **replace**, **search**, and **tidy** lists (positionals or `--files-from`) put non-text co-paths in `refused[]` with `reason: binary`, `invalid_utf8`, or `unreadable` (do not treat a partial success as covering every listed path). Multi-file read reports binary paths under `skipped[]` with `error_kind: invalid_input`. Directory walks soft-skip content SoftSkip (binary/utf8) without failing the whole search. If a walk finds **zero** matches/issues and **any** path was unreadable, the result is `invalid_input` (not pattern `no_matches` / not vacuous tidy clean / not `assert-count` success with actual 0 / not AST “no symbols”), because IO may have masked the scan.
+**Binary / non-text / unreadable paths (#1813 / SoftTextSkip / #1963):** Sole explicit **binary** path is `error_kind: binary`; sole **invalid UTF-8** is `invalid_encoding`; sole **unreadable** IO is `invalid_input` (not pattern `no_matches` / not vacuous tidy clean / not unsupported-language / not missing-symbol). This includes a **sole path supplied only via file-backed `--files-from`** (not stdin `-`). Multi-file **replace**, **search**, and **tidy** lists (positionals or `--files-from`) put non-text co-paths in `refused[]` with `reason: binary`, `invalid_utf8`, or `unreadable` (do not treat a partial success as covering every listed path). Multi-file read reports binary paths under `skipped[]` with top-level `error_kind: binary` (or `invalid_encoding` when all failures are encoding). Directory walks soft-skip content SoftSkip (binary/utf8) without failing the whole search. If a walk finds **zero** matches/issues and **any** path was unreadable, the result is `invalid_input` (not pattern `no_matches` / not vacuous tidy clean / not `assert-count` success with actual 0 / not AST “no symbols”), because IO may have masked the scan.
 **Search max_results:** CLI/MCP/tx `search` with `max_results` keeps full `match_count` (and full `file_count`) but may cap the detailed `matches` array **and** the `files` list in `--count` / `--files-with-matches` modes; when capped, JSON sets `truncated: true` (omitted when complete; #1798). Under `--jsonl`, capped content searches append a final `{"type":"summary","match_count":N,"match_emitted":M,"truncated":true}` line so agents still see the total. Do not treat `matches.len()` or `files.len()` as total coverage when `truncated` is true.
 
 **Multi-result `--json`:** Commands that emit many items (`ast list` / `ast search` / `ast validate` / `ast deps`, `ast map`, undo list, etc.) print one JSON array under `--json` (single `json.loads` on full stdout) and one object per line under `--jsonl`. Do not expect concatenated pretty multi-documents for `--json`.

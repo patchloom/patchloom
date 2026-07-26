@@ -49,11 +49,6 @@ fn file_write(
                 }));
             }
             crate::ops::file::ensure_parent_components_are_directories(path)?;
-            let original = if path.exists() {
-                crate::files::load_text_strict(path, &path_str)?
-            } else {
-                String::new()
-            };
             let force = force.unwrap_or(false);
             if !force && path.exists() && mode != ApplyMode::Preview {
                 return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
@@ -63,6 +58,23 @@ fn file_write(
                     ),
                 }));
             }
+            // Force: soft-load prior (binary/encoding/unreadable → empty) (#1962).
+            let original = if path.exists() {
+                match crate::files::load_text_strict(path, &path_str) {
+                    Ok(s) => s,
+                    Err(e)
+                        if force
+                            && (crate::fallback::is_binary(&e)
+                                || crate::fallback::is_invalid_encoding(&e)
+                                || crate::exit::is_invalid_input(&e)) =>
+                    {
+                        String::new()
+                    }
+                    Err(e) => return Err(e),
+                }
+            } else {
+                String::new()
+            };
             let policy = crate::write::WritePolicy::default();
             let (applied, backup_session) =
                 super::write_if_apply(path, &content, mode, &policy, guard)?;
@@ -220,7 +232,13 @@ fn file_write_cross(
 
 /// Create a new file with the given content.
 ///
-/// If `force` is false, fails when the file already exists.
+/// If `force` is false, fails when the file already exists
+/// ([`EditErrorKind::AlreadyExists`]).
+///
+/// When `force` is true and the path already holds binary, invalid UTF-8, or
+/// otherwise unreadable prior content, the create **overwrites** with empty
+/// original for backup/diff (no host-side remove+recreate). PathGuard still
+/// applies. Apply writes use the normal hardlink-preserving commit path (#1962).
 pub fn file_create(
     path: &Path,
     content: &str,

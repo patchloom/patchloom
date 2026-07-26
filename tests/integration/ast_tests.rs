@@ -1098,10 +1098,7 @@ fn test_ast_sole_binary_is_invalid_input() {
             String::from_utf8_lossy(&output.stdout)
         );
         let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(
-            json["error_kind"], "invalid_input",
-            "args={args:?} json={json}"
-        );
+        assert_eq!(json["error_kind"], "binary", "args={args:?} json={json}");
         assert!(
             json["error"]
                 .as_str()

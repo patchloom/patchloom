@@ -101,7 +101,7 @@ pub(crate) fn run_content_inject(
     // Fail before the engine so --json gets error_kind and binaries are not
     // rewritten as text (NUL is valid UTF-8).
     if let Err(e) = crate::ops::file::ensure_not_binary_file(&path, file) {
-        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
+        global.emit_error_json_kind(Some("binary"), &e.msg)?;
         return Ok(crate::exit::FAILURE);
     }
 

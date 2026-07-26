@@ -661,7 +661,7 @@ fn test_append_rejects_binary_file_json() {
     assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(json["error_kind"], "binary");
     assert!(
         json["error"].as_str().unwrap_or("").contains("binary file"),
         "error should name binary: {json}"
@@ -692,7 +692,7 @@ fn test_prepend_rejects_binary_file_json() {
 
     assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(json["error_kind"], "binary");
     assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
 }
 
@@ -720,7 +720,7 @@ fn test_tx_append_rejects_binary_file() {
 
     assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(json["error_kind"], "binary");
     assert!(
         json["error"].as_str().unwrap_or("").contains("binary"),
         "tx append binary: {json}"
@@ -747,7 +747,7 @@ fn test_replace_sole_binary_target_is_invalid_input() {
 
     assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(json["error_kind"], "binary");
     assert!(
         json["error"].as_str().unwrap_or("").contains("binary"),
         "replace sole binary: {json}"
@@ -787,7 +787,7 @@ fn test_replace_sole_invalid_utf8_is_invalid_input() {
         "sole non-text must not soft-skip first: {stderr}"
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert_eq!(json["error_kind"], "invalid_encoding", "{json}");
     let err = json["error"].as_str().unwrap_or("");
     assert!(
         err.contains("UTF-8") || err.contains("utf"),
@@ -820,7 +820,7 @@ fn test_tidy_check_sole_invalid_utf8_is_invalid_input() {
         String::from_utf8_lossy(&output.stderr)
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert_eq!(json["error_kind"], "invalid_encoding", "{json}");
 }
 
 #[test]
@@ -837,7 +837,7 @@ fn test_tidy_check_sole_binary_is_invalid_input() {
 
     assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(json["error_kind"], "binary");
 }
 
 #[test]
@@ -862,7 +862,7 @@ fn test_tidy_fix_sole_binary_is_invalid_input() {
 
     assert_eq!(output.status.code(), Some(1));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(json["error_kind"], "binary");
     assert_eq!(
         fs::read(dir.path().join("only.bin")).unwrap(),
         b"a\x00b  \n"
@@ -929,7 +929,7 @@ fn test_md_sole_binary_is_invalid_input_not_no_matches() {
 
     assert_eq!(output.status.code(), Some(1), "{:?}", output);
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert_eq!(json["error_kind"], "binary", "{json}");
     assert!(
         json["error"].as_str().unwrap_or("").contains("binary"),
         "{json}"

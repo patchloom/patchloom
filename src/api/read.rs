@@ -5,7 +5,7 @@ use std::path::Path;
 /// Read a file's content, optionally restricted to a line range.
 ///
 /// Line numbers are 1-based inclusive. This is a read-only operation.
-/// Uses **Strict** text load (#1894): binary / invalid UTF-8 → `InvalidInputError`.
+/// Uses **Strict** text load (#1894 / #1963): binary → `BinaryError`, invalid UTF-8 → `InvalidEncodingError`.
 pub fn read(
     path: &Path,
     start_line: Option<usize>,

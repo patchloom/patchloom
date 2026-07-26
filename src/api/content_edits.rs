@@ -162,7 +162,11 @@ pub fn apply_content_edits_to_file(
     }
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
-        if crate::exit::is_invalid_input(&e) {
+        // Preserve content SoftSkip peels (#1963); do not collapse to OperationFailed.
+        if crate::exit::is_binary(&e)
+            || crate::exit::is_invalid_encoding(&e)
+            || crate::exit::is_invalid_input(&e)
+        {
             return e;
         }
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()

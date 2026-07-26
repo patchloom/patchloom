@@ -395,7 +395,7 @@ fn file_create_and_delete() {
 
 #[test]
 #[cfg(unix)]
-fn file_create_force_propagates_read_error() {
+fn file_create_force_soft_loads_unreadable_prior() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = TempDir::new().unwrap();
@@ -410,14 +410,92 @@ fn file_create_force_propagates_read_error() {
         return;
     }
 
-    let err = file_create(&file, "new", true, ApplyMode::Apply, None).unwrap_err();
+    // Force create soft-loads unreadable prior (#1962). Write may still fail
+    // if mode 000 blocks mutation; either success or a non-read staging error.
+    let result = file_create(&file, "new", true, ApplyMode::Apply, None);
     // Restore permissions so TempDir cleanup succeeds.
     fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
-    let msg = format!("{err:#}");
+    match result {
+        Ok(r) => {
+            assert!(r.applied);
+            assert_eq!(fs::read_to_string(&file).unwrap(), "new");
+        }
+        Err(err) => {
+            let msg = format!("{err:#}");
+            // Must not fail only because prior read was for backup/diff.
+            // OS may still refuse the write under mode 000.
+            assert!(
+                !msg.contains("target is a binary") && !msg.contains("UTF-8"),
+                "force create must not hard-fail as content SoftSkip: {msg}"
+            );
+        }
+    }
+}
+
+#[test]
+fn file_create_force_overwrites_binary_prior() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("blob.bin");
+    fs::write(&file, b"a\0b").unwrap();
+    let guard = PathGuard::builder(dir.path().to_path_buf())
+        .allow_temp_directory()
+        .build()
+        .unwrap();
+    // Without force, dest-exists wins before content load.
+    let err = file_create(&file, "text\n", false, ApplyMode::Apply, Some(&guard)).unwrap_err();
     assert!(
-        msg.contains("failed to read"),
-        "expected read error, got: {msg}"
+        crate::fallback::is_already_exists(&err),
+        "non-force create on existing binary is AlreadyExists: {err}"
     );
+    let result = file_create(&file, "text\n", true, ApplyMode::Apply, Some(&guard)).unwrap();
+    assert!(result.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "text\n");
+}
+
+#[test]
+fn file_create_force_overwrites_invalid_utf8_prior() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bad.txt");
+    fs::write(&file, b"hello\xffworld").unwrap();
+    let guard = PathGuard::builder(dir.path().to_path_buf())
+        .allow_temp_directory()
+        .build()
+        .unwrap();
+    let result = file_create(&file, "fixed\n", true, ApplyMode::Apply, Some(&guard)).unwrap();
+    assert!(result.applied);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "fixed\n");
+}
+
+#[test]
+fn load_text_binary_peel_error_helper() {
+    let dir = TempDir::new().unwrap();
+    let bin = dir.path().join("x.bin");
+    fs::write(&bin, b"x\0y").unwrap();
+    let err = load_text(&bin).unwrap_err();
+    let peeled = crate::fallback::peel_error(&err).expect("peel binary");
+    assert_eq!(peeled.kind_str, "binary");
+    assert!(peeled.message.contains("binary"), "msg: {}", peeled.message);
+}
+
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn apply_content_edits_to_file_binary_is_binary() {
+    use crate::api::{ContentEdit, apply_content_edits_to_file};
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("b.bin");
+    fs::write(&file, b"a\x00b").unwrap();
+    let edits = [ContentEdit::Replace {
+        old: "a".into(),
+        new: "z".into(),
+        options: ReplaceOptions::default(),
+    }];
+    let err = apply_content_edits_to_file(&file, &edits, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::Binary),
+        "content edits must not collapse Binary to OperationFailed: {err}"
+    );
+    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
 }
 
 #[test]
@@ -1614,22 +1692,32 @@ fn load_text_api_rejects_binary_and_loads_utf8() {
     let err = load_text(&bin).unwrap_err();
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput)
+        Some(EditErrorKind::Binary)
     );
+    assert!(crate::fallback::is_binary(&err), "is_binary peel: {err}");
+    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
     assert!(
         is_binary_file(&bin),
         "is_binary_file should detect NUL probe"
     );
     assert!(!is_binary_file(&text));
 
-    // Docs claim invalid UTF-8 peels to InvalidInput (same as load_text_strict).
+    // Invalid UTF-8 peels to InvalidEncoding (#1963).
     let bad = dir.path().join("bad.txt");
     fs::write(&bad, b"hello\xffworld").unwrap();
     let err = load_text(&bad).unwrap_err();
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput),
-        "invalid UTF-8 must be InvalidInput, got: {err}"
+        Some(EditErrorKind::InvalidEncoding),
+        "invalid UTF-8 must be InvalidEncoding, got: {err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_encoding(&err),
+        "is_invalid_encoding peel: {err}"
+    );
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("invalid_encoding")
     );
     let msg = format!("{err:#}");
     assert!(
@@ -1783,8 +1871,8 @@ fn replace_text_insert_after() {
 }
 
 #[test]
-fn replace_text_sole_binary_is_invalid_input() {
-    // #1894: library replace_text must match CLI/MCP strict sole-path policy.
+fn replace_text_sole_binary_is_binary() {
+    // #1894 / #1963: library replace_text matches CLI/MCP strict sole-path (Binary).
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("bin.dat");
     fs::write(&file, b"hello\x00world").unwrap();
@@ -1800,9 +1888,10 @@ fn replace_text_sole_binary_is_invalid_input() {
     .unwrap_err();
     assert_eq!(
         edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput),
-        "expected InvalidInput, got {err:#}"
+        Some(EditErrorKind::Binary),
+        "expected Binary, got {err:#}"
     );
+    assert_eq!(error_kind_str(&err), Some("binary"));
     assert_eq!(fs::read(&file).unwrap(), b"hello\x00world");
 }
 
@@ -6317,16 +6406,17 @@ fn file_delete_directory_is_invalid_input() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
-fn file_append_binary_is_invalid_input() {
+fn file_append_binary_is_binary() {
     let dir = TempDir::new().unwrap();
     let bin = dir.path().join("b.bin");
     fs::write(&bin, b"x\x00y").unwrap();
     let err = file_append(&bin, "z\n", ApplyMode::Apply, None).unwrap_err();
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput),
-        "binary append must peel: {err}"
+        Some(EditErrorKind::Binary),
+        "binary append must peel Binary (#1963): {err}"
     );
+    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
     assert!(
         err.to_string().to_ascii_lowercase().contains("binary"),
         "message: {err}"
@@ -6335,9 +6425,9 @@ fn file_append_binary_is_invalid_input() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
-fn file_rename_binary_is_invalid_input() {
+fn file_rename_binary_is_binary() {
     // Text-oriented rename refuses binary sources so embedders can fall back to
-    // std::fs::rename after branching on InvalidInput (#1935).
+    // std::fs::rename after branching on Binary (#1935 / #1963).
     let dir = TempDir::new().unwrap();
     let bin = dir.path().join("b.bin");
     let bin_dst = dir.path().join("c.bin");
@@ -6345,9 +6435,11 @@ fn file_rename_binary_is_invalid_input() {
     let err = file_rename(&bin, &bin_dst, false, ApplyMode::Apply, None).unwrap_err();
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput),
-        "binary rename must peel InvalidInput: {err}"
+        Some(EditErrorKind::Binary),
+        "binary rename must peel Binary (#1963): {err}"
     );
+    assert!(crate::fallback::is_binary(&err), "is_binary peel: {err}");
+    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
     assert!(
         err.to_string().to_ascii_lowercase().contains("binary"),
         "message: {err}"
@@ -6495,7 +6587,7 @@ fn ast_rewrite_signature_missing_function_is_no_match() {
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
 #[test]
-fn ast_rewrite_signature_binary_is_invalid_input() {
+fn ast_rewrite_signature_binary_is_binary() {
     use crate::ast::rewrite::FunctionSigEdit;
     let dir = TempDir::new().unwrap();
     let bin = dir.path().join("x.bin");
@@ -6508,9 +6600,10 @@ fn ast_rewrite_signature_binary_is_invalid_input() {
         ast_rewrite_signature(&bin, "x", &edit, None, ApplyMode::Apply, None).expect_err("binary");
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::InvalidInput),
-        "binary AST rewrite must peel InvalidInput: {err}"
+        Some(EditErrorKind::Binary),
+        "binary AST rewrite must peel Binary (#1963): {err}"
     );
+    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
 }
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]

@@ -233,7 +233,9 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
     }
 
     if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+        let msg = crate::exit::agent_error_message(&err);
+        global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
 
@@ -344,7 +346,9 @@ pub struct SearchArgs {
 pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
     if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+        let msg = crate::exit::agent_error_message(&err);
+        global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
     let lang_hint = args.lang.as_deref();
@@ -459,7 +463,9 @@ pub struct RefsArgs {
 pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
     if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+        let msg = crate::exit::agent_error_message(&err);
+        global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
     let lang_hint = args.lang.as_deref();
@@ -728,7 +734,9 @@ pub struct ImpactArgs {
 pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
     if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
-        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+        let msg = crate::exit::agent_error_message(&err);
+        global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
     crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);

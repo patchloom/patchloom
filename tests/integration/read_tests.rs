@@ -294,7 +294,7 @@ fn test_read_sole_explicit_binary_is_invalid_input() {
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(err.contains("binary"), "expected binary guidance, got: {v}");
 }
@@ -318,7 +318,7 @@ fn test_read_multi_path_binary_skipped_invalid_input() {
     assert_eq!(out.status.code(), Some(1), "{:?}", out);
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["ok"], false, "{v}");
-    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["error_kind"], "binary", "{v}");
     assert_eq!(v["files"].as_array().map(|a| a.len()), Some(1), "{v}");
     assert_eq!(v["files"][0]["content"], "hello\n");
     let skipped = v["skipped"].as_array().expect("skipped");

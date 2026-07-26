@@ -55,6 +55,42 @@ pub(crate) fn read_file_content<'a>(
     }
 }
 
+/// Like [`read_file_content`], but for **force create** overwrite: binary,
+/// invalid UTF-8, or unreadable prior content becomes an empty original so the
+/// write can proceed without a host-side remove+recreate loop (#1962).
+///
+/// Still marks `existed_before` when the path is on disk so commit backup /
+/// hardlink-preserving overwrite applies. Permission failures that surface as
+/// `invalid_input` are treated as empty prior; the subsequent write may still
+/// fail if the OS blocks mutation.
+pub(crate) fn read_file_content_for_force_create<'a>(
+    pending: &'a mut HashMap<PathBuf, (String, String)>,
+    existed_before: &mut HashSet<PathBuf>,
+    path: &Path,
+) -> anyhow::Result<&'a str> {
+    match pending.entry(path.to_path_buf()) {
+        Entry::Occupied(entry) => Ok(&entry.into_mut().1),
+        Entry::Vacant(entry) => {
+            let display = path.display().to_string();
+            let content = match crate::files::load_text_strict(path, &display) {
+                Ok(s) => s,
+                Err(e)
+                    if crate::fallback::is_binary(&e)
+                        || crate::fallback::is_invalid_encoding(&e)
+                        || crate::exit::is_invalid_input(&e) =>
+                {
+                    String::new()
+                }
+                Err(e) => return Err(e),
+            };
+            if path.exists() {
+                existed_before.insert(path.to_path_buf());
+            }
+            Ok(&entry.insert((content.clone(), content)).1)
+        }
+    }
+}
+
 /// Soft content load for multi-path scans (#1894 / SoftTextSkip).
 ///
 /// Returns `Ok(true)` if the file is text (content stored in pending),
@@ -694,6 +730,12 @@ pub(crate) fn execute_and_collect(
                 }
                 if crate::exit::is_already_exists(&e) {
                     return Err(crate::exit::AlreadyExistsError { msg }.into());
+                }
+                if crate::exit::is_binary(&e) {
+                    return Err(crate::exit::BinaryError { msg }.into());
+                }
+                if crate::exit::is_invalid_encoding(&e) {
+                    return Err(crate::exit::InvalidEncodingError { msg }.into());
                 }
                 if crate::exit::is_invalid_input(&e) {
                     return Err(crate::exit::InvalidInputError { msg }.into());

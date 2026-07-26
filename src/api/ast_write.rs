@@ -130,7 +130,11 @@ pub fn ast_rename(
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
-        if crate::exit::is_invalid_input(&e) {
+        // Preserve Binary / InvalidEncoding / InvalidInput peels (#1963).
+        if crate::exit::is_binary(&e)
+            || crate::exit::is_invalid_encoding(&e)
+            || crate::exit::is_invalid_input(&e)
+        {
             return e;
         }
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
@@ -192,7 +196,11 @@ pub fn ast_replace_in_symbol(
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
-        if crate::exit::is_invalid_input(&e) {
+        // Preserve Binary / InvalidEncoding / InvalidInput peels (#1963).
+        if crate::exit::is_binary(&e)
+            || crate::exit::is_invalid_encoding(&e)
+            || crate::exit::is_invalid_input(&e)
+        {
             return e;
         }
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
