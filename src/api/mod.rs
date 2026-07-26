@@ -532,6 +532,8 @@ impl ReplaceOptions {
 }
 
 // Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948, #1963, #1964).
+/// Re-export: binary | invalid_encoding | invalid_input from sole-path loads (#1963).
+pub use crate::exit::is_load_text_strict_fail;
 pub use crate::fallback::{
     EditError, EditErrorKind, PeeledError, classify_error, classify_error_ref, edit_error_kind,
     edit_error_ref, error_kind_str, find_similar_targets, is_already_exists, is_ambiguous,

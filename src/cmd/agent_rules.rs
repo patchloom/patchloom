@@ -173,8 +173,9 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
              - Bool peels (match `edit_error_kind`): `api::is_already_exists`, `is_not_found`, \
                `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, \
                `is_guard_rejected`, `is_invalid_input`, `is_binary`, `is_invalid_encoding`, \
-               `is_no_match`, `is_ambiguous`; string peel: `api::error_kind_str` / one-shot \
-               `api::peel_error` (kind + message + suggestion) for CLI-stable envelopes \
+               `is_load_text_strict_fail` (binary|encoding|invalid_input), `is_no_match`, \
+               `is_ambiguous`; string peel: `api::error_kind_str` / one-shot `api::peel_error` \
+               (kind + message + suggestion) for CLI-stable envelopes \
                (#1947 / #1948 / #1963 / #1964).\n\
              - New `EditErrorKind` variants must be **appended** (after the last variant) so \
                discriminants of published kinds stay stable under cargo-semver-checks (#1955).\n\
@@ -1222,6 +1223,10 @@ mod tests {
         assert!(
             out.contains("ReplaceOptions::for_agent") && out.contains("AGENT_MIN_FUZZY_SCORE"),
             "library hosts need for_agent replace preset docs (#1965)"
+        );
+        assert!(
+            out.contains("is_load_text_strict_fail"),
+            "library hosts need is_load_text_strict_fail peel docs (#1963)"
         );
         assert!(
             out.contains("is_not_found")

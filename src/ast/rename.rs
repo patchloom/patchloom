@@ -87,7 +87,7 @@ pub fn rename_in_file(
     lang_hint: Option<Language>,
 ) -> anyhow::Result<Option<RenameResult>> {
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
-    // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+    // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
     let source = crate::files::load_text_strict(path, &path.display().to_string())?;
     Ok(rename_in_source(&source, old_name, new_name, lang))
 }

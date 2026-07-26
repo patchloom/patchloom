@@ -53,7 +53,7 @@ pub fn validate_file(path: &Path, lang_hint: Option<Language>) -> anyhow::Result
             msg: format!("no grammar available for {lang}"),
         }));
     }
-    // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+    // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
     let source = crate::files::load_text_strict(path, &path.display().to_string())?;
     validate_source(&source, lang).ok_or_else(|| {
         anyhow::Error::new(crate::exit::ParseErrorError {

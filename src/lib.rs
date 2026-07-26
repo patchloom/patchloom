@@ -128,8 +128,9 @@
 //! `backup::find_backup_roots(path)` walks parents for roots that contain
 //! `.patchloom/backups` (#1934). File create/delete/rename/append and
 //! `ast_rewrite_signature` peel via `edit_error_kind` (`AlreadyExists` for
-//! dest-exists without force, `NotFound` for missing path I/O, `InvalidInput`
-//! for dir/binary/empty path, `NoMatch` for missing AST symbols, `GuardRejected`
+//! dest-exists without force, `NotFound` for missing path I/O, `Binary` /
+//! `InvalidEncoding` for content SoftSkip, `InvalidInput` for dir/empty path,
+//! `NoMatch` for missing AST symbols, `GuardRejected`
 //! for PathGuard; #1935 / #1936 / #1947). Fuzzy policy:
 //! `ReplaceOptions.min_fuzzy_score` rejects weak similarity matches (#1687).
 //! Project-wide rename: `api::ast_rename_project` (#1689). Post-Apply hooks:
@@ -206,6 +207,7 @@
 //! | Unique multi-match ambiguity | [`EditErrorKind::AmbiguousTarget`] / [`api::is_ambiguous`] (JSON `ambiguous`) |
 //! | Post-write format/lint failure | [`EditErrorKind::FormatFailed`] / [`api::is_format_failed`] |
 //! | Shared agent replace policy (primary + fallback) | [`ReplaceOptions::for_agent`] / [`AGENT_MIN_FUZZY_SCORE`] (#1965) |
+//! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
 //!
@@ -310,9 +312,9 @@ pub use api::{
     apply_post_write_validator, build_context_lines, classify_error, classify_error_ref,
     edit_error_kind, edit_error_ref, error_kind_str, format_search_results, is_already_exists,
     is_ambiguous, is_binary, is_binary_file, is_changes_detected, is_conflicts, is_format_failed,
-    is_guard_rejected, is_invalid_encoding, is_invalid_input, is_no_match, is_not_found,
-    is_type_error, load_text, load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
-    run_post_write_validation, search_file, text_diff,
+    is_guard_rejected, is_invalid_encoding, is_invalid_input, is_load_text_strict_fail,
+    is_no_match, is_not_found, is_type_error, load_text, load_text_strict, merge_match_modes,
+    parse_unified_diff, peel_error, run_post_write_validation, search_file, text_diff,
 };
 pub use plan::Plan;
 

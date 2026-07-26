@@ -22,7 +22,7 @@ pub(super) fn setup_single_file(
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [path_arg])?;
     let target = cwd.join(path_arg);
-    // Strict sole-path text load (#1894): binary / invalid UTF-8 → InvalidInput.
+    // Strict sole-path text load (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
     let source = crate::files::load_text_strict(&target, path_arg)?;
     let lang = resolve_lang(lang_arg, &target);
     Ok((cwd, target, lang, source))

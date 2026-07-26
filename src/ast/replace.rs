@@ -122,7 +122,7 @@ pub fn replace_in_symbol_file(
     if !lang.has_grammar() {
         return Ok(None);
     }
-    // Strict sole-path (#1894): binary / invalid UTF-8 → InvalidInput.
+    // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
     let source = crate::files::load_text_strict(path, &path.display().to_string())?;
     replace_in_symbol(&source, symbol_name, from, to, regex, lang)
 }
