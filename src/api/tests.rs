@@ -4400,6 +4400,10 @@ fn replace_in_content_unique_multi_is_ambiguous() {
         crate::fallback::edit_error_kind(&err),
         Some(EditErrorKind::AmbiguousTarget)
     );
+    assert!(
+        crate::fallback::is_ambiguous(&err),
+        "public is_ambiguous peel for unique multi-match: {err}"
+    );
 }
 
 #[test]

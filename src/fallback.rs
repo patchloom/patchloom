@@ -378,6 +378,16 @@ pub fn is_no_match(err: &anyhow::Error) -> bool {
     edit_error_kind(err) == Some(EditErrorKind::NoMatch)
 }
 
+/// Whether the error peels as multi-match / unique-mode ambiguity
+/// ([`EditErrorKind::AmbiguousTarget`]). Distinct from soft [`is_no_match`].
+///
+/// Hosts with `unique: true` / `require_change` multi-hit recovery should prefer
+/// this over scraping Display.
+#[must_use]
+pub fn is_ambiguous(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::AmbiguousTarget)
+}
+
 /// Downcast a bare `dyn Error` chain to [`EditError`] when present (#1659).
 ///
 /// Prefer this when you need `similar_targets` / `suggestion` without
@@ -1205,6 +1215,9 @@ mod tests {
             edit_error_kind(&ambiguous),
             Some(EditErrorKind::AmbiguousTarget)
         );
+        assert!(is_ambiguous(&ambiguous));
+        assert_eq!(error_kind_str(&ambiguous), Some("ambiguous"));
+        assert!(!is_no_match(&ambiguous));
 
         let parse: anyhow::Error = crate::exit::ParseErrorError {
             msg: "bad yaml".into(),

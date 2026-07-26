@@ -197,6 +197,7 @@
 //! | Map check/assert-count exit-2 soft failures | [`EditErrorKind::ChangesDetected`] / [`api::is_changes_detected`] |
 //! | PathGuard / `--contain` rejection | [`EditErrorKind::GuardRejected`] / [`api::is_guard_rejected`] |
 //! | Soft zero matches | [`EditErrorKind::NoMatch`] / [`api::is_no_match`] (JSON kind `no_matches`) |
+//! | Unique multi-match ambiguity | [`EditErrorKind::AmbiguousTarget`] / [`api::is_ambiguous`] (JSON `ambiguous`) |
 //! | Post-write format/lint failure | [`EditErrorKind::FormatFailed`] / [`api::is_format_failed`] |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
@@ -300,8 +301,8 @@ pub use api::{
     ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
     apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
     classify_error, classify_error_ref, edit_error_kind, edit_error_ref, error_kind_str,
-    format_search_results, is_already_exists, is_binary_file, is_changes_detected, is_conflicts,
-    is_format_failed, is_guard_rejected, is_invalid_input, is_no_match, is_not_found,
+    format_search_results, is_already_exists, is_ambiguous, is_binary_file, is_changes_detected,
+    is_conflicts, is_format_failed, is_guard_rejected, is_invalid_input, is_no_match, is_not_found,
     is_type_error, load_text, load_text_strict, merge_match_modes, parse_unified_diff,
     run_post_write_validation, search_file, text_diff,
 };
