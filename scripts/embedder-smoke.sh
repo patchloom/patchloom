@@ -71,6 +71,30 @@ echo "$create_json" | grep -q '"error_kind":"invalid_input"' \
   && fail "create dest-exists must not be invalid_input: $create_json"
 pass "CLI create dest-exists JSON error_kind is already_exists (#1947)"
 
+# --- rename dest-exists peels already_exists (sibling of create) ---
+printf 'src\n' >"$tmpdir/ws/rename-src.txt"
+printf 'dst\n' >"$tmpdir/ws/rename-dst.txt"
+rename_json=$("$BIN" --json --cwd "$tmpdir/ws" rename rename-src.txt rename-dst.txt 2>/dev/null || true)
+echo "$rename_json" | grep -q '"error_kind": "already_exists"' \
+  || echo "$rename_json" | grep -q '"error_kind":"already_exists"' \
+  || fail "rename dest-exists must set error_kind already_exists: $rename_json"
+echo "$rename_json" | grep -q '"error_kind": "invalid_input"' \
+  && fail "rename dest-exists must not be invalid_input: $rename_json"
+echo "$rename_json" | grep -q '"error_kind":"invalid_input"' \
+  && fail "rename dest-exists must not be invalid_input: $rename_json"
+pass "CLI rename dest-exists JSON error_kind is already_exists"
+
+# --- delete missing peels not_found (host recovery distinct from operation_failed) ---
+delete_json=$("$BIN" --json --cwd "$tmpdir/ws" delete no-such-file.txt 2>/dev/null || true)
+echo "$delete_json" | grep -q '"error_kind": "not_found"' \
+  || echo "$delete_json" | grep -q '"error_kind":"not_found"' \
+  || fail "delete missing must set error_kind not_found: $delete_json"
+echo "$delete_json" | grep -q '"error_kind": "operation_failed"' \
+  && fail "delete missing must not be operation_failed: $delete_json"
+echo "$delete_json" | grep -q '"error_kind":"operation_failed"' \
+  && fail "delete missing must not be operation_failed: $delete_json"
+pass "CLI delete missing JSON error_kind is not_found"
+
 # --- nested undo still works after contain smoke (sessions already created) ---
 # Library-only find_backup_roots is unit-tested; CLI hosts use undo --list (#1695).
 

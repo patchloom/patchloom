@@ -160,7 +160,7 @@ resort for typos in non-AST text (prose, comments), not a general rename tool.\n
                | AST missing symbol | `NoMatch` / `no_matches` |\n\
              - Bool peels (match `edit_error_kind`): `api::is_already_exists`, `is_not_found`, \
                `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, \
-               `is_guard_rejected`, `is_invalid_input`, `is_no_match`; string peel: \
+               `is_guard_rejected`, `is_invalid_input`, `is_no_match`, `is_ambiguous`; string peel: \
                `api::error_kind_str` for CLI-stable envelopes (#1947 / #1948).\n\
              - New `EditErrorKind` variants must be **appended** (after the last variant) so \
                discriminants of published kinds stay stable under cargo-semver-checks (#1955).\n\
@@ -1212,7 +1212,8 @@ mod tests {
                 && out.contains("is_format_failed")
                 && out.contains("is_guard_rejected")
                 && out.contains("is_invalid_input")
-                && out.contains("is_no_match"),
+                && out.contains("is_no_match")
+                && out.contains("is_ambiguous"),
             "library hosts need full bool peel set for fine-grained EditErrorKind"
         );
         assert!(

@@ -97,7 +97,7 @@
 //! - Bool peels (same chain as [`edit_error_kind`]): [`is_already_exists`],
 //!   [`is_not_found`], [`is_conflicts`], [`is_changes_detected`],
 //!   [`is_type_error`], [`is_format_failed`], [`is_guard_rejected`],
-//!   [`is_invalid_input`], [`is_no_match`]
+//!   [`is_invalid_input`], [`is_no_match`], [`is_ambiguous`]
 //! - [`doc_merge`]: optional `selector` for multi-doc YAML (`Some("0")`)
 //!
 //! ```rust,no_run
@@ -414,8 +414,8 @@ pub struct ReplaceOptions {
 // Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948).
 pub use crate::fallback::{
     EditError, EditErrorKind, classify_error, classify_error_ref, edit_error_kind, edit_error_ref,
-    error_kind_str, find_similar_targets, is_already_exists, is_changes_detected, is_conflicts,
-    is_format_failed, is_guard_rejected, is_invalid_input, is_no_match, is_not_found,
+    error_kind_str, find_similar_targets, is_already_exists, is_ambiguous, is_changes_detected,
+    is_conflicts, is_format_failed, is_guard_rejected, is_invalid_input, is_no_match, is_not_found,
     is_type_error,
 };
 
