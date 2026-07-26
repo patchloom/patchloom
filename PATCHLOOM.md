@@ -46,6 +46,8 @@
 - `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).
 Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
+**Library `ReplaceOptions::for_agent` (#1965):** Rust hosts with primary + fallback replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, `min_fuzzy_score=Some(AGENT_MIN_FUZZY_SCORE)` (`0.90`), **`allow_absent_old=false`** (fail closed). Overrides via struct update: replace-all → `unique: false`; deliberate approximate recovery → `allow_absent_old: true`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, `word_boundary: true`. `command_position` cannot combine with fuzzy/word_boundary/regex/whole_line (typed `invalid_input`). This is **not** a host-specific recovery policy; approximate rewrite of missing `old` stays an explicit opt-in.
+
 **Fuzzy defaults fail closed when exact old is absent (#1758):**
 - If `old` is not present, fuzzy will **not** rewrite a nearby live span by default, even when score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_absent_old=true` only for deliberate approximate recovery.
 - Prefer `ast_rename` / `ast_rename_project` for code identifiers. Fuzzy is a last resort for typos in non-AST text (prose, comments), not a general rename tool.

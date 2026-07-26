@@ -635,6 +635,15 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** You intentionally want approximate recovery and will verify `matched_text`.
 - **Prefer instead:** Leave unset for agent hosts; use exact strings or AST renames.
 
+<!-- ref:replace-mode:for-agent -->
+### library `ReplaceOptions::for_agent` / `AGENT_MIN_FUZZY_SCORE`
+
+- **What it does:** Shared constructor for coding-agent hosts so primary and fallback replace paths use one policy (#1965): `unique=true`, `require_change=true`, `fuzzy=true`, `min_fuzzy_score=Some(0.90)` (`AGENT_MIN_FUZZY_SCORE`), **`allow_absent_old=false`**.
+- **Use when:** Embedding patchloom in an agent runtime with more than one replace call site. Prefer `ReplaceOptions::for_agent()` over hand-copied `ReplaceOptions { ... }` blocks that can drift.
+- **Overrides:** Struct update: replace-all → `unique: false`; deliberate approximate recovery → `allow_absent_old: true`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, `word_boundary: true`.
+- **Not:** A host-specific recovery preset with `allow_absent_old: true`. Fail-closed missing-`old` remains the library default; recovery stays an explicit override.
+- **Prefer instead:** `ReplaceOptions::default()` only for non-agent / soft no-match library callers.
+
 <!-- ref:create-mode:stdin -->
 ### `create --stdin`
 

@@ -2898,6 +2898,84 @@ fn adapter_unchanged_returns_no_diff() {
 // ── replace_in_content tests ──────────────────────────────────
 
 #[test]
+fn replace_options_for_agent_matches_documented_policy() {
+    use crate::api::{AGENT_MIN_FUZZY_SCORE, ReplaceOptions};
+    let d = ReplaceOptions::default();
+    let a = ReplaceOptions::for_agent();
+    assert!(a.unique, "for_agent unique");
+    assert!(a.require_change, "for_agent require_change");
+    assert!(a.fuzzy, "for_agent fuzzy");
+    assert_eq!(a.min_fuzzy_score, Some(AGENT_MIN_FUZZY_SCORE));
+    assert!((AGENT_MIN_FUZZY_SCORE - 0.90).abs() < f64::EPSILON);
+    assert!(
+        !a.allow_absent_old,
+        "for_agent must keep allow_absent_old false (#1758 / #1965)"
+    );
+    // Distinct from Default so hosts do not hand-roll half the fields.
+    assert!(!d.unique && !d.require_change && !d.fuzzy);
+    assert_eq!(d.min_fuzzy_score, None);
+    assert!(!d.allow_absent_old);
+    // Other fields stay at Default.
+    assert!(!a.regex && !a.word_boundary && !a.command_position && !a.if_exists);
+    assert!(a.nth.is_none());
+    assert!(a.insert_before.is_none() && a.insert_after.is_none());
+    assert!(a.post_write.is_none());
+}
+
+#[test]
+fn replace_options_for_agent_struct_update_overrides() {
+    use crate::api::ReplaceOptions;
+    let replace_all = ReplaceOptions {
+        unique: false,
+        ..ReplaceOptions::for_agent()
+    };
+    assert!(!replace_all.unique);
+    assert!(replace_all.require_change && replace_all.fuzzy);
+    assert!(!replace_all.allow_absent_old);
+
+    let recovery = ReplaceOptions {
+        allow_absent_old: true,
+        ..ReplaceOptions::for_agent()
+    };
+    assert!(recovery.allow_absent_old);
+    assert!(recovery.unique && recovery.require_change);
+
+    let word = ReplaceOptions {
+        fuzzy: false,
+        min_fuzzy_score: None,
+        word_boundary: true,
+        ..ReplaceOptions::for_agent()
+    };
+    assert!(!word.fuzzy);
+    assert!(word.word_boundary);
+    assert_eq!(word.min_fuzzy_score, None);
+    assert!(word.unique && word.require_change);
+}
+
+#[test]
+fn replace_options_for_agent_zero_match_is_no_match() {
+    use crate::api::{ReplaceOptions, replace_in_content};
+    use crate::fallback::{EditErrorKind, edit_error_kind};
+    let err = replace_in_content("hello world", "missing", "x", &ReplaceOptions::for_agent())
+        .unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch),
+        "for_agent require_change: {err}"
+    );
+}
+
+#[test]
+fn replace_options_for_agent_unique_multi_is_ambiguous() {
+    use crate::api::{ReplaceOptions, replace_in_content};
+    use crate::fallback::{EditErrorKind, edit_error_kind, is_ambiguous};
+    let err =
+        replace_in_content("foo bar foo", "foo", "baz", &ReplaceOptions::for_agent()).unwrap_err();
+    assert_eq!(edit_error_kind(&err), Some(EditErrorKind::AmbiguousTarget));
+    assert!(is_ambiguous(&err), "{err}");
+}
+
+#[test]
 fn replace_in_content_literal() {
     let content = "fn hello() {}\nfn world() {}\n";
     let result =

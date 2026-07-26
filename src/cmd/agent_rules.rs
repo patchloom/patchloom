@@ -135,6 +135,15 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
              - `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n\
+             **Library `ReplaceOptions::for_agent` (#1965):** Rust hosts with primary + fallback \
+replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
+`ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \
+`min_fuzzy_score=Some(AGENT_MIN_FUZZY_SCORE)` (`0.90`), **`allow_absent_old=false`** (fail closed). \
+Overrides via struct update: replace-all → `unique: false`; deliberate approximate recovery → \
+`allow_absent_old: true`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, \
+`word_boundary: true`. `command_position` cannot combine with fuzzy/word_boundary/regex/whole_line \
+(typed `invalid_input`). This is **not** a host-specific recovery policy; approximate rewrite of \
+missing `old` stays an explicit opt-in.\n\n\
              **Fuzzy defaults fail closed when exact old is absent (#1758):**\n\
              - If `old` is not present, fuzzy will **not** rewrite a nearby live span by default, even when \
 score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_absent_old=true` only for deliberate approximate recovery.\n\
@@ -1209,6 +1218,10 @@ mod tests {
         assert!(
             out.contains("is_already_exists") && out.contains("error_kind_str"),
             "library hosts need api::is_already_exists and error_kind_str (#1948)"
+        );
+        assert!(
+            out.contains("ReplaceOptions::for_agent") && out.contains("AGENT_MIN_FUZZY_SCORE"),
+            "library hosts need for_agent replace preset docs (#1965)"
         );
         assert!(
             out.contains("is_not_found")

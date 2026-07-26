@@ -86,16 +86,19 @@
 //!
 //! CLI `ast rewrite-signature` is still optional; library + plan + MCP cover embedders.
 //!
-//! Fail-closed text edits for agent hosts (#1492): set `ReplaceOptions.require_change = true`
-//! so zero matches become `EditErrorKind::NoMatch` (not `Ok(changed=false)`). Match kinds via
-//! `api::edit_error_kind(&err)` without scraping English. That helper also peels CLI/tx typed
-//! errors (`InvalidInputError` for empty patterns / bad regex, `NoMatchError`,
-//! `TypeErrorError` → `EditErrorKind::TypeError` for multi-doc bare keys (#1883), …) so hosts
-//! need not know which construction path produced the failure. Example:
+//! Fail-closed text edits for agent hosts (#1492 / #1965): use
+//! [`ReplaceOptions::for_agent`] so primary and fallback replace paths share one
+//! policy (`unique`, `require_change`, fuzzy with floor, `allow_absent_old: false`).
+//! Zero matches become `EditErrorKind::NoMatch` (not `Ok(changed=false)`). Match
+//! kinds via `api::edit_error_kind(&err)` without scraping English. That helper
+//! also peels CLI/tx typed errors (`InvalidInputError` for empty patterns / bad
+//! regex, `NoMatchError`, `TypeErrorError` → `EditErrorKind::TypeError` for
+//! multi-doc bare keys (#1883), …) so hosts need not know which construction path
+//! produced the failure. Example:
 //!
 //! ```rust,no_run
 //! use patchloom::api::{self, ReplaceOptions, edit_error_kind, EditErrorKind};
-//! let opts = ReplaceOptions { require_change: true, ..Default::default() };
+//! let opts = ReplaceOptions::for_agent();
 //! match api::replace_in_content("a b", "missing", "x", &opts) {
 //!     Ok(r) => assert!(r.changed),
 //!     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::NoMatch)),
@@ -202,6 +205,7 @@
 //! | Soft zero matches | [`EditErrorKind::NoMatch`] / [`api::is_no_match`] (JSON kind `no_matches`) |
 //! | Unique multi-match ambiguity | [`EditErrorKind::AmbiguousTarget`] / [`api::is_ambiguous`] (JSON `ambiguous`) |
 //! | Post-write format/lint failure | [`EditErrorKind::FormatFailed`] / [`api::is_format_failed`] |
+//! | Shared agent replace policy (primary + fallback) | [`ReplaceOptions::for_agent`] / [`AGENT_MIN_FUZZY_SCORE`] (#1965) |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
 //!
@@ -299,16 +303,16 @@ pub use api::apply_content_edits_to_file;
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::search_one_file;
 pub use api::{
-    ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult, EditError, EditErrorKind,
-    EditResult, Hunk, MatchMode, PatchFile, PatchLine, PeeledError, PostWriteHooks,
-    PostWriteOnFailure, ReplaceOptions, SearchOptions, SearchResult, WritePolicyOptions,
-    apply_content_edits, apply_content_edits_with_label, apply_post_write_validator,
-    build_context_lines, classify_error, classify_error_ref, edit_error_kind, edit_error_ref,
-    error_kind_str, format_search_results, is_already_exists, is_ambiguous, is_binary,
-    is_binary_file, is_changes_detected, is_conflicts, is_format_failed, is_guard_rejected,
-    is_invalid_encoding, is_invalid_input, is_no_match, is_not_found, is_type_error, load_text,
-    load_text_strict, merge_match_modes, parse_unified_diff, peel_error, run_post_write_validation,
-    search_file, text_diff,
+    AGENT_MIN_FUZZY_SCORE, ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult,
+    EditError, EditErrorKind, EditResult, Hunk, MatchMode, PatchFile, PatchLine, PeeledError,
+    PostWriteHooks, PostWriteOnFailure, ReplaceOptions, SearchOptions, SearchResult,
+    WritePolicyOptions, apply_content_edits, apply_content_edits_with_label,
+    apply_post_write_validator, build_context_lines, classify_error, classify_error_ref,
+    edit_error_kind, edit_error_ref, error_kind_str, format_search_results, is_already_exists,
+    is_ambiguous, is_binary, is_binary_file, is_changes_detected, is_conflicts, is_format_failed,
+    is_guard_rejected, is_invalid_encoding, is_invalid_input, is_no_match, is_not_found,
+    is_type_error, load_text, load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
+    run_post_write_validation, search_file, text_diff,
 };
 pub use plan::Plan;
 
