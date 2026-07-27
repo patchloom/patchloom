@@ -114,10 +114,28 @@ pub struct PatchloomService {
     /// Optional path for logging MCP tool calls as JSONL.
     /// Set via `--log <path>` or `PATCHLOOM_MCP_LOG` env var.
     call_log: Option<PathBuf>,
+    /// Active tool inventory (`PATCHLOOM_MCP_SURFACE`).
+    surface: surface::McpSurface,
 }
 
 impl PatchloomService {
+    /// Build a service using `PATCHLOOM_MCP_SURFACE` from the environment.
+    ///
+    /// Unset or `full` registers the full inventory. `core` registers only
+    /// [`surface::CORE_MCP_TOOL_NAMES`] (see `docs/plans/mcp-surface-tiers.md`).
     pub fn new(cwd: PathBuf, log_flag: Option<String>) -> anyhow::Result<Self> {
+        let surface = surface::McpSurface::from_env().map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError { msg: e.to_string() })
+        })?;
+        Self::new_with_surface(cwd, log_flag, surface)
+    }
+
+    /// Build a service with an explicit surface (tests and hosts that inject config).
+    pub(crate) fn new_with_surface(
+        cwd: PathBuf,
+        log_flag: Option<String>,
+        surface: surface::McpSurface,
+    ) -> anyhow::Result<Self> {
         let path_guard = crate::containment::PathGuard::new(
             cwd.clone(),
             crate::containment::AbsolutePathPolicy::Reject,
@@ -137,6 +155,9 @@ impl PatchloomService {
         // its input schema from the corresponding Operation variant and uses
         // the generic `handle_simple_op` dispatcher.
         for meta in MCP_TOOL_REGISTRY {
+            if !surface.allows(meta.tool_name) {
+                continue;
+            }
             let mut schema = crate::schema::operation_variant_schema(meta.op_name)?;
             if meta.has_strict {
                 schema = inject_strict_into_schema(schema);
@@ -172,11 +193,32 @@ impl PatchloomService {
             ));
         }
 
+        // Hand-written tools are always built by #[tool_router]; drop any that
+        // are outside the active surface (core pack excludes most custom tools).
+        if surface != surface::McpSurface::Full {
+            let to_remove: Vec<String> = tool_router
+                .list_all()
+                .into_iter()
+                .map(|t| t.name.to_string())
+                .filter(|name| !surface.allows(name))
+                .collect();
+            for name in to_remove {
+                tool_router.remove_route(&name);
+            }
+        }
+
         Ok(Self {
             tool_router,
             path_guard,
             call_log,
+            surface,
         })
+    }
+
+    /// Active MCP tool surface (`full` or `core`).
+    #[must_use]
+    pub(crate) fn surface(&self) -> surface::McpSurface {
+        self.surface
     }
 
     /// Validate a path for both syntactic containment and symlink resolution.

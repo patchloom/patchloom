@@ -4,16 +4,24 @@
 
 Full default inventory (~56 tools with AST) can overwhelm small agents (context tax on tool schemas). Competitors often ship tiny FS MCP servers.
 
-## Decision (v1: document first, no default break)
+## Decision
 
 1. **Default remains full surface** (backward compatible).
 2. **Progressive disclosure via existing schema tiers** (`patchloom schema --tier weak|medium|strong`) for plan/prompt generation.
 3. **Agent-rules** lead with a decision table (which tool family for which task), not the full inventory first.
-4. **Future (not blocking):** optional env `PATCHLOOM_MCP_SURFACE=core|full` to register a subset at MCP handshake. Core candidate set (illustrative):
-   - `read_file`, `search_files`, `replace_text`, `batch_replace`
-   - `doc_get`, `doc_set`, `doc_query`
-   - `md_replace_section`, `execute_plan`, `server_info`
-   - AST off unless surface=full or feature-gated already
+4. **Env `PATCHLOOM_MCP_SURFACE=core|full`** registers a subset at MCP handshake (implemented).
+
+### Core pack (`PATCHLOOM_MCP_SURFACE=core`)
+
+Exactly these tools (AST off):
+
+- `read_file`, `search_files`, `replace_text`, `batch_replace`
+- `doc_get`, `doc_set`, `doc_query`
+- `md_replace_section`, `execute_plan`, `server_info`
+
+Defined in `src/cmd/mcp/surface.rs` as `CORE_MCP_TOOL_NAMES` / `McpSurface`.
+
+`server_info` reports `surface` and `tool_count`.
 
 ## Non-goals
 
@@ -23,6 +31,8 @@ Full default inventory (~56 tools with AST) can overwhelm small agents (context 
 
 ## Implementation status
 
-- Decision recorded here (#1994)
-- Agent-rules decision tree ships with competitive-docs batch
-- Code for `PATCHLOOM_MCP_SURFACE` deferred until a host requests it
+- [x] Design decision recorded
+- [x] Agent-rules decision table + `PATCHLOOM_MCP_SURFACE` docs
+- [x] `McpSurface` parse + filter on registry add / custom disable
+- [x] Unit + protocol tests for core list_tools and rejected full-only calls
+- [x] mcp-setup.md host configuration
