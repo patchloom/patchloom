@@ -11,6 +11,20 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.21.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.20.0...patchloom-v0.21.0) (2026-07-27)
+
+
+### Features
+
+* **api:** fuzzy_span_suspicious for host over-wide fuzzy refuse ([#1982](https://github.com/patchloom/patchloom/issues/1982)) ([0443be5](https://github.com/patchloom/patchloom/commit/0443be50816d53a73e416685ba7029175cb75ff7)), closes [#1981](https://github.com/patchloom/patchloom/issues/1981)
+
+
+### Bug Fixes
+
+* **api:** polish fuzzy_span_suspicious host contract ([#1984](https://github.com/patchloom/patchloom/issues/1984)) ([fe71d9f](https://github.com/patchloom/patchloom/commit/fe71d9f36cb39d7f90fa09b09b1b331a66b10024))
+* **dist:** align Smithery MCP description with differentiated positioning ([#2001](https://github.com/patchloom/patchloom/issues/2001)) ([0cacc23](https://github.com/patchloom/patchloom/commit/0cacc23ee33dd142206f91ff49589236d814c528)), closes [#1987](https://github.com/patchloom/patchloom/issues/1987)
+* **mcp:** server.json description within Registry 100-char limit ([#2000](https://github.com/patchloom/patchloom/issues/2000)) ([846fdec](https://github.com/patchloom/patchloom/commit/846fdec966b862f07e1199f018340d96e75ffd65)), closes [#1987](https://github.com/patchloom/patchloom/issues/1987)
+
 ## [0.20.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.19.0...patchloom-v0.20.0) (2026-07-27)
 
 
