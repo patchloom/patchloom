@@ -41,7 +41,7 @@ payload="$(
     --arg name "patchloom" \
     --arg ver "$version" \
     --arg title "Patchloom" \
-    --arg desc "Structured file editing for AI agents: JSON/YAML/TOML, AST renames, markdown, batch, and replace via MCP." \
+    --arg desc "Agent-safe structured edits: JSON/YAML/TOML/md/AST, dry-run, batch/tx. Not a filesystem MCP." \
     '{
       type: "stdio",
       runtime: "node",
@@ -86,7 +86,7 @@ curl -fsS -X PATCH "https://api.smithery.ai/servers/${enc_name}" \
   -H "Authorization: Bearer ${SMITHERY_API_KEY}" \
   -H "Content-Type: application/json" \
   -d "$(jq -n \
-    --arg desc "Structured file editing for AI agents: JSON/YAML/TOML, AST renames, markdown, batch, and replace via MCP." \
+    --arg desc "Agent-safe structured edits: JSON/YAML/TOML/md/AST, dry-run, batch/tx. Not a filesystem MCP." \
     '{
       displayName: "Patchloom",
       description: $desc,
