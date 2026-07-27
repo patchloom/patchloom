@@ -3034,6 +3034,64 @@ fn replace_options_for_agent_absent_old_fails_closed() {
     assert!(!r.new_content.contains("compute_checksum"));
 }
 
+/// #1981: host refuse helper for over-wide fuzzy spans.
+#[test]
+fn fuzzy_span_suspicious_default_policy() {
+    use crate::api::{
+        AGENT_MIN_FUZZY_SCORE, FuzzySpanPolicy, fuzzy_span_suspicious,
+        fuzzy_span_suspicious_with_policy,
+    };
+
+    // Token-scale match is fine.
+    assert!(!fuzzy_span_suspicious(
+        "process_data",
+        Some("process_data"),
+        Some(0.99),
+    ));
+
+    // Whole function body vs short identifier is suspicious under ratio cap.
+    let wide = "fn process_data() {\n    // lots of body\n    do_work();\n    more();\n}\n";
+    assert!(
+        wide.chars().count() > 4 * "process_data".chars().count(),
+        "fixture must exceed 4x"
+    );
+    assert!(fuzzy_span_suspicious(
+        "process_data",
+        Some(wide),
+        Some(AGENT_MIN_FUZZY_SCORE),
+    ));
+
+    // Near-floor score + expansion strictly above 2x is also suspicious.
+    let over_double = "abcdefghijabcdefghijk"; // 21 chars
+    let old = "abcdefghij"; // 10 → ratio 2.1
+    assert!(fuzzy_span_suspicious(old, Some(over_double), Some(0.92),));
+    // Same span with high score is not in the near-floor band; 2.1x < 4x and
+    // < old+40, so not suspicious under the wide-span cap alone.
+    assert!(!fuzzy_span_suspicious(old, Some(over_double), Some(0.99)));
+
+    // No matched_text → not suspicious.
+    assert!(!fuzzy_span_suspicious("x", None, Some(0.9)));
+    assert!(!fuzzy_span_suspicious("x", Some(""), Some(0.9)));
+
+    // Empty old + non-empty match → suspicious.
+    assert!(fuzzy_span_suspicious("", Some("anything"), None));
+
+    // Custom policy can loosen the ratio.
+    let loose = FuzzySpanPolicy {
+        max_ratio: 100.0,
+        abs_extra_chars: 10_000,
+        near_floor_score_lo: 1.0,
+        near_floor_score_hi: 1.0,
+        near_floor_ratio: 100.0,
+    };
+    assert!(!fuzzy_span_suspicious_with_policy(
+        "process_data",
+        Some(wide),
+        Some(0.91),
+        &loose,
+    ));
+}
+
 #[test]
 fn replace_in_content_literal() {
     let content = "fn hello() {}\nfn world() {}\n";

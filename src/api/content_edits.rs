@@ -73,7 +73,9 @@ pub struct ContentEditsResult {
     /// Lowest fuzzy similarity score across replace ops in the batch (worst-case
     /// confidence when several fuzzy ops ran).
     pub match_score: Option<f64>,
-    /// Matched span from the first fuzzy/anchored replace in the batch (#1736).
+    /// Matched span for host policy: **widest** fuzzy/anchored span in the batch
+    /// by Unicode char count (worst-case over-wide for refuse; #1736 / #1981).
+    /// Not the first non-empty only (that hid later over-wide fuzzy ops).
     pub matched_text: Option<String>,
 }
 
@@ -124,8 +126,15 @@ pub fn apply_content_edits_with_label(
             {
                 match_score = Some(match_score.map_or(s, |prev| prev.min(s)));
             }
-            if matched_text.is_none() {
-                matched_text = one.matched_text;
+            // Widest span wins so multi-op hosts can refuse over-wide fuzzy
+            // even when an earlier Exact/small Fuzzy left a short matched_text (#1981).
+            if let Some(t) = one.matched_text {
+                let take = matched_text
+                    .as_ref()
+                    .is_none_or(|prev| t.chars().count() > prev.chars().count());
+                if take {
+                    matched_text = Some(t);
+                }
             }
         }
     }
@@ -659,11 +668,11 @@ mod tests {
         assert!(r.changed);
         assert_eq!(r.match_mode, Some(MatchMode::Anchored));
         assert_eq!(r.match_count, 2);
-        // Exact first leaves matched_text None; first non-null is the anchored span.
+        // Exact first leaves matched_text None; anchored span is the only honesty text.
         assert_eq!(
             r.matched_text.as_deref(),
             Some("TODO: fix"),
-            "batch should report first anchored/fuzzy matched_text (#1736)"
+            "batch should report widest anchored/fuzzy matched_text (#1736 / #1981)"
         );
         assert!(r.modified.starts_with("ALPHA\n"));
         assert!(r.modified.contains("gamma\nTODO: done"));
@@ -686,5 +695,60 @@ mod tests {
         assert_eq!(merge_match_modes(Some(Anchored), Fuzzy), Fuzzy);
         assert_eq!(merge_match_modes(Some(Fuzzy), Anchored), Fuzzy);
         assert_eq!(merge_match_modes(Some(Fuzzy), Exact), Fuzzy);
+    }
+
+    /// #1981: multi-op keeps the **widest** matched_text, not the first.
+    #[test]
+    fn content_edits_matched_text_prefers_widest_span() {
+        // First fuzzy: short identifier. Second: much wider live span (simulated
+        // by two separate replaces on different content). After first apply the
+        // buffer changes; second uses a different old that still fuzzy-matches.
+        let edits = [
+            ContentEdit::Replace {
+                old: "fn small_typo_name() {}".into(),
+                new: "fn small_name() {}".into(),
+                options: ReplaceOptions {
+                    fuzzy: true,
+                    allow_absent_old: true,
+                    min_fuzzy_score: None,
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+            ContentEdit::Replace {
+                // Typo of a whole-line-ish target so fuzzy can land a wide span.
+                old: "let CONFIGURATION_VALUE_PRIMRY = 1;".into(),
+                new: "let CONFIGURATION_VALUE_SECONDARY = 1;".into(),
+                options: ReplaceOptions {
+                    fuzzy: true,
+                    allow_absent_old: true,
+                    min_fuzzy_score: None,
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+        ];
+        let src = "fn small_name() {}\nlet CONFIGURATION_VALUE_PRIMARY = 1;\n";
+        let r = apply_content_edits(src, &edits).unwrap();
+        assert!(r.changed, "edits should apply: {:?}", r.diff);
+        let matched = r
+            .matched_text
+            .as_deref()
+            .expect("batch must surface matched_text");
+        // Widest honesty span should reflect the longer identifier line, not
+        // only the first short function name match.
+        assert!(
+            matched.chars().count() >= "CONFIGURATION_VALUE_PRIMARY".chars().count(),
+            "widest matched_text expected, got {matched:?} (len {})",
+            matched.chars().count()
+        );
+        assert!(
+            super::super::fuzzy_span_suspicious(
+                "let CONFIGURATION_VALUE_PRIMRY = 1;",
+                Some(matched),
+                r.match_score,
+            ) || matched.contains("CONFIGURATION_VALUE_PRIMARY"),
+            "matched should relate to the wide second op: {matched:?}"
+        );
     }
 }

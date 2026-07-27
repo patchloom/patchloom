@@ -149,7 +149,15 @@ missing `old` stays an explicit opt-in.\n\n\
 score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_absent_old=true` only for deliberate approximate recovery.\n\
              - Prefer `ast_rename` / `ast_rename_project` for code identifiers. Fuzzy is a last \
 resort for typos in non-AST text (prose, comments), not a general rename tool.\n\
-             - When you opt into `allow_absent_old`, still check JSON `matched_text` before treating the edit as semantic success (#1736).\n\n\
+             - When you opt into `allow_absent_old`, still check JSON `matched_text` before treating the edit as semantic success (#1736).\n\
+             - **No second named recovery constructor:** hosts that always want approximate recovery keep the one-line override above (not a full host policy; still set `unique` / `word_boundary` per call). Closed as not planned (#1980).\n\
+             - **Over-wide fuzzy refuse (#1981):** after a fuzzy success, call \
+`api::fuzzy_span_suspicious(old, matched_text.as_deref(), match_score)` (or \
+`fuzzy_span_suspicious_with_policy` + `FuzzySpanPolicy`) **before treating Apply as trusted**. \
+Default policy (Unicode chars): refuse when matched is wider than \
+`max(4 * old_chars, old_chars + 40)`, or score is in `[0.90, 0.95)` and ratio `> 2`. \
+Do not rely on score alone. Multi-op `apply_content_edits` rolls up the **widest** \
+`matched_text` (worst-case span), not the first non-empty only.\n\n\
              **Library embedder undo / post-write (Rust hosts, not CLI-only):**\n\
              - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).\n\
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
@@ -1223,6 +1231,14 @@ mod tests {
         assert!(
             out.contains("ReplaceOptions::for_agent") && out.contains("AGENT_MIN_FUZZY_SCORE"),
             "library hosts need for_agent replace preset docs (#1965)"
+        );
+        assert!(
+            out.contains("fuzzy_span_suspicious") && out.contains("FuzzySpanPolicy"),
+            "library hosts need over-wide fuzzy refuse helper docs (#1981)"
+        );
+        assert!(
+            out.contains("one-line override") || out.contains("allow_absent_old: true"),
+            "recovery stays a documented override, not a second constructor (#1980)"
         );
         assert!(
             out.contains("is_load_text_strict_fail"),
