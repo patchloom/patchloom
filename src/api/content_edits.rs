@@ -76,6 +76,11 @@ pub struct ContentEditsResult {
     /// Matched span for host policy: **widest** fuzzy/anchored span in the batch
     /// by Unicode char count (worst-case over-wide for refuse; #1736 / #1981).
     /// Not the first non-empty only (that hid later over-wide fuzzy ops).
+    ///
+    /// **Pairing note:** `match_score` is the **minimum** fuzzy score across ops;
+    /// `matched_text` is the **widest** span. They may come from different ops.
+    /// Prefer per-op checks with the corresponding `old` when possible; do not
+    /// treat rolled-up fields as a single joint (old, span, score) triple.
     pub matched_text: Option<String>,
 }
 
@@ -738,17 +743,48 @@ mod tests {
         // Widest honesty span should reflect the longer identifier line, not
         // only the first short function name match.
         assert!(
-            matched.chars().count() >= "CONFIGURATION_VALUE_PRIMARY".chars().count(),
-            "widest matched_text expected, got {matched:?} (len {})",
-            matched.chars().count()
+            matched.contains("CONFIGURATION_VALUE_PRIMARY"),
+            "widest matched_text should come from the longer second-op span, got {matched:?}"
         );
         assert!(
-            super::super::fuzzy_span_suspicious(
-                "let CONFIGURATION_VALUE_PRIMRY = 1;",
-                Some(matched),
-                r.match_score,
-            ) || matched.contains("CONFIGURATION_VALUE_PRIMARY"),
-            "matched should relate to the wide second op: {matched:?}"
+            matched.chars().count() > "small_name".chars().count(),
+            "widest span must exceed first-op identifier length, got {matched:?}"
+        );
+
+        // Reverse order: wide first, short second still keeps the widest.
+        let edits_rev = [
+            ContentEdit::Replace {
+                old: "let CONFIGURATION_VALUE_PRIMRY = 1;".into(),
+                new: "let CONFIGURATION_VALUE_SECONDARY = 1;".into(),
+                options: ReplaceOptions {
+                    fuzzy: true,
+                    allow_absent_old: true,
+                    min_fuzzy_score: None,
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+            ContentEdit::Replace {
+                old: "fn small_typo_name() {}".into(),
+                new: "fn small_name() {}".into(),
+                options: ReplaceOptions {
+                    fuzzy: true,
+                    allow_absent_old: true,
+                    min_fuzzy_score: None,
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+        ];
+        let r2 = apply_content_edits(src, &edits_rev).unwrap();
+        assert!(r2.changed);
+        let matched2 = r2
+            .matched_text
+            .as_deref()
+            .expect("reverse-order batch must surface matched_text");
+        assert!(
+            matched2.contains("CONFIGURATION_VALUE_PRIMARY"),
+            "widest must win when it is the first op, got {matched2:?}"
         );
     }
 }
