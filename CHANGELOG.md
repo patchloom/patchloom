@@ -11,6 +11,23 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.20.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.19.0...patchloom-v0.20.0) (2026-07-27)
+
+
+### Features
+
+* **api:** Binary/InvalidEncoding peels and force create over non-text prior ([#1969](https://github.com/patchloom/patchloom/issues/1969)) ([c3b4d30](https://github.com/patchloom/patchloom/commit/c3b4d302b8368b6afd9d8b7987b3f583d96aee9e))
+* **api:** export is_load_text_strict_fail for embedders ([#1973](https://github.com/patchloom/patchloom/issues/1973)) ([468e069](https://github.com/patchloom/patchloom/commit/468e0698e222ec5d4cbcab423c62e0528805ea61))
+* **api:** ReplaceOptions::for_agent shared host preset ([#1971](https://github.com/patchloom/patchloom/issues/1971)) ([6305b54](https://github.com/patchloom/patchloom/commit/6305b5486346ad093966bfc6595e1a069c203a6b))
+* is_ambiguous peel and embedder-smoke host peels ([#1967](https://github.com/patchloom/patchloom/issues/1967)) ([ec1024b](https://github.com/patchloom/patchloom/commit/ec1024badccc1a934398915ddf56c2cc41695083))
+
+
+### Bug Fixes
+
+* **cli:** AST sole-path Binary/InvalidEncoding error_kind emit ([#1974](https://github.com/patchloom/patchloom/issues/1974)) ([201c28b](https://github.com/patchloom/patchloom/commit/201c28b520bd4eebcc1731e457384d6223fb90ca))
+* **cli:** preserve Binary/InvalidEncoding on remaining load remappers ([#1970](https://github.com/patchloom/patchloom/issues/1970)) ([cccc81e](https://github.com/patchloom/patchloom/commit/cccc81e56e9c9bd5df7bdf80d3ba238926a2762a)), closes [#1963](https://github.com/patchloom/patchloom/issues/1963) [#1969](https://github.com/patchloom/patchloom/issues/1969)
+* load_text_strict helper, md binary emit, Windows validate flake ([#1972](https://github.com/patchloom/patchloom/issues/1972)) ([427e8f4](https://github.com/patchloom/patchloom/commit/427e8f4925faf740dc50678bed5a9c0f50ac6153))
+
 ## [0.19.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.18.0...patchloom-v0.19.0) (2026-07-25)
 
 
