@@ -494,6 +494,7 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
             EditErrorKind::InvalidInput => Some(("invalid_input", FAILURE)),
             EditErrorKind::Binary => Some(("binary", FAILURE)),
             EditErrorKind::InvalidEncoding => Some(("invalid_encoding", FAILURE)),
+            EditErrorKind::FuzzySpanSuspicious => Some(("fuzzy_span_suspicious", FAILURE)),
             EditErrorKind::TypeError => Some(("type_error", FAILURE)),
             EditErrorKind::AlreadyExists => Some(("already_exists", FAILURE)),
             EditErrorKind::NotFound => Some(("not_found", FAILURE)),
@@ -824,6 +825,15 @@ mod tests {
             (
                 std::io::Error::new(std::io::ErrorKind::IsADirectory, "dir").into(),
                 "invalid_input",
+                FAILURE,
+            ),
+            (
+                crate::fallback::EditError::new(
+                    crate::fallback::EditErrorKind::FuzzySpanSuspicious,
+                    "wide fuzzy",
+                )
+                .into(),
+                "fuzzy_span_suspicious",
                 FAILURE,
             ),
         ];

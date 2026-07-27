@@ -72,9 +72,11 @@ its async dependencies.
 
 Agent hosts should prefer `ReplaceOptions::for_agent()` so primary and fallback
 replace paths share one policy (`unique`, `require_change`, fuzzy at
-`AGENT_MIN_FUZZY_SCORE` 0.90, fail-closed `allow_absent_old: false`). After a
-fuzzy Apply, call `api::fuzzy_span_suspicious(old, matched_text, match_score)`
-before treating the write as trusted (over-wide span refuse; #1981). Opt-in
+`AGENT_MIN_FUZZY_SCORE` 0.90, fail-closed `allow_absent_old: false`, and
+`refuse_suspicious_fuzzy: true` for over-wide fuzzy auto-refuse as
+`FuzzySpanSuspicious`; #1965 / #2005). Custom options still call
+`api::fuzzy_span_suspicious` after fuzzy Apply (#1981). Multi-op hosts use
+`ContentEditsResult.op_honesty` for per-replace pairing (#2006). Opt-in
 `command_position` rewrites shell command tokens without touching arguments
 (including after `sudo` / `timeout 30` / `nice -n 10` / `setsid` / `busybox` /
 `runuser` / `flock` / `chroot` wrappers, across lines). The same replace options

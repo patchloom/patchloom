@@ -47,6 +47,26 @@ pub enum ContentEdit {
     Prepend { content: String },
 }
 
+/// Per-op match honesty for a successful [`ContentEdit::Replace`] (#2006).
+///
+/// Hosts should call [`super::fuzzy_span_suspicious`] with this entry's `old`,
+/// `matched_text`, and `match_score` rather than rollup fields alone (rollup
+/// widest span and min score may come from different ops).
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct ContentEditHonesty {
+    /// Index into the `edits` slice (0-based).
+    pub op_index: usize,
+    /// Match strategy for this replace.
+    pub match_mode: Option<MatchMode>,
+    /// Fuzzy similarity when `match_mode` is fuzzy.
+    pub match_score: Option<f64>,
+    /// Live span that was replaced (fuzzy/anchored) when available.
+    pub matched_text: Option<String>,
+    /// The replace `old` string for this op (for refuse with matching old).
+    pub old: String,
+}
+
 /// Result of applying a sequence of [`ContentEdit`]s to a buffer.
 ///
 /// Marked `non_exhaustive` so new honesty fields can land in minor releases
@@ -79,9 +99,12 @@ pub struct ContentEditsResult {
     ///
     /// **Pairing note:** `match_score` is the **minimum** fuzzy score across ops;
     /// `matched_text` is the **widest** span. They may come from different ops.
-    /// Prefer per-op checks with the corresponding `old` when possible; do not
+    /// Prefer [`Self::op_honesty`] with the corresponding `old` when possible; do not
     /// treat rolled-up fields as a single joint (old, span, score) triple.
     pub matched_text: Option<String>,
+    /// Per successful replace-like op, in apply order (#2006). Empty when no
+    /// replace ops reported match honesty.
+    pub op_honesty: Vec<ContentEditHonesty>,
 }
 
 /// Apply ordered edits to an in-memory buffer.
@@ -116,6 +139,7 @@ pub fn apply_content_edits_with_label(
     let mut match_mode: Option<MatchMode> = None;
     let mut match_score: Option<f64> = None;
     let mut matched_text: Option<String> = None;
+    let mut op_honesty: Vec<ContentEditHonesty> = Vec::new();
 
     for (i, edit) in edits.iter().enumerate() {
         let one = apply_one(&current, edit)
@@ -123,6 +147,17 @@ pub fn apply_content_edits_with_label(
         current = one.content;
         match_count = match_count.saturating_add(one.match_count);
         ops_applied += 1;
+        if let ContentEdit::Replace { old, .. } = edit
+            && (one.match_mode.is_some() || one.matched_text.is_some())
+        {
+            op_honesty.push(ContentEditHonesty {
+                op_index: i,
+                match_mode: one.match_mode,
+                match_score: one.match_score,
+                matched_text: one.matched_text.clone(),
+                old: old.clone(),
+            });
+        }
         if let Some(m) = one.match_mode {
             match_mode = Some(super::merge_match_modes(match_mode, m));
             // Worst-case confidence: lowest fuzzy score across ops.
@@ -157,6 +192,7 @@ pub fn apply_content_edits_with_label(
         match_mode,
         match_score,
         matched_text,
+        op_honesty,
     })
 }
 

@@ -493,8 +493,59 @@ fn replace_write(
 /// in-memory string instead of a file path. Supports all [`ReplaceOptions`]
 /// features: regex, word boundary, nth, case insensitive, multiline,
 /// insert_before/after, whole_line, range, if_exists, unique, fuzzy,
-/// before_context, and after_context.
+/// before_context, after_context, and [`ReplaceOptions::refuse_suspicious_fuzzy`].
+///
+/// When [`ReplaceOptions::refuse_suspicious_fuzzy`] is true and a **changed**
+/// fuzzy match trips default [`super::fuzzy_span_suspicious`], returns
+/// [`EditErrorKind::FuzzySpanSuspicious`] (#2005). Exact/anchored matches and
+/// soft unchanged (`if_exists`) results are not refused.
 pub fn replace_in_content(
+    content: &str,
+    from: &str,
+    to: &str,
+    opts: &ReplaceOptions,
+) -> anyhow::Result<ContentEditResult> {
+    let result = replace_in_content_inner(content, from, to, opts)?;
+    maybe_refuse_suspicious_fuzzy(from, result, opts)
+}
+
+/// Apply [`ReplaceOptions::refuse_suspicious_fuzzy`] after a successful replace (#2005).
+pub(crate) fn maybe_refuse_suspicious_fuzzy(
+    from: &str,
+    result: ContentEditResult,
+    opts: &ReplaceOptions,
+) -> anyhow::Result<ContentEditResult> {
+    // Only refuse when a fuzzy rewrite was actually applied. Soft if_exists
+    // honesty can leave match_mode=Fuzzy with changed=false (#2005 review).
+    if !opts.refuse_suspicious_fuzzy
+        || !result.changed
+        || result.match_mode != Some(MatchMode::Fuzzy)
+    {
+        return Ok(result);
+    }
+    if super::fuzzy_span_suspicious(from, result.matched_text.as_deref(), result.match_score) {
+        let matched = result.matched_text.as_deref().unwrap_or("");
+        let score = result
+            .match_score
+            .map(|s| format!("{s:.3}"))
+            .unwrap_or_else(|| "none".into());
+        return Err(crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::FuzzySpanSuspicious,
+            format!(
+                "fuzzy span suspicious: old {:?} matched {:?} (score {score}); refuse_suspicious_fuzzy / for_agent",
+                crate::fallback::truncate_str(from, 60),
+                crate::fallback::truncate_str(matched, 80),
+            ),
+        )
+        .with_suggestion(
+            "use a tighter old string, disable refuse_suspicious_fuzzy, or inspect matched_text with FuzzySpanPolicy",
+        )
+        .into());
+    }
+    Ok(result)
+}
+
+fn replace_in_content_inner(
     content: &str,
     from: &str,
     to: &str,

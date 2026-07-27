@@ -86,9 +86,10 @@
 //!
 //! CLI `ast rewrite-signature` is still optional; library + plan + MCP cover embedders.
 //!
-//! Fail-closed text edits for agent hosts (#1492 / #1965): use
+//! Fail-closed text edits for agent hosts (#1492 / #1965 / #2005): use
 //! [`ReplaceOptions::for_agent`] so primary and fallback replace paths share one
-//! policy (`unique`, `require_change`, fuzzy with floor, `allow_absent_old: false`).
+//! policy (`unique`, `require_change`, fuzzy with floor, `allow_absent_old: false`,
+//! `refuse_suspicious_fuzzy: true` for over-wide fuzzy auto-refuse).
 //! Zero matches become `EditErrorKind::NoMatch` (not `Ok(changed=false)`). Match
 //! kinds via `api::edit_error_kind(&err)` without scraping English. That helper
 //! also peels CLI/tx typed errors (`InvalidInputError` for empty patterns / bad
@@ -206,8 +207,10 @@
 //! | Soft zero matches | [`EditErrorKind::NoMatch`] / [`api::is_no_match`] (JSON kind `no_matches`) |
 //! | Unique multi-match ambiguity | [`EditErrorKind::AmbiguousTarget`] / [`api::is_ambiguous`] (JSON `ambiguous`) |
 //! | Post-write format/lint failure | [`EditErrorKind::FormatFailed`] / [`api::is_format_failed`] |
-//! | Shared agent replace policy (primary + fallback) | [`ReplaceOptions::for_agent`] / [`AGENT_MIN_FUZZY_SCORE`] (#1965) |
-//! | Refuse over-wide fuzzy spans before trusting Apply | [`api::fuzzy_span_suspicious`] / [`FuzzySpanPolicy`] (#1981) |
+//! | Shared agent replace policy (primary + fallback) | [`ReplaceOptions::for_agent`] / [`AGENT_MIN_FUZZY_SCORE`] (#1965 / #2005) |
+//! | Over-wide fuzzy auto-refuse on `for_agent` | [`ReplaceOptions::refuse_suspicious_fuzzy`] / [`EditErrorKind::FuzzySpanSuspicious`] / [`api::is_fuzzy_span_suspicious`] (#2005) |
+//! | Custom over-wide fuzzy refuse | [`api::fuzzy_span_suspicious`] / [`FuzzySpanPolicy`] (#1981) |
+//! | Multi-op per-replace honesty | [`ContentEditsResult::op_honesty`] / [`ContentEditHonesty`] (#2006) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
@@ -306,14 +309,15 @@ pub use api::apply_content_edits_to_file;
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::search_one_file;
 pub use api::{
-    AGENT_MIN_FUZZY_SCORE, ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult,
-    EditError, EditErrorKind, EditResult, FuzzySpanPolicy, Hunk, MatchMode, PatchFile, PatchLine,
-    PeeledError, PostWriteHooks, PostWriteOnFailure, ReplaceOptions, SearchOptions, SearchResult,
-    WritePolicyOptions, apply_content_edits, apply_content_edits_with_label,
-    apply_post_write_validator, build_context_lines, classify_error, classify_error_ref,
-    edit_error_kind, edit_error_ref, error_kind_str, format_search_results, fuzzy_span_suspicious,
-    fuzzy_span_suspicious_with_policy, is_already_exists, is_ambiguous, is_binary, is_binary_file,
-    is_changes_detected, is_conflicts, is_format_failed, is_guard_rejected, is_invalid_encoding,
+    AGENT_MIN_FUZZY_SCORE, ApplyMode, ContentEdit, ContentEditHonesty, ContentEditResult,
+    ContentEditsResult, EditError, EditErrorKind, EditResult, FuzzySpanPolicy, Hunk, MatchMode,
+    PatchFile, PatchLine, PeeledError, PostWriteHooks, PostWriteOnFailure, ReplaceOptions,
+    SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
+    apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
+    classify_error, classify_error_ref, edit_error_kind, edit_error_ref, error_kind_str,
+    format_search_results, fuzzy_span_suspicious, fuzzy_span_suspicious_with_policy,
+    is_already_exists, is_ambiguous, is_binary, is_binary_file, is_changes_detected, is_conflicts,
+    is_format_failed, is_fuzzy_span_suspicious, is_guard_rejected, is_invalid_encoding,
     is_invalid_input, is_load_text_strict_fail, is_no_match, is_not_found, is_type_error,
     load_text, load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
     run_post_write_validation, search_file, text_diff,

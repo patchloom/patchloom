@@ -115,6 +115,7 @@
 //! | `not_found` | missing path I/O |
 //! | `binary` | NUL binary probe (#1963) |
 //! | `invalid_encoding` | non-UTF-8 text (#1963) |
+//! | `fuzzy_span_suspicious` | over-wide fuzzy refuse (#2005) |
 //! | `invalid_input` | empty path, directory target, empty pattern, unreadable IO |
 //! | `guard_rejected` | PathGuard / `--contain` |
 //! | `no_matches` | soft zero matches |
@@ -304,7 +305,8 @@ pub struct EditResult {
     /// Agents must not treat `match_mode == Fuzzy` + high `match_score` alone as
     /// "correct target": compare this field to the requested pattern and prefer
     /// `ast_rename` for identifier renames (#1736). For over-wide fuzzy spans,
-    /// call [`fuzzy_span_suspicious`] before treating Apply as trusted (#1981).
+    /// with `for_agent`, auto-refuse via [`ReplaceOptions::refuse_suspicious_fuzzy`];
+    /// custom options still call [`fuzzy_span_suspicious`] before trust (#1981 / #2005).
     pub matched_text: Option<String>,
     /// Backup session timestamp created for this Apply (if any).
     ///
@@ -456,6 +458,13 @@ pub struct ReplaceOptions {
     /// the best candidate. Anchored matches (explicit context) still apply.
     /// Opt in for deliberate approximate recovery (former 0.14 fuzzy default).
     pub allow_absent_old: bool,
+    /// When true, refuse a successful **fuzzy** match if
+    /// [`fuzzy_span_suspicious`] fires under default [`FuzzySpanPolicy`]
+    /// (#2005). Returns [`EditErrorKind::FuzzySpanSuspicious`] instead of `Ok`.
+    /// Default `false` for back-compat; [`Self::for_agent`] sets `true` so agent
+    /// hosts cannot forget a second post-Apply check. Exact/anchored matches are
+    /// not refused. Custom policy hosts keep [`fuzzy_span_suspicious_with_policy`].
+    pub refuse_suspicious_fuzzy: bool,
     /// Optional post-Apply format/lint hooks (#1690 / #1663).
     ///
     /// When set, runs after a successful disk write. Prefer pairing with
@@ -479,6 +488,7 @@ impl ReplaceOptions {
     /// | `fuzzy` | `true` | Enables anchor/similarity machinery (Similarity rewrite of missing `old` still needs `allow_absent_old`) |
     /// | `min_fuzzy_score` | [`AGENT_MIN_FUZZY_SCORE`] (`0.90`) | Reject weak similarity rewrites |
     /// | `allow_absent_old` | `false` | Fail closed when exact `old` is gone (#1758); report candidate |
+    /// | `refuse_suspicious_fuzzy` | `true` | Auto-refuse over-wide fuzzy spans (#2005 / #1981) |
     /// | other fields | [`Default`] | Hosts opt into word_boundary, command_position, etc. |
     ///
     /// ## Overrides (struct update)
@@ -528,6 +538,7 @@ impl ReplaceOptions {
             fuzzy: true,
             min_fuzzy_score: Some(AGENT_MIN_FUZZY_SCORE),
             allow_absent_old: false,
+            refuse_suspicious_fuzzy: true,
             ..Self::default()
         }
     }
@@ -541,8 +552,9 @@ pub use crate::exit::is_load_text_strict_fail;
 pub use crate::fallback::{
     EditError, EditErrorKind, PeeledError, classify_error, classify_error_ref, edit_error_kind,
     edit_error_ref, error_kind_str, find_similar_targets, is_already_exists, is_ambiguous,
-    is_binary, is_changes_detected, is_conflicts, is_format_failed, is_guard_rejected,
-    is_invalid_encoding, is_invalid_input, is_no_match, is_not_found, is_type_error, peel_error,
+    is_binary, is_changes_detected, is_conflicts, is_format_failed, is_fuzzy_span_suspicious,
+    is_guard_rejected, is_invalid_encoding, is_invalid_input, is_no_match, is_not_found,
+    is_type_error, peel_error,
 };
 
 /// Write policy options for controlling file write transformations.

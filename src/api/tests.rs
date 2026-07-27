@@ -2942,10 +2942,15 @@ fn replace_options_for_agent_matches_documented_policy() {
         !a.allow_absent_old,
         "for_agent must keep allow_absent_old false (#1758 / #1965)"
     );
+    assert!(
+        a.refuse_suspicious_fuzzy,
+        "for_agent must auto-refuse over-wide fuzzy (#2005)"
+    );
     // Distinct from Default so hosts do not hand-roll half the fields.
     assert!(!d.unique && !d.require_change && !d.fuzzy);
     assert_eq!(d.min_fuzzy_score, None);
     assert!(!d.allow_absent_old);
+    assert!(!d.refuse_suspicious_fuzzy);
     // Other fields stay at Default.
     assert!(!a.regex && !a.word_boundary && !a.command_position && !a.if_exists);
     assert!(a.nth.is_none());
@@ -6455,6 +6460,151 @@ fn replace_in_content_fuzzy_near_collision_reports_matched_text() {
         !crate::api::fuzzy_span_suspicious("compute_cheksum", Some(matched), r.match_score),
         "near-collision identifier span must not trip default refuse policy: {matched:?}"
     );
+}
+
+/// #2005: for_agent auto-refuses over-wide fuzzy without a second host call.
+#[test]
+fn replace_in_content_for_agent_refuses_suspicious_fuzzy_span() {
+    // Token-scale recovery must still succeed under for_agent refuse policy.
+    let content = "fn process_data() {}\n";
+    let agent = ReplaceOptions {
+        allow_absent_old: true, // allow apply so refuse gate is reachable
+        unique: false,
+        ..ReplaceOptions::for_agent()
+    };
+    let r = replace_in_content(content, "proess_data", "process_items", &agent)
+        .expect("token-scale fuzzy must not trip refuse");
+    assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+    assert!(r.changed);
+
+    // Over-wide refuse is locked in maybe_refuse_suspicious_fuzzy_rejects_wide_span
+    // (deterministic ContentEditResult; engine wide-span fixtures are brittle).
+
+    // Explicit disable: struct update turns refuse off.
+    let no_refuse = ReplaceOptions {
+        refuse_suspicious_fuzzy: false,
+        allow_absent_old: true,
+        unique: false,
+        ..ReplaceOptions::for_agent()
+    };
+    let r3 = replace_in_content(content, "proess_data", "process_items", &no_refuse)
+        .expect("without refuse_suspicious_fuzzy still Ok");
+    assert!(r3.changed);
+}
+
+/// #2005: refuse gate rejects a wide fuzzy ContentEditResult (deterministic).
+#[test]
+fn maybe_refuse_suspicious_fuzzy_rejects_wide_span() {
+    use crate::api::ContentEditResult;
+    use crate::api::replace::maybe_refuse_suspicious_fuzzy;
+    let result = ContentEditResult {
+        original: "x".into(),
+        new_content: "y".into(),
+        diff: String::new(),
+        changed: true,
+        match_count: 1,
+        match_mode: Some(MatchMode::Fuzzy),
+        match_score: Some(AGENT_MIN_FUZZY_SCORE),
+        matched_text: Some("process_data_and_much_more_tail".into()),
+    };
+    let opts = ReplaceOptions {
+        refuse_suspicious_fuzzy: true,
+        ..Default::default()
+    };
+    let err = maybe_refuse_suspicious_fuzzy("process_data", result, &opts)
+        .expect_err("wide near-floor fuzzy must refuse");
+    assert!(crate::api::is_fuzzy_span_suspicious(&err));
+    assert_eq!(
+        crate::api::error_kind_str(&err),
+        Some("fuzzy_span_suspicious")
+    );
+
+    let result_ok = ContentEditResult {
+        original: "x".into(),
+        new_content: "y".into(),
+        diff: String::new(),
+        changed: true,
+        match_count: 1,
+        match_mode: Some(MatchMode::Fuzzy),
+        match_score: Some(0.99),
+        matched_text: Some("process_data".into()),
+    };
+    maybe_refuse_suspicious_fuzzy("process_data", result_ok, &opts)
+        .expect("token-scale high score must pass refuse gate");
+
+    // Soft if_exists honesty (changed=false) must not become FuzzySpanSuspicious.
+    let soft = ContentEditResult {
+        original: "x".into(),
+        new_content: "x".into(),
+        diff: String::new(),
+        changed: false,
+        match_count: 0,
+        match_mode: Some(MatchMode::Fuzzy),
+        match_score: Some(AGENT_MIN_FUZZY_SCORE),
+        matched_text: Some("process_data_and_much_more_tail".into()),
+    };
+    maybe_refuse_suspicious_fuzzy("process_data", soft, &opts)
+        .expect("unchanged soft path must not refuse");
+}
+
+/// #2005: peel helpers for FuzzySpanSuspicious.
+#[test]
+fn fuzzy_span_suspicious_error_kind_peels() {
+    use crate::fallback::{
+        EditError, EditErrorKind, edit_error_kind, error_kind_str, is_fuzzy_span_suspicious,
+    };
+    let err: anyhow::Error = EditError::new(
+        EditErrorKind::FuzzySpanSuspicious,
+        "fuzzy span suspicious: old \"x\" matched \"yyyy\"",
+    )
+    .into();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::FuzzySpanSuspicious)
+    );
+    assert!(is_fuzzy_span_suspicious(&err));
+    assert_eq!(error_kind_str(&err), Some("fuzzy_span_suspicious"));
+    assert_eq!(EditErrorKind::FuzzySpanSuspicious as u8, 16);
+}
+
+/// #2006: multi-op exposes per-op honesty with matching old.
+#[test]
+fn content_edits_op_honesty_per_replace() {
+    use crate::api::{ContentEdit, apply_content_edits};
+    let edits = [
+        ContentEdit::Replace {
+            old: "aaa".into(),
+            new: "AAA".into(),
+            options: ReplaceOptions::default(),
+        },
+        ContentEdit::Replace {
+            old: "bbb".into(),
+            new: "BBB".into(),
+            options: ReplaceOptions {
+                fuzzy: true,
+                allow_absent_old: true,
+                min_fuzzy_score: Some(0.5),
+                ..Default::default()
+            },
+        },
+    ];
+    let r = apply_content_edits("aaa bbb\n", &edits).expect("batch apply");
+    assert!(r.changed);
+    assert_eq!(
+        r.op_honesty.len(),
+        2,
+        "each replace reports honesty: {:?}",
+        r.op_honesty
+    );
+    assert_eq!(r.op_honesty[0].op_index, 0);
+    assert_eq!(r.op_honesty[0].old, "aaa");
+    assert_eq!(r.op_honesty[0].match_mode, Some(MatchMode::Exact));
+    assert_eq!(r.op_honesty[1].op_index, 1);
+    assert_eq!(r.op_honesty[1].old, "bbb");
+    // Host can refuse with matching old without rollup guesswork.
+    for h in &r.op_honesty {
+        let _ = crate::api::fuzzy_span_suspicious(&h.old, h.matched_text.as_deref(), h.match_score);
+    }
 }
 
 /// #1981: host refuse helper after a real fuzzy `replace_in_content` Apply.

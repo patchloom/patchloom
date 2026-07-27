@@ -1379,6 +1379,7 @@ fn run_context_replace(
         command_position: args.command_position,
         min_fuzzy_score: args.min_fuzzy_score,
         allow_absent_old: args.allow_absent_old,
+        refuse_suspicious_fuzzy: false,
         post_write: None,
         post_write_cwd: None,
     };

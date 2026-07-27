@@ -161,12 +161,15 @@ default; hosts that need a smaller register set can track progressive surface de
              - `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n\
-             **Library `ReplaceOptions::for_agent` (#1965):** Rust hosts with primary + fallback \
+             **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback \
 replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
 `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \
-`min_fuzzy_score=Some(AGENT_MIN_FUZZY_SCORE)` (`0.90`), **`allow_absent_old=false`** (fail closed). \
+`min_fuzzy_score=Some(AGENT_MIN_FUZZY_SCORE)` (`0.90`), **`allow_absent_old=false`** (fail closed), \
+**`refuse_suspicious_fuzzy=true`** (auto-refuse over-wide fuzzy as `EditErrorKind::FuzzySpanSuspicious` / \
+`error_kind: fuzzy_span_suspicious`; peel with `api::is_fuzzy_span_suspicious`). \
 Overrides via struct update: replace-all → `unique: false`; deliberate approximate recovery → \
-`allow_absent_old: true`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, \
+`allow_absent_old: true`; raw fuzzy without span refuse → `refuse_suspicious_fuzzy: false`; \
+word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, \
 `word_boundary: true`. `command_position` cannot combine with fuzzy/word_boundary/regex/whole_line \
 (typed `invalid_input`). This is **not** a host-specific recovery policy; approximate rewrite of \
 missing `old` stays an explicit opt-in.\n\n\
@@ -177,17 +180,19 @@ score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_
 resort for typos in non-AST text (prose, comments), not a general rename tool.\n\
              - When you opt into `allow_absent_old`, still check JSON `matched_text` before treating the edit as semantic success (#1736).\n\
              - **No second named recovery constructor:** hosts that always want approximate recovery keep the one-line override above (not a full host policy; still set `unique` / `word_boundary` per call). Closed as not planned (#1980).\n\
-             - **Over-wide fuzzy refuse (#1981):** after a fuzzy success, call \
+             - **Over-wide fuzzy refuse (#1981 / #2005 / #2006):** `for_agent()` sets \
+`refuse_suspicious_fuzzy=true` so `replace_in_content` / disk replace auto-refuse over-wide \
+fuzzy (no second host call required). Custom policy or non-agent defaults: still call \
 `api::fuzzy_span_suspicious(old, matched_text.as_deref(), match_score)` (or \
 `fuzzy_span_suspicious_with_policy` + `FuzzySpanPolicy`) **before treating Apply as trusted**. \
 Default policy (Unicode chars): refuse when matched is wider than \
 `max(4 * old_chars, old_chars + 40)`, or score is in `[0.90, 0.95)` and ratio `> 2`. \
 Do not rely on score alone. Multi-op `apply_content_edits` rolls up the **widest** \
 `matched_text` and the **minimum** fuzzy `match_score` independently (they may come from \
-different ops); prefer per-op checks with the matching `old` when possible. Plan/tx \
-top-level `matched_text` is set for a single replace path only (multi-path leaves it \
-null; per-path merge is first non-null, not widest). Prefer per-change checks; \
-`apply_content_edits` is the worst-case (widest) span rollup for host refuse.\n\n\
+different ops); use **`ContentEditsResult.op_honesty`** per replace (`old`, `matched_text`, \
+`match_score`) for correct refuse pairing (#2006). Plan/tx top-level `matched_text` is set \
+for a single replace path only (multi-path leaves it null; per-path merge is first non-null, \
+not widest; tracked as #2007). Prefer per-op honesty; rollup fields are worst-case only.\n\n\
              **Library embedder undo / post-write (Rust hosts, not CLI-only):**\n\
              - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).\n\
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
@@ -203,6 +208,7 @@ null; per-path merge is first non-null, not widest). Prefer per-change checks; \
                | Directory target / empty path / unreadable IO | `InvalidInput` / `invalid_input` |\n\
                | Binary (NUL probe) | `Binary` / `binary` (#1963) |\n\
                | Invalid UTF-8 text | `InvalidEncoding` / `invalid_encoding` (#1963) |\n\
+               | Over-wide fuzzy span refuse | `FuzzySpanSuspicious` / `fuzzy_span_suspicious` (#2005; `is_fuzzy_span_suspicious`) |\n\
                | Force create over binary/unreadable prior | succeeds with empty original (#1962) |\n\
                | PathGuard / `--contain` escape | `GuardRejected` / `guard_rejected` |\n\
                | Patch merge conflict markers | `Conflicts` / `conflicts` (not batch `ConflictingEdit`) |\n\
@@ -1263,7 +1269,10 @@ mod tests {
             "library hosts need for_agent replace preset docs (#1965)"
         );
         assert!(
-            out.contains("fuzzy_span_suspicious") && out.contains("FuzzySpanPolicy"),
+            out.contains("fuzzy_span_suspicious")
+                && out.contains("FuzzySpanPolicy")
+                && out.contains("refuse_suspicious_fuzzy")
+                && out.contains("op_honesty"),
             "library hosts need over-wide fuzzy refuse helper docs (#1981)"
         );
         assert!(
