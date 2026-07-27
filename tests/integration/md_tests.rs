@@ -1485,3 +1485,109 @@ fn test_md_replace_section_format_failure_json_error_kind() {
         "md replace must still write before format failure"
     );
 }
+
+/// Sole-path md commands must peel binary (NUL) as `error_kind: binary`
+/// for engine paths and pre-load paths (#1894 / #1972).
+#[test]
+fn test_md_sole_binary_is_binary_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("blob.md"), b"hello\x00world").unwrap();
+
+    let cases: &[(&[&str], &str)] = &[
+        (
+            &[
+                "--json",
+                "md",
+                "replace-section",
+                "blob.md",
+                "--heading",
+                "H",
+                "--content",
+                "new",
+            ],
+            "binary",
+        ),
+        (&["--json", "md", "dedupe-headings", "blob.md"], "binary"),
+        (&["--json", "md", "lint-agents", "blob.md"], "binary"),
+        (
+            &[
+                "--json",
+                "md",
+                "table-append",
+                "blob.md",
+                "--heading",
+                "H",
+                "--row",
+                "a|b",
+            ],
+            "binary",
+        ),
+        (
+            &[
+                "--json",
+                "md",
+                "insert-after-heading",
+                "blob.md",
+                "--heading",
+                "H",
+                "--content",
+                "x",
+            ],
+            "binary",
+        ),
+    ];
+
+    for (args, kind) in cases {
+        let output = patchloom_in(dir.path()).args(*args).output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "args={args:?} stdout={}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(json["error_kind"], *kind, "args={args:?} json={json}");
+        assert_eq!(json["ok"], false, "args={args:?} json={json}");
+        let err = json["error"].as_str().unwrap_or("").to_lowercase();
+        assert!(
+            err.contains("binary"),
+            "args={args:?} expected binary guidance: {json}"
+        );
+    }
+}
+
+/// Sole-path md commands must peel invalid UTF-8 as `invalid_encoding` (#1963).
+#[test]
+fn test_md_sole_invalid_encoding_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad.md"), b"hello \xff world").unwrap();
+
+    for args in [
+        vec![
+            "--json",
+            "md",
+            "replace-section",
+            "bad.md",
+            "--heading",
+            "H",
+            "--content",
+            "new",
+        ],
+        vec!["--json", "md", "dedupe-headings", "bad.md"],
+        vec!["--json", "md", "lint-agents", "bad.md"],
+    ] {
+        let output = patchloom_in(dir.path()).args(&args).output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "args={args:?} stdout={}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            json["error_kind"], "invalid_encoding",
+            "args={args:?} json={json}"
+        );
+        assert_eq!(json["ok"], false, "args={args:?} json={json}");
+    }
+}

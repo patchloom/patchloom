@@ -1075,11 +1075,11 @@ fn test_ast_validate_ok_rust_still_succeeds() {
     assert_eq!(arr[0]["valid"], true);
 }
 
-/// Sole explicit binary AST paths must be invalid_input, not no_matches /
-/// unsupported-language / missing-symbol (NUL is valid UTF-8).
+/// Sole explicit binary AST paths must be `error_kind: binary`, not
+/// no_matches / unsupported-language / missing-symbol (NUL is valid UTF-8).
 #[cfg(feature = "ast")]
 #[test]
-fn test_ast_sole_binary_is_invalid_input() {
+fn test_ast_sole_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("blob.bin"), b"hello\x00world").unwrap();
 
@@ -1088,6 +1088,9 @@ fn test_ast_sole_binary_is_invalid_input() {
         vec!["--json", "ast", "validate", "blob.bin"],
         vec![
             "--json", "ast", "rename", "blob.bin", "--old", "foo", "--new", "bar",
+        ],
+        vec![
+            "--json", "ast", "replace", "blob.bin", "foo", "--old", "a", "--new", "b",
         ],
     ] {
         let output = patchloom_in(dir.path()).args(&args).output().unwrap();
@@ -1107,6 +1110,39 @@ fn test_ast_sole_binary_is_invalid_input() {
                 .contains("binary"),
             "args={args:?} json={json}"
         );
+    }
+}
+
+/// Sole-path AST invalid UTF-8 peels as `invalid_encoding` (#1963 / #1974).
+#[cfg(feature = "ast")]
+#[test]
+fn test_ast_sole_invalid_encoding_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad.rs"), b"fn foo() { \xff }\n").unwrap();
+
+    for args in [
+        vec!["--json", "ast", "list", "bad.rs"],
+        vec!["--json", "ast", "validate", "bad.rs"],
+        vec![
+            "--json", "ast", "rename", "bad.rs", "--old", "foo", "--new", "bar",
+        ],
+        vec![
+            "--json", "ast", "replace", "bad.rs", "foo", "--old", "a", "--new", "b",
+        ],
+    ] {
+        let output = patchloom_in(dir.path()).args(&args).output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "args={args:?} stdout={}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            json["error_kind"], "invalid_encoding",
+            "args={args:?} json={json}"
+        );
+        assert_eq!(json["ok"], false, "args={args:?} json={json}");
     }
 }
 
