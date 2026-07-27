@@ -306,14 +306,15 @@ pub use api::apply_content_edits_to_file;
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::search_one_file;
 pub use api::{
-    AGENT_MIN_FUZZY_SCORE, ApplyMode, ContentEdit, ContentEditResult, ContentEditsResult,
-    EditError, EditErrorKind, EditResult, FuzzySpanPolicy, Hunk, MatchMode, PatchFile, PatchLine,
-    PeeledError, PostWriteHooks, PostWriteOnFailure, ReplaceOptions, SearchOptions, SearchResult,
-    WritePolicyOptions, apply_content_edits, apply_content_edits_with_label,
-    apply_post_write_validator, build_context_lines, classify_error, classify_error_ref,
-    edit_error_kind, edit_error_ref, error_kind_str, format_search_results, fuzzy_span_suspicious,
-    fuzzy_span_suspicious_with_policy, is_already_exists, is_ambiguous, is_binary, is_binary_file,
-    is_changes_detected, is_conflicts, is_format_failed, is_guard_rejected, is_invalid_encoding,
+    AGENT_MIN_FUZZY_SCORE, ApplyMode, ContentEdit, ContentEditHonesty, ContentEditResult,
+    ContentEditsResult, EditError, EditErrorKind, EditResult, FuzzySpanPolicy, Hunk, MatchMode,
+    PatchFile, PatchLine, PeeledError, PostWriteHooks, PostWriteOnFailure, ReplaceOptions,
+    SearchOptions, SearchResult, WritePolicyOptions, apply_content_edits,
+    apply_content_edits_with_label, apply_post_write_validator, build_context_lines,
+    classify_error, classify_error_ref, edit_error_kind, edit_error_ref, error_kind_str,
+    format_search_results, fuzzy_span_suspicious, fuzzy_span_suspicious_with_policy,
+    is_already_exists, is_ambiguous, is_binary, is_binary_file, is_changes_detected, is_conflicts,
+    is_format_failed, is_fuzzy_span_suspicious, is_guard_rejected, is_invalid_encoding,
     is_invalid_input, is_load_text_strict_fail, is_no_match, is_not_found, is_type_error,
     load_text, load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
     run_post_write_validation, search_file, text_diff,

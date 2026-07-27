@@ -157,6 +157,12 @@ pub enum EditErrorKind {
     /// `error_kind: "invalid_encoding"`. Distinct from [`Self::Binary`] and
     /// [`Self::InvalidInput`] (#1963).
     InvalidEncoding,
+    /// Fuzzy match span is over-wide vs `old` under [`crate::api::FuzzySpanPolicy`]
+    /// (or the host refused via `ReplaceOptions::refuse_suspicious_fuzzy`).
+    /// CLI/library JSON uses `error_kind: "fuzzy_span_suspicious"` (#2005).
+    /// Appended after [`Self::InvalidEncoding`] so 0.20/0.21 discriminants stay
+    /// stable.
+    FuzzySpanSuspicious,
 }
 
 impl std::fmt::Display for EditErrorKind {
@@ -178,6 +184,7 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::ChangesDetected => write!(f, "changes_detected"),
             EditErrorKind::Binary => write!(f, "binary"),
             EditErrorKind::InvalidEncoding => write!(f, "invalid_encoding"),
+            EditErrorKind::FuzzySpanSuspicious => write!(f, "fuzzy_span_suspicious"),
         }
     }
 }
@@ -426,6 +433,14 @@ pub fn is_binary(err: &anyhow::Error) -> bool {
 #[must_use]
 pub fn is_invalid_encoding(err: &anyhow::Error) -> bool {
     edit_error_kind(err) == Some(EditErrorKind::InvalidEncoding)
+}
+
+/// Whether the error peels as over-wide fuzzy span refuse
+/// ([`EditErrorKind::FuzzySpanSuspicious`]) from
+/// `ReplaceOptions::refuse_suspicious_fuzzy` / `for_agent` (#2005).
+#[must_use]
+pub fn is_fuzzy_span_suspicious(err: &anyhow::Error) -> bool {
+    edit_error_kind(err) == Some(EditErrorKind::FuzzySpanSuspicious)
 }
 
 /// One-shot peel of a library/CLI error for host tool envelopes (#1964).
@@ -1214,6 +1229,8 @@ mod tests {
         // #1963 kinds append after ChangesDetected (never insert above).
         assert_eq!(EditErrorKind::Binary as u8, 14);
         assert_eq!(EditErrorKind::InvalidEncoding as u8, 15);
+        // #2005 append after InvalidEncoding (never insert above).
+        assert_eq!(EditErrorKind::FuzzySpanSuspicious as u8, 16);
     }
 
     #[test]
