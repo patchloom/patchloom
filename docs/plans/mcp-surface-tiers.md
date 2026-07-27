@@ -23,6 +23,10 @@ Defined in `src/cmd/mcp/surface.rs` as `CORE_MCP_TOOL_NAMES` / `McpSurface`.
 
 `server_info` reports `surface` and `tool_count`.
 
+Handshake `instructions` (MCP `ServerInfo`) are surface-aware: core mode lists
+only the core tools and names `PATCHLOOM_MCP_SURFACE=core`, so agents do not
+chase full-inventory tool names that are not registered.
+
 ## Non-goals
 
 - Removing tools without a flag
@@ -35,4 +39,5 @@ Defined in `src/cmd/mcp/surface.rs` as `CORE_MCP_TOOL_NAMES` / `McpSurface`.
 - [x] Agent-rules decision table + `PATCHLOOM_MCP_SURFACE` docs
 - [x] `McpSurface` parse + filter on registry add / custom disable
 - [x] Unit + protocol tests for core list_tools and rejected full-only calls
+- [x] Surface-aware handshake `instructions` (core does not advertise full-only tools)
 - [x] mcp-setup.md host configuration
