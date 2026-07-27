@@ -272,10 +272,10 @@ fn test_read_multiple_files_json_partial_failure_reports_skipped() {
     );
 }
 
-/// Sole explicit binary path must be invalid_input, not ok:true with NULs
-/// (parity with search/replace/tidy; MPI 2026-07-20).
+/// Sole explicit binary path must be `error_kind: binary`, not ok:true with NULs
+/// (parity with search/replace/tidy; MPI 2026-07-20 / #1963).
 #[test]
-fn test_read_sole_explicit_binary_is_invalid_input() {
+fn test_read_sole_explicit_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     let bin_file = dir.path().join("data.bin");
     fs::write(&bin_file, b"hello\x00world").unwrap();
@@ -299,9 +299,9 @@ fn test_read_sole_explicit_binary_is_invalid_input() {
     assert!(err.contains("binary"), "expected binary guidance, got: {v}");
 }
 
-/// Multi-path read: text succeeds; binary co-path goes to skipped with invalid_input.
+/// Multi-path read: text succeeds; binary co-path goes to skipped with binary reason.
 #[test]
-fn test_read_multi_path_binary_skipped_invalid_input() {
+fn test_read_multi_path_binary_skipped_surfaces_binary() {
     let dir = TempDir::new().unwrap();
     let text = dir.path().join("ok.txt");
     let bin_file = dir.path().join("data.bin");
