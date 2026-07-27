@@ -11,9 +11,42 @@ use rmcp::{ServerHandler, ServiceExt};
 use crate::cli::global::GlobalFlags;
 
 use super::PatchloomService;
+use super::surface::McpSurface;
 
-/// Server instructions for agents; AST category omitted when `ast` is disabled.
-fn server_instructions() -> String {
+/// Server instructions for agents.
+///
+/// Must match the active [`McpSurface`]: core mode must not advertise tools
+/// that were not registered at handshake (#1994 honesty / review follow-up).
+/// AST category is also omitted when the `ast` feature is disabled (full only).
+pub(super) fn server_instructions(surface: McpSurface) -> String {
+    match surface {
+        McpSurface::Core => core_server_instructions(),
+        McpSurface::Full => full_server_instructions(),
+    }
+}
+
+/// Instructions when `PATCHLOOM_MCP_SURFACE=core` (exactly [`super::surface::CORE_MCP_TOOL_NAMES`]).
+fn core_server_instructions() -> String {
+    String::from(
+        "This server is running with PATCHLOOM_MCP_SURFACE=core (minimal tool pack). \
+         Only the tools below are registered; do not call others. Restart with \
+         PATCHLOOM_MCP_SURFACE=full (or unset) for the full inventory.\n\n\
+         Prefer 'execute_plan' for multi-op or multi-file work (atomicity). \
+         Per-call success does not guarantee combined success if you issue \
+         conflicting parallel writes.\n\n\
+         Core tools:\n\
+         - read_file, search_files: inspect and find content\n\
+         - replace_text, batch_replace: literal/regex text edits\n\
+         - doc_get, doc_set, doc_query: parser-backed JSON/YAML/TOML by selector path\n\
+         - md_replace_section: replace a markdown heading section\n\
+         - execute_plan: multi-op atomic plans (tx)\n\
+         - server_info: cwd, surface, tool_count\n\n\
+         Use doc_* for structured config; replace_text only where structure does not matter.",
+    )
+}
+
+/// Full-inventory instructions; AST category omitted when `ast` is disabled.
+fn full_server_instructions() -> String {
     let mut s = String::from(
         "Use these tools for ALL file operations. Prefer 'execute_plan' (or tx plans) \
          for any multi-op or multi-file work to ensure atomicity and avoid races from \
@@ -53,7 +86,7 @@ fn server_instructions() -> String {
 impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions(server_instructions());
+            .with_instructions(server_instructions(self.surface()));
         info.server_info.name = "patchloom".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
         info

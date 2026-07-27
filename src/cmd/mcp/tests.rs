@@ -1145,6 +1145,84 @@ mod surface_core_tests {
         let err = surface::McpSurface::parse("tiny").unwrap_err().to_string();
         assert!(err.contains("PATCHLOOM_MCP_SURFACE"));
     }
+
+    /// Core handshake instructions must only name tools in CORE_MCP_TOOL_NAMES.
+    #[test]
+    fn core_server_instructions_list_only_core_tools() {
+        let text = super::super::transport::server_instructions(surface::McpSurface::Core);
+        for name in surface::CORE_MCP_TOOL_NAMES {
+            assert!(
+                text.contains(name),
+                "core instructions must mention registered tool {name}"
+            );
+        }
+        // Full-only tools must not appear (agent would try them and fail).
+        for banned in [
+            "create_file",
+            "delete_file",
+            "doc_diff",
+            "doc_merge",
+            "batch_tidy",
+            "apply_patch",
+            "ast_list",
+            "git_status",
+            "File ops",
+            "AST ops",
+            "md_upsert_bullet",
+        ] {
+            assert!(
+                !text.contains(banned),
+                "core instructions must not advertise full-only {banned:?}"
+            );
+        }
+        assert!(
+            text.contains("PATCHLOOM_MCP_SURFACE=core"),
+            "core instructions should name the env mode"
+        );
+    }
+
+    /// Full instructions keep the category guide (#1273) and still list non-core tools.
+    #[test]
+    fn full_server_instructions_include_full_inventory_hints() {
+        let text = super::super::transport::server_instructions(surface::McpSurface::Full);
+        assert!(text.contains("Document ops"));
+        assert!(text.contains("create_file"));
+        assert!(text.contains("doc_set"));
+        assert!(!text.contains("PATCHLOOM_MCP_SURFACE=core"));
+    }
+
+    /// Protocol: peer_info.instructions for a core service matches unit helper.
+    #[tokio::test]
+    async fn core_surface_handshake_instructions_are_core_only() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client =
+            spawn_test_client_with_surface(dir.path().to_path_buf(), surface::McpSurface::Core)
+                .await;
+        let info = client.peer_info().expect("peer info should be set");
+        let instructions = info
+            .instructions
+            .as_deref()
+            .expect("server should have instructions");
+        assert!(
+            instructions.contains("PATCHLOOM_MCP_SURFACE=core"),
+            "handshake must advertise core mode"
+        );
+        assert!(
+            !instructions.contains("create_file"),
+            "core handshake must not list create_file"
+        );
+        assert!(
+            !instructions.contains("ast_list"),
+            "core handshake must not list ast_list"
+        );
+        for name in ["doc_set", "execute_plan", "read_file", "server_info"] {
+            assert!(
+                instructions.contains(name),
+                "core handshake must mention {name}"
+            );
+        }
+        client.cancel().await.unwrap();
+    }
 }
 
 // --- #1270: no_results returns isError: false ---
