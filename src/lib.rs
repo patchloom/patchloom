@@ -211,7 +211,10 @@
 //! | Over-wide fuzzy auto-refuse on `for_agent` | [`ReplaceOptions::refuse_suspicious_fuzzy`] / [`EditErrorKind::FuzzySpanSuspicious`] / [`api::is_fuzzy_span_suspicious`] (#2005) |
 //! | Custom over-wide fuzzy refuse | [`api::fuzzy_span_suspicious`] / [`FuzzySpanPolicy`] (#1981) |
 //! | Multi-op per-replace honesty | [`ContentEditsResult::op_honesty`] / [`ContentEditHonesty`] (#2006) |
+//! | Plan/tx multi-path worst-case span | [`prefer_widest_matched_text`] / top-level `matched_text` (#2007) |
+//! | File multi-op pre-write span refuse | [`apply_content_edits_to_file_with_span_policy`] + [`FuzzySpanPolicy`] (#2008) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
+//! | Ordered host onboarding (primary + fallback + peels + multi-op) | [Embedder host checklist](docs/getting-started/embedder-host.md) (#2009) |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
 //!

@@ -65,6 +65,8 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 - `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).
 Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"require_change":true}`
 
+**Library host checklist (#2009):** ordered onboarding for LLM agent hosts / embedders (primary + fallback replace, peels, multi-op honesty, pre-write span policy) lives in `docs/getting-started/embedder-host.md` (linked from README and crate docs).
+
 **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, `min_fuzzy_score=Some(AGENT_MIN_FUZZY_SCORE)` (`0.90`), **`allow_absent_old=false`** (fail closed), **`refuse_suspicious_fuzzy=true`** (auto-refuse over-wide fuzzy as `EditErrorKind::FuzzySpanSuspicious` / `error_kind: fuzzy_span_suspicious`; peel with `api::is_fuzzy_span_suspicious`). Overrides via struct update: replace-all → `unique: false`; deliberate approximate recovery → `allow_absent_old: true`; raw fuzzy without span refuse → `refuse_suspicious_fuzzy: false`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, `word_boundary: true`. `command_position` cannot combine with fuzzy/word_boundary/regex/whole_line (typed `invalid_input`). This is **not** a host-specific recovery policy; approximate rewrite of missing `old` stays an explicit opt-in.
 
 **Fuzzy defaults fail closed when exact old is absent (#1758):**
