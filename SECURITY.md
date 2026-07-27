@@ -52,7 +52,7 @@ Some Scorecard heuristics do not fully match that posture:
 
 | Check | Observed Scorecard signal | Project reality |
 |-------|---------------------------|-----------------|
-| **Packaging** | Often `-1` / "packaging workflow not detected" | Releases use cargo-dist (`release.yml`) plus crates.io and Homebrew publishing. Scorecard's packaging detector does not currently recognize this cargo-dist layout; treat a low Packaging score as a known false negative, not absence of packaging. |
+| **Packaging** | Often `-1` / "packaging workflow not detected" for cargo-dist-only layouts | Releases use cargo-dist (`release.yml`) plus crates.io and Homebrew publishing. Scorecard did not match `dist plan`/`dist build` (only bare `cargo publish`). Tracked upstream: [ossf/scorecard#5145](https://github.com/ossf/scorecard/issues/5145), fix PR [ossf/scorecard#5146](https://github.com/ossf/scorecard/pull/5146). Local Packaging may still score 10 via other matchers (e.g. npm publish in the same workflow) without detecting cargo-dist. Prefer release.yml + crates/Homebrew as packaging proof until Scorecard ships the matcher. |
 | **Vulnerabilities** | May lag OSV/RUSTSEC listings (for example historical `anyhow` advisories) | Authoritative sources for this repo are the checked-in `Cargo.lock` and CI advisory tooling (`cargo audit`). License/source policy is enforced by `cargo deny check` (`deny.toml`) plus FOSSA. If Scorecard still flags an advisory while the lockfile and CI audit are clean (patched versions resolved), prefer the lockfile + CI result. |
 
 Pinned installers in the release workflow (cargo-dist binary and rustup-init
