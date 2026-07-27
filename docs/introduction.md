@@ -70,14 +70,18 @@ edits, and (with `ast` + `files`) AST rename / signature rewrite helpers. All
 API types are `Send + Sync`. Disabling default features omits the MCP server and
 its async dependencies.
 
-Agent hosts often set `ReplaceOptions.require_change = true` so missing targets
-are structured errors (`EditErrorKind::NoMatch`) instead of soft no-ops. Opt-in
+Agent hosts should prefer `ReplaceOptions::for_agent()` so primary and fallback
+replace paths share one policy (`unique`, `require_change`, fuzzy at
+`AGENT_MIN_FUZZY_SCORE` 0.90, fail-closed `allow_absent_old: false`). After a
+fuzzy Apply, call `api::fuzzy_span_suspicious(old, matched_text, match_score)`
+before treating the write as trusted (over-wide span refuse; #1981). Opt-in
 `command_position` rewrites shell command tokens without touching arguments
 (including after `sudo` / `timeout 30` / `nice -n 10` / `setsid` / `busybox` /
-`runuser` / `flock` / `chroot` wrappers, across lines). The same options are
-available on the CLI (`patchloom replace … --require-change --command-position`),
+`runuser` / `flock` / `chroot` wrappers, across lines). The same replace options
+are available on the CLI (`patchloom replace … --require-change --command-position`),
 plan/MCP replace, and `batch_replace`. See the
-[crate documentation](https://docs.rs/patchloom) for the full API surface.
+[crate documentation](https://docs.rs/patchloom) and the
+[library API table](reference/README.md#library-api) for the full surface.
 
 ## Get started
 
