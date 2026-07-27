@@ -321,9 +321,8 @@ pub(crate) fn build_tx_output_with_meta(
                 agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
             }
             agg_count = agg_count.saturating_add(m.match_count);
-            if top_matched_text.is_none() {
-                top_matched_text = m.matched_text.clone();
-            }
+            top_matched_text =
+                crate::api::prefer_widest_matched_text(top_matched_text, m.matched_text.clone());
         }
         let from_str = display_path(from);
         let to_str = display_path(to);
@@ -359,9 +358,8 @@ pub(crate) fn build_tx_output_with_meta(
                 agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
             }
             agg_count = agg_count.saturating_add(m.match_count);
-            if top_matched_text.is_none() {
-                top_matched_text = m.matched_text.clone();
-            }
+            top_matched_text =
+                crate::api::prefer_widest_matched_text(top_matched_text, m.matched_text.clone());
         }
         if deletions.contains(path) {
             tx_changes.push(TxChange {
@@ -418,9 +416,10 @@ pub(crate) fn build_tx_output_with_meta(
                     agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
                 }
                 agg_count = agg_count.saturating_add(m.match_count);
-                if top_matched_text.is_none() {
-                    top_matched_text = m.matched_text.clone();
-                }
+                top_matched_text = crate::api::prefer_widest_matched_text(
+                    top_matched_text,
+                    m.matched_text.clone(),
+                );
             }
             tx_changes.push(TxChange {
                 path: display_path(path),
@@ -450,9 +449,8 @@ pub(crate) fn build_tx_output_with_meta(
                 agg_score = Some(agg_score.map_or(s, |prev| prev.min(s)));
             }
             agg_count = agg_count.saturating_add(m.match_count);
-            if top_matched_text.is_none() {
-                top_matched_text = m.matched_text.clone();
-            }
+            top_matched_text =
+                crate::api::prefer_widest_matched_text(top_matched_text, m.matched_text.clone());
         }
     }
 
@@ -528,15 +526,10 @@ pub(crate) fn build_tx_output_with_meta(
         } else {
             None
         },
-        // Surface only when a single replace path is present so multi-file
-        // rollups do not pick an arbitrary sibling span. Gate on replace meta
-        // count (not write `changes.len()`), so a lone replace among other
-        // ops or a deletion-only replace path still reports the span.
-        matched_text: if replace_match_meta.len() == 1 {
-            top_matched_text
-        } else {
-            None
-        },
+        // Worst-case (widest) span across replace paths (#2007), same as
+        // content_edits multi-op rollup. Hosts that need per-path pairing use
+        // `changes[].matched_text` / `old` at the plan layer.
+        matched_text: top_matched_text,
         refused,
     }
 }
@@ -1114,7 +1107,7 @@ mod tests {
                 mode: crate::api::MatchMode::Fuzzy,
                 score: Some(0.95),
                 match_count: 1,
-                matched_text: Some("aaa".into()),
+                matched_text: Some("short".into()),
                 refuse_reason: None,
             },
         );
@@ -1124,7 +1117,7 @@ mod tests {
                 mode: crate::api::MatchMode::Fuzzy,
                 score: Some(0.80),
                 match_count: 1,
-                matched_text: Some("bbb".into()),
+                matched_text: Some("much_wider_matched_span".into()),
                 refuse_reason: None,
             },
         );
@@ -1146,9 +1139,10 @@ mod tests {
             Some(0.80),
             "worst-case aggregate score must be the min fuzzy score"
         );
-        assert!(
-            out.matched_text.is_none(),
-            "multi-replace paths must not surface a single arbitrary matched_text"
+        assert_eq!(
+            out.matched_text.as_deref(),
+            Some("much_wider_matched_span"),
+            "multi-path top-level matched_text must be widest span (#2007)"
         );
         assert_eq!(out.match_count, Some(2));
     }

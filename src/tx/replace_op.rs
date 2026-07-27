@@ -79,8 +79,9 @@ fn record_replace_match_with_reason(
             } else {
                 None
             };
-            // Prefer the first non-exact span so multi-op plans keep the fuzzy text.
-            let merged_text = prev.matched_text.or(matched_text);
+            // Widest span (Unicode chars), same as content_edits (#2007 / #1981).
+            let merged_text =
+                crate::api::prefer_widest_matched_text(prev.matched_text, matched_text);
             // Keep first refuse reason when both soft-refuse the path.
             let merged_reason = prev.refuse_reason.or(refuse_reason);
             e.insert(ReplaceMatchMeta {
@@ -1878,10 +1879,28 @@ mod tests {
             "merged fuzzy score must be min, not first-wins"
         );
         assert_eq!(meta.match_count, 2);
+        // "second" (6 chars) is wider than "first" (5); equal length would keep prev.
         assert_eq!(
             meta.matched_text.as_deref(),
-            Some("first"),
-            "first non-null matched_text is kept"
+            Some("second"),
+            "merged matched_text must be widest span, not first-non-null (#2007)"
+        );
+        // Shorter follow-up must not replace a wider previous span.
+        record_replace_match(
+            &mut tx,
+            &path,
+            MatchMode::Fuzzy,
+            Some(0.90),
+            1,
+            Some("tiny".into()),
+        );
+        let meta = tx.replace_match_meta.get(&path).expect("still merged");
+        assert_eq!(meta.score, Some(0.72));
+        assert_eq!(meta.match_count, 3);
+        assert_eq!(
+            meta.matched_text.as_deref(),
+            Some("second"),
+            "shorter third span must not displace widest"
         );
     }
 }

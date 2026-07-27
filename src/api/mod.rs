@@ -804,6 +804,51 @@ pub fn merge_match_modes(prev: Option<MatchMode>, next: MatchMode) -> MatchMode 
     }
 }
 
+/// Prefer the wider matched span by Unicode scalar count (#1981 / #2007).
+///
+/// Used for content_edits and plan/tx multi-op rollups so hosts see the
+/// worst-case over-wide span (not first-non-null).
+#[must_use]
+pub fn prefer_widest_matched_text(prev: Option<String>, next: Option<String>) -> Option<String> {
+    match (prev, next) {
+        (None, n) => n,
+        (p, None) => p,
+        (Some(p), Some(n)) => {
+            if n.chars().count() > p.chars().count() {
+                Some(n)
+            } else {
+                Some(p)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod prefer_widest_tests {
+    use super::prefer_widest_matched_text;
+
+    #[test]
+    fn prefer_widest_matched_text_picks_longer_unicode_span() {
+        assert_eq!(
+            prefer_widest_matched_text(None, Some("ab".into())).as_deref(),
+            Some("ab")
+        );
+        assert_eq!(
+            prefer_widest_matched_text(Some("short".into()), Some("much_longer".into())).as_deref(),
+            Some("much_longer")
+        );
+        assert_eq!(
+            prefer_widest_matched_text(Some("keep".into()), Some("x".into())).as_deref(),
+            Some("keep")
+        );
+        // Equal length keeps previous.
+        assert_eq!(
+            prefer_widest_matched_text(Some("abc".into()), Some("xyz".into())).as_deref(),
+            Some("abc")
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TX engine adapter (requires tx module: cli or files feature)
 // ---------------------------------------------------------------------------
