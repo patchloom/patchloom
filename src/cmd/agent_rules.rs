@@ -190,9 +190,11 @@ Default policy (Unicode chars): refuse when matched is wider than \
 Do not rely on score alone. Multi-op `apply_content_edits` rolls up the **widest** \
 `matched_text` and the **minimum** fuzzy `match_score` independently (they may come from \
 different ops); use **`ContentEditsResult.op_honesty`** per replace (`old`, `matched_text`, \
-`match_score`) for correct refuse pairing (#2006). Plan/tx top-level `matched_text` is set \
-for a single replace path only (multi-path leaves it null; per-path merge is first non-null, \
-not widest; tracked as #2007). Prefer per-op honesty; rollup fields are worst-case only.\n\n\
+`match_score`) for correct refuse pairing (#2006). Plan/tx multi-path top-level uses the same \
+worst-case rollup as content_edits: **widest** `matched_text` + **min** fuzzy score (#2007). \
+Per-path details stay on `changes[]`. File multi-op Apply with a final span gate: \
+`apply_content_edits_to_file_with_span_policy(..., Some(&FuzzySpanPolicy::default()))` \
+refuses before write/backup (#2008). Prefer per-op honesty; rollup fields are worst-case only.\n\n\
              **Library embedder undo / post-write (Rust hosts, not CLI-only):**\n\
              - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).\n\
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
@@ -1272,8 +1274,10 @@ mod tests {
             out.contains("fuzzy_span_suspicious")
                 && out.contains("FuzzySpanPolicy")
                 && out.contains("refuse_suspicious_fuzzy")
-                && out.contains("op_honesty"),
-            "library hosts need over-wide fuzzy refuse helper docs (#1981)"
+                && out.contains("op_honesty")
+                && out.contains("apply_content_edits_to_file_with_span_policy")
+                && out.contains("widest"),
+            "library hosts need over-wide fuzzy refuse + multi-op/tx rollup docs (#1981/#2006-#2008)"
         );
         assert!(
             out.contains("Which surface to use")

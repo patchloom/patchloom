@@ -4594,6 +4594,152 @@ fn apply_content_edits_to_file_writes_once() {
     );
 }
 
+/// #2008: span policy on file helper; Exact apply still writes + backup session.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_content_edits_to_file_span_policy_allows_exact() {
+    use crate::api::{FuzzySpanPolicy, apply_content_edits_to_file_with_span_policy};
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("safe.txt");
+    fs::write(&file, "hello world\n").unwrap();
+    let before = fs::read_to_string(&file).unwrap();
+    let edits = [
+        ContentEdit::Replace {
+            old: "hello".into(),
+            new: "hi".into(),
+            options: ReplaceOptions::default(),
+        },
+        ContentEdit::Append {
+            content: "tail\n".into(),
+        },
+    ];
+    let policy = FuzzySpanPolicy::default();
+    let r = apply_content_edits_to_file_with_span_policy(
+        &file,
+        &edits,
+        ApplyMode::Apply,
+        None,
+        Some(&policy),
+    )
+    .expect("exact multi-op must apply with span policy");
+    assert!(r.applied && r.changed);
+    assert!(
+        r.backup_session.is_some(),
+        "successful Apply must still create backup_session"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hi world\ntail\n");
+    assert_ne!(fs::read_to_string(&file).unwrap(), before);
+}
+
+/// #2008: strict span policy refuses real fuzzy multi-op; file bytes unchanged.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_content_edits_to_file_span_policy_refuses_fuzzy_before_write() {
+    use crate::api::{
+        FuzzySpanPolicy, apply_content_edits_to_file_with_span_policy, is_fuzzy_span_suspicious,
+    };
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("wide.txt");
+    let original = "fn process_data() {}\nkeep exact\n";
+    fs::write(&file, original).unwrap();
+    // Multi-op: Exact first, then fuzzy typo. Strict policy refuses any fuzzy
+    // expansion (near_floor_ratio 0) so we lock pre-write refuse without a
+    // brittle engine-wide span fixture.
+    let edits = [
+        ContentEdit::Replace {
+            old: "keep exact".into(),
+            new: "KEEP EXACT".into(),
+            options: ReplaceOptions::default(),
+        },
+        ContentEdit::Replace {
+            old: "fn proccess_data() {}".into(),
+            new: "fn handle_data() {}".into(),
+            options: ReplaceOptions {
+                fuzzy: true,
+                min_fuzzy_score: None,
+                allow_absent_old: true,
+                require_change: true,
+                refuse_suspicious_fuzzy: false,
+                ..Default::default()
+            },
+        },
+    ];
+    let strict = FuzzySpanPolicy {
+        max_ratio: 1.0,
+        abs_extra_chars: 0,
+        near_floor_score_lo: 0.0,
+        near_floor_score_hi: 1.01,
+        near_floor_ratio: 0.0,
+    };
+    let err = apply_content_edits_to_file_with_span_policy(
+        &file,
+        &edits,
+        ApplyMode::Apply,
+        None,
+        Some(&strict),
+    )
+    .expect_err("strict policy must refuse fuzzy multi-op before write");
+    assert!(is_fuzzy_span_suspicious(&err), "got: {err}");
+    assert_eq!(
+        crate::api::error_kind_str(&err),
+        Some("fuzzy_span_suspicious")
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        original,
+        "refuse must leave file bytes unchanged"
+    );
+    // Without policy the same multi-op must write (control).
+    let ok = apply_content_edits_to_file(&file, &edits, ApplyMode::Apply, None)
+        .expect("without span policy fuzzy multi-op applies");
+    assert!(ok.applied && ok.changed);
+    assert_ne!(fs::read_to_string(&file).unwrap(), original);
+}
+
+/// #2008: refuse_batch_if_suspicious_fuzzy blocks before write (deterministic).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn refuse_batch_if_suspicious_fuzzy_rejects_wide_honesty() {
+    use crate::api::content_edits::{
+        ContentEditHonesty, ContentEditsResult, refuse_batch_if_suspicious_fuzzy,
+    };
+    use crate::api::{FuzzySpanPolicy, is_fuzzy_span_suspicious};
+    let batch = ContentEditsResult {
+        original: "x".into(),
+        modified: "y".into(),
+        diff: String::new(),
+        changed: true,
+        ops_applied: 1,
+        match_count: 1,
+        match_mode: Some(MatchMode::Fuzzy),
+        match_score: Some(AGENT_MIN_FUZZY_SCORE),
+        matched_text: Some("process_data_and_much_more_tail".into()),
+        op_honesty: vec![ContentEditHonesty {
+            op_index: 0,
+            match_mode: Some(MatchMode::Fuzzy),
+            match_score: Some(AGENT_MIN_FUZZY_SCORE),
+            matched_text: Some("process_data_and_much_more_tail".into()),
+            old: "process_data".into(),
+        }],
+    };
+    let err = refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())
+        .expect_err("wide fuzzy honesty must refuse before write");
+    assert!(is_fuzzy_span_suspicious(&err));
+    assert_eq!(
+        crate::api::error_kind_str(&err),
+        Some("fuzzy_span_suspicious")
+    );
+
+    // Unchanged batch must not refuse.
+    let soft = ContentEditsResult {
+        changed: false,
+        modified: batch.original.clone(),
+        ..batch
+    };
+    refuse_batch_if_suspicious_fuzzy(&soft, &FuzzySpanPolicy::default())
+        .expect("unchanged batch must not refuse");
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn apply_content_edits_to_file_diff_path_vs_buffer() {

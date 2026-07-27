@@ -168,14 +168,7 @@ pub fn apply_content_edits_with_label(
             }
             // Widest span wins so multi-op hosts can refuse over-wide fuzzy
             // even when an earlier Exact/small Fuzzy left a short matched_text (#1981).
-            if let Some(t) = one.matched_text {
-                let take = matched_text
-                    .as_ref()
-                    .is_none_or(|prev| t.chars().count() > prev.chars().count());
-                if take {
-                    matched_text = Some(t);
-                }
-            }
+            matched_text = super::prefer_widest_matched_text(matched_text, one.matched_text);
         }
     }
 
@@ -199,12 +192,39 @@ pub fn apply_content_edits_with_label(
 /// Read a file, apply multi-op content edits, and write according to `mode`.
 ///
 /// Requires `files` or `cli` for PathGuard / write policy integration.
+///
+/// For over-wide fuzzy refuse before any disk write, use
+/// [`apply_content_edits_to_file_with_span_policy`] (#2008). When each replace
+/// uses [`super::ReplaceOptions::for_agent`], refuse already runs in memory
+/// via `refuse_suspicious_fuzzy` (#2005).
 #[cfg(any(feature = "cli", feature = "files"))]
 pub fn apply_content_edits_to_file(
     path: &Path,
     edits: &[ContentEdit],
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    apply_content_edits_to_file_with_span_policy(path, edits, mode, guard, None)
+}
+
+/// Like [`apply_content_edits_to_file`], with optional pre-write fuzzy span
+/// refuse (#2008).
+///
+/// When `fuzzy_span_policy` is `Some`, after a successful in-memory batch and
+/// **before** `write_if_apply`, each fuzzy replace in `op_honesty` is checked
+/// with [`super::fuzzy_span_suspicious_with_policy`]. On refuse:
+/// [`EditErrorKind::FuzzySpanSuspicious`], no disk write, no backup session.
+///
+/// `None` keeps historical behavior (no extra gate). Prefer
+/// [`super::FuzzySpanPolicy::default`] for the same thresholds as
+/// [`super::ReplaceOptions::for_agent`].
+#[cfg(any(feature = "cli", feature = "files"))]
+pub fn apply_content_edits_to_file_with_span_policy(
+    path: &Path,
+    edits: &[ContentEdit],
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    fuzzy_span_policy: Option<&super::FuzzySpanPolicy>,
 ) -> anyhow::Result<EditResult> {
     if let Some(g) = guard {
         g.check_path(&path.to_string_lossy())
@@ -220,6 +240,9 @@ pub fn apply_content_edits_to_file(
     })?;
     // Prefer real path labels in multi-op preview (#1665 / #1500).
     let batch = apply_content_edits_with_label(&original, edits, Some(path_str.as_str()))?;
+    if let Some(policy) = fuzzy_span_policy {
+        refuse_batch_if_suspicious_fuzzy(&batch, policy)?;
+    }
     let policy = WritePolicy::default();
     let (applied, backup_session) = write_if_apply(path, &batch.modified, mode, &policy, guard)?;
     // build_edit_result uses path for headers (#1500) and stays field-complete.
@@ -240,6 +263,49 @@ pub fn apply_content_edits_to_file(
     let (hooks, hooks_cwd) = post_write_from_edits(edits);
     maybe_post_write(applied, path, hooks, hooks_cwd, backup_session.as_deref())?;
     Ok(result)
+}
+
+/// Refuse before write when any fuzzy op honesty is over-wide (#2008).
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn refuse_batch_if_suspicious_fuzzy(
+    batch: &ContentEditsResult,
+    policy: &super::FuzzySpanPolicy,
+) -> anyhow::Result<()> {
+    use super::{MatchMode, fuzzy_span_suspicious_with_policy};
+    if !batch.changed {
+        return Ok(());
+    }
+    for h in &batch.op_honesty {
+        if h.match_mode != Some(MatchMode::Fuzzy) {
+            continue;
+        }
+        if fuzzy_span_suspicious_with_policy(
+            &h.old,
+            h.matched_text.as_deref(),
+            h.match_score,
+            policy,
+        ) {
+            let matched = h.matched_text.as_deref().unwrap_or("");
+            let score = h
+                .match_score
+                .map(|s| format!("{s:.3}"))
+                .unwrap_or_else(|| "none".into());
+            return Err(EditError::new(
+                EditErrorKind::FuzzySpanSuspicious,
+                format!(
+                    "fuzzy span suspicious on content edit {}: old {:?} matched {:?} (score {score}); span policy refuse before write",
+                    h.op_index + 1,
+                    crate::fallback::truncate_str(&h.old, 60),
+                    crate::fallback::truncate_str(matched, 80),
+                ),
+            )
+            .with_suggestion(
+                "tighten old, omit span policy, or use refuse_suspicious_fuzzy on each Replace",
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 /// Last replace-side post_write wins (agent hosts set hooks once on the batch).

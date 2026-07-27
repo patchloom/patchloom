@@ -40,6 +40,8 @@ Approximate recovery stays an explicit override: `ReplaceOptions { allow_absent_
 
 `apply_content_edits` rolls up the **widest** `matched_text` and the **minimum** fuzzy score independently (may be different ops). Prefer **`ContentEditsResult.op_honesty`**: each replace entry has `old`, `matched_text`, and `match_score` for correct refuse pairing (#2006). When each replace uses `for_agent()`, over-wide fuzzy fails inside that op (all-or-nothing batch).
 
+Plan/tx multi-path top-level honesty matches that worst-case rollup (#2007). For disk multi-op with a final gate (hardlink/backup write path), use `apply_content_edits_to_file_with_span_policy(path, edits, mode, guard, Some(&FuzzySpanPolicy::default()))` so refuse happens **before** write (#2008).
+
 ## Related
 
 - [Comparisons](comparisons.md) (Morph, filesystem MCP, yq, ast-grep)
