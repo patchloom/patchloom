@@ -236,6 +236,7 @@ mod ast_write;
 pub use self::ast_write::*;
 
 mod content_edits;
+mod fuzzy_span;
 pub use self::content_edits::*;
 
 mod post_write;
@@ -302,7 +303,8 @@ pub struct EditResult {
     ///
     /// Agents must not treat `match_mode == Fuzzy` + high `match_score` alone as
     /// "correct target": compare this field to the requested pattern and prefer
-    /// `ast_rename` for identifier renames (#1736).
+    /// `ast_rename` for identifier renames (#1736). For over-wide fuzzy spans,
+    /// call [`fuzzy_span_suspicious`] before treating Apply as trusted (#1981).
     pub matched_text: Option<String>,
     /// Backup session timestamp created for this Apply (if any).
     ///
@@ -530,6 +532,8 @@ impl ReplaceOptions {
         }
     }
 }
+
+pub use fuzzy_span::{FuzzySpanPolicy, fuzzy_span_suspicious, fuzzy_span_suspicious_with_policy};
 
 // Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948, #1963, #1964).
 /// Re-export: binary | invalid_encoding | invalid_input from sole-path loads (#1963).
