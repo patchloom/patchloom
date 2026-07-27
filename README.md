@@ -277,7 +277,7 @@ patchloom mcp-server
 
 MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
 
-See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration and the full security model.
+Small agents that choke on large tool schemas can set `PATCHLOOM_MCP_SURFACE=core` for a 10-tool pack at handshake (default remains full inventory). See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration, surface options, and the full security model.
 
 > **Using VS Code, Cursor, or Windsurf?** The [Patchloom extension](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) handles setup automatically: it installs the binary, runs init, and configures your editor's MCP settings.
 
