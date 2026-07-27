@@ -41,7 +41,7 @@ fn core_server_instructions() -> String {
          - md_replace_section: replace a markdown heading section\n\
          - execute_plan: multi-op atomic plans (tx)\n\
          - server_info: cwd, surface, tool_count\n\n\
-         Use doc_* for structured config; replace_text only where structure does not matter.",
+         Use doc_get/doc_set/doc_query for structured config; replace_text only where structure does not matter.",
     )
 }
 
