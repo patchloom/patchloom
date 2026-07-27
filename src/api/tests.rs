@@ -3083,6 +3083,7 @@ fn fuzzy_span_suspicious_default_policy() {
         near_floor_score_lo: 1.0,
         near_floor_score_hi: 1.0,
         near_floor_ratio: 100.0,
+        ..FuzzySpanPolicy::default()
     };
     assert!(!fuzzy_span_suspicious_with_policy(
         "process_data",
@@ -3090,6 +3091,38 @@ fn fuzzy_span_suspicious_default_policy() {
         Some(0.91),
         &loose,
     ));
+
+    // Boundaries: exclusive inequalities on the wide cap and near-floor band.
+    // max_allowed = max(4*old, old+40). For short old, abs cap dominates.
+    let old10 = "abcdefghij"; // 10 → ratio_cap=40, abs_cap=50 → max=50
+    let exact_abs: String = "a".repeat(50);
+    assert!(!fuzzy_span_suspicious(old10, Some(&exact_abs), None));
+    let over_abs: String = "a".repeat(51);
+    assert!(fuzzy_span_suspicious(old10, Some(&over_abs), None));
+    // Just over 4x (41) is still under abs_cap=50 for old=10, so not suspicious.
+    let just_over_4x_short: String = "a".repeat(41);
+    assert!(!fuzzy_span_suspicious(
+        old10,
+        Some(&just_over_4x_short),
+        None
+    ));
+    // For old large enough that 4x > old+40 (old=50 → ratio_cap=200, abs=90):
+    let old50: String = "b".repeat(50);
+    let exact_4x: String = "a".repeat(200);
+    assert!(!fuzzy_span_suspicious(&old50, Some(&exact_4x), None));
+    let just_over_4x: String = "a".repeat(201);
+    assert!(fuzzy_span_suspicious(&old50, Some(&just_over_4x), None));
+    // score == 0.95 is outside near-floor band; 2.1x alone not enough without score band.
+    assert!(!fuzzy_span_suspicious(old10, Some(over_double), Some(0.95)));
+    // ratio == 2.0 exactly in near-floor band is not suspicious (needs > 2).
+    let exact_2x: String = "a".repeat(20);
+    assert!(!fuzzy_span_suspicious(old10, Some(&exact_2x), Some(0.92)));
+    // No score: only wide-cap path (2.1x is not wide enough).
+    assert!(!fuzzy_span_suspicious(old10, Some(over_double), None));
+    // Unicode: char count, not bytes (é is one char).
+    assert!(!fuzzy_span_suspicious("café", Some("café"), Some(0.99)));
+    // café = 4 chars → abs_cap=44; 50 é chars exceeds it.
+    assert!(fuzzy_span_suspicious("café", Some(&"é".repeat(50)), None));
 }
 
 #[test]

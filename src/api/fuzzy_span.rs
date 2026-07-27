@@ -8,6 +8,7 @@ use super::AGENT_MIN_FUZZY_SCORE;
 /// auto-revert): Unicode char counts, wide-span cap, and a tighter ratio near
 /// the agent fuzzy floor.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct FuzzySpanPolicy {
     /// Refuse when `matched_chars > max_ratio * old_chars` (ceiling).
     pub max_ratio: f64,
@@ -56,17 +57,19 @@ impl Default for FuzzySpanPolicy {
 /// ```rust
 /// use patchloom::api::{fuzzy_span_suspicious, AGENT_MIN_FUZZY_SCORE};
 ///
-/// let old = "process_data";
-/// let matched = "fn process_data() {\n    // body\n}\n";
-/// assert!(fuzzy_span_suspicious(
-///     old,
-///     Some(matched),
-///     Some(AGENT_MIN_FUZZY_SCORE),
-/// ));
+/// // Token-scale match: not suspicious.
 /// assert!(!fuzzy_span_suspicious(
-///     old,
+///     "process_data",
 ///     Some("process_data"),
 ///     Some(0.99),
+/// ));
+/// // Near-floor score (0.90) + more than 2x expansion: suspicious.
+/// // (Wide-cap path needs matched_chars > max(4*old, old+40).)
+/// let matched = "process_data_and_much_more_tail"; // 30 chars vs 12 → ratio 2.5
+/// assert!(fuzzy_span_suspicious(
+///     "process_data",
+///     Some(matched),
+///     Some(AGENT_MIN_FUZZY_SCORE),
 /// ));
 /// ```
 #[must_use]
