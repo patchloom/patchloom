@@ -22,7 +22,7 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 
 Keep directory copy aligned with the tagged version. Automated where possible:
 
-1. **MCP Registry** — runs from Release after crates/npm; on failure: Actions → **Publish MCP Registry** → version input. `server.json` description should stay differentiation-focused (structured agent edits, not generic filesystem); version field is stamped by the publish job.
+1. **MCP Registry** — runs from Release after crates/npm; on failure: Actions → **Publish MCP Registry** → version input. `server.json` description should stay differentiation-focused (structured agent edits, not generic filesystem) and **at most 100 characters** (registry schema hard limit; longer values fail validate with 422). Version field is stamped by the publish job.
 2. **Smithery** — `publish-smithery.yml` after Release when `SMITHERY_API_KEY` is set; manual: `make pack-mcpb && bash scripts/publish-smithery.sh`.
 3. **Glama** — no API publish; after listing exists, sync from GitHub + `glama.json`. If description drifts, update via Glama UI (human session). Suggested blurb: same as `server.json` description.
 4. **Secondary marketplaces** (mcp.so, mcpservers.org, PulseMCP, awesome lists) — re-check only when deliberately listing; not release-blocking.

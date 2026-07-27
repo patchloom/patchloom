@@ -148,8 +148,15 @@ jobs:
             | .packages |= map(.version = $v)
           ' server.json > server.json.tmp
           mv server.json.tmp server.json
-          echo "server.json version fields set to ${VERSION}:"
-          jq '{name, version, packages: [.packages[] | {registryType, identifier, version}]}' server.json
+          # Official registry rejects description longer than 100 chars (422).
+          desc_len=$(jq -r '.description | length' server.json)
+          if [ "$desc_len" -gt 100 ]; then
+            echo "server.json description is ${desc_len} chars; registry max is 100" >&2
+            jq -r '.description' server.json >&2
+            exit 1
+          fi
+          echo "server.json version fields set to ${VERSION} (description ${desc_len} chars):"
+          jq '{name, version, description, packages: [.packages[] | {registryType, identifier, version}]}' server.json
 
       - name: Install mcp-publisher
         run: |
