@@ -127,4 +127,29 @@ pass "CLI sole invalid UTF-8 JSON error_kind is invalid_encoding (#1963)"
 # --- nested undo still works after contain smoke (sessions already created) ---
 # Library-only find_backup_roots is unit-tested; CLI hosts use undo --list (#1695).
 
+# --- #1981: library host refuse helper (CLI cannot exercise this surface) ---
+# Derive repo root from this script so `make embedder-smoke` stays one gate.
+# Use cargo name filters (substring), not --exact (needs full module path).
+# Fail if a filter runs 0 tests (cargo exits 0 on empty filters).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ ! -f "$REPO_ROOT/Cargo.toml" ]]; then
+  fail "could not locate Cargo.toml for library host tests (REPO_ROOT=$REPO_ROOT)"
+fi
+run_lib_filter() {
+  local filter="$1"
+  local out
+  out=$(cd "$REPO_ROOT" && cargo test --lib --all-features "$filter" -- --test-threads=2 2>&1) || {
+    echo "$out" >&2
+    fail "library test filter '$filter' failed (#1981)"
+  }
+  if ! echo "$out" | grep -qE 'test result: ok\. [1-9][0-9]* passed'; then
+    echo "$out" >&2
+    fail "library test filter '$filter' ran 0 tests (#1981)"
+  fi
+}
+run_lib_filter fuzzy_span_suspicious_default_policy
+run_lib_filter replace_in_content_fuzzy_host_refuses
+run_lib_filter replace_in_content_fuzzy_near_collision_reports_matched_text
+pass "library fuzzy_span_suspicious host contracts (#1981)"
+
 echo "embedder-smoke: all checks passed"
