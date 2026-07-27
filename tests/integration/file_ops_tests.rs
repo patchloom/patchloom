@@ -732,7 +732,7 @@ fn test_tx_append_rejects_binary_file() {
 }
 
 #[test]
-fn test_replace_sole_binary_target_is_invalid_input() {
+fn test_replace_sole_binary_target_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("only.bin"), b"hello\x00world").unwrap();
 
@@ -758,10 +758,10 @@ fn test_replace_sole_binary_target_is_invalid_input() {
     );
 }
 
-/// Sole explicit invalid UTF-8 must be invalid_input, not pattern no_matches
-/// (soft-skip misreported as a miss; fixrealloop 2026-07-21).
+/// Sole explicit invalid UTF-8 must be `invalid_encoding`, not pattern no_matches
+/// (soft-skip misreported as a miss; fixrealloop 2026-07-21 / #1963).
 #[test]
-fn test_replace_sole_invalid_utf8_is_invalid_input() {
+fn test_replace_sole_invalid_utf8_is_invalid_encoding() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("bad.txt"), b"hello \xff world\n").unwrap();
 
@@ -801,7 +801,7 @@ fn test_replace_sole_invalid_utf8_is_invalid_input() {
 
 /// Sole tidy check on invalid UTF-8 must not report vacuous clean (exit 0).
 #[test]
-fn test_tidy_check_sole_invalid_utf8_is_invalid_input() {
+fn test_tidy_check_sole_invalid_utf8_is_invalid_encoding() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("bad.txt"), b"line  \xff\n").unwrap();
 
@@ -824,7 +824,7 @@ fn test_tidy_check_sole_invalid_utf8_is_invalid_input() {
 }
 
 #[test]
-fn test_tidy_check_sole_binary_is_invalid_input() {
+fn test_tidy_check_sole_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("only.bin"), b"a\x00b  \n").unwrap();
 
@@ -841,7 +841,7 @@ fn test_tidy_check_sole_binary_is_invalid_input() {
 }
 
 #[test]
-fn test_tidy_fix_sole_binary_is_invalid_input() {
+fn test_tidy_fix_sole_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("only.bin"), b"a\x00b  \n").unwrap();
 
@@ -906,7 +906,7 @@ fn test_tidy_multi_path_binary_refused() {
 }
 
 #[test]
-fn test_md_sole_binary_is_invalid_input_not_no_matches() {
+fn test_md_sole_binary_is_binary_error_kind_not_no_matches() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("only.bin"), b"hello\x00# H\n").unwrap();
 

@@ -1057,10 +1057,10 @@ fn test_search_skips_binary_files() {
     );
 }
 
-/// Sole explicit binary path must be invalid_input, not pattern no_matches
-/// (parity with replace; agents otherwise retry forever). MPI 2026-07-19.
+/// Sole explicit binary path must be `error_kind: binary`, not pattern no_matches
+/// (parity with replace; agents otherwise retry forever). MPI 2026-07-19 / #1963.
 #[test]
-fn test_search_sole_explicit_binary_is_invalid_input() {
+fn test_search_sole_explicit_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     let bin_file = dir.path().join("data.bin");
     fs::write(&bin_file, b"needle\x00in binary").unwrap();
@@ -1084,10 +1084,10 @@ fn test_search_sole_explicit_binary_is_invalid_input() {
     assert!(err.contains("binary"), "expected binary guidance, got: {v}");
 }
 
-/// Sole explicit invalid UTF-8 must be invalid_input, not soft-skip no_matches.
-/// fixrealloop 2026-07-21.
+/// Sole explicit invalid UTF-8 must be `invalid_encoding`, not soft-skip no_matches.
+/// fixrealloop 2026-07-21 / #1963.
 #[test]
-fn test_search_sole_invalid_utf8_is_invalid_input() {
+fn test_search_sole_invalid_utf8_is_invalid_encoding() {
     let dir = TempDir::new().unwrap();
     let bad = dir.path().join("bad.txt");
     fs::write(&bad, b"needle \xff here\n").unwrap();
@@ -1225,9 +1225,9 @@ fn test_search_sole_unreadable_is_invalid_input() {
     }
 }
 
-/// Sole binary via --files-from is invalid_input (not pattern no_matches).
+/// Sole binary via --files-from is `error_kind: binary` (not pattern no_matches).
 #[test]
-fn test_search_files_from_sole_binary_is_invalid_input() {
+fn test_search_files_from_sole_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("data.bin"), b"x\x00y").unwrap();
     fs::write(dir.path().join("list.txt"), "data.bin\n").unwrap();
