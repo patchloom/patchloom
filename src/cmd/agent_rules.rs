@@ -159,8 +159,9 @@ Default policy (Unicode chars): refuse when matched is wider than \
 Do not rely on score alone. Multi-op `apply_content_edits` rolls up the **widest** \
 `matched_text` and the **minimum** fuzzy `match_score` independently (they may come from \
 different ops); prefer per-op checks with the matching `old` when possible. Plan/tx \
-top-level `matched_text` remains first non-null for now (content_edits is worst-case \
-span for host refuse).\n\n\
+top-level `matched_text` is set for a single replace path only (multi-path leaves it \
+null; per-path merge is first non-null, not widest). Prefer per-change checks; \
+`apply_content_edits` is the worst-case (widest) span rollup for host refuse.\n\n\
              **Library embedder undo / post-write (Rust hosts, not CLI-only):**\n\
              - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).\n\
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\

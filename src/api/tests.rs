@@ -3114,15 +3114,21 @@ fn fuzzy_span_suspicious_default_policy() {
     assert!(fuzzy_span_suspicious(&old50, Some(&just_over_4x), None));
     // score == 0.95 is outside near-floor band; 2.1x alone not enough without score band.
     assert!(!fuzzy_span_suspicious(old10, Some(over_double), Some(0.95)));
+    // score just below near_floor_score_lo is outside the band (inclusive lower bound).
+    assert!(!fuzzy_span_suspicious(
+        old10,
+        Some(over_double),
+        Some(AGENT_MIN_FUZZY_SCORE - 0.001)
+    ));
     // ratio == 2.0 exactly in near-floor band is not suspicious (needs > 2).
     let exact_2x: String = "a".repeat(20);
     assert!(!fuzzy_span_suspicious(old10, Some(&exact_2x), Some(0.92)));
     // No score: only wide-cap path (2.1x is not wide enough).
     assert!(!fuzzy_span_suspicious(old10, Some(over_double), None));
-    // Unicode: char count, not bytes (é is one char).
+    // Unicode: char count, not bytes. café = 4 chars / 5 bytes → abs_cap chars=44.
+    // 45 ASCII matched: chars refuse (45>44), bytes would allow (45==45).
     assert!(!fuzzy_span_suspicious("café", Some("café"), Some(0.99)));
-    // café = 4 chars → abs_cap=44; 50 é chars exceeds it.
-    assert!(fuzzy_span_suspicious("café", Some(&"é".repeat(50)), None));
+    assert!(fuzzy_span_suspicious("café", Some(&"x".repeat(45)), None));
 }
 
 #[test]

@@ -750,5 +750,41 @@ mod tests {
             matched.chars().count() > "small_name".chars().count(),
             "widest span must exceed first-op identifier length, got {matched:?}"
         );
+
+        // Reverse order: wide first, short second still keeps the widest.
+        let edits_rev = [
+            ContentEdit::Replace {
+                old: "let CONFIGURATION_VALUE_PRIMRY = 1;".into(),
+                new: "let CONFIGURATION_VALUE_SECONDARY = 1;".into(),
+                options: ReplaceOptions {
+                    fuzzy: true,
+                    allow_absent_old: true,
+                    min_fuzzy_score: None,
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+            ContentEdit::Replace {
+                old: "fn small_typo_name() {}".into(),
+                new: "fn small_name() {}".into(),
+                options: ReplaceOptions {
+                    fuzzy: true,
+                    allow_absent_old: true,
+                    min_fuzzy_score: None,
+                    require_change: true,
+                    ..Default::default()
+                },
+            },
+        ];
+        let r2 = apply_content_edits(src, &edits_rev).unwrap();
+        assert!(r2.changed);
+        let matched2 = r2
+            .matched_text
+            .as_deref()
+            .expect("reverse-order batch must surface matched_text");
+        assert!(
+            matched2.contains("CONFIGURATION_VALUE_PRIMARY"),
+            "widest must win when it is the first op, got {matched2:?}"
+        );
     }
 }
