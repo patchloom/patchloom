@@ -6477,39 +6477,8 @@ fn replace_in_content_for_agent_refuses_suspicious_fuzzy_span() {
     assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
     assert!(r.changed);
 
-    // Long identifier typo: fuzzy can land on a wide token; refuse_suspicious_fuzzy
-    // should return Err with FuzzySpanSuspicious when the span is over-wide.
-    let wide_content = "fn compute_checksum_for_the_entire_payload_buffer_and_more() {}\n";
-    let refuse_on = ReplaceOptions {
-        allow_absent_old: true,
-        unique: false,
-        min_fuzzy_score: Some(0.80), // allow weaker match to land on long name
-        ..ReplaceOptions::for_agent()
-    };
-    // Probe first without refuse to see what the engine matched.
-    let probe = ReplaceOptions {
-        refuse_suspicious_fuzzy: false,
-        ..refuse_on.clone()
-    };
-    if let Ok(p) = replace_in_content(wide_content, "compute_cheksum", "digest", &probe)
-        && p.match_mode == Some(MatchMode::Fuzzy)
-        && crate::api::fuzzy_span_suspicious(
-            "compute_cheksum",
-            p.matched_text.as_deref(),
-            p.match_score,
-        )
-    {
-        let err = replace_in_content(wide_content, "compute_cheksum", "digest", &refuse_on)
-            .expect_err("over-wide fuzzy must refuse when refuse_suspicious_fuzzy");
-        assert!(
-            crate::api::is_fuzzy_span_suspicious(&err),
-            "expected FuzzySpanSuspicious peel, got: {err:#}"
-        );
-        assert_eq!(
-            crate::api::error_kind_str(&err),
-            Some("fuzzy_span_suspicious")
-        );
-    }
+    // Over-wide refuse is locked in maybe_refuse_suspicious_fuzzy_rejects_wide_span
+    // (deterministic ContentEditResult; engine wide-span fixtures are brittle).
 
     // Explicit disable: struct update turns refuse off.
     let no_refuse = ReplaceOptions {
@@ -6562,6 +6531,20 @@ fn maybe_refuse_suspicious_fuzzy_rejects_wide_span() {
     };
     maybe_refuse_suspicious_fuzzy("process_data", result_ok, &opts)
         .expect("token-scale high score must pass refuse gate");
+
+    // Soft if_exists honesty (changed=false) must not become FuzzySpanSuspicious.
+    let soft = ContentEditResult {
+        original: "x".into(),
+        new_content: "x".into(),
+        diff: String::new(),
+        changed: false,
+        match_count: 0,
+        match_mode: Some(MatchMode::Fuzzy),
+        match_score: Some(AGENT_MIN_FUZZY_SCORE),
+        matched_text: Some("process_data_and_much_more_tail".into()),
+    };
+    maybe_refuse_suspicious_fuzzy("process_data", soft, &opts)
+        .expect("unchanged soft path must not refuse");
 }
 
 /// #2005: peel helpers for FuzzySpanSuspicious.

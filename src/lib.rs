@@ -86,9 +86,10 @@
 //!
 //! CLI `ast rewrite-signature` is still optional; library + plan + MCP cover embedders.
 //!
-//! Fail-closed text edits for agent hosts (#1492 / #1965): use
+//! Fail-closed text edits for agent hosts (#1492 / #1965 / #2005): use
 //! [`ReplaceOptions::for_agent`] so primary and fallback replace paths share one
-//! policy (`unique`, `require_change`, fuzzy with floor, `allow_absent_old: false`).
+//! policy (`unique`, `require_change`, fuzzy with floor, `allow_absent_old: false`,
+//! `refuse_suspicious_fuzzy: true` for over-wide fuzzy auto-refuse).
 //! Zero matches become `EditErrorKind::NoMatch` (not `Ok(changed=false)`). Match
 //! kinds via `api::edit_error_kind(&err)` without scraping English. That helper
 //! also peels CLI/tx typed errors (`InvalidInputError` for empty patterns / bad
@@ -206,8 +207,10 @@
 //! | Soft zero matches | [`EditErrorKind::NoMatch`] / [`api::is_no_match`] (JSON kind `no_matches`) |
 //! | Unique multi-match ambiguity | [`EditErrorKind::AmbiguousTarget`] / [`api::is_ambiguous`] (JSON `ambiguous`) |
 //! | Post-write format/lint failure | [`EditErrorKind::FormatFailed`] / [`api::is_format_failed`] |
-//! | Shared agent replace policy (primary + fallback) | [`ReplaceOptions::for_agent`] / [`AGENT_MIN_FUZZY_SCORE`] (#1965) |
-//! | Refuse over-wide fuzzy spans before trusting Apply | [`api::fuzzy_span_suspicious`] / [`FuzzySpanPolicy`] (#1981) |
+//! | Shared agent replace policy (primary + fallback) | [`ReplaceOptions::for_agent`] / [`AGENT_MIN_FUZZY_SCORE`] (#1965 / #2005) |
+//! | Over-wide fuzzy auto-refuse on `for_agent` | [`ReplaceOptions::refuse_suspicious_fuzzy`] / [`EditErrorKind::FuzzySpanSuspicious`] / [`api::is_fuzzy_span_suspicious`] (#2005) |
+//! | Custom over-wide fuzzy refuse | [`api::fuzzy_span_suspicious`] / [`FuzzySpanPolicy`] (#1981) |
+//! | Multi-op per-replace honesty | [`ContentEditsResult::op_honesty`] / [`ContentEditHonesty`] (#2006) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.

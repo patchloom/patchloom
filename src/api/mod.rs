@@ -115,6 +115,7 @@
 //! | `not_found` | missing path I/O |
 //! | `binary` | NUL binary probe (#1963) |
 //! | `invalid_encoding` | non-UTF-8 text (#1963) |
+//! | `fuzzy_span_suspicious` | over-wide fuzzy refuse (#2005) |
 //! | `invalid_input` | empty path, directory target, empty pattern, unreadable IO |
 //! | `guard_rejected` | PathGuard / `--contain` |
 //! | `no_matches` | soft zero matches |
@@ -304,7 +305,8 @@ pub struct EditResult {
     /// Agents must not treat `match_mode == Fuzzy` + high `match_score` alone as
     /// "correct target": compare this field to the requested pattern and prefer
     /// `ast_rename` for identifier renames (#1736). For over-wide fuzzy spans,
-    /// call [`fuzzy_span_suspicious`] before treating Apply as trusted (#1981).
+    /// with `for_agent`, auto-refuse via [`ReplaceOptions::refuse_suspicious_fuzzy`];
+    /// custom options still call [`fuzzy_span_suspicious`] before trust (#1981 / #2005).
     pub matched_text: Option<String>,
     /// Backup session timestamp created for this Apply (if any).
     ///

@@ -493,12 +493,12 @@ fn replace_write(
 /// in-memory string instead of a file path. Supports all [`ReplaceOptions`]
 /// features: regex, word boundary, nth, case insensitive, multiline,
 /// insert_before/after, whole_line, range, if_exists, unique, fuzzy,
-/// before_context, and after_context.
-/// Replace text in an in-memory buffer (literal or regex).
+/// before_context, after_context, and [`ReplaceOptions::refuse_suspicious_fuzzy`].
 ///
-/// When [`ReplaceOptions::refuse_suspicious_fuzzy`] is true and the match is
-/// fuzzy, returns [`EditErrorKind::FuzzySpanSuspicious`] if default
-/// [`super::fuzzy_span_suspicious`] fires (#2005).
+/// When [`ReplaceOptions::refuse_suspicious_fuzzy`] is true and a **changed**
+/// fuzzy match trips default [`super::fuzzy_span_suspicious`], returns
+/// [`EditErrorKind::FuzzySpanSuspicious`] (#2005). Exact/anchored matches and
+/// soft unchanged (`if_exists`) results are not refused.
 pub fn replace_in_content(
     content: &str,
     from: &str,
@@ -515,7 +515,12 @@ pub(crate) fn maybe_refuse_suspicious_fuzzy(
     result: ContentEditResult,
     opts: &ReplaceOptions,
 ) -> anyhow::Result<ContentEditResult> {
-    if !opts.refuse_suspicious_fuzzy || result.match_mode != Some(MatchMode::Fuzzy) {
+    // Only refuse when a fuzzy rewrite was actually applied. Soft if_exists
+    // honesty can leave match_mode=Fuzzy with changed=false (#2005 review).
+    if !opts.refuse_suspicious_fuzzy
+        || !result.changed
+        || result.match_mode != Some(MatchMode::Fuzzy)
+    {
         return Ok(result);
     }
     if super::fuzzy_span_suspicious(from, result.matched_text.as_deref(), result.match_score) {
