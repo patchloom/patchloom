@@ -27,6 +27,11 @@ Handshake `instructions` (MCP `ServerInfo`) are surface-aware: core mode lists
 only the core tools and names `PATCHLOOM_MCP_SURFACE=core`, so agents do not
 chase full-inventory tool names that are not registered.
 
+`execute_plan` stays in the core pack so multi-op atomicity still works. Plan
+ops are not filtered by surface: a host can still send `file.create` inside a
+plan. The env flag is a **tool schema** progressive disclosure, not a plan
+capability sandbox.
+
 ## Non-goals
 
 - Removing tools without a flag

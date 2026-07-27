@@ -1191,7 +1191,7 @@ mod surface_core_tests {
         assert!(!text.contains("PATCHLOOM_MCP_SURFACE=core"));
     }
 
-    /// Protocol: peer_info.instructions for a core service matches unit helper.
+    /// Protocol: peer_info.instructions equals `server_instructions(Core)` (no drift).
     #[tokio::test]
     async fn core_surface_handshake_instructions_are_core_only() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -1203,24 +1203,15 @@ mod surface_core_tests {
             .instructions
             .as_deref()
             .expect("server should have instructions");
-        assert!(
-            instructions.contains("PATCHLOOM_MCP_SURFACE=core"),
-            "handshake must advertise core mode"
+        let expected = super::super::transport::server_instructions(surface::McpSurface::Core);
+        assert_eq!(
+            instructions, expected,
+            "handshake instructions must match server_instructions(Core) exactly"
         );
         assert!(
             !instructions.contains("create_file"),
             "core handshake must not list create_file"
         );
-        assert!(
-            !instructions.contains("ast_list"),
-            "core handshake must not list ast_list"
-        );
-        for name in ["doc_set", "execute_plan", "read_file", "server_info"] {
-            assert!(
-                instructions.contains(name),
-                "core handshake must mention {name}"
-            );
-        }
         client.cancel().await.unwrap();
     }
 }

@@ -285,6 +285,10 @@ patchloom mcp-server
 
 `server_info` includes `"surface": "core"|"full"` and `"tool_count"`. Invalid values are rejected (do not silently fall back).
 
+Handshake `instructions` match the active surface: core mode lists only the core tools (it does not advertise full-inventory names such as `create_file` or `ast_*`).
+
+**Note:** `execute_plan` remains on core, so multi-op plans can still run create/delete/AST-style plan ops when the host sends a full plan. The env flag reduces the *tool schema* surface for small agents; it is not a capability sandbox for the plan catalog.
+
 Example client env (Grok `config.toml`):
 
 ```toml

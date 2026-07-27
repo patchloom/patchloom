@@ -621,12 +621,24 @@ fn has_mcp_http_support() -> bool {
 
 /// Spawn `patchloom mcp-server` in a tempdir and return a connected MCP client.
 async fn spawn_mcp_client(cwd: &Path) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    spawn_mcp_client_with_env(cwd, &[]).await
+}
+
+/// Like [`spawn_mcp_client`], but sets extra environment variables on the child
+/// (e.g. `PATCHLOOM_MCP_SURFACE=core`). Isolated per-process; safe for parallel tests.
+async fn spawn_mcp_client_with_env(
+    cwd: &Path,
+    env: &[(&str, &str)],
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
     use rmcp::ServiceExt;
     use rmcp::transport::TokioChildProcess;
 
     let bin = assert_cmd::cargo::cargo_bin("patchloom");
     let mut cmd = tokio::process::Command::new(bin);
     cmd.arg("mcp-server").current_dir(cwd);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
 
     let transport = TokioChildProcess::new(cmd).expect("failed to spawn patchloom mcp-server");
     ().serve(transport)

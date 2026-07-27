@@ -123,7 +123,9 @@ Small agents / tight context: set env `PATCHLOOM_MCP_SURFACE=core` so handshake 
 only the minimal pack (`read_file`, `search_files`, `replace_text`, `batch_replace`, \
 `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info`). \
 `PATCHLOOM_MCP_SURFACE=full` or unset keeps the full inventory. `server_info` reports \
-`surface` and `tool_count`. See docs/plans/mcp-surface-tiers.md.\n\n",
+`surface` and `tool_count`. Handshake instructions are surface-aware (core does not list \
+full-only tool names). `execute_plan` on core can still run full plan ops; the env reduces \
+tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n",
     );
 
     // When to use
@@ -1298,8 +1300,10 @@ mod tests {
             out.contains("PATCHLOOM_MCP_SURFACE")
                 && out.contains("core")
                 && out.contains("read_file")
-                && out.contains("execute_plan"),
-            "agent-rules must document PATCHLOOM_MCP_SURFACE=core pack (#1994)"
+                && out.contains("execute_plan")
+                && out.contains("surface-aware")
+                && out.contains("plan catalog"),
+            "agent-rules must document PATCHLOOM_MCP_SURFACE=core pack + honesty (#1994)"
         );
         assert!(
             out.contains("one-line override") || out.contains("allow_absent_old: true"),
