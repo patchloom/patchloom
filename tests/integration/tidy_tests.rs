@@ -327,9 +327,9 @@ fn test_tidy_check_sole_unreadable_is_invalid_input() {
     }
 }
 
-/// Sole binary via --files-from is invalid_input (not vacuous clean/tidy).
+/// Sole binary via --files-from is `error_kind: binary` (not vacuous clean/tidy).
 #[test]
-fn test_tidy_check_files_from_sole_binary_is_invalid_input() {
+fn test_tidy_check_files_from_sole_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("data.bin"), b"x\x00y").unwrap();
     fs::write(dir.path().join("list.txt"), "data.bin\n").unwrap();

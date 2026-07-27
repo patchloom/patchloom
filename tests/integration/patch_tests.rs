@@ -965,9 +965,9 @@ fn test_patch_apply_json_applied_true() {
     );
 }
 
-/// Patch *file* (diff input) that is binary is invalid_input (#1896).
+/// Patch *file* (diff input) that is binary peels `error_kind: binary` (#1896 / #1963).
 #[test]
-fn test_patch_diff_file_binary_is_invalid_input() {
+fn test_patch_diff_file_binary_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("t.txt"), "hello\n").unwrap();
     fs::write(
@@ -998,9 +998,9 @@ fn test_patch_diff_file_binary_is_invalid_input() {
     );
 }
 
-/// Patch check on invalid UTF-8 *target* is invalid_input (#1896).
+/// Patch check on invalid UTF-8 *target* peels `invalid_encoding` (#1896 / #1963).
 #[test]
-fn test_patch_check_invalid_utf8_target_is_invalid_input() {
+fn test_patch_check_invalid_utf8_target_is_invalid_encoding() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("bad.txt"), b"line one\xff\nline two\n").unwrap();
     fs::write(
@@ -1028,9 +1028,9 @@ fn test_patch_check_invalid_utf8_target_is_invalid_input() {
     assert!(err.contains("UTF-8") || err.contains("utf"), "{v}");
 }
 
-/// Patch check on binary *target* is invalid_input (#1896).
+/// Patch check on binary *target* peels `error_kind: binary` (#1896 / #1963).
 #[test]
-fn test_patch_check_binary_target_is_invalid_input() {
+fn test_patch_check_binary_target_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("bin_line.bin"), b"line one\x00line two\n").unwrap();
     fs::write(
@@ -1061,10 +1061,10 @@ fn test_patch_check_binary_target_is_invalid_input() {
     );
 }
 
-/// Binary target must refuse with invalid_input (exit 1), not STALE/ambiguous.
+/// Binary target must refuse with `error_kind: binary` (exit 1), not STALE/ambiguous.
 /// Engine already load_text_strict; CLI error mapping was wrong (fixrealloop).
 #[test]
-fn test_patch_apply_binary_target_is_invalid_input() {
+fn test_patch_apply_binary_target_is_binary_error_kind() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("bin_line.bin"), b"line one\x00line two\n").unwrap();
     fs::write(

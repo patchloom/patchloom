@@ -4467,7 +4467,7 @@ async fn test_mcp_execute_plan_insert_after_line_oriented() {
     client.cancel().await.unwrap();
 }
 
-/// Sole binary path via MCP replace_text is invalid_input / binary, not silent.
+/// Sole binary path via MCP replace_text peels binary, not silent.
 #[tokio::test]
 async fn test_mcp_replace_text_sole_binary_refused() {
     if !has_mcp_support() {
