@@ -4,7 +4,7 @@
 
 Full default inventory (~56 tools with AST) can overwhelm small agents (context tax on tool schemas). Competitors often ship tiny FS MCP servers.
 
-## Decision (v1 — document first, no default break)
+## Decision (v1: document first, no default break)
 
 1. **Default remains full surface** (backward compatible).
 2. **Progressive disclosure via existing schema tiers** (`patchloom schema --tier weak|medium|strong`) for plan/prompt generation.

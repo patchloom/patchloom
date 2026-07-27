@@ -243,7 +243,7 @@ For any work involving more than one edit (especially on the same file or relate
 
 - One `execute_plan` call = atomic execution of a mixed plan (doc.set + md.replace_section + create + replace + ...).
 - Plans support `strict: true` (default) for full rollback on format/validate failures.
-- Plans can include `write_policy`, `format` steps, `validate` steps — same as CLI `tx`.
+- Plans can include `write_policy`, `format` steps, `validate` steps: same as CLI `tx`.
 
 Example inline plan (JSON):
 

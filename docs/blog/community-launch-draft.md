@@ -1,4 +1,4 @@
-# Community launch pack (draft — do not post until a release ships)
+# Community launch pack (draft: do not post until a release ships)
 
 > **Status:** draft for maintainers. Post only after an explicit release tag / user-approved release PR merge. Do not publish stale version claims.
 

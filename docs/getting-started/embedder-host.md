@@ -4,11 +4,11 @@ For agent runtimes that **embed** Patchloom (not only shell out to the CLI). Pub
 
 ## Host checklist
 
-1. **Shared replace policy** — call `ReplaceOptions::for_agent()` on every primary and fallback replace path (`unique`, `require_change`, fuzzy at `AGENT_MIN_FUZZY_SCORE` 0.90, `allow_absent_old: false`).
-2. **Branch on peels** — use `edit_error_kind` / `error_kind_str` / bools (`is_no_match`, `is_binary`, `is_already_exists`, …). Do not treat all failures as one string.
-3. **After fuzzy Apply** — call `fuzzy_span_suspicious(old, matched_text, match_score)` (or `FuzzySpanPolicy`) before treating the write as trusted. Patchloom does **not** auto-refuse over-wide spans; the host must.
-4. **Containment** — for sandboxed agents, use `PathGuard` / workspace roots; do not let the model widen `--cwd` under CLI contain (#1832).
-5. **Undo** — after Apply, persist `EditResult.backup_session` if the host exposes undo.
+1. **Shared replace policy:** call `ReplaceOptions::for_agent()` on every primary and fallback replace path (`unique`, `require_change`, fuzzy at `AGENT_MIN_FUZZY_SCORE` 0.90, `allow_absent_old: false`).
+2. **Branch on peels:** use `edit_error_kind` / `error_kind_str` / bools (`is_no_match`, `is_binary`, `is_already_exists`, …). Do not treat all failures as one string.
+3. **After fuzzy Apply:** call `fuzzy_span_suspicious(old, matched_text, match_score)` (or `FuzzySpanPolicy`) before treating the write as trusted. Patchloom does **not** auto-refuse over-wide spans; the host must.
+4. **Containment:** for sandboxed agents, use `PathGuard` / workspace roots; do not let the model widen `--cwd` under CLI contain (#1832).
+5. **Undo:** after Apply, persist `EditResult.backup_session` if the host exposes undo.
 
 ## Minimal sketch
 
@@ -47,4 +47,4 @@ Approximate recovery stays an explicit override: `ReplaceOptions { allow_absent_
 
 - [Comparisons](comparisons.md) (Morph, filesystem MCP, yq, ast-grep)
 - [Library API table](../reference/README.md#library-api)
-- [Introduction — As a Rust library](../introduction.md#as-a-rust-library)
+- [Introduction: As a Rust library](../introduction.md#as-a-rust-library)

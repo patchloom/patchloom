@@ -15,7 +15,7 @@ cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, and generated-doc freshness checks (`check-patchloom-md`, `check-readme`). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme` so a drifted README test badge fails before CI).
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), and `server-json-test` (MCP Registry `server.json` description ≤100 chars). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme` and `server-json-test`).
 
 ## Issues and triage
 
@@ -97,6 +97,7 @@ See the "Adding a new MCP tool" section in [AGENTS.md](./AGENTS.md).
 | `make audit-test-hygiene` | Stale test names or weak assertions after a refactor. Strengthen or rename tests, then re-run. |
 | `make check-patchloom-md` | The agent-rules output changed. Run `make sync-patchloom-md` to regenerate `PATCHLOOM.md`. |
 | `make check-readme` | Test counts drifted. Run `make update-readme` to refresh `README.md`. |
+| `make server-json-test` | `server.json` description exceeds MCP Registry max (100 chars) or name drift. Shorten the description and re-run. |
 
 ## License
 

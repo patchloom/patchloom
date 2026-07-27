@@ -26,7 +26,7 @@ Patchloom is a single-binary CLI that gives AI coding agents safe, structured fi
 
 **Not a generic filesystem MCP.** Default MCP filesystem servers read/write files as text. Patchloom adds dry-run previews, parser-backed config and markdown edits, AST ops, multi-file `batch`/`tx` with undo, and stable `error_kind` peels for hosts. Full coding agents (Claude Code, Codex, Cursor) own the loop; Patchloom is the **tool layer** they (or a Rust embedder) call.
 
-![Patchloom demo: 6 edits across 4 files in JSON, YAML, and TOML — one command, comments preserved](demo/demo.gif)
+![Patchloom demo: 6 edits across 4 files in JSON, YAML, and TOML: one command, comments preserved](demo/demo.gif)
 
 ```bash
 # Edit a YAML value by selector without breaking comments or formatting
@@ -177,7 +177,7 @@ cargo install patchloom
 scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
 scoop install patchloom/patchloom
 
-# Chocolatey (Windows; community feed — newer versions may lag moderation)
+# Chocolatey (Windows; community feed; newer versions may lag moderation)
 choco install patchloom
 ```
 
