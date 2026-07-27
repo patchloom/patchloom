@@ -4491,10 +4491,16 @@ async fn test_mcp_replace_text_sole_binary_refused() {
         is_error || val["ok"] == false,
         "sole binary should fail: {val}"
     );
+    // Prefer structured kind when present; fall back to message text.
+    let kind = val["error_kind"].as_str().unwrap_or("").to_lowercase();
     let text = val.to_string().to_lowercase();
     assert!(
-        text.contains("binary") || text.contains("invalid_input"),
-        "binary/invalid_input kind: {val}"
+        kind == "binary" || text.contains("binary"),
+        "sole binary must peel binary (not only invalid_input): {val}"
+    );
+    assert!(
+        kind != "invalid_input",
+        "sole binary must not collapse to invalid_input: {val}"
     );
     client.cancel().await.unwrap();
 }

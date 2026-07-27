@@ -107,7 +107,7 @@
 //! ## Frozen `error_kind_str` contract for embedders (#1964)
 //!
 //! For a given failure, [`error_kind_str`] returns the **same** string CLI
-//! `--json` puts in `error_kind`. Stable strings after 0.19 (plus #1963):
+//! `--json` puts in `error_kind`. Stable strings through 0.20 (#1963 Binary/InvalidEncoding):
 //!
 //! | String | Typical cause |
 //! |--------|----------------|
