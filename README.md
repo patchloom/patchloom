@@ -302,12 +302,14 @@ let result = api::replace_text(
 )?;
 println!("{}", result.diff);
 
-// Fail closed: zero matches become EditErrorKind::NoMatch (agent hosts)
-let opts = ReplaceOptions { require_change: true, ..Default::default() };
+// Agent hosts: shared primary+fallback policy (unique, require_change, fuzzy @ 0.90)
+let opts = ReplaceOptions::for_agent();
+// Fail closed: zero matches become EditErrorKind::NoMatch
 match api::replace_in_content("body", "missing", "x", &opts) {
     Ok(r) => println!("changed={}", r.changed),
     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::NoMatch)),
 }
+// After fuzzy Apply: refuse over-wide spans before trust (api::fuzzy_span_suspicious)
 // Invalid options and bad regex peel InvalidInput (CLI/tx typed errors included)
 match api::replace_in_content("body", "", "x", &ReplaceOptions::default()) {
     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::InvalidInput)),
@@ -338,7 +340,7 @@ let _text = api::load_text(Path::new("notes.md"))?;
 
 All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking, `load_text_strict`, binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs. Multi-doc bare keys and wrong-root merges peel to `EditErrorKind::TypeError` via `edit_error_kind`. Create/rename dest-exists peels to `EditErrorKind::AlreadyExists` (or `api::is_already_exists` / `api::error_kind_str` for CLI-stable `"already_exists"` strings). Fine-grained kinds also have bool peels (`is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_no_match`, `is_ambiguous`) matching `edit_error_kind`.
 
-Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
+Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Agent hosts: `ReplaceOptions::for_agent()` plus `api::fuzzy_span_suspicious` after fuzzy Apply. Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
 
 ## Getting started
 

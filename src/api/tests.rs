@@ -3129,6 +3129,12 @@ fn fuzzy_span_suspicious_default_policy() {
     // 45 ASCII matched: chars refuse (45>44), bytes would allow (45==45).
     assert!(!fuzzy_span_suspicious("café", Some("café"), Some(0.99)));
     assert!(fuzzy_span_suspicious("café", Some(&"x".repeat(45)), None));
+    // NaN score: comparisons fail closed (near-floor band never fires).
+    assert!(!fuzzy_span_suspicious(
+        old10,
+        Some(over_double),
+        Some(f64::NAN)
+    ));
 }
 
 #[test]
@@ -6443,6 +6449,45 @@ fn replace_in_content_fuzzy_near_collision_reports_matched_text() {
     assert!(
         r.new_content.contains("compute_digest"),
         "replacement should apply to the matched span"
+    );
+    // #1981 host path: token-scale identifier fuzzy is not over-wide.
+    assert!(
+        !crate::api::fuzzy_span_suspicious("compute_cheksum", Some(matched), r.match_score),
+        "near-collision identifier span must not trip default refuse policy: {matched:?}"
+    );
+}
+
+/// #1981: host refuse helper after a real fuzzy `replace_in_content` Apply.
+#[test]
+fn replace_in_content_fuzzy_host_refuses_over_wide_matched_text() {
+    // Live file has a short identifier; fuzzy old is a typo of a long line
+    // that is not present. With allow_absent_old the engine may still land
+    // on the short identifier (token scale) — that is not over-wide.
+    // The over-wide case is asserted with the public helper on a synthetic
+    // function-body span (same shape hosts see after a bad fuzzy).
+    let old = "process_data";
+    let wide = "fn process_data() {\n    // lots of body\n    do_work();\n    more();\n}\n";
+    assert!(
+        crate::api::fuzzy_span_suspicious(old, Some(wide), Some(crate::api::AGENT_MIN_FUZZY_SCORE)),
+        "function-body span vs short identifier must be suspicious under default policy"
+    );
+    // Real engine path: identifier typo (not a substring of the live name)
+    // stays token-scale and is trusted under the default refuse policy.
+    let content = "fn process_data() {}\n";
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        allow_absent_old: true,
+        min_fuzzy_score: Some(0.90),
+        require_change: true,
+        ..Default::default()
+    };
+    let r = replace_in_content(content, "proess_data", "process_items", &opts)
+        .expect("fuzzy typo must apply");
+    assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
+    let matched = r.matched_text.as_deref().expect("fuzzy matched_text");
+    assert!(
+        !crate::api::fuzzy_span_suspicious("proess_data", Some(matched), r.match_score),
+        "token-scale fuzzy Apply must not look over-wide: {matched:?}"
     );
 }
 

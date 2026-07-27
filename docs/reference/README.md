@@ -618,6 +618,7 @@ These are meaningful command-specific modes that change how a top-level command 
 - **What it does:** When the exact pattern has zero matches, try similarity/anchor fallback (same chain as before/after context). Plan ops and MCP `replace_text` accept `fuzzy: true`. Pure fuzzy (no context) works on disk library, single-path tx, **glob** plan ops, and CLI (including directory roots expanded like ordinary replace).
 - **Use when:** Agent edits may have whitespace or small typos but should still land with honest `match_mode` / `match_score` / `matched_text` in library results and CLI/MCP JSON (#1669, #1736). Multi-file CLI replace, plan/tx, and content_edits all roll up worst-case confidence (`fuzzy` > `anchored` > `exact`) so mixed batches never under-report fuzzy. Aggregate `match_score` is the **minimum** fuzzy score across paths/ops (lowest confidence), not the first fuzzy hit.
 - **Default safety (#1758):** When exact `old` is **absent**, Similarity/fuzzy **refuses to write** by default (even above `min_fuzzy_score`) and reports the best candidate. Set `--allow-absent-old` / `allow_absent_old` only for deliberate approximate recovery. Anchored matches (explicit context) still apply.
+- **After Apply (#1981):** library hosts should call `api::fuzzy_span_suspicious(old, matched_text, match_score)` (or `FuzzySpanPolicy`) before treating a fuzzy success as trusted. Default: refuse when matched is wider than `max(4 * old_chars, old_chars + 40)`, or score is in `[0.90, 0.95)` and ratio `> 2`. Do not rely on score alone.
 - **Prefer instead:** Exact replace when the target string is known; `ast rename` for code identifiers.
 
 <!-- ref:replace-mode:min-fuzzy-score -->
@@ -640,8 +641,9 @@ These are meaningful command-specific modes that change how a top-level command 
 
 - **What it does:** Shared constructor for coding-agent hosts so primary and fallback replace paths use one policy (#1965): `unique=true`, `require_change=true`, `fuzzy=true`, `min_fuzzy_score=Some(0.90)` (`AGENT_MIN_FUZZY_SCORE`), **`allow_absent_old=false`**.
 - **Use when:** Embedding patchloom in an agent runtime with more than one replace call site. Prefer `ReplaceOptions::for_agent()` over hand-copied `ReplaceOptions { ... }` blocks that can drift.
+- **After fuzzy Apply:** call `api::fuzzy_span_suspicious` on `matched_text` / `match_score` before trust (#1981). Pair with `for_agent` so floor + refuse policy stay aligned.
 - **Overrides:** Struct update: replace-all → `unique: false`; deliberate approximate recovery → `allow_absent_old: true`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, `word_boundary: true`.
-- **Not:** A host-specific recovery preset with `allow_absent_old: true`. Fail-closed missing-`old` remains the library default; recovery stays an explicit override.
+- **Not:** A host-specific recovery preset with `allow_absent_old: true`. Fail-closed missing-`old` remains the library default; recovery stays an explicit override (#1980 closed not planned).
 - **Prefer instead:** `ReplaceOptions::default()` only for non-agent / soft no-match library callers.
 
 <!-- ref:create-mode:stdin -->
