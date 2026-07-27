@@ -71,8 +71,10 @@ pub struct TxOutput {
     /// Lets MCP/CLI agents read honesty without a second content pass.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub match_count: Option<usize>,
-    /// First fuzzy/anchored matched span when a single change path is present.
-    /// Compare to requested `old` after fuzzy apply (#1736).
+    /// Widest fuzzy/anchored matched span across replace paths (Unicode chars),
+    /// same worst-case rollup as multi-op content_edits (#1736 / #2007).
+    /// Aggregate [`Self::match_score`] is min and may come from a different path;
+    /// use `changes[].matched_text` / plan `old` for refuse pairing.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub matched_text: Option<String>,
     /// Soft-refuse / soft-skip replace paths that did not write. Includes
@@ -1147,8 +1149,8 @@ mod tests {
         assert_eq!(out.match_count, Some(2));
     }
 
-    /// Top-level matched_text when only one replace path exists, even if other
-    /// non-replace changes are present (gate on replace meta, not changes.len).
+    /// Single replace path still surfaces top-level matched_text among other
+    /// non-replace changes (#2007 multi-path widest still covers the lone span).
     #[test]
     fn build_tx_output_matched_text_when_single_replace_among_other_changes() {
         let cwd = Path::new("/project");
