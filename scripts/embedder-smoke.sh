@@ -95,6 +95,35 @@ echo "$delete_json" | grep -q '"error_kind":"operation_failed"' \
   && fail "delete missing must not be operation_failed: $delete_json"
 pass "CLI delete missing JSON error_kind is not_found"
 
+# --- #1963 / #1972: sole binary peels binary (not no_matches / operation_failed) ---
+printf 'x\0y' >"$tmpdir/ws/blob.md"
+printf 'x\0y' >"$tmpdir/ws/blob.txt"
+bin_json=$("$BIN" --json --cwd "$tmpdir/ws" read blob.txt 2>/dev/null || true)
+echo "$bin_json" | grep -q '"error_kind": "binary"' \
+  || echo "$bin_json" | grep -q '"error_kind":"binary"' \
+  || fail "read sole binary must set error_kind binary: $bin_json"
+echo "$bin_json" | grep -q '"error_kind": "no_matches"' \
+  && fail "read sole binary must not be no_matches: $bin_json"
+echo "$bin_json" | grep -q '"error_kind":"no_matches"' \
+  && fail "read sole binary must not be no_matches: $bin_json"
+md_bin=$("$BIN" --json --cwd "$tmpdir/ws" md dedupe-headings blob.md 2>/dev/null || true)
+echo "$md_bin" | grep -q '"error_kind": "binary"' \
+  || echo "$md_bin" | grep -q '"error_kind":"binary"' \
+  || fail "md sole binary must set error_kind binary: $md_bin"
+pass "CLI sole binary JSON error_kind is binary (#1963/#1972)"
+
+# --- #1963: sole invalid UTF-8 peels invalid_encoding ---
+printf 'hello \xff world' >"$tmpdir/ws/bad.txt"
+enc_json=$("$BIN" --json --cwd "$tmpdir/ws" read bad.txt 2>/dev/null || true)
+echo "$enc_json" | grep -q '"error_kind": "invalid_encoding"' \
+  || echo "$enc_json" | grep -q '"error_kind":"invalid_encoding"' \
+  || fail "read invalid UTF-8 must set invalid_encoding: $enc_json"
+echo "$enc_json" | grep -q '"error_kind": "binary"' \
+  && fail "invalid UTF-8 must not be binary: $enc_json"
+echo "$enc_json" | grep -q '"error_kind":"binary"' \
+  && fail "invalid UTF-8 must not be binary: $enc_json"
+pass "CLI sole invalid UTF-8 JSON error_kind is invalid_encoding (#1963)"
+
 # --- nested undo still works after contain smoke (sessions already created) ---
 # Library-only find_backup_roots is unit-tested; CLI hosts use undo --list (#1695).
 
