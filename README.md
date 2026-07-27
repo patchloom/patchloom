@@ -311,7 +311,7 @@ match api::replace_in_content("body", "missing", "x", &opts) {
     Ok(r) => println!("changed={}", r.changed),
     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::NoMatch)),
 }
-// After fuzzy Apply: refuse over-wide spans before trust (api::fuzzy_span_suspicious)
+// for_agent auto-refuses over-wide fuzzy; custom options use api::fuzzy_span_suspicious
 // Invalid options and bad regex peel InvalidInput (CLI/tx typed errors included)
 match api::replace_in_content("body", "", "x", &ReplaceOptions::default()) {
     Err(e) => assert_eq!(edit_error_kind(&e), Some(EditErrorKind::InvalidInput)),
@@ -342,7 +342,7 @@ let _text = api::load_text(Path::new("notes.md"))?;
 
 All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking, `load_text_strict`, binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs. Multi-doc bare keys and wrong-root merges peel to `EditErrorKind::TypeError` via `edit_error_kind`. Create/rename dest-exists peels to `EditErrorKind::AlreadyExists` (or `api::is_already_exists` / `api::error_kind_str` for CLI-stable `"already_exists"` strings). Fine-grained kinds also have bool peels (`is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_no_match`, `is_ambiguous`) matching `edit_error_kind`.
 
-Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Agent hosts: `ReplaceOptions::for_agent()` plus `api::fuzzy_span_suspicious` after fuzzy Apply. Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Host checklist: [Embedder host](docs/getting-started/embedder-host.md). Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
+Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Agent hosts: `ReplaceOptions::for_agent()` on **primary and fallback** replace paths (auto span refuse); custom options still call `api::fuzzy_span_suspicious` / `FuzzySpanPolicy` after fuzzy Apply. Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Ordered host onboarding: [Embedder host checklist](docs/getting-started/embedder-host.md) (#2009). Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
 
 ## Getting started
 
@@ -465,7 +465,7 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 
 Longer write-ups: [Comparisons](docs/getting-started/comparisons.md) · [Embedder host checklist](docs/getting-started/embedder-host.md) · [MCP setup](docs/getting-started/mcp-setup.md)
 
-**Library hosts:** `ReplaceOptions::for_agent()` (includes `refuse_suspicious_fuzzy`), peels via `edit_error_kind` / `is_*` / `is_fuzzy_span_suspicious`, multi-op `ContentEditsResult.op_honesty`. Custom options still use `api::fuzzy_span_suspicious` after fuzzy Apply.
+**Library hosts:** [Embedder host checklist](docs/getting-started/embedder-host.md) — dual-path `ReplaceOptions::for_agent()` (primary + fallback, includes `refuse_suspicious_fuzzy`), peels via `edit_error_kind` / `is_*` / `is_fuzzy_span_suspicious` with `#[non_exhaustive]` `_` arm, multi-op `ContentEditsResult.op_honesty`, plan/tx widest `matched_text`, optional `apply_content_edits_to_file_with_span_policy`. Custom options still use `api::fuzzy_span_suspicious` / `FuzzySpanPolicy` after fuzzy Apply.
 
 **Context budget:** line-range `read`, `search --count` / `--files-with-matches`, one `batch`/`tx`, `--jsonl` for large streams.
 

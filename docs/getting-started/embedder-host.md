@@ -1,49 +1,111 @@
 # Embedder host checklist (Rust library)
 
-For agent runtimes that **embed** Patchloom (not only shell out to the CLI). Public API surface: [docs.rs/patchloom](https://docs.rs/patchloom).
+For **LLM agent hosts / embedders** that call Patchloom as a library (not only
+shell out to the CLI). Public API: [docs.rs/patchloom](https://docs.rs/patchloom).
 
-## Host checklist
+This is the **one-screen** ordered checklist for a first host integration.
+Bline is a real embedder that dogfooded these steps; the checklist is host-generic.
 
-1. **Shared replace policy:** call `ReplaceOptions::for_agent()` on every primary and fallback replace path (`unique`, `require_change`, fuzzy at `AGENT_MIN_FUZZY_SCORE` 0.90, `allow_absent_old: false`, `refuse_suspicious_fuzzy: true`).
-2. **Branch on peels:** use `edit_error_kind` / `error_kind_str` / bools (`is_no_match`, `is_binary`, `is_already_exists`, `is_fuzzy_span_suspicious`, …). Keep a `_` arm (`EditErrorKind` is `#[non_exhaustive]`).
-3. **Over-wide fuzzy:** with `for_agent()`, refuse is automatic (`EditErrorKind::FuzzySpanSuspicious`). For custom options, call `fuzzy_span_suspicious(old, matched_text, match_score)` (or `FuzzySpanPolicy`) before trusting Apply.
-4. **Containment:** for sandboxed agents, use `PathGuard` / workspace roots; do not let the model widen `--cwd` under CLI contain (#1832).
-5. **Undo:** after Apply, persist `EditResult.backup_session` if the host exposes undo.
+## Minimal checklist
+
+1. **PathGuard** from the workspace root (and `allow_temp_directory` if the
+   agent writes under `/tmp`). Pass `Some(&guard)` into Apply writers.
+2. **Sole-path text load:** `api::load_text` / `load_text_strict` (or
+   `is_binary_file` preflight). Peel `Binary` / `InvalidEncoding` /
+   `is_load_text_strict_fail` instead of scraping English.
+3. **Dual-path replace (primary + fallback):** call
+   `ReplaceOptions::for_agent()` in **both** places. Do not hand-copy
+   `ReplaceOptions { ... }` twice (options drift is a common footgun).
+   Preset: `unique`, `require_change`, fuzzy at `AGENT_MIN_FUZZY_SCORE` (0.90),
+   `allow_absent_old: false`, `refuse_suspicious_fuzzy: true`.
+4. **Over-wide fuzzy:** with `for_agent()`, refuse is automatic
+   (`EditErrorKind::FuzzySpanSuspicious` / `is_fuzzy_span_suspicious`). For
+   custom options, call `fuzzy_span_suspicious(old, matched_text, score)` or
+   `fuzzy_span_suspicious_with_policy` + `FuzzySpanPolicy` before trusting Apply.
+5. **On `Err`:** branch with `edit_error_kind` / `error_kind_str` / `is_*`
+   peels. Keep a `_` arm: `EditErrorKind` is `#[non_exhaustive]`.
+6. **Apply writers:** prefer `api` file_* / `replace_text` /
+   `apply_content_edits_to_file` (hardlink preserve, `backup_session`). Persist
+   `EditResult.backup_session` if the host exposes undo.
+7. **Multi-op / multi-path honesty:**
+   - Buffer multi-op: `apply_content_edits` + **`ContentEditsResult.op_honesty`**
+     (per-replace `old` + `matched_text` + `match_score`; #2006).
+   - Plan/tx multi-path: top-level **widest** `matched_text` + **min** fuzzy
+     score (#2007); pair refuse with `changes[]` / plan `old`, not unpaired
+     rollup fields.
+   - Disk multi-op with a final gate:  
+     `apply_content_edits_to_file_with_span_policy(path, edits, mode, guard, Some(&FuzzySpanPolicy::default()))`  
+     refuses over-wide fuzzy **before** write/backup (#2008).
 
 ## Minimal sketch
 
 ```rust
 use patchloom::api::{
     replace_in_content, ReplaceOptions, edit_error_kind, EditErrorKind,
-    is_fuzzy_span_suspicious,
+    is_fuzzy_span_suspicious, ApplyMode, apply_content_edits_to_file_with_span_policy,
+    ContentEdit, FuzzySpanPolicy,
 };
+use patchloom::containment::PathGuard;
+use std::path::Path;
 
+// 1) Containment (optional but recommended for sandboxed agents)
+let guard = PathGuard::builder(std::env::current_dir()?).build()?;
+
+// 2–5) Dual-path replace: same for_agent() on primary AND fallback call sites
 let opts = ReplaceOptions::for_agent();
 match replace_in_content(content, old, new, &opts) {
-    Ok(r) => Ok(r), // refuse_suspicious_fuzzy already ran for fuzzy
+    Ok(r) => { /* refuse_suspicious_fuzzy already ran for fuzzy */ }
     Err(e) => {
         if is_fuzzy_span_suspicious(&e) {
             return Err(e); // over-wide fuzzy
         }
         match edit_error_kind(&e) {
-            Some(EditErrorKind::NoMatch) => Err(e), // agent retry or skip
-            Some(EditErrorKind::Binary) => Err(e),
-            _ => Err(e),
+            Some(EditErrorKind::NoMatch) => return Err(e),
+            Some(EditErrorKind::Binary) => return Err(e),
+            Some(_) | None => return Err(e), // non_exhaustive: keep _
         }
     }
 }
+
+// 6–7) Multi-op Apply with optional pre-write span policy
+let edits = [ContentEdit::Replace {
+    old: old.into(),
+    new: new.into(),
+    options: ReplaceOptions::for_agent(),
+}];
+let policy = FuzzySpanPolicy::default();
+let _ = apply_content_edits_to_file_with_span_policy(
+    Path::new("notes.txt"),
+    &edits,
+    ApplyMode::Apply,
+    Some(&guard),
+    Some(&policy),
+)?;
 ```
 
-Approximate recovery stays an explicit override: `ReplaceOptions { allow_absent_old: true, ..ReplaceOptions::for_agent() }` (not a second constructor; #1980). To keep approximate recovery without span auto-refuse: also set `refuse_suspicious_fuzzy: false`.
+Approximate recovery stays an explicit override:
 
-## Multi-op
+```rust
+ReplaceOptions {
+    allow_absent_old: true,
+    ..ReplaceOptions::for_agent()
+}
+```
 
-`apply_content_edits` rolls up the **widest** `matched_text` and the **minimum** fuzzy score independently (may be different ops). Prefer **`ContentEditsResult.op_honesty`**: each replace entry has `old`, `matched_text`, and `match_score` for correct refuse pairing (#2006). When each replace uses `for_agent()`, over-wide fuzzy fails inside that op (all-or-nothing batch).
+(not a second constructor; #1980). To keep approximate recovery without span
+auto-refuse: also set `refuse_suspicious_fuzzy: false`.
 
-Plan/tx multi-path top-level honesty matches that worst-case rollup (#2007). For disk multi-op with a final gate (hardlink/backup write path), use `apply_content_edits_to_file_with_span_policy(path, edits, mode, guard, Some(&FuzzySpanPolicy::default()))` so refuse happens **before** write (#2008).
+## Multi-op notes
+
+`apply_content_edits` rolls up the **widest** `matched_text` and the **minimum**
+fuzzy score independently (may be different ops). Prefer **`op_honesty`** for
+refuse pairing. When each replace uses `for_agent()`, over-wide fuzzy fails
+inside that op (all-or-nothing batch). Plan/tx multi-path top-level honesty
+matches that worst-case rollup (#2007).
 
 ## Related
 
 - [Comparisons](comparisons.md) (Morph, filesystem MCP, yq, ast-grep)
 - [Library API table](../reference/README.md#library-api)
 - [Introduction: As a Rust library](../introduction.md#as-a-rust-library)
+- Crate docs cookbook table in [docs.rs/patchloom](https://docs.rs/patchloom)

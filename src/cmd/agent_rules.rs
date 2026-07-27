@@ -161,6 +161,9 @@ default; hosts that need a smaller register set can track progressive surface de
              - `allow_absent_old`: only then apply fuzzy when exact `old` is not in the file (#1758). Default false (fail closed).\n\
              Example: `{\"path\":\"install.sh\",\"old\":\"pip\",\"new\":\"uv\",\
              \"command_position\":true,\"require_change\":true}`\n\n\
+             **Library host checklist (#2009):** ordered onboarding for LLM agent hosts / embedders \
+(primary + fallback replace, peels, multi-op honesty, pre-write span policy) lives in \
+`docs/getting-started/embedder-host.md` (linked from README and crate docs).\n\n\
              **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback \
 replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
 `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \
@@ -1276,8 +1279,10 @@ mod tests {
                 && out.contains("refuse_suspicious_fuzzy")
                 && out.contains("op_honesty")
                 && out.contains("apply_content_edits_to_file_with_span_policy")
-                && out.contains("widest"),
-            "library hosts need over-wide fuzzy refuse + multi-op/tx rollup docs (#1981/#2006-#2008)"
+                && out.contains("widest")
+                && out.contains("embedder-host.md")
+                && out.contains("primary + fallback"),
+            "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009)"
         );
         assert!(
             out.contains("Which surface to use")
