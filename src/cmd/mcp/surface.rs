@@ -249,6 +249,98 @@ pub(super) fn custom_tool_names() -> impl Iterator<Item = &'static str> {
     custom_mcp_tools().map(|t| t.name)
 }
 
+// ---------------------------------------------------------------------------
+// Progressive surface (PATCHLOOM_MCP_SURFACE) — #1994
+// ---------------------------------------------------------------------------
+
+/// Env var hosts set for a smaller MCP register set at handshake.
+pub(super) const MCP_SURFACE_ENV: &str = "PATCHLOOM_MCP_SURFACE";
+
+/// Tools registered when [`McpSurface::Core`] is active.
+///
+/// Keep this list small and agent-default: read/search/replace, doc get/set/query,
+/// one markdown write, plans, and server metadata. AST stays full-only.
+///
+/// Documented in `docs/plans/mcp-surface-tiers.md` and agent-rules.
+pub(super) const CORE_MCP_TOOL_NAMES: &[&str] = &[
+    "read_file",
+    "search_files",
+    "replace_text",
+    "batch_replace",
+    "doc_get",
+    "doc_set",
+    "doc_query",
+    "md_replace_section",
+    "execute_plan",
+    "server_info",
+];
+
+/// Which tool inventory the MCP server registers.
+///
+/// Default is [`McpSurface::Full`] (backward compatible). Hosts that want a
+/// smaller schema for small agents set `PATCHLOOM_MCP_SURFACE=core`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum McpSurface {
+    /// All registry + custom tools for the build features (default).
+    #[default]
+    Full,
+    /// Minimal pack: [`CORE_MCP_TOOL_NAMES`] only (no AST).
+    Core,
+}
+
+impl McpSurface {
+    /// Parse `PATCHLOOM_MCP_SURFACE` (unset/`full` → Full, `core` → Core).
+    pub(super) fn from_env() -> anyhow::Result<Self> {
+        match std::env::var(MCP_SURFACE_ENV) {
+            Err(std::env::VarError::NotPresent) => Ok(Self::Full),
+            Err(e) => Err(anyhow::anyhow!("failed to read {MCP_SURFACE_ENV}: {e}")),
+            Ok(raw) => Self::parse(&raw),
+        }
+    }
+
+    /// Parse a surface string (case-insensitive). Empty means full.
+    pub(super) fn parse(raw: &str) -> anyhow::Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "full" => Ok(Self::Full),
+            "core" => Ok(Self::Core),
+            other => Err(anyhow::anyhow!(
+                "invalid {MCP_SURFACE_ENV}={other:?}; expected \"core\" or \"full\""
+            )),
+        }
+    }
+
+    /// Wire / server_info string value.
+    #[must_use]
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Core => "core",
+        }
+    }
+
+    /// Whether `tool_name` is registered on this surface.
+    #[must_use]
+    pub(super) fn allows(self, tool_name: &str) -> bool {
+        match self {
+            Self::Full => true,
+            Self::Core => CORE_MCP_TOOL_NAMES.contains(&tool_name),
+        }
+    }
+
+    /// Expected `list_tools` count for this surface under current features.
+    #[must_use]
+    pub(super) fn expected_tool_count(self) -> usize {
+        match self {
+            Self::Full => {
+                let registry_n = super::registry::MCP_TOOL_REGISTRY.len();
+                let custom_n = custom_mcp_tools().count();
+                registry_n + custom_n
+            }
+            Self::Core => CORE_MCP_TOOL_NAMES.len(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::registry::MCP_TOOL_REGISTRY;
@@ -317,5 +409,64 @@ mod tests {
         } else {
             assert!(!names.iter().any(|n| n.starts_with("ast_")));
         }
+    }
+
+    #[test]
+    fn mcp_surface_parse_core_full_and_reject_unknown() {
+        assert_eq!(McpSurface::parse("").unwrap(), McpSurface::Full);
+        assert_eq!(McpSurface::parse("full").unwrap(), McpSurface::Full);
+        assert_eq!(McpSurface::parse("FULL").unwrap(), McpSurface::Full);
+        assert_eq!(McpSurface::parse("core").unwrap(), McpSurface::Core);
+        assert_eq!(McpSurface::parse(" Core ").unwrap(), McpSurface::Core);
+        let err = McpSurface::parse("minimal").unwrap_err().to_string();
+        assert!(
+            err.contains(MCP_SURFACE_ENV) && err.contains("core"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn core_mcp_tool_names_are_unique_and_exist_in_full_inventory() {
+        let mut seen = BTreeSet::new();
+        for name in CORE_MCP_TOOL_NAMES {
+            assert!(seen.insert(*name), "duplicate core tool: {name}");
+        }
+        let registry: BTreeSet<_> = MCP_TOOL_REGISTRY.iter().map(|t| t.tool_name).collect();
+        let custom: BTreeSet<_> = custom_tool_names().collect();
+        for name in CORE_MCP_TOOL_NAMES {
+            assert!(
+                registry.contains(name) || custom.contains(name),
+                "core tool {name} missing from registry and custom inventory"
+            );
+            // Core must not depend on AST-only tools.
+            assert!(
+                !name.starts_with("ast_"),
+                "core surface must not include AST tool {name}"
+            );
+        }
+        assert_eq!(
+            McpSurface::Core.expected_tool_count(),
+            CORE_MCP_TOOL_NAMES.len()
+        );
+        assert_eq!(
+            McpSurface::Full.expected_tool_count(),
+            MCP_TOOL_REGISTRY.len() + custom_mcp_tools().count()
+        );
+        // Sanity: core is much smaller than full with default features.
+        assert!(
+            McpSurface::Core.expected_tool_count() < McpSurface::Full.expected_tool_count(),
+            "core pack must be a strict subset of full"
+        );
+    }
+
+    #[test]
+    fn core_surface_allows_only_core_names() {
+        assert!(McpSurface::Core.allows("doc_set"));
+        assert!(McpSurface::Core.allows("server_info"));
+        assert!(!McpSurface::Core.allows("doc_diff"));
+        assert!(!McpSurface::Core.allows("ast_list"));
+        assert!(!McpSurface::Core.allows("create_file"));
+        assert!(McpSurface::Full.allows("ast_list"));
+        assert!(McpSurface::Full.allows("create_file"));
     }
 }

@@ -268,6 +268,34 @@ Example inline plan (JSON):
 
 These semantics are also documented in the tool instructions returned by the MCP server and in `patchloom agent-rules --mode mcp`.
 
+## Tool surface (full vs core)
+
+By default the server registers the **full** tool inventory (registry + custom handlers, including AST when built with `ast`). Small agents that choke on large tool schemas can request a **minimal pack** at handshake:
+
+```bash
+export PATCHLOOM_MCP_SURFACE=core
+patchloom mcp-server
+```
+
+| Value | Effect |
+|-------|--------|
+| unset or `full` | Full inventory (default; backward compatible) |
+| `core` | Only: `read_file`, `search_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info` |
+| anything else | Server fails to start with a clear error |
+
+`server_info` includes `"surface": "core"|"full"` and `"tool_count"`. Invalid values are rejected (do not silently fall back).
+
+Example client env (Grok `config.toml`):
+
+```toml
+[mcp_servers.patchloom]
+command = "patchloom"
+args = ["mcp-server"]
+env = { PATCHLOOM_MCP_SURFACE = "core" }
+```
+
+Design notes: [mcp-surface-tiers.md](../plans/mcp-surface-tiers.md).
+
 ## Debugging and logging
 
 The MCP server can log every tool call to a JSONL file for debugging and performance analysis. Each line records the tool name, duration, and success/failure status.

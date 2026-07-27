@@ -118,9 +118,12 @@ DSL; use Patchloom for host-safe apply, configs, markdown, batch/tx/undo, and pe
 `--files-with-matches`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` \
 for large result streams. Binary sole paths peel `error_kind: binary`.\n\n\
          **MCP tool volume:** the server may expose many tools; start from this table \
-(and `schema --tier weak|medium|strong` for plan prompts). Full inventory is power-user \
-default; hosts that need a smaller register set can track progressive surface design \
-(docs/plans/mcp-surface-tiers.md).\n\n",
+(and `schema --tier weak|medium|strong` for plan prompts). Full inventory is the default. \
+Small agents / tight context: set env `PATCHLOOM_MCP_SURFACE=core` so handshake registers \
+only the minimal pack (`read_file`, `search_files`, `replace_text`, `batch_replace`, \
+`doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info`). \
+`PATCHLOOM_MCP_SURFACE=full` or unset keeps the full inventory. `server_info` reports \
+`surface` and `tool_count`. See docs/plans/mcp-surface-tiers.md.\n\n",
     );
 
     // When to use
@@ -1290,6 +1293,13 @@ mod tests {
                 && out.contains("Context budget")
                 && out.contains("Multi-document YAML"),
             "agent-rules need decision tree + ast-grep complement + context tips (#1992/#1993/#1996)"
+        );
+        assert!(
+            out.contains("PATCHLOOM_MCP_SURFACE")
+                && out.contains("core")
+                && out.contains("read_file")
+                && out.contains("execute_plan"),
+            "agent-rules must document PATCHLOOM_MCP_SURFACE=core pack (#1994)"
         );
         assert!(
             out.contains("one-line override") || out.contains("allow_absent_old: true"),

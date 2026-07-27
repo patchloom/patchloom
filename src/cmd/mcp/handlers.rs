@@ -765,7 +765,12 @@ impl PatchloomService {
         Parameters(_p): Parameters<EmptyParams>,
     ) -> Result<CallToolResult, McpError> {
         let cwd = self.cwd().to_string_lossy().to_string();
-        let info = serde_json::json!({ "cwd": cwd });
+        let info = serde_json::json!({
+            "cwd": cwd,
+            // Surface active at handshake (PATCHLOOM_MCP_SURFACE).
+            "surface": self.surface().as_str(),
+            "tool_count": self.surface().expected_tool_count(),
+        });
         let json = serde_json::to_string_pretty(&info)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))

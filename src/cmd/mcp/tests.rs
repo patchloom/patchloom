@@ -7,8 +7,16 @@ use rmcp::ServiceExt;
 async fn spawn_test_client(
     cwd: std::path::PathBuf,
 ) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
+    spawn_test_client_with_surface(cwd, surface::McpSurface::Full).await
+}
+
+/// Spawn with an explicit MCP surface (avoids env races in parallel tests).
+async fn spawn_test_client_with_surface(
+    cwd: std::path::PathBuf,
+    surface: surface::McpSurface,
+) -> rmcp::service::RunningService<rmcp::RoleClient, ()> {
     let (server_transport, client_transport) = tokio::io::duplex(16384);
-    let service = PatchloomService::new(cwd, None).unwrap();
+    let service = PatchloomService::new_with_surface(cwd, None, surface).unwrap();
     tokio::spawn(async move {
         let server = service.serve(server_transport).await.unwrap();
         server.waiting().await.unwrap();
@@ -1006,6 +1014,25 @@ mod server_info_tests {
     }
 
     #[tokio::test]
+    async fn server_info_reports_full_surface_by_default() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let params = rmcp::model::CallToolRequestParams::new("server_info");
+        let result = client.peer().call_tool(params).await.unwrap();
+        let text = match result.content.first().unwrap() {
+            rmcp::model::ContentBlock::Text(t) => &t.text,
+            _ => panic!("expected text"),
+        };
+        let info: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(info["surface"], "full");
+        assert_eq!(
+            info["tool_count"].as_u64().unwrap() as usize,
+            surface::McpSurface::Full.expected_tool_count()
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn server_info_handles_unicode_path() {
         let base = tempfile::TempDir::new().unwrap();
         let unicode_dir = base.path().join("проект_工作区");
@@ -1034,6 +1061,89 @@ mod server_info_tests {
             "cwd should preserve unicode characters"
         );
         client.cancel().await.unwrap();
+    }
+}
+
+// --- PATCHLOOM_MCP_SURFACE=core (#1994) ---
+
+mod surface_core_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn core_surface_lists_only_core_tools() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client =
+            spawn_test_client_with_surface(dir.path().to_path_buf(), surface::McpSurface::Core)
+                .await;
+        let tools = client.peer().list_all_tools().await.unwrap();
+        let names: std::collections::BTreeSet<_> =
+            tools.iter().map(|t| t.name.as_ref().to_string()).collect();
+        let expected: std::collections::BTreeSet<_> = surface::CORE_MCP_TOOL_NAMES
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        assert_eq!(
+            names, expected,
+            "core list_tools must equal CORE_MCP_TOOL_NAMES"
+        );
+        assert_eq!(names.len(), surface::McpSurface::Core.expected_tool_count());
+        // Full-only tools must be absent.
+        assert!(!names.contains("create_file"));
+        assert!(!names.contains("doc_diff"));
+        assert!(!names.contains("ast_list"));
+        assert!(!names.contains("batch_tidy"));
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn core_surface_server_info_reports_core() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client =
+            spawn_test_client_with_surface(dir.path().to_path_buf(), surface::McpSurface::Core)
+                .await;
+        let params = rmcp::model::CallToolRequestParams::new("server_info");
+        let result = client.peer().call_tool(params).await.unwrap();
+        let text = match result.content.first().unwrap() {
+            rmcp::model::ContentBlock::Text(t) => &t.text,
+            _ => panic!("expected text"),
+        };
+        let info: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(info["surface"], "core");
+        assert_eq!(
+            info["tool_count"].as_u64().unwrap() as usize,
+            surface::CORE_MCP_TOOL_NAMES.len()
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn core_surface_rejects_full_only_tool_call() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client =
+            spawn_test_client_with_surface(dir.path().to_path_buf(), surface::McpSurface::Core)
+                .await;
+        let params = rmcp::model::CallToolRequestParams::new("create_file");
+        let err = client
+            .peer()
+            .call_tool(params)
+            .await
+            .expect_err("create_file must not be callable on core surface");
+        let msg = err.to_string();
+        assert!(
+            msg.to_lowercase().contains("create_file")
+                || msg.to_lowercase().contains("not found")
+                || msg.to_lowercase().contains("unknown")
+                || msg.to_lowercase().contains("disabled"),
+            "unexpected error: {msg}"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[test]
+    fn invalid_surface_env_is_invalid_input() {
+        // Parse path (no env mutation): invalid values fail closed.
+        let err = surface::McpSurface::parse("tiny").unwrap_err().to_string();
+        assert!(err.contains("PATCHLOOM_MCP_SURFACE"));
     }
 }
 
