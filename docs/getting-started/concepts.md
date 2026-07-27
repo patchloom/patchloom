@@ -26,6 +26,18 @@ Patchloom has 23 commands:
 
 For feature-by-feature `Use when` guidance on commands, operations, and notable modes, see the [reference guide](../reference/README.md).
 
+For tool choice vs filesystem MCP, yq, ast-grep, and Morph, see [Comparisons](comparisons.md).
+
+## Context budget (agents)
+
+Tool results cost model tokens. Prefer:
+
+- `read` with a **line range** instead of dumping large files
+- `search --count` / `--files-with-matches` before full content
+- `batch` / `tx` / multi-op plans instead of N sequential replaces
+- `--jsonl` for streaming many results
+- Treating sole binary / invalid UTF-8 as peels (`error_kind`), not soft no-match
+
 ## Write modes
 
 Every write command supports four modes:

@@ -97,6 +97,32 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
          use `fs::rename` so multi-hardlinked sources keep their shared inode (#1739, #1746).\n\n",
     );
 
+    // Decision tree before full inventory (competitive research / agent routing).
+    out.push_str(
+        "## Which surface to use\n\n\
+         Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when \
+the edit is structured or multi-file. Prefer **ast-grep** (or similar) for \
+**structural code search / pattern codemods** when you need a syntax-tree pattern \
+DSL; use Patchloom for host-safe apply, configs, markdown, batch/tx/undo, and peels.\n\n\
+         | If the task is… | Prefer | Avoid |\n\
+         |---|---|---|\n\
+         | JSON/YAML/TOML key mutate | `doc set` / plan `doc.*` / MCP `doc_set` | regex replace on structured files |\n\
+         | Multi-document YAML | selector `0.key` or `[0].key` | bare key on stream root |\n\
+         | Markdown section/bullet/table | `md *` | whole-file rewrite |\n\
+         | Identifier rename in code | `ast rename` / `ast_rename_project` | fuzzy replace for symbols |\n\
+         | Find code by AST shape (pattern DSL) | ast-grep (or `ast search`) | blind text grep only |\n\
+         | Prose/typo in non-code text | `replace` (fuzzy last resort) | AST |\n\
+         | Multi-file atomic apply | `tx` / `batch` / `execute_plan` | sequential shell |\n\
+         | Host agent policy (Rust) | `ReplaceOptions::for_agent` + peels + `fuzzy_span_suspicious` | soft defaults |\n\n\
+         **Context budget:** prefer `read` with a line range, `search --count` / \
+`--files-with-matches`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` \
+for large result streams. Binary sole paths peel `error_kind: binary`.\n\n\
+         **MCP tool volume:** the server may expose many tools; start from this table \
+(and `schema --tier weak|medium|strong` for plan prompts). Full inventory is power-user \
+default; hosts that need a smaller register set can track progressive surface design \
+(docs/plans/mcp-surface-tiers.md).\n\n",
+    );
+
     // When to use
     if show_mcp {
         out.push_str(
@@ -1239,6 +1265,13 @@ mod tests {
         assert!(
             out.contains("fuzzy_span_suspicious") && out.contains("FuzzySpanPolicy"),
             "library hosts need over-wide fuzzy refuse helper docs (#1981)"
+        );
+        assert!(
+            out.contains("Which surface to use")
+                && out.contains("ast-grep")
+                && out.contains("Context budget")
+                && out.contains("Multi-document YAML"),
+            "agent-rules need decision tree + ast-grep complement + context tips (#1992/#1993/#1996)"
         );
         assert!(
             out.contains("one-line override") || out.contains("allow_absent_old: true"),

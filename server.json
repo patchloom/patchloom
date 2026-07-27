@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.patchloom/patchloom",
   "title": "Patchloom",
-  "description": "AI agent file editing via MCP: JSON/YAML/TOML, AST renames, markdown, batch.",
+  "description": "Structured file edits for AI agents: JSON/YAML/TOML by selector, markdown sections, AST renames, dry-run, batch/tx with undo. Not a generic filesystem MCP.",
   "repository": {
     "url": "https://github.com/patchloom/patchloom",
     "source": "github"

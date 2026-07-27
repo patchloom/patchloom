@@ -131,8 +131,8 @@ surface (`ReplaceOptions::for_agent`, `fuzzy_span_suspicious`, `require_change`,
 `command_position`, `ast_rename_batch`, `find_files_with_symbol`, `classify_error`,
 `restore_path_from_session`, `run_post_write_validation`, `match_mode`) and the
 [introduction](../introduction.md#as-a-rust-library) for a quick overview.
-Embedder tables live under [Library API](../reference/README.md#library-api)
-in the reference.
+Host checklist: [Embedder host](embedder-host.md). Embedder tables live under
+[Library API](../reference/README.md#library-api) in the reference.
 
 ## Shell completions
 

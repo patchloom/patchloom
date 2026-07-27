@@ -66,7 +66,7 @@ listing is live, Glama re-reads that file for ownership/indexing hints.
 3. Submit:
    - **GitHub repository URL:** `https://github.com/patchloom/patchloom`
    - **Name / display name:** `patchloom`
-   - **Description:** short summary matching `server.json` / the README MCP line
+   - **Description:** match `server.json` (structured agent edits: JSON/YAML/TOML, markdown, AST, dry-run, batch/tx; not a generic filesystem MCP)
 4. Wait for automated checks (license, security scan, health test). Most
    submissions complete within minutes.
 5. Confirm search finds the listing, then optional check via the

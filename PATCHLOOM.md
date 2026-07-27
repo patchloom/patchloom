@@ -9,6 +9,25 @@
 
 **Apply write safety:** all Apply paths share one writer. Symlinks are resolved so the link entry is not replaced (#1230). On Unix, files with multiple hard links (`nlink > 1`) are updated in place so sibling paths stay in sync (#1733); single-link files use temp+rename. CLI `rename` and plan `file.rename` (including force overwrite) use `fs::rename` so multi-hardlinked sources keep their shared inode (#1739, #1746).
 
+## Which surface to use
+
+Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when the edit is structured or multi-file. Prefer **ast-grep** (or similar) for **structural code search / pattern codemods** when you need a syntax-tree pattern DSL; use Patchloom for host-safe apply, configs, markdown, batch/tx/undo, and peels.
+
+| If the task is… | Prefer | Avoid |
+|---|---|---|
+| JSON/YAML/TOML key mutate | `doc set` / plan `doc.*` / MCP `doc_set` | regex replace on structured files |
+| Multi-document YAML | selector `0.key` or `[0].key` | bare key on stream root |
+| Markdown section/bullet/table | `md *` | whole-file rewrite |
+| Identifier rename in code | `ast rename` / `ast_rename_project` | fuzzy replace for symbols |
+| Find code by AST shape (pattern DSL) | ast-grep (or `ast search`) | blind text grep only |
+| Prose/typo in non-code text | `replace` (fuzzy last resort) | AST |
+| Multi-file atomic apply | `tx` / `batch` / `execute_plan` | sequential shell |
+| Host agent policy (Rust) | `ReplaceOptions::for_agent` + peels + `fuzzy_span_suspicious` | soft defaults |
+
+**Context budget:** prefer `read` with a line range, `search --count` / `--files-with-matches`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` for large result streams. Binary sole paths peel `error_kind: binary`.
+
+**MCP tool volume:** the server may expose many tools; start from this table (and `schema --tier weak|medium|strong` for plan prompts). Full inventory is power-user default; hosts that need a smaller register set can track progressive surface design (docs/plans/mcp-surface-tiers.md).
+
 ## Tool selection guide
 
 | Task pattern | Tool to use |
