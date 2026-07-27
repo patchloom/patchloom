@@ -24,6 +24,8 @@
 
 Patchloom is a single-binary CLI that gives AI coding agents safe, structured file editing on any operating system. It edits JSON, YAML, and TOML by selector (not regex), preserves comments, understands code structure across 20 languages, batches multiple file edits into one tool call, and works identically on Linux, macOS, and Windows.
 
+**Not a generic filesystem MCP.** Default MCP filesystem servers read/write files as text. Patchloom adds dry-run previews, parser-backed config and markdown edits, AST ops, multi-file `batch`/`tx` with undo, and stable `error_kind` peels for hosts. Full coding agents (Claude Code, Codex, Cursor) own the loop; Patchloom is the **tool layer** they (or a Rust embedder) call.
+
 ![Patchloom demo: 6 edits across 4 files in JSON, YAML, and TOML — one command, comments preserved](demo/demo.gif)
 
 ```bash
@@ -41,7 +43,7 @@ file.create VERSION "2.0.0"
 EOF
 ```
 
-**[Why Patchloom?](#why-patchloom)** | **[Install](#install)** | **[Quick start](#quick-start)** | **[Commands](#commands)** | **[Comparison](#how-patchloom-compares)** | **[Architecture](#how-it-works-with-your-ai-agent)** | **[Status](#status)**
+**[Why Patchloom?](#why-patchloom)** | **[Install](#install)** | **[Quick start](#quick-start)** | **[Commands](#commands)** | **[Comparison](#how-patchloom-compares)** | **[When to use what](#when-to-use-what)** | **[Architecture](#how-it-works-with-your-ai-agent)** | **[Status](#status)**
 
 ---
 
@@ -340,7 +342,7 @@ let _text = api::load_text(Path::new("notes.md"))?;
 
 All API types are `Send + Sync`. Beyond the `api` module, utility modules are also public: `containment` (workspace path guarding), `exec` (shell command execution), `files` (file-walking, `load_text_strict`, binary detection), `backup` (`restore_path_from_latest_backup` for post-Apply validate/revert), and `write` (atomic file writes with policy transformations). Library users needing temp dirs (e.g. agents) can use `PathGuard::builder(cwd).allow_temp_directory()` (handles /tmp on macOS); see the `containment` and `api` module rustdocs. Multi-doc bare keys and wrong-root merges peel to `EditErrorKind::TypeError` via `edit_error_kind`. Create/rename dest-exists peels to `EditErrorKind::AlreadyExists` (or `api::is_already_exists` / `api::error_kind_str` for CLI-stable `"already_exists"` strings). Fine-grained kinds also have bool peels (`is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_no_match`, `is_ambiguous`) matching `edit_error_kind`.
 
-Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Agent hosts: `ReplaceOptions::for_agent()` plus `api::fuzzy_span_suspicious` after fuzzy Apply. Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
+Replace fail-closed / shell-token options: CLI `replace --require-change` and `--command-position` (also plan/MCP fields and `ReplaceOptions` on the library). Agent hosts: `ReplaceOptions::for_agent()` plus `api::fuzzy_span_suspicious` after fuzzy Apply. Library-only AST mutators: `ast_rename` / `ast_replace_in_symbol` / `ast_rename_batch` (feature `ast` + `files`), and `FunctionSigEdit::parse_rust`. Host checklist: [Embedder host](docs/getting-started/embedder-host.md). Full surface: [docs.rs/patchloom](https://docs.rs/patchloom).
 
 ## Getting started
 
@@ -448,6 +450,24 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 | **Stale context risk** | `patch apply` uses fuzz matching to handle context drift |
 
 **When to keep using native tools:** Single-file reads, simple text search, single-file text replacement where comments don't matter. Patchloom's agent-rules tell agents exactly when to use each approach.
+
+## When to use what
+
+| Need | Prefer | Prefer something else |
+|------|--------|------------------------|
+| JSON/YAML/TOML by path | Patchloom `doc` | Generic filesystem MCP / blind text replace |
+| Multi-doc YAML stream | Patchloom selectors (`0.key`) | Bare key on stream root |
+| Structural code pattern search | [ast-grep](https://github.com/ast-grep/ast-grep) | Text-only grep for shapes |
+| Identifier rename in code | Patchloom `ast rename` | Fuzzy text replace for symbols |
+| Multi-file atomic apply + undo | Patchloom `batch` / `tx` | N sequential shell edits |
+| Cloud merge of LLM snippets | Morph Fast Apply (etc.) | Patchloom for local deterministic configs |
+| Full agent product | Claude Code / Codex / Cursor | Patchloom alone |
+
+Longer write-ups: [Comparisons](docs/getting-started/comparisons.md) · [Embedder host checklist](docs/getting-started/embedder-host.md) · [MCP setup](docs/getting-started/mcp-setup.md)
+
+**Library hosts:** `ReplaceOptions::for_agent()`, peels via `edit_error_kind` / `is_*`, and after fuzzy Apply `api::fuzzy_span_suspicious` (Patchloom does not auto-refuse over-wide spans).
+
+**Context budget:** line-range `read`, `search --count` / `--files-with-matches`, one `batch`/`tx`, `--jsonl` for large streams.
 
 ## How it works with your AI agent
 

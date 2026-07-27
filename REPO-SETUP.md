@@ -17,6 +17,16 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 | Smithery | `mcpb/` + `make pack-mcpb` + `.github/workflows/publish-smithery.yml` | Local stdio MCPB (`patchloom/patchloom`). Pack stamps version from `$VERSION` (CI) or Cargo.toml; runtime uses PATH binary or `npx -y patchloom@ver mcp-server`. Workflow pins `@anthropic-ai/mcpb@2.1.2`. Publish soft-skips without `SMITHERY_API_KEY` (from `smithery auth login` → `smithery auth whoami --full`). Manual: `make pack-mcpb && SMITHERY_API_KEY=… bash scripts/publish-smithery.sh` (REST API; avoids CLI 400). Tests: `make pack-mcpb-test` |
 | Glama MCP directory | root `glama.json` (`maintainers`) + manual web submit | [Glama FAQ](https://glama.ai/mcp/faq): **Add MCP Server** with `https://github.com/patchloom/patchloom`. No public API token; requires Glama account. After listing, Glama indexes from the GitHub repo + `glama.json`. See `docs/getting-started/mcp-setup.md` |
 | Release secrets | add `HOMEBREW_TAP_TOKEN`, `CARGO_REGISTRY_TOKEN`, (for Chocolatey) `CHOCOLATEY_API_KEY`, and (for Smithery) `SMITHERY_API_KEY` | `HOMEBREW_TAP_TOKEN` must push to both `homebrew-tap` and `scoop-bucket` (classic PAT `public_repo` is enough for public org repos). Prefer OIDC over `NPM_TOKEN` for npm. Chocolatey key from https://community.chocolatey.org/account (API Keys). MCP Registry needs no extra secret when using OIDC. Smithery is soft-skip without the secret |
+
+## After each release (MCP directory hygiene)
+
+Keep directory copy aligned with the tagged version. Automated where possible:
+
+1. **MCP Registry** — runs from Release after crates/npm; on failure: Actions → **Publish MCP Registry** → version input. `server.json` description should stay differentiation-focused (structured agent edits, not generic filesystem); version field is stamped by the publish job.
+2. **Smithery** — `publish-smithery.yml` after Release when `SMITHERY_API_KEY` is set; manual: `make pack-mcpb && bash scripts/publish-smithery.sh`.
+3. **Glama** — no API publish; after listing exists, sync from GitHub + `glama.json`. If description drifts, update via Glama UI (human session). Suggested blurb: same as `server.json` description.
+4. **Secondary marketplaces** (mcp.so, mcpservers.org, PulseMCP, awesome lists) — re-check only when deliberately listing; not release-blocking.
+5. **GitHub repo description / topics / homepage** — optional re-check after major messaging changes (`gh api repos/patchloom/patchloom`).
 | Security reporting | commit `SECURITY.md` now, then enable GitHub private vulnerability reporting after the repo becomes public | private Free org repos do not expose GitHub private vulnerability reporting yet |
 | Branch protection | Protect `main` once the repo is public or on a plan that supports private branch protection | required before accepting outside patches |
 | Public repo metadata | commit `LICENSE`, `README.md`, `CONTRIBUTING.md`, and issue templates in the bootstrap | keep the repo legible from day one |

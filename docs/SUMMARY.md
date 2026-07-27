@@ -7,6 +7,8 @@
 - [Installation](getting-started/installation.md)
 - [Quickstart](getting-started/quickstart.md)
 - [Core Concepts](getting-started/concepts.md)
+- [Comparisons](getting-started/comparisons.md)
+- [Embedder host checklist](getting-started/embedder-host.md)
 - [MCP Setup](getting-started/mcp-setup.md)
 - [Editor Extension](getting-started/editor-extension.md)
 
@@ -17,3 +19,4 @@
 # Blog
 
 - [Launch Announcement](blog/launch-announcement.md)
+- [Community launch pack (draft)](blog/community-launch-draft.md)
