@@ -7,6 +7,92 @@ fn test_mcp_setup_documents_search_files_modes() {
 }
 
 #[test]
+fn test_mcp_setup_documents_surface_core_honesty() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("PATCHLOOM_MCP_SURFACE"),
+        "mcp-setup must document surface env"
+    );
+    assert!(
+        doc.contains("match the active surface"),
+        "mcp-setup must document surface-aware instructions"
+    );
+    assert!(
+        doc.contains("not a capability sandbox for the plan catalog"),
+        "mcp-setup must clarify execute_plan is not sandboxed by core surface"
+    );
+}
+
+/// Invalid `PATCHLOOM_MCP_SURFACE` must fail closed at process start (#1994).
+#[cfg(feature = "mcp")]
+#[test]
+fn test_mcp_surface_invalid_env_fails_closed() {
+    if !has_mcp_support() {
+        return;
+    }
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["mcp-server"])
+        .env("PATCHLOOM_MCP_SURFACE", "tiny")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("PATCHLOOM_MCP_SURFACE"));
+}
+
+/// Subprocess path: `from_env` + list_tools (unit tests inject surface without env).
+#[cfg(feature = "mcp")]
+#[tokio::test]
+async fn test_mcp_surface_core_env_lists_ten_tools() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client_with_env(dir.path(), &[("PATCHLOOM_MCP_SURFACE", "core")]).await;
+    let tools = client.peer().list_all_tools().await.unwrap();
+    let names: std::collections::BTreeSet<_> =
+        tools.iter().map(|t| t.name.as_ref().to_string()).collect();
+    assert_eq!(names.len(), 10, "core pack is 10 tools, got {names:?}");
+    for required in [
+        "read_file",
+        "search_files",
+        "replace_text",
+        "batch_replace",
+        "doc_get",
+        "doc_set",
+        "doc_query",
+        "md_replace_section",
+        "execute_plan",
+        "server_info",
+    ] {
+        assert!(names.contains(required), "missing core tool {required}");
+    }
+    assert!(!names.contains("create_file"));
+    assert!(!names.contains("ast_list"));
+
+    let info = client.peer_info().expect("peer info");
+    let instructions = info.instructions.as_deref().unwrap_or("");
+    assert!(
+        instructions.contains("PATCHLOOM_MCP_SURFACE=core"),
+        "handshake instructions must name core surface"
+    );
+    assert!(
+        !instructions.contains("create_file"),
+        "core instructions must not advertise create_file"
+    );
+
+    let params = rmcp::model::CallToolRequestParams::new("server_info");
+    let result = client.peer().call_tool(params).await.unwrap();
+    let text = match result.content.first().unwrap() {
+        rmcp::model::ContentBlock::Text(t) => &t.text,
+        _ => panic!("expected text"),
+    };
+    let v: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(v["surface"], "core");
+    assert_eq!(v["tool_count"], 10);
+    client.cancel().await.unwrap();
+}
+
+#[test]
 fn test_mcp_setup_documents_text_file_skip_semantics() {
     let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
     assert!(doc.contains("Binary and invalid UTF-8 files are skipped"));
