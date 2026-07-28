@@ -238,6 +238,34 @@ fn test_patch_apply_json_stale_error_returns_error_object() {
     assert_patch_apply_error_object(&output, 5, "patch apply: test.txt -- STALE:");
 }
 
+/// Deletion patches must fail closed when file content no longer matches the
+/// hunk (check already reported stale; apply must not delete).
+#[test]
+fn test_patch_apply_stale_deletion_does_not_delete_file() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "changed\n").unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .code(5); // AMBIGUOUS / stale
+    assert!(file.exists(), "stale deletion must not remove the file");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
 #[test]
 fn test_patch_check_exits_2_when_would_change() {
     let dir = TempDir::new().unwrap();

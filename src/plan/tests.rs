@@ -53,6 +53,25 @@ fn substitute_single_pass_preserves_utf8() {
 }
 
 #[test]
+fn apply_fragment_accepts_new_alias_for_fragment() {
+    // Agents often copy replace_text priors (`new`/`to`) onto apply.fragment.
+    let v: serde_json::Value = serde_json::json!({
+        "op": "apply.fragment",
+        "path": "f.rs",
+        "old": "anchor",
+        "new": "replacement"
+    });
+    let op: Operation = serde_json::from_value(v).expect("new should alias fragment");
+    match op {
+        Operation::ApplyFragment { fragment, old, .. } => {
+            assert_eq!(fragment, "replacement");
+            assert_eq!(old.as_deref(), Some("anchor"));
+        }
+        other => panic!("expected ApplyFragment, got {other:?}"),
+    }
+}
+
+#[test]
 fn has_lifecycle_steps_none() {
     let plan = Plan {
         version: SCHEMA_VERSION,

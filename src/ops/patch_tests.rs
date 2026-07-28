@@ -976,6 +976,51 @@ mod regression {
         );
     }
 
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn apply_deletion_patch_fails_when_content_stale() {
+        let diff = "\
+--- a/old_file.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line one
+-line two
+";
+        let err = apply_patch_with_loader(
+            diff,
+            |_path| Ok("changed content\n".to_string()),
+            ApplyHunksOptions::default(),
+        )
+        .expect_err("stale deletion must fail closed");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("stale") || crate::exit::is_ambiguous(&err),
+            "expected stale/ambiguous, got: {msg}"
+        );
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn apply_deletion_patch_succeeds_when_context_matches() {
+        let diff = "\
+--- a/old_file.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line one
+-line two
+";
+        let results = apply_patch_with_loader(
+            diff,
+            |_path| Ok("line one\nline two\n".to_string()),
+            ApplyHunksOptions::default(),
+        )
+        .expect("matching deletion should apply");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].is_deletion);
+        assert_eq!(results[0].status, ApplyHunksStatus::Clean);
+        assert!(results[0].content.is_empty());
+    }
+
     #[test]
     fn hunk_context_anchors_mid_hunk_context_excluded_from_suffix() {
         // Regression: mid-hunk context between two change blocks was included

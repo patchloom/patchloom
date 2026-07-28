@@ -85,6 +85,8 @@ pub enum Operation {
         /// File to edit.
         path: String,
         /// New text or Morph-style snippet (lazy marker lines stripped).
+        /// Aliases `new`/`to`/`content` match replace_text agent priors.
+        #[serde(alias = "new", alias = "to", alias = "content")]
         fragment: String,
         /// Optional human instruction (explain only; not used for merge).
         #[serde(default)]
