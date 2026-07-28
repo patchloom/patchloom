@@ -134,7 +134,7 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Use MOD
 		.venv/bin/pip install -q -r requirements.txt && \
 		.venv/bin/pytest -v --timeout 240 $(if $(MODEL),--model $(MODEL),) --ignore=test_bench.py
 
-embedder-smoke: build ## Pre-release host contracts (CLI peels + library fuzzy_span_suspicious)
+embedder-smoke: build ## Pre-release host contracts (CLI peels + library fuzzy/path-only/fragment honesty)
 	bash scripts/embedder-smoke.sh target/debug/patchloom
 
 windows-smoke: build ## Windows/PowerShell dogfood (create/replace/doc/tx/paths). Requires pwsh + Windows-style binary.
