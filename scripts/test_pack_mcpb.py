@@ -48,11 +48,10 @@ class PackMcpbTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "9.9.9-test")
 
-    def test_pack_stamps_manifest_and_package_when_mcpb_available(self) -> None:
-        if shutil.which("mcpb") is None:
-            self.skipTest("mcpb CLI not installed")
-        if shutil.which("jq") is None:
-            self.skipTest("jq not installed")
+    def test_pack_stamps_manifest_and_package(self) -> None:
+        # Default pack path is zip+python (no mcpb CLI). Always exercise it.
+        if shutil.which("zip") is None:
+            self.skipTest("zip not installed")
 
         ver = "0.0.0-packtest"
         out = ROOT / "target" / "mcpb" / f"patchloom-{ver}.mcpb"

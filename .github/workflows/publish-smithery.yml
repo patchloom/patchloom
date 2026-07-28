@@ -64,28 +64,10 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "Resolved version: ${version}"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24"
-          package-manager-cache: false
-
-      - name: Install pack tools
-        run: |
-          set -euo pipefail
-          # Pin mcpb by version + SHA-256 of the registry tarball (Scorecard
-          # Pinned-Dependencies npmCommand / code-scanning alert #49). Avoid
-          # bare `npm install -g @scope/pkg@ver` which Scorecard does not treat
-          # as hash-pinned even with a fixed version.
-          MCPB_VERSION="2.1.2"
-          MCPB_TARBALL="mcpb-${MCPB_VERSION}.tgz"
-          MCPB_URL="https://registry.npmjs.org/@anthropic-ai/mcpb/-/${MCPB_TARBALL}"
-          # sha256 of the published tgz (npm view dist.tarball + shasum -a 256).
-          MCPB_SHA256="81174993380eb930bcacecc890b1acfdb06cf336366e445404aea36467417cc1"
-          curl -fsSL -o "/tmp/${MCPB_TARBALL}" "${MCPB_URL}"
-          echo "${MCPB_SHA256}  /tmp/${MCPB_TARBALL}" | sha256sum -c -
-          npm install -g "/tmp/${MCPB_TARBALL}"
-          mcpb --version
+      # No Node/npm install: pack-mcpb.sh builds a zip MCPB (official format)
+      # with python3+zip only. Avoids Scorecard Pinned-Dependencies npmCommand
+      # alerts (#49/#50). Optional local pack with official CLI:
+      # PACK_MCPB_USE_CLI=1 npm install -g @anthropic-ai/mcpb@2.1.2
 
       - name: Pack MCPB
         env:
@@ -114,8 +96,12 @@ jobs:
           fi
           # Wait briefly so npm patchloom@VERSION is available when clients
           # first install the bundle (npx path). Soft wait only.
+          # Use registry JSON (not `npm view`) so Scorecard does not flag an
+          # unpinned npmCommand (alerts #49/#50).
           for i in 1 2 3 4 5 6; do
-            if npm view "patchloom@${VERSION}" version >/dev/null 2>&1; then
+            if curl -fsSL "https://registry.npmjs.org/patchloom/${VERSION}" \
+              | python3 -c "import json,sys; json.load(sys.stdin); print('ok')" \
+              >/dev/null 2>&1; then
               echo "npm patchloom@${VERSION} is live"
               break
             fi
