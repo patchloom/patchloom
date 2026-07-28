@@ -51,6 +51,19 @@ The output shows a unified diff. When it looks correct, apply:
 patchloom replace 'old_function' --new 'new_function' src/ --apply
 ```
 
+If an agent emitted a freeform snippet with MorphLLM-style
+`// ... existing code ...` markers **and** you know a unique anchor,
+use `apply-fragment` (markers stripped; placement required) instead of
+rewriting the whole file. See [Comparisons: Morph](comparisons.md).
+
+```bash
+patchloom apply-fragment src/lib.rs \
+  --after 'fn foo() {' \
+  --fragment '// ... existing code ...
+  bar();
+// ... existing code ...' --apply
+```
+
 ## Step 3: Edit structured config
 
 Read a value from a JSON file:

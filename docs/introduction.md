@@ -34,7 +34,7 @@ EOF
 |----------|---------|-------------|
 | Text | `search` | Literal or regex search across files |
 | | `replace` | Mechanical string replacement with diff preview |
-| | `apply-fragment` | Freeform fragment with required anchors (Morph markers stripped) |
+| | `apply-fragment` | Freeform fragment with required anchors ([MorphLLM](https://www.morphllm.com/)-style markers stripped; no cloud merge) |
 | | `patch` | Preview or apply unified diffs |
 | Structured | `doc` | Parser-backed JSON, YAML, and TOML operations |
 | | `md` | Markdown section-aware operations |
