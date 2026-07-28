@@ -359,4 +359,48 @@ mod tests {
         assert_eq!(s.placement, FragmentPlacement::Replace("OLD".into()));
         assert_eq!(s.fragment, "NEW");
     }
+
+    #[test]
+    fn desugar_after_maps_to_insert_after() {
+        let s = build_apply_fragment_spec("NEW\n", None, Some("ANCHOR"), None, None, true).unwrap();
+        let d = desugar_to_replace_fields(&s);
+        assert_eq!(d.old, "ANCHOR");
+        assert_eq!(d.insert_after.as_deref(), Some("NEW\n"));
+        assert!(d.insert_before.is_none());
+        assert!(d.new_text.is_none());
+        assert!(d.unique);
+    }
+
+    #[test]
+    fn plan_apply_fragment_to_replace_op_name() {
+        let op = plan_apply_fragment_to_replace(
+            "f.rs",
+            "// ... existing code ...\nx\n",
+            None,
+            Some("y"),
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+        match op {
+            crate::plan::Operation::Replace {
+                path,
+                old,
+                insert_after,
+                new_text,
+                unique,
+                require_change,
+                ..
+            } => {
+                assert_eq!(path.as_deref(), Some("f.rs"));
+                assert_eq!(old, "y");
+                assert_eq!(insert_after.as_deref(), Some("x\n"));
+                assert!(new_text.is_none());
+                assert!(unique);
+                assert!(require_change);
+            }
+            other => panic!("expected Replace, got {other:?}"),
+        }
+    }
 }

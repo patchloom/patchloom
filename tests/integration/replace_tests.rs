@@ -3445,3 +3445,83 @@ fn test_replace_dir_all_unreadable_not_no_matches() {
         assert_ne!(v["error_kind"], "no_matches", "{v}");
     }
 }
+
+/// #2018: CLI apply-fragment binary path (subprocess) with Morph markers + after-anchor.
+#[test]
+fn test_apply_fragment_cli_after_strips_markers() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.rs");
+    fs::write(&file, "fn foo() {\n  a();\n}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("apply-fragment")
+        .arg(file.to_str().unwrap())
+        .arg("--after")
+        .arg("  a();")
+        .arg("--fragment")
+        .arg("// ... existing code ...\n  b();\n// ... existing code ...\n")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let body = fs::read_to_string(&file).unwrap();
+    assert!(
+        body.contains("  a();\n  b();\n"),
+        "expected insert after a(); got {body:?}"
+    );
+    assert!(
+        !body.contains("existing code"),
+        "lazy markers must be stripped: {body:?}"
+    );
+}
+
+/// #2018: CLI apply-fragment dry-run preview is exit 2 and leaves file unchanged.
+#[test]
+fn test_apply_fragment_cli_preview_exit_2() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.rs");
+    fs::write(&file, "a\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("apply-fragment")
+        .arg(file.to_str().unwrap())
+        .arg("--after")
+        .arg("a")
+        .arg("--fragment")
+        .arg("b\n")
+        .assert()
+        .code(2);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "a\n");
+}
+
+/// Ambiguous apply-fragment hint must mention --allow-non-unique (not only replace --nth).
+#[test]
+fn test_apply_fragment_cli_ambiguous_json_hint() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "dup\ndup\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "apply-fragment"])
+        .arg(file.to_str().unwrap())
+        .args(["--after", "dup", "--fragment", "x", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("allow-non-unique") || err.contains("apply-fragment"),
+        "ambiguous hint must guide apply-fragment users: {v}"
+    );
+}

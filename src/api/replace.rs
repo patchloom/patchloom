@@ -286,7 +286,7 @@ fn replace_write(
             }
             return Err(anyhow::Error::new(crate::exit::AmbiguousError {
                 msg: format!(
-                    "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                    "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), or --allow-non-unique (apply-fragment))",
                     crate::fallback::truncate_str(&old, 60),
                     count
                 ),
@@ -302,7 +302,7 @@ fn replace_write(
         if unique && count > 1 {
             return Err(anyhow::Error::new(crate::exit::AmbiguousError {
                 msg: format!(
-                    "ambiguous match: pattern {old:?} matches {count} times; use --nth or add context to disambiguate"
+                    "ambiguous match: pattern {old:?} matches {count} times; tighten the pattern/anchor, use --nth (replace), or --allow-non-unique (apply-fragment)"
                 ),
             }));
         }
@@ -705,7 +705,7 @@ fn replace_in_content_inner(
         }
         return Err(anyhow::Error::new(crate::exit::AmbiguousError {
             msg: format!(
-                "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                "ambiguous match: pattern {:?} matches {} times; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), or --allow-non-unique (apply-fragment))",
                 crate::fallback::truncate_str(from, 60),
                 count
             ),
@@ -880,7 +880,7 @@ fn finalize_content_replace(
         return Err(crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::AmbiguousTarget,
             format!(
-                "ambiguous match: pattern {:?} matches {} times; use --nth or add context to disambiguate",
+                "ambiguous match: pattern {:?} matches {} times; tighten the pattern/anchor, use --nth (replace), or --allow-non-unique (apply-fragment)",
                 from, count
             ),
         )

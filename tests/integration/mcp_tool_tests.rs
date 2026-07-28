@@ -127,6 +127,74 @@ async fn test_mcp_replace_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// #2018: MCP apply_fragment strips markers and inserts after anchor.
+#[tokio::test]
+async fn test_mcp_apply_fragment_after_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.rs"), "fn foo() {\n  a();\n}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_fragment",
+        serde_json::json!({
+            "path": "t.rs",
+            "after": "  a();",
+            "fragment": "// ... existing code ...\n  b();\n// ... existing code ...\n",
+            "instruction": "add b"
+        }),
+    )
+    .await;
+    assert!(!is_error, "apply_fragment should succeed: {val}");
+    assert_eq!(val["ok"], true, "apply_fragment ok field: {val}");
+    assert_eq!(
+        val["files_changed"], 1,
+        "apply_fragment files_changed: {val}"
+    );
+
+    let content = fs::read_to_string(dir.path().join("t.rs")).unwrap();
+    assert!(
+        content.contains("  a();\n  b();\n"),
+        "expected insert after a(); got {content:?}"
+    );
+    assert!(
+        !content.contains("existing code"),
+        "lazy markers must be stripped: {content:?}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// #2018: MCP apply_fragment without anchors fails closed.
+#[tokio::test]
+async fn test_mcp_apply_fragment_requires_anchor() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.rs"), "x\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_fragment",
+        serde_json::json!({
+            "path": "t.rs",
+            "fragment": "y\n"
+        }),
+    )
+    .await;
+    assert!(is_error, "missing anchor must error: {val}");
+    let content = fs::read_to_string(dir.path().join("t.rs")).unwrap();
+    assert_eq!(
+        content, "x\n",
+        "file must be unchanged on invalid apply_fragment"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_read_round_trip() {
     if !has_mcp_support() {

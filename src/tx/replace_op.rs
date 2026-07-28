@@ -251,7 +251,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         if *unique && match_count > 1 {
             return Err(crate::exit::AmbiguousError {
                 msg: format!(
-                    "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
+                    "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), or --allow-non-unique (apply-fragment)",
                     crate::fallback::truncate_str(old, 60),
                     match_count,
                     p
@@ -288,7 +288,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 }
                 return Err(crate::exit::AmbiguousError {
                     msg: format!(
-                        "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                        "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), or --allow-non-unique (apply-fragment))",
                         crate::fallback::truncate_str(old, 60),
                         match_count,
                         p
@@ -572,7 +572,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .display();
                 return Err(crate::exit::AmbiguousError {
                     msg: format!(
-                        "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
+                        "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), or --allow-non-unique (apply-fragment)",
                         crate::fallback::truncate_str(old, 60),
                         match_count,
                         rel
@@ -611,7 +611,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         .display();
                     return Err(crate::exit::AmbiguousError {
                         msg: format!(
-                            "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth or stronger before/after-context)",
+                            "ambiguous match: pattern {:?} matches {} times in {}; context did not select a unique occurrence (use --nth, stronger before/after-context (replace), or --allow-non-unique (apply-fragment))",
                             crate::fallback::truncate_str(old, 60),
                             match_count,
                             rel
