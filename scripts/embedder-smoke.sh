@@ -152,4 +152,13 @@ run_lib_filter replace_in_content_fuzzy_host_refuses
 run_lib_filter replace_in_content_fuzzy_near_collision_reports_matched_text
 pass "library fuzzy_span_suspicious host contracts (#1981)"
 
+# --- #2031-#2033: path-only non-text + apply_fragment_to_file + honesty ctors ---
+run_lib_filter file_rename_binary_path_only
+run_lib_filter file_rename_invalid_utf8_path_only
+run_lib_filter file_delete_binary_path_only
+run_lib_filter file_rename_force_binary_over_existing
+run_lib_filter apply_fragment_to_file_after
+run_lib_filter content_edit_honesty_constructors
+pass "library path-only rename/delete + apply_fragment + honesty constructors (#2031-#2033)"
+
 echo "embedder-smoke: all checks passed"

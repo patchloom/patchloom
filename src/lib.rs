@@ -198,6 +198,9 @@
 //! | Map sole binary / NUL content | [`EditErrorKind::Binary`] / [`api::is_binary`] (`binary`) |
 //! | Map invalid UTF-8 content | [`EditErrorKind::InvalidEncoding`] / [`api::is_invalid_encoding`] |
 //! | Force create over binary/unreadable prior | [`api::file_create`](..., `force: true`) (#1962) |
+//! | Path-only rename/delete non-text (byte backup, no OS dual-path) | [`api::file_rename`] / [`api::file_delete`] (#2031) |
+//! | Morph-class freeform on disk | [`api::apply_fragment_to_file`] + [`FragmentPlacement`] (#2032) |
+//! | Host unit-test honesty rows (`#[non_exhaustive]`) | [`ContentEditHonesty::exact`] / [`ContentEditHonesty::fuzzy`] (#2033) |
 //! | Map create/rename dest-exists to force/overwrite recovery | [`EditErrorKind::AlreadyExists`] / [`api::is_already_exists`] |
 //! | CLI-stable kind string for host JSON envelopes | [`api::error_kind_str`] / [`api::peel_error`] |
 //! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] / [`api::is_not_found`] |

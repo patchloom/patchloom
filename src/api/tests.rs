@@ -7048,6 +7048,23 @@ fn file_delete_binary_path_only_succeeds() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn file_rename_force_binary_over_existing() {
+    // Force overwrite dest when source is binary (#2031 force + non-text).
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src.bin");
+    let dst = dir.path().join("dst.bin");
+    let bytes = b"bin\x00src";
+    fs::write(&src, bytes).unwrap();
+    fs::write(&dst, b"old\x00dst").unwrap();
+    let r = file_rename(&src, &dst, true, ApplyMode::Apply, None)
+        .expect("force binary rename over existing");
+    assert!(r.applied);
+    assert!(!src.exists());
+    assert_eq!(fs::read(&dst).unwrap(), bytes);
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn file_create_guard_rejected_is_guard_rejected() {
     let dir = TempDir::new().unwrap();
     let outside = dir.path().parent().unwrap().join(format!(
