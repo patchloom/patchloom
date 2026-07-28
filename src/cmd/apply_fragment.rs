@@ -108,7 +108,7 @@ pub fn run(args: ApplyFragmentArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
         unique,
     };
 
-    run_write_op(
+    match run_write_op(
         op,
         global,
         |phase, diff, backup| ApplyFragmentOutput {
@@ -122,7 +122,19 @@ pub fn run(args: ApplyFragmentArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
         },
         "fragment apply would change files",
         "applied fragment",
-    )
+    ) {
+        Ok(code) => Ok(code),
+        Err(e) => {
+            // Engine hard-fails no-match / unique multi-match as typed errors
+            // (require_change + unique on desugar). Map to agent exit codes.
+            if let Some((kind, code)) = crate::exit::classify_typed_error(&e) {
+                let msg = e.to_string();
+                global.emit_error_json_kind(Some(kind), &msg)?;
+                return Ok(code);
+            }
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -240,5 +252,76 @@ mod tests {
             body.starts_with("return 1;"),
             "expected replace to return 1; got {body:?}"
         );
+    }
+
+    #[test]
+    fn apply_fragment_before_anchor() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(&path, "fn foo() {\n  a();\n}\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("  pre();\n".into()),
+                stdin: false,
+                instruction: None,
+                after: None,
+                before: Some("  a();".into()),
+                old: None,
+                allow_non_unique: false,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("  pre();\n  a();"), "{body}");
+    }
+
+    #[test]
+    fn apply_fragment_anchor_miss_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(&path, "only\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("x".into()),
+                stdin: false,
+                instruction: None,
+                after: Some("missing_anchor".into()),
+                before: None,
+                old: None,
+                allow_non_unique: false,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn apply_fragment_unique_multi_match_ambiguous() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(&path, "dup\ndup\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("x".into()),
+                stdin: false,
+                instruction: None,
+                after: Some("dup".into()),
+                before: None,
+                old: None,
+                allow_non_unique: false,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::AMBIGUOUS);
     }
 }
