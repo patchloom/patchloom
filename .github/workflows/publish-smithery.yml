@@ -73,8 +73,18 @@ jobs:
       - name: Install pack tools
         run: |
           set -euo pipefail
-          # Pin mcpb for reproducible packs (Scorecard / supply-chain hygiene).
-          npm install -g @anthropic-ai/mcpb@2.1.2
+          # Pin mcpb by version + SHA-256 of the registry tarball (Scorecard
+          # Pinned-Dependencies npmCommand / code-scanning alert #49). Avoid
+          # bare `npm install -g @scope/pkg@ver` which Scorecard does not treat
+          # as hash-pinned even with a fixed version.
+          MCPB_VERSION="2.1.2"
+          MCPB_TARBALL="mcpb-${MCPB_VERSION}.tgz"
+          MCPB_URL="https://registry.npmjs.org/@anthropic-ai/mcpb/-/${MCPB_TARBALL}"
+          # sha256 of the published tgz (npm view dist.tarball + shasum -a 256).
+          MCPB_SHA256="81174993380eb930bcacecc890b1acfdb06cf336366e445404aea36467417cc1"
+          curl -fsSL -o "/tmp/${MCPB_TARBALL}" "${MCPB_URL}"
+          echo "${MCPB_SHA256}  /tmp/${MCPB_TARBALL}" | sha256sum -c -
+          npm install -g "/tmp/${MCPB_TARBALL}"
           mcpb --version
 
       - name: Pack MCPB
