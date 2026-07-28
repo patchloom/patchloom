@@ -296,7 +296,22 @@ Engine staging is always `tx::engine::stage(WriteRequest)` (`Operations` or `Pre
 
 6. If the command scans multiple files, use `crate::par_process_files()` for adaptive parallelism instead of a sequential loop. The closure must be `Fn + Sync` (no mutable captures). Write-back stays serial.
 
-7. Add tests that cover success, failure, and edge-case exit codes.
+7. **Multi-surface test matrix (unit alone is not enough for agent paths):**
+   Agents call plan/`tx`, MCP, and the real binary more often than in-process `run()`.
+   In the same PR (or an immediate follow-up, not "later"):
+
+   | Surface | What to lock | Where |
+   |---------|--------------|--------|
+   | Unit / lib CLI | Happy path, invalid_input, exit 2/3/5 | `src/cmd/<name>.rs` or `src/ops/` |
+   | Plan / `tx` | JSON plan op apply + at least one fail-closed | `tests/integration/tx_tests.rs` |
+   | MCP | Tool round-trip (and fail-closed if custom) | `tests/integration/mcp_tool_tests.rs` |
+   | Binary | `Command::cargo_bin("patchloom")` subprocess | `tests/integration/*_tests.rs` |
+
+   Skip only surfaces that do not exist (read-only CLI with no plan op; no MCP tool).
+   Batch line ops are optional when freeform multi-line payloads do not fit the
+   line format; document `tx`/MCP as the agent path instead.
+   Learned #2018/#2026 (`apply-fragment`): unit coverage shipped; agents still
+   hit untested plan/MCP/binary until the matrix landed.
 
 8. Update ancillary files that integration tests auto-verify:
    - `tests/agent/drivers/base.py`: add the command name to `_PATCHLOOM_SUBCOMMANDS`.
@@ -352,7 +367,9 @@ McpToolMeta {
 The tool description is built by `schema::mcp_tool_description(op_name, extra)`. The input schema is auto-derived via `operation_variant_schema()`. The handler is `handle_simple_op()`.
 
 3. **Update** `mcp_lists_expected_tools` total count and `surface` tests if totals change.
-4. **Add integration tests** under `#[cfg(feature = "mcp")]` as needed.
+4. **Add multi-surface tests** (MCP round-trip is required; also plan/`tx` and
+   cargo-bin when the op is also a CLI/plan surface). See **Multi-surface test
+   matrix** under "Adding a new command". Do not stop at registry listing unit tests.
 5. **Update** agent-rules / `docs/getting-started/mcp-setup.md` tool tables.
 6. Run `make sync-patchloom-md && make update-readme && make check`.
 
