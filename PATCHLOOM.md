@@ -20,14 +20,15 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 | Markdown section/bullet/table | `md *` | whole-file rewrite |
 | Identifier rename in code | `ast rename` / `ast_rename_project` | fuzzy replace for symbols |
 | Find code by AST shape (pattern DSL) | ast-grep (or `ast search`) | blind text grep only |
-| Freeform code body change (known span or symbol) | `replace` exact/`ast replace` | whole-file rewrite |
-| Place new lines next to known text | `replace` + `--insert-after` / `--insert-before` | inventing full-file rewrite |
-| Lazy Morph-style markers only (`// ... existing code ...`, no anchors) | **not supported** | Morph merge APIs; use matchable `old`, AST target, or insert anchors (#2018) |
+| Freeform code body change (known span or symbol) | `replace` exact/`ast replace` / `apply-fragment --old` | whole-file rewrite |
+| Place new lines next to known text | `replace` + `--insert-after` / `--insert-before` or `apply-fragment --after/--before` | inventing full-file rewrite |
+| Morph-style snippet with markers **and** known anchor | `apply-fragment` / plan `apply.fragment` / MCP `apply_fragment` (markers stripped) | Morph cloud merge |
+| Lazy Morph-style markers only (`// ... existing code ...`, **no** anchors) | **not supported** | Morph merge APIs; supply after/before/old (#2018) |
 | Prose/typo in non-code text | `replace` (fuzzy last resort) | AST |
 | Multi-file atomic apply | `tx` / `batch` / `execute_plan` | sequential shell |
 | Host agent policy (Rust) | `ReplaceOptions::for_agent` + peels + `fuzzy_span_suspicious` | soft defaults |
 
-**Morph Fast Apply jobs:** prefer Patchloom for exact/`doc`/`md`/`ast`/`batch`/`undo` offline. There is no Morph-style model merge of incomplete snippets. Migration matrix: docs/plans/morph-gap-matrix.md.
+**Morph Fast Apply jobs:** prefer Patchloom offline for exact/`doc`/`md`/`ast`/`batch`/`undo`. For Morph-class snippets, use `apply-fragment` with a **required** after/before/old anchor (lazy markers stripped; no model merge). Migration matrix: docs/plans/morph-gap-matrix.md (#2018).
 
 **Context budget:** prefer `read` with a line range, `search --count` / `--files-with-matches`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` for large result streams. Binary sole paths peel `error_kind: binary`.
 
@@ -480,6 +481,7 @@ dependencies[name=react].version # predicate filter
 ## Operations (from schema registry)
 
 - `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails). When exact old is absent, fuzzy refuses by default even above min_fuzzy_score; set allow_absent_old for deliberate approximate recovery (#1758). Prefer ast.rename for identifiers.
+- `apply.fragment`: Constrained freeform fragment apply (#2018). Strips Morph-style // ... existing code ... marker lines from fragment, then inserts or replaces at a required unique anchor (exactly one of after, before, old). Fail-closed: no anchor-less Morph model merge. Prefer for lazy-snippet agent output when anchors are known; use replace/ast for precise edits.
 - `file.append`: Append content to an existing file.
 - `file.prepend`: Prepend content to an existing file.
 - `file.create`: Create a new file with specified content.

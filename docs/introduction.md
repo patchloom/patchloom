@@ -28,12 +28,13 @@ replace README.md "1.0.0" "2.0.0"
 EOF
 ```
 
-## 23 commands
+## 24 commands
 
 | Category | Command | Description |
 |----------|---------|-------------|
 | Text | `search` | Literal or regex search across files |
 | | `replace` | Mechanical string replacement with diff preview |
+| | `apply-fragment` | Freeform fragment with required anchors (Morph markers stripped) |
 | | `patch` | Preview or apply unified diffs |
 | Structured | `doc` | Parser-backed JSON, YAML, and TOML operations |
 | | `md` | Markdown section-aware operations |

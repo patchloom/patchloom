@@ -324,7 +324,8 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
         | Operation::FileDelete { path, .. }
         | Operation::Read { path, .. }
         | Operation::Search { path, .. }
-        | Operation::MdLintAgents { path, .. } => vec![path.clone()],
+        | Operation::MdLintAgents { path, .. }
+        | Operation::ApplyFragment { path, .. } => vec![path.clone()],
         #[cfg(feature = "ast")]
         Operation::AstRename { path, .. }
         | Operation::AstReplace { path, .. }

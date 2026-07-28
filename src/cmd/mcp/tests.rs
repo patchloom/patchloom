@@ -142,6 +142,7 @@ mod basic {
             "replace_text",
             "batch_replace",
             "md_move_section",
+            "apply_fragment",
         ] {
             let desc = descriptions.get(tool).copied().unwrap_or("");
             assert!(

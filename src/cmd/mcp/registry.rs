@@ -324,6 +324,22 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },
+    McpToolMeta {
+        tool_name: "apply_fragment",
+        op_name: "apply.fragment",
+        extra: Some(
+            "Morph-class freeform fragment with required placement (exactly one of after/before/old). Lazy // ... existing code ... lines are stripped; no model merge without anchors (#2018). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ContentSize("fragment"),
+            FieldValidation::ParamSize("after"),
+            FieldValidation::ParamSize("before"),
+            FieldValidation::ParamSize("old"),
+            FieldValidation::ParamSize("instruction"),
+        ],
+    },
 ];
 
 /// Inject a `strict` boolean property (default true) into a JSON Schema object.

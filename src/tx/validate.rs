@@ -35,6 +35,24 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
             }
             .into()
         }),
+        Operation::ApplyFragment {
+            fragment,
+            instruction,
+            after,
+            before,
+            old,
+            unique,
+            ..
+        } => crate::ops::apply_fragment::build_apply_fragment_spec(
+            fragment,
+            instruction.as_deref(),
+            after.as_deref(),
+            before.as_deref(),
+            old.as_deref(),
+            *unique,
+        )
+        .map(|_| ())
+        .map_err(Into::into),
         // Exhaustive match ensures the compiler flags new variants that may
         // need validation constraints.
         Operation::DocSet { .. }

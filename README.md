@@ -377,6 +377,7 @@ Replace fail-closed / shell-token options: CLI `replace --require-change` and `-
 |---|---|
 | `search` | Fast literal or regex search across text files (supports --glob/--exclude/--ignore-file for layered custom ignore files, --max-results, -C context, etc.) |
 | `replace` | Mechanical string replacement across text files with diff preview |
+| `apply-fragment` | Freeform fragment with required anchors (Morph markers stripped; no model merge) |
 | `append` | Append content to an existing file |
 | `prepend` | Prepend content to an existing file |
 | `create` | Create a new file with content |
@@ -495,7 +496,7 @@ flowchart LR
 
 ## Status
 
-3900+ tests across 23 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+3900+ tests across 24 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 | Component | Status |
 |---|---|
