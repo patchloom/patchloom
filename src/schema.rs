@@ -201,6 +201,21 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
         ],
     },
     OpMeta {
+        name: "apply.fragment",
+        description: "Constrained freeform fragment apply (#2018). Strips Morph-style // ... existing code ... marker lines from fragment, then inserts or replaces at a required unique anchor (exactly one of after, before, old). Fail-closed: no anchor-less Morph model merge. Prefer for lazy-snippet agent output when anchors are known; use replace/ast for precise edits.",
+        tier: Tier::Weak,
+        examples: &[
+            (
+                "Insert cleaned fragment after an anchor (Morph markers stripped)",
+                r###"{"op":"apply.fragment","path":"src/lib.rs","after":"fn foo() {","fragment":"// ... existing code ...\n    bar();\n// ... existing code ...\n"}"###,
+            ),
+            (
+                "Replace a unique span with freeform new text",
+                r###"{"op":"apply.fragment","path":"src/lib.rs","old":"return 0;","fragment":"return 1;"}"###,
+            ),
+        ],
+    },
+    OpMeta {
         name: "file.append",
         description: "Append content to an existing file.",
         tier: Tier::Weak,

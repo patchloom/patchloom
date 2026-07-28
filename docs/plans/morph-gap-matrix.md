@@ -8,12 +8,12 @@
 
 | Result | Count | Meaning |
 |--------|------:|---------|
-| **PASS** | 11 | Patchloom already handles this Morph job |
+| **PASS** | 13 | Patchloom already handles this Morph job (including constrained `apply-fragment`) |
 | **PARTIAL** | 2 | Works with flags/host policy; not Morph-default UX |
-| **GAP** | 2 | Real product gap if you want Morph users to never need Morph |
+| **GAP** | 0 | Anchor-less Morph model merge remains a non-goal |
 | **N/A** | 2 | Morph product metrics (tok/s, network API); not our target |
 
-**Bottom line:** Most Morph reliability jobs (small edit, large file with a matchable span, multi-file, preview, undo, configs, peels) are already covered. Morph still wins on **lazy snippet UX** (no exact `old`) and **semantic freeform placement**. Do not train an apply model; close gaps with AST/multi-hunk routing and optional constrained anchor apply (see open issues).
+**Bottom line:** Most Morph reliability jobs are covered. M9/M16 are **PASS** when anchors are known via `apply-fragment` / `apply.fragment` (#2018). Anchor-less Morph model merge remains a non-goal.
 
 ## Sources (Morph side)
 
@@ -39,14 +39,14 @@ Legend: **PASS** / **PARTIAL** / **GAP** / **N/A**. Verified 2026-07-27 unless n
 | M6 | Config/YAML without breaking comments | `doc set` | **PASS** | Comment `# keep me` preserved; port updated |
 | M7 | Markdown section without full rewrite | `md replace-section` (and siblings) | **PASS** | Commands section replaced; Other kept |
 | M8 | Preview before write | Default dry-run (no `--apply`) | **PASS** | Exit **2**, file unchanged |
-| M9 | Lazy snippet merge (`// ... existing code ...`, no exact `old`) | None first-class | **GAP** | Expected: no Morph-style apply model. Host must supply matchable `old`, AST symbol, or insert anchors |
+| M9 | Lazy snippet merge (`// ... existing code ...`) with placement | `apply-fragment` / plan `apply.fragment` / MCP `apply_fragment` | **PASS** | Markers stripped; **requires** after/before/old. Anchor-less remains non-goal (#2018) |
 | M10 | Place new code after a known anchor | `replace ANCHOR --insert-after TEXT` (or `--insert-before`) | **PASS** | Insert after `a();` PASS |
 | M11 | Scattered multi-hunk different sites | Sequential `replace`, `batch` same file, or library `apply_content_edits*` | **PASS** | Batch two different olds same file PASS. Not one Morph lazy multi-hunk blob |
 | M12 | Identifier rename across file | `ast rename` | **PASS** | `compute` to `calculate` including call site |
 | M13 | Revert / trust after apply | `undo --list` / `undo --apply` (+ library backup APIs) | **PASS** | Restore most recent session restored content |
 | M14 | Offline / no API key | Local binary + crate | **PASS** | No network required for apply path |
 | M15 | Clear failure kinds for hosts | `--json` `error_kind` (e.g. `binary`) | **PASS** | Sole binary target returns `error_kind: binary` |
-| M16 | Semantic freeform "put this method in the right place" with no anchors | Morph model only | **GAP** | Closest: `ast` list/read + insert/replace with user-chosen symbol/anchor. No structure-aware freeform merge |
+| M16 | Freeform placement with **known** anchor (not free guess) | `apply-fragment --after/--before` or `ast` + insert | **PASS** | With anchors: constrained apply. Without anchors: still non-goal (no Morph guess) |
 | M17 | 10k+ tok/s cloud apply latency brand | N/A | **N/A** | Local apply is a different success metric (correctness + peels, not model tok/s) |
 | M18 | Host prompt: prefer specialized edit tool over str_replace/full write | `agent-rules` + comparisons + MCP descriptions | **PARTIAL** | Decision tree and Morph section exist; this matrix is the migration checklist. Keep routing sharp in agent-rules |
 
@@ -57,7 +57,7 @@ From [opencode-morph-fast-apply](https://github.com/JRedeker/opencode-morph-fast
 | Situation | Their tool | Patchloom equivalent | Result |
 |-----------|------------|----------------------|--------|
 | Small, exact replacement | native `edit` | `replace` exact | **PASS** (prefer us) |
-| Large file (500+ lines) | `morph_edit` | Exact/`ast replace` if span or symbol known | **PASS** if agent names span/symbol; **GAP** if only lazy snippet |
+| Large file (500+ lines) | `morph_edit` | Exact/`ast replace`/`apply-fragment` if span/anchor known | **PASS** if agent names span/anchor; non-goal if only lazy snippet with no anchor |
 | Multiple scattered changes | `morph_edit` | `batch` / `apply_content_edits` / multi `replace` | **PASS** |
 | Whitespace-sensitive | `morph_edit` | `--fuzzy` + span policy | **PARTIAL** (fail-closed default) |
 
@@ -79,10 +79,10 @@ From [opencode-morph-fast-apply](https://github.com/JRedeker/opencode-morph-fast
 
 ## Follow-up issues
 
-| Issue | Topic |
-|-------|--------|
-| [#2018](https://github.com/patchloom/patchloom/issues/2018) | Constrained freeform code apply (M9/M16); no Morph clone |
-| [#2019](https://github.com/patchloom/patchloom/issues/2019) | Keep matrix / comparisons / agent-rules Morph routing in sync |
+| Issue | Topic | Status |
+|-------|--------|--------|
+| [#2018](https://github.com/patchloom/patchloom/issues/2018) | Constrained freeform code apply (M9/M16); no Morph clone | Shipped: `apply-fragment` / `apply.fragment` / MCP `apply_fragment` |
+| [#2019](https://github.com/patchloom/patchloom/issues/2019) | Keep matrix / comparisons / agent-rules Morph routing in sync | Closed with matrix landing |
 
 ## How to re-run smoke scenarios
 

@@ -27,6 +27,38 @@ pub(super) fn describe_operation(op: &Operation) -> String {
     // Rich field-level text; catalog blurb is on JSON via build_json_summary (`catalog`).
     let _ = schema::operation_description(&operation_op_name(op));
     match op {
+        Operation::ApplyFragment {
+            path,
+            fragment,
+            instruction,
+            after,
+            before,
+            old,
+            unique,
+        } => {
+            let cleaned = crate::ops::apply_fragment::strip_lazy_markers(fragment);
+            let preview: String = cleaned.chars().take(40).collect();
+            let dots = if cleaned.chars().count() > 40 {
+                "…"
+            } else {
+                ""
+            };
+            let place = if let Some(a) = after {
+                format!("after \"{a}\"")
+            } else if let Some(b) = before {
+                format!("before \"{b}\"")
+            } else if let Some(o) = old {
+                format!("replacing \"{o}\"")
+            } else {
+                "with missing placement (invalid)".into()
+            };
+            let uniq = if *unique { ", unique anchor" } else { "" };
+            let note = instruction
+                .as_deref()
+                .map(|i| format!(" (note: {i})"))
+                .unwrap_or_default();
+            format!("Apply fragment \"{preview}{dots}\" {place} in {path}{uniq}{note}")
+        }
         Operation::Replace {
             path,
             glob,

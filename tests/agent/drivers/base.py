@@ -91,7 +91,7 @@ def create_driver(agent_name: str, model: str) -> AgentDriver:
 
 
 _PATCHLOOM_SUBCOMMANDS = {
-    "search", "replace", "patch", "md", "doc", "tidy",
+    "search", "replace", "apply-fragment", "patch", "md", "doc", "tidy",
     "append", "prepend", "create", "delete", "rename", "read", "status", "tx",
     "batch", "explain", "undo", "init", "completions",
     "agent-rules", "mcp-server", "schema", "ast",

@@ -507,6 +507,28 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         Operation::Replace { .. } => {
             return execute_replace_op(op, tx);
         }
+        Operation::ApplyFragment {
+            path,
+            fragment,
+            instruction,
+            after,
+            before,
+            old,
+            unique,
+        } => {
+            // Desugar to Replace: Morph marker strip + required anchor (#2018).
+            let replace_op = crate::ops::apply_fragment::plan_apply_fragment_to_replace(
+                path,
+                fragment,
+                instruction.as_deref(),
+                after.as_deref(),
+                before.as_deref(),
+                old.as_deref(),
+                *unique,
+            )
+            .map_err(anyhow::Error::new)?;
+            return execute_replace_op(&replace_op, tx);
+        }
 
         Operation::DocSet { .. }
         | Operation::DocDelete { .. }

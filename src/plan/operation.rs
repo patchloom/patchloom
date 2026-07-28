@@ -76,6 +76,32 @@ pub enum Operation {
         #[serde(default)]
         allow_absent_old: bool,
     },
+    /// Constrained freeform fragment apply (#2018): Morph-style marker strip + required anchor.
+    ///
+    /// Exactly one of `after`, `before`, or `old` must be set. Fragment may include
+    /// `// ... existing code ...` lines (stripped). No model merge / no anchor-less guess.
+    #[serde(rename = "apply.fragment")]
+    ApplyFragment {
+        /// File to edit.
+        path: String,
+        /// New text or Morph-style snippet (lazy marker lines stripped).
+        fragment: String,
+        /// Optional human instruction (explain only; not used for merge).
+        #[serde(default)]
+        instruction: Option<String>,
+        /// Insert cleaned fragment after this unique anchor.
+        #[serde(default)]
+        after: Option<String>,
+        /// Insert cleaned fragment before this unique anchor.
+        #[serde(default)]
+        before: Option<String>,
+        /// Replace this unique span with the cleaned fragment.
+        #[serde(default)]
+        old: Option<String>,
+        /// Fail if the anchor matches more than once (default true).
+        #[serde(default = "default_true_unique")]
+        unique: bool,
+    },
     #[serde(rename = "doc.set")]
     DocSet {
         /// Path to the JSON, YAML, or TOML file.
@@ -535,6 +561,7 @@ impl Operation {
     pub fn label(&self) -> &'static str {
         match self {
             Operation::Replace { .. } => "replace",
+            Operation::ApplyFragment { .. } => "apply.fragment",
             Operation::DocSet { .. } => "doc.set",
             Operation::DocDelete { .. } => "doc.delete",
             Operation::DocMerge { .. } => "doc.merge",
@@ -596,6 +623,7 @@ impl Operation {
         matches!(
             self,
             Operation::Replace { .. }
+                | Operation::ApplyFragment { .. }
                 | Operation::MdReplaceSection { .. }
                 | Operation::MdInsertAfterHeading { .. }
                 | Operation::MdInsertAfterSection { .. }
@@ -643,4 +671,9 @@ impl Operation {
     pub fn declared_paths(&self) -> Vec<String> {
         crate::plan::declared_paths(self)
     }
+}
+
+/// Serde default for [`Operation::ApplyFragment::unique`] (agents need fail-closed uniqueness).
+fn default_true_unique() -> bool {
+    true
 }

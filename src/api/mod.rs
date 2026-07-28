@@ -240,6 +240,13 @@ mod content_edits;
 mod fuzzy_span;
 pub use self::content_edits::*;
 
+// Constrained freeform fragment helpers (#2018); pure + plan desugar.
+pub use crate::ops::apply_fragment::{
+    ApplyFragmentSpec, DesugaredReplace, FragmentPlacement, build_apply_fragment_spec,
+    desugar_to_replace_fields, desugar_to_replace_operation, is_lazy_marker_line,
+    plan_apply_fragment_to_replace, strip_lazy_markers,
+};
+
 mod post_write;
 pub use self::post_write::*;
 

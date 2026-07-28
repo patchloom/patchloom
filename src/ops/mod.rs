@@ -1,3 +1,4 @@
+pub mod apply_fragment;
 pub mod doc;
 pub mod file;
 pub mod md;

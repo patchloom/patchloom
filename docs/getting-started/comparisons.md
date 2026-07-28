@@ -75,8 +75,9 @@ Use this table when someone asks "can patchloom replace Morph for X?" Full PASS/
 | Config / comments | `doc set` | Not text replace |
 | Markdown section | `md replace-section` (etc.) | Not whole-file rewrite |
 | Preview / revert | default dry-run (exit 2); `undo --apply` | Backup session on apply |
-| Lazy `// ... existing code ...` with **no** anchors | Not first-class | **Gap** ([#2018](https://github.com/patchloom/patchloom/issues/2018)): supply matchable `old`, AST target, or `--insert-after` anchor. No Morph-style model merge |
-| Freeform "put method in the right place" with no anchors | Not first-class | **Gap** ([#2018](https://github.com/patchloom/patchloom/issues/2018)): use `ast list`/`read` then insert/replace with a chosen anchor |
+| Lazy `// ... existing code ...` **with** known anchor | `apply-fragment --after/--before/--old` (markers stripped) | **PASS** (#2018). No Morph-style model merge |
+| Lazy markers with **no** anchors | Not supported | Non-goal: supply after/before/old or use Morph |
+| Freeform "put method in the right place" with known anchor | `apply-fragment` or `ast` + insert | **PASS** with anchors; no free placement guess |
 
 **Host routing (Morph MCP says "prefer edit_file"):** prefer `doc` / `md` / `ast` / `batch` when structure is known; use `replace` (+ fuzzy only when needed); never whole-file rewrite for a one-line change.
 

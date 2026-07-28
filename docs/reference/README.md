@@ -222,7 +222,16 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `doc` for structured data, `md` for heading aware markdown, or `patch` when you already have a unified diff.
 - **Failure behavior:** Soft pattern miss exits `3` with `error_kind: "no_matches"`; `--unique` multi-match exits `5` with `ambiguous`. All-explicit-path-missing (or all-missing `--files-from` list) exits `1` with `not_found`. Empty `--files-from` (empty list file or empty stdin) exits `1` with `invalid_input` (not pattern miss; #1796). Validation failures and invalid regex patterns use `invalid_input`.
 - **Multi-path honesty:** Explicit multi-file lists report zero-match paths under `refused[]` with `reason: no_matches` while applying matches on other paths (#1792). Missing explicit paths soft-skip under `skipped[]` on CLI (partial apply); MCP `batch_replace` hard-fails missing paths and rolls back (#1793). Under `--json`/`--jsonl`, missing-path stderr lines are suppressed when paths are already in `skipped[]` (#1797).
-- **Related:** `search`, `tx`
+- **Related:** `search`, `tx`, `apply-fragment`
+
+<!-- ref:command:apply-fragment -->
+## `apply-fragment`
+
+- **What it does:** Applies a freeform text fragment with a **required** placement anchor. Strips Morph-style lazy marker lines such as `// ... existing code ...` from `--fragment`, then inserts after/before an anchor or replaces a unique `old` span. Dry-run by default.
+- **Use when:** An agent emitted a Morph-class lazy snippet but you know a unique placement (after/before/old). Prefer this over guessing without anchors.
+- **Prefer instead:** `replace` for exact known spans; `ast replace` / `ast rename` for code structure; never a cloud Morph merge for offline deterministic hosts.
+- **Failure behavior:** Missing placement or empty fragment after strip → `invalid_input` (exit 1). Anchor miss → `no_matches` (exit 3). Multi-match with default unique → `ambiguous` (exit 5). Preview without `--apply` → exit 2 when changes would apply.
+- **Related:** `replace`, `tx` plan op `apply.fragment`, MCP `apply_fragment`, `docs/plans/morph-gap-matrix.md`
 
 <!-- ref:command:patch -->
 ## `patch`
@@ -1049,6 +1058,14 @@ The operations below are the building blocks inside `operations`.
 - **Regex insert semantics:** In regex mode, `insert_before` and `insert_after` preserve the matched text, they do not insert the raw pattern string.
 - **Optional fields:** `case_insensitive` (bool, default false), `multiline` (bool, default false), and `if_exists` (bool, default false) match the top level `replace --case-insensitive`, `--multiline`, and `--if-exists` flags. Library-aligned plan fields: `require_change` (bool, default false; hard-fails the op on zero matches when `if_exists` is false) and `command_position` (bool, default false; shell invocable rewrite).
 - **Related:** top level `replace`
+
+<!-- ref:tx-op:apply.fragment -->
+### `apply.fragment`
+
+- **What it does:** Applies a freeform fragment with a required placement anchor inside a transaction (Morph-style `// ... existing code ...` lines stripped).
+- **Use when:** Batching Morph-class freeform snippets with known after/before/old anchors.
+- **Requires:** Exactly one of `after`, `before`, or `old`. Non-empty `fragment` after marker strip. `unique` defaults true.
+- **Related:** CLI `apply-fragment`, MCP `apply_fragment`, top level `replace`
 
 <!-- ref:tx-op:doc.set -->
 ### `doc.set`

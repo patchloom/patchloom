@@ -1,5 +1,6 @@
 pub mod agent_rules;
 pub mod append;
+pub mod apply_fragment;
 #[cfg(feature = "ast")]
 pub mod ast;
 pub mod batch;
@@ -58,8 +59,11 @@ pub enum Command {
     /// Mechanical string replacement across text files with diff preview.
     #[command(display_order = 21)]
     Replace(replace::ReplaceArgs),
+    /// Constrained freeform fragment apply (Morph-style markers; anchors required).
+    #[command(display_order = 22, name = "apply-fragment")]
+    ApplyFragment(apply_fragment::ApplyFragmentArgs),
     /// Preview or apply unified diffs safely.
-    #[command(display_order = 22)]
+    #[command(display_order = 23)]
     Patch(patch::PatchArgs),
     /// Text-file newline, line ending, and whitespace normalization.
     #[command(display_order = 23)]
@@ -248,6 +252,11 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             global.merge_write(&args.write);
             load_project_config(&mut global);
             replace::run(args, &global)
+        }
+        Command::ApplyFragment(args) => {
+            global.merge_write(&args.write);
+            load_project_config(&mut global);
+            apply_fragment::run(args, &global)
         }
         Command::Patch(args) => {
             global.merge_write(&args.write);

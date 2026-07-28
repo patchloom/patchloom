@@ -111,14 +111,16 @@ DSL; use Patchloom for host-safe apply, configs, markdown, batch/tx/undo, and pe
          | Markdown section/bullet/table | `md *` | whole-file rewrite |\n\
          | Identifier rename in code | `ast rename` / `ast_rename_project` | fuzzy replace for symbols |\n\
          | Find code by AST shape (pattern DSL) | ast-grep (or `ast search`) | blind text grep only |\n\
-         | Freeform code body change (known span or symbol) | `replace` exact/`ast replace` | whole-file rewrite |\n\
-         | Place new lines next to known text | `replace` + `--insert-after` / `--insert-before` | inventing full-file rewrite |\n\
-         | Lazy Morph-style markers only (`// ... existing code ...`, no anchors) | **not supported** | Morph merge APIs; use matchable `old`, AST target, or insert anchors (#2018) |\n\
+         | Freeform code body change (known span or symbol) | `replace` exact/`ast replace` / `apply-fragment --old` | whole-file rewrite |\n\
+         | Place new lines next to known text | `replace` + `--insert-after` / `--insert-before` or `apply-fragment --after/--before` | inventing full-file rewrite |\n\
+         | Morph-style snippet with markers **and** known anchor | `apply-fragment` / plan `apply.fragment` / MCP `apply_fragment` (markers stripped) | Morph cloud merge |\n\
+         | Lazy Morph-style markers only (`// ... existing code ...`, **no** anchors) | **not supported** | Morph merge APIs; supply after/before/old (#2018) |\n\
          | Prose/typo in non-code text | `replace` (fuzzy last resort) | AST |\n\
          | Multi-file atomic apply | `tx` / `batch` / `execute_plan` | sequential shell |\n\
          | Host agent policy (Rust) | `ReplaceOptions::for_agent` + peels + `fuzzy_span_suspicious` | soft defaults |\n\n\
-         **Morph Fast Apply jobs:** prefer Patchloom for exact/`doc`/`md`/`ast`/`batch`/`undo` offline. \
-There is no Morph-style model merge of incomplete snippets. Migration matrix: docs/plans/morph-gap-matrix.md.\n\n\
+         **Morph Fast Apply jobs:** prefer Patchloom offline for exact/`doc`/`md`/`ast`/`batch`/`undo`. \
+For Morph-class snippets, use `apply-fragment` with a **required** after/before/old anchor \
+(lazy markers stripped; no model merge). Migration matrix: docs/plans/morph-gap-matrix.md (#2018).\n\n\
          **Context budget:** prefer `read` with a line range, `search --count` / \
 `--files-with-matches`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` \
 for large result streams. Binary sole paths peel `error_kind: binary`.\n\n\
@@ -1305,8 +1307,9 @@ mod tests {
             out.contains("Morph Fast Apply")
                 && out.contains("morph-gap-matrix")
                 && out.contains("not supported")
-                && out.contains("insert-after"),
-            "agent-rules need Morph freeform routing (no lazy marker merge; #2019)"
+                && out.contains("apply-fragment")
+                && out.contains("apply.fragment"),
+            "agent-rules need Morph freeform routing + apply-fragment (#2018/#2019)"
         );
         assert!(
             out.contains("PATCHLOOM_MCP_SURFACE")
