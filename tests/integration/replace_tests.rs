@@ -2444,6 +2444,40 @@ fn test_replace_fuzzy_identifier_typo_json_match_mode() {
     assert_eq!(on_disk, "fn handle_request(x: i32) {}\n");
 }
 
+/// Fuzzy/context engine path must sum per-file match_count (not file count).
+#[test]
+fn test_replace_fuzzy_path_match_count_sums_multi_match() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "foo\nfoo\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "replace", "foo", "--new", "bar", "--fuzzy", "f.txt", "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        v["match_count"], 2,
+        "top-level match_count must sum edits, not files: {v}"
+    );
+    assert_eq!(v["files"][0]["match_count"], 2, "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("f.txt")).unwrap(),
+        "bar\nbar\n"
+    );
+}
+
 /// #1736: CLI fuzzy JSON must report matched_text for agent verification.
 #[test]
 fn test_replace_fuzzy_json_reports_matched_text() {

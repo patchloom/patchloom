@@ -4297,6 +4297,59 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }
 
+/// Soft-empty binary path ops must not be wiped to 0 bytes on strict format
+/// rollback: restore from backup session, not string pending originals.
+#[test]
+fn test_tx_strict_format_fail_restores_binary_delete() {
+    let dir = TempDir::new().unwrap();
+    let bin = dir.path().join("b.bin");
+    let bytes = b"x\0y\xffbinary";
+    fs::write(&bin, bytes).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "strict": true,
+        "operations": [{
+            "op": "file.delete",
+            "path": "b.bin"
+        }],
+        "format": [{
+            "cmd": shell_exit_1()
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(7),
+        "strict format fail should exit ROLLBACK: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let restored = fs::read(&bin).expect("binary must exist after strict rollback");
+    assert_eq!(
+        restored, bytes,
+        "binary bytes must be restored from backup, not wiped empty"
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        json.get("backup_session")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "strict lifecycle rollback JSON should include backup_session: {json}"
+    );
+}
+
 #[test]
 fn test_tx_strict_mode_reverts_on_validate_failure() {
     let dir = TempDir::new().unwrap();

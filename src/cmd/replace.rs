@@ -1420,8 +1420,10 @@ fn run_context_replace(
             }
         })
         .collect();
-    let total_matches = files.len();
-    let file_count = total_matches;
+    // Sum per-file match counts (not file count). Fuzzy/context can replace
+    // multiple matches in one file; agents branch on match_count honesty.
+    let total_matches: usize = files.iter().map(|f| f.match_count).sum();
+    let file_count = files.len();
     // Same mode/exit owner as default replace path (no hand-rolled matrix).
     replace_output(
         global,
