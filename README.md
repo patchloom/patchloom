@@ -461,12 +461,13 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 | Structural code pattern search | [ast-grep](https://github.com/ast-grep/ast-grep) | Text-only grep for shapes |
 | Identifier rename in code | Patchloom `ast rename` | Fuzzy text replace for symbols |
 | Multi-file atomic apply + undo | Patchloom `batch` / `tx` | N sequential shell edits |
-| Cloud merge of LLM snippets | Morph Fast Apply (etc.) | Patchloom for local deterministic configs |
+| Freeform snippet **with** known anchor (after/before/old) | Patchloom `apply-fragment` (strips Morph-style `// ... existing code ...` markers) | Whole-file rewrite or guessing placement |
+| Freeform snippet **without** anchors (cloud model merge) | [Morph](https://www.morphllm.com/) Fast Apply or similar | Patchloom (anchor-less Morph merge is a non-goal) |
 | Full agent product | Claude Code / Codex / Cursor | Patchloom alone |
 
 Longer write-ups: [Comparisons](docs/getting-started/comparisons.md) · [Embedder host checklist](docs/getting-started/embedder-host.md) · [MCP setup](docs/getting-started/mcp-setup.md)
 
-**Library hosts:** [Embedder host checklist](docs/getting-started/embedder-host.md) — dual-path `ReplaceOptions::for_agent()` (primary + fallback, includes `refuse_suspicious_fuzzy`), peels via `edit_error_kind` / `is_*` / `is_fuzzy_span_suspicious` with `#[non_exhaustive]` `_` arm, multi-op `ContentEditsResult.op_honesty`, plan/tx widest `matched_text`, optional `apply_content_edits_to_file_with_span_policy`. Custom options still use `api::fuzzy_span_suspicious` / `FuzzySpanPolicy` after fuzzy Apply.
+**Library hosts:** [Embedder host checklist](docs/getting-started/embedder-host.md): dual-path `ReplaceOptions::for_agent()` (primary + fallback, includes `refuse_suspicious_fuzzy`), peels via `edit_error_kind` / `is_*` / `is_fuzzy_span_suspicious` with `#[non_exhaustive]` `_` arm, multi-op `ContentEditsResult.op_honesty`, plan/tx widest `matched_text`, optional `apply_content_edits_to_file_with_span_policy`. Custom options still use `api::fuzzy_span_suspicious` / `FuzzySpanPolicy` after fuzzy Apply.
 
 **Context budget:** line-range `read`, `search --count` / `--files-with-matches`, one `batch`/`tx`, `--jsonl` for large streams.
 
