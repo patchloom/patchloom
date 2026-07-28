@@ -237,14 +237,20 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // commit's rename_or_copy replaces the dest entry while keeping the
             // source inode (and its hardlink siblings). Skipping the record falls
             // back to create-dest + delete-src and splits hardlinks (#1746).
-            if !case_only {
-                let src_on_disk = src_path.exists() && src_path.is_file();
-                let src_is_rename_dest = tx.renames.iter().any(|(_, to)| to == &src_path);
-                // Non-force with an on-disk dest is rejected earlier. Force may
-                // overwrite; non-force only records when dest is not on disk.
-                if (src_on_disk || src_is_rename_dest) && (*force || !dst_path.exists()) {
+            //
+            // Case-only renames (readme.md → README.md) must also record the
+            // pair. On case-insensitive FS, write-dest + delete-src removes the
+            // only inode. CLI bypasses the engine (#1167); plan/MCP must not.
+            let src_on_disk = src_path.exists() && src_path.is_file();
+            let src_is_rename_dest = tx.renames.iter().any(|(_, to)| to == &src_path);
+            if case_only {
+                if src_on_disk || src_is_rename_dest {
                     tx.renames.push((src_path.clone(), dst_path.clone()));
                 }
+            } else if (src_on_disk || src_is_rename_dest) && (*force || !dst_path.exists()) {
+                // Non-force with an on-disk dest is rejected earlier. Force may
+                // overwrite; non-force only records when dest is not on disk.
+                tx.renames.push((src_path.clone(), dst_path.clone()));
             }
 
             // Write content to destination.

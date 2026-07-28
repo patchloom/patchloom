@@ -774,6 +774,11 @@ fn ast_registry_iter() -> impl Iterator<Item = &'static OpMeta> {
 /// Format: `<OpMeta.description>[ extra][ Example: <first example JSON>]`
 /// MCP-only guidance (concurrency, etc.) belongs in `extra`, not a full
 /// duplicate of the registry prose (#1383).
+///
+/// Plan registry examples include `"op":"doc.set"`. Standalone MCP tools inject
+/// `op` themselves and reject unknown fields, so the example is rewritten
+/// without `op` (agents that copy the plan-shaped example otherwise get
+/// `unknown field(s): op`).
 pub fn mcp_tool_description(op_name: &str, extra: Option<&str>) -> String {
     let base = operation_description(op_name).unwrap_or("Patchloom operation.");
     let mut out = base.to_string();
@@ -786,9 +791,23 @@ pub fn mcp_tool_description(op_name: &str, extra: Option<&str>) -> String {
     }
     if let Some(example) = operation_example_json(op_name) {
         out.push_str(" Example: ");
-        out.push_str(example);
+        out.push_str(&mcp_example_without_op(example));
     }
     out
+}
+
+/// Strip the plan `"op"` discriminator from an example JSON object for MCP
+/// tool descriptions. Plan catalogue examples keep `op`; standalone MCP tools
+/// do not accept it.
+fn mcp_example_without_op(example: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(example) {
+        Ok(serde_json::Value::Object(mut map)) => {
+            map.remove("op");
+            serde_json::to_string(&serde_json::Value::Object(map))
+                .unwrap_or_else(|_| example.to_string())
+        }
+        _ => example.to_string(),
+    }
 }
 
 /// Build a compact agent-facing operations catalogue from the registry.

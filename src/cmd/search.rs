@@ -132,6 +132,15 @@ pub(crate) fn collect_matches(
     args: &SearchArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<SearchResults> {
+    collect_matches_with_list(args, global, None)
+}
+
+/// Like [`collect_matches`], with a pre-read `--files-from` list (stdin once).
+pub(crate) fn collect_matches_with_list(
+    args: &SearchArgs,
+    global: &GlobalFlags,
+    files_from_preload: Option<&[String]>,
+) -> anyhow::Result<SearchResults> {
     crate::verbose!(
         "search: pattern={:?} literal={} paths={:?}",
         args.pattern,
@@ -149,7 +158,13 @@ pub(crate) fn collect_matches(
         args.case_insensitive,
         args.multiline,
     )?;
-    let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+    let file_paths = crate::files::collect_file_paths_opts_with_list(
+        &args.paths,
+        global,
+        false,
+        Some(&cwd),
+        files_from_preload,
+    )?;
     // Empty --files-from is invalid_input, not pattern no_matches (#1796).
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
@@ -187,6 +202,16 @@ pub(crate) fn explicit_binary_refused(
     global: &GlobalFlags,
     cwd: &std::path::Path,
 ) -> Option<Vec<SearchRefused>> {
+    explicit_binary_refused_with_list(args, global, cwd, None)
+}
+
+/// Like [`explicit_binary_refused`], with a pre-read `--files-from` list.
+pub(crate) fn explicit_binary_refused_with_list(
+    args: &SearchArgs,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+    files_from_preload: Option<&[String]>,
+) -> Option<Vec<SearchRefused>> {
     let explicit = if global.files_from.is_some() {
         // Match replace: files-from counts as explicit list.
         true
@@ -199,16 +224,19 @@ pub(crate) fn explicit_binary_refused(
     if !explicit {
         return None;
     }
-    // Prefer caller-resolved files_from when available is not plumbed; re-read
-    // file lists (stdin lists are sole-hard-failed earlier when len == 1).
-    let path_strings: Vec<String> = if global.files_from.is_some() {
-        global.read_files_from().ok().flatten().unwrap_or_default()
+    // Prefer caller-resolved list so `--files-from -` is not re-read (empty).
+    let owned;
+    let path_strings: &[String] = if let Some(pre) = files_from_preload {
+        pre
+    } else if global.files_from.is_some() {
+        owned = global.read_files_from().ok().flatten().unwrap_or_default();
+        &owned
     } else {
-        args.paths.clone()
+        &args.paths
     };
     // Shared helper: binary / invalid_utf8 / unreadable (len < 2 → None;
     // sole is invalid_input via sole_explicit_non_text_for_scan).
-    let shared = crate::ops::file::explicit_multi_path_non_text_refused(&path_strings, cwd)?;
+    let shared = crate::ops::file::explicit_multi_path_non_text_refused(path_strings, cwd)?;
     let mut refused: Vec<SearchRefused> = shared
         .into_iter()
         .map(|r| SearchRefused {
@@ -458,8 +486,9 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     let cwd = global.resolve_cwd()?;
-    // Sole non-text before soft-skip scan (file-backed --files-from; not stdin).
-    let files_from_list = global.files_from_for_sole_scan()?;
+    // Read --files-from once (including stdin `-`). Re-reading stdin is empty
+    // and would skip sole-binary / refused honesty and empty-scan masks.
+    let files_from_list = global.read_files_from()?;
     if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
         &args.paths,
         files_from_list.as_deref(),
@@ -472,9 +501,17 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         return Ok(exit::FAILURE);
     }
-    let results = collect_matches(&args, global)?;
-    let skipped = crate::files::scan_missing_entries(global, &cwd, &args.paths)?;
-    let refused = explicit_binary_refused(&args, global, &cwd);
+    let results = collect_matches_with_list(&args, global, files_from_list.as_deref())?;
+    let skipped = if files_from_list.is_some() {
+        // Use preloaded list (stdin cannot be re-read).
+        Ok(files_from_list
+            .as_ref()
+            .and_then(|files| crate::files::explicit_paths_missing_entries(&cwd, files)))
+    } else {
+        crate::files::scan_missing_entries(global, &cwd, &args.paths)
+    }?;
+    let refused =
+        explicit_binary_refused_with_list(&args, global, &cwd, files_from_list.as_deref());
 
     // --assert-count mode: succeed only if total count equals N.
     // JSON matches MCP search_files: ok == matched; mismatch sets
@@ -496,7 +533,13 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
                 return Ok(exit::FAILURE);
             }
-            let scanned = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+            let scanned = crate::files::collect_file_paths_opts_with_list(
+                &args.paths,
+                global,
+                false,
+                Some(&cwd),
+                files_from_list.as_deref(),
+            )?;
             if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
                 global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
                 return Ok(exit::FAILURE);
@@ -546,7 +589,12 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
     if !has_matches {
         let cwd = global.resolve_cwd()?;
-        if crate::files::all_scan_targets_missing(global, &args.paths, Some(&cwd))? {
+        let all_missing = if let Some(ref files) = files_from_list {
+            crate::files::all_explicit_paths_missing(files, Some(&cwd))
+        } else {
+            crate::files::all_scan_targets_missing(global, &args.paths, Some(&cwd))?
+        };
+        if all_missing {
             let msg = format!(
                 "no such file or directory: {}",
                 global.path_scope_description(&args.paths)
@@ -569,7 +617,13 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::FAILURE);
         }
         // Multi-path / dir walk: unreadable may have masked the scan (#1894).
-        let scanned = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+        let scanned = crate::files::collect_file_paths_opts_with_list(
+            &args.paths,
+            global,
+            false,
+            Some(&cwd),
+            files_from_list.as_deref(),
+        )?;
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);

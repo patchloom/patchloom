@@ -51,6 +51,63 @@ fn test_files_from_stdin_restricts_search() {
     );
 }
 
+/// Sole binary via `--files-from -` must hard-fail as `binary`, not soft
+/// `no_matches` (stdin is single-shot; sole scan must use the first read).
+#[test]
+fn test_files_from_stdin_sole_binary_is_binary_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("b.bin"), b"x\0y").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("-")
+        .arg("--json")
+        .arg("search")
+        .arg("foo")
+        .write_stdin("b.bin\n")
+        .output()
+        .unwrap();
+
+    assert_ne!(output.status.code(), Some(0), "sole binary must fail");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"error_kind\": \"binary\"")
+            || stdout.contains("\"error_kind\":\"binary\""),
+        "expected binary error_kind, got: {stdout}"
+    );
+}
+
+/// Multi-path `--files-from -` must report co-listed binary in `refused[]`.
+#[test]
+fn test_files_from_stdin_multi_reports_refused_binary() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+    fs::write(dir.path().join("b.bin"), b"x\0y").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("-")
+        .arg("--json")
+        .arg("search")
+        .arg("hello")
+        .write_stdin("a.txt\nb.bin\n")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "text match should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("refused") && stdout.contains("b.bin") && stdout.contains("binary"),
+        "expected refused binary for co-listed stdin path, got: {stdout}"
+    );
+}
+
 #[test]
 fn test_files_from_nonexistent_path_fails() {
     let dir = TempDir::new().unwrap();

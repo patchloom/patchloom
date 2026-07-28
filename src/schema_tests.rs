@@ -131,8 +131,28 @@ mod basic {
         let base = operation_description("doc.set").unwrap();
         assert!(desc.contains(base));
         assert!(desc.contains("EXTRA_FRAGMENT"));
-        if let Some(ex) = operation_example_json("doc.set") {
-            assert!(desc.contains(ex));
+        // Example must be present but without plan `"op"` (MCP rejects it).
+        assert!(
+            desc.contains("\"path\":\"package.json\""),
+            "description should include example fields: {desc}"
+        );
+        assert!(
+            !desc.contains("\"op\""),
+            "MCP tool description must not teach forbidden op field: {desc}"
+        );
+    }
+
+    #[test]
+    fn mcp_tool_description_strips_op_from_all_registry_examples() {
+        for meta in OPERATION_REGISTRY.iter() {
+            let desc = mcp_tool_description(meta.name, None);
+            if operation_example_json(meta.name).is_some() {
+                assert!(
+                    !desc.contains("\"op\""),
+                    "{} MCP description must not include plan op field: {desc}",
+                    meta.name
+                );
+            }
         }
     }
 

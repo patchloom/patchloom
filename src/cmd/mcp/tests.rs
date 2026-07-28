@@ -1392,11 +1392,33 @@ mod registry_schema_sync {
                 tool.tool_name
             );
             if let Some(example) = operation_example_json(tool.op_name) {
+                // MCP descriptions strip plan `"op"` (unknown field on tools).
                 assert!(
-                    desc.contains(example),
-                    "{}: description must include schema example JSON",
+                    !desc.contains("\"op\""),
+                    "{}: MCP description must not teach forbidden op field",
                     tool.tool_name
                 );
+                // Still include example payload fields from the plan example.
+                if let Ok(serde_json::Value::Object(map)) =
+                    serde_json::from_str::<serde_json::Value>(example)
+                {
+                    for (k, v) in map.iter().filter(|(k, _)| *k != "op") {
+                        let needle = format!("\"{k}\":");
+                        assert!(
+                            desc.contains(&needle),
+                            "{}: description missing example field {k} (from {example}): {desc}",
+                            tool.tool_name
+                        );
+                        if let Some(s) = v.as_str() {
+                            assert!(
+                                desc.contains(s)
+                                    || desc.contains(&serde_json::to_string(v).unwrap()),
+                                "{}: description missing example value for {k}",
+                                tool.tool_name
+                            );
+                        }
+                    }
+                }
             }
             if let Some(extra) = tool.extra {
                 assert!(
