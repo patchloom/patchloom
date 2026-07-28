@@ -194,9 +194,15 @@ pub(crate) fn commit_changes(
             } else if renamed_to.contains(path.as_path()) {
                 // Dest exists after rename; rewrite final content in place so
                 // multi-hardlinked siblings stay in sync (nlink > 1 path).
-                // Path-only renames of binary / invalid UTF-8 stage empty
-                // text (#2031). Do not clobber the just-moved inode with "".
-                if new_content.is_empty() {
+                // Soft-loaded binary/invalid-UTF-8 renames stage empty text on
+                // both ends (#2031). Skip rewrite only when every rename
+                // source for this dest also had empty staged *original*
+                // (path-only soft snapshot or empty file). If a source had
+                // non-empty original and dest final is empty, still write
+                // (rename-then-clear).
+                if new_content.is_empty()
+                    && rename_source_originals_empty(path, &rename_pairs, changes)
+                {
                     continue;
                 }
                 injected_write_failure(path)?;
@@ -243,6 +249,34 @@ pub(crate) fn commit_changes(
     }
 
     Ok(backup_session)
+}
+
+/// True when every rename source of `dest` has empty staged original content
+/// (or is missing from `changes`, treated as empty). Used to skip empty
+/// rewrite after path-only non-text rename (#2031) without dropping
+/// rename-then-clear of non-empty text.
+fn rename_source_originals_empty(
+    dest: &Path,
+    rename_pairs: &[(PathBuf, PathBuf)],
+    changes: &[(PathBuf, String, String)],
+) -> bool {
+    let mut saw_source = false;
+    for (from, to) in rename_pairs {
+        if to.as_path() != dest {
+            continue;
+        }
+        saw_source = true;
+        let orig = changes
+            .iter()
+            .find(|(p, _, _)| p == from)
+            .map(|(_, o, _)| o.as_str())
+            .unwrap_or("");
+        if !orig.is_empty() {
+            return false;
+        }
+    }
+    // No matching rename source → do not skip (safe default: write).
+    saw_source
 }
 
 /// Detect pure renames staged as create-dest + delete-src with identical

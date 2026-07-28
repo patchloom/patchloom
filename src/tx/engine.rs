@@ -436,6 +436,32 @@ mod tests {
         );
     }
 
+    /// Rename then clear body must still write empty (not skip as soft non-text).
+    #[test]
+    fn execute_rename_then_clear_writes_empty() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+        let global = GlobalFlags::test_default();
+        let plan = crate::plan::parse_plan(
+            r#"{"ops":[
+              {"op":"file.rename","from":"a.txt","to":"b.txt"},
+              {"op":"replace","path":"b.txt","old":"hello\n","new":""}
+            ]}"#,
+        )
+        .unwrap();
+        let result =
+            execute_operations(plan.operations, test_options(dir.path(), &global)).unwrap();
+        result.commit().unwrap();
+        let b = dir.path().join("b.txt");
+        assert!(!dir.path().join("a.txt").exists());
+        assert!(b.exists());
+        assert_eq!(
+            fs::read_to_string(&b).unwrap(),
+            "",
+            "rename-then-clear must leave empty file, not source body"
+        );
+    }
+
     /// Rename then replace in one plan must still share the hardlink inode.
     #[cfg(unix)]
     #[test]
