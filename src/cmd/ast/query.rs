@@ -72,8 +72,9 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
                  TOML, YAML, JSON, Shell.",
                 lang, args.path,
             );
-            global.emit_error_json_kind(Some("no_matches"), &msg)?;
-            return Ok(exit::NO_MATCHES);
+            // invalid_input: not an empty symbol set (agents must not widen search).
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(exit::FAILURE);
         }
         let symbols = symbols::extract_symbols(&source, lang);
         let filtered = filter_symbols(&symbols, &kind_filter);
@@ -251,8 +252,9 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
                  TOML, YAML, JSON, Shell.",
                 lang, args.path,
             );
-            global.emit_error_json_kind(Some("no_matches"), &msg)?;
-            return Ok(exit::NO_MATCHES);
+            // invalid_input: not an empty symbol set (agents must not widen search).
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(exit::FAILURE);
         }
     }
 

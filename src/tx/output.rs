@@ -505,8 +505,10 @@ pub(crate) fn build_tx_output_with_meta(
     TxOutput {
         ok,
         status: status.to_string(),
-        // success = committed apply; changes_detected/no_matches = dry-run
-        applied: status == "success",
+        // Only claim applied when a real commit mutated files. Status
+        // "success" is also used for dry-run no-ops and lint-only clean
+        // plans; agents branch on applied for undo.
+        applied: status == "success" && (modified + created + deleted_count + renamed_count > 0),
         files_changed: modified,
         files_created: created,
         files_deleted: deleted_count,
@@ -572,7 +574,7 @@ pub(crate) fn build_full_tx_output(
     }
     // Lint-only (or any plan with lint issues): match CLI md lint-agents
     // exit 2 / ok:false so agents branching on ok/exit do not treat dirty
-    // AGENTS.md as clean.
+    // AGENTS.md as clean. Clear applied: lint never writes.
     if matches!(status, "success" | "changes_detected") {
         let lint_issues: usize = output.lints.iter().map(|l| l.issue_count).sum();
         if lint_issues > 0 {
@@ -582,6 +584,15 @@ pub(crate) fn build_full_tx_output(
             output.error = Some(format!(
                 "lint found {lint_issues} issue(s); see lints[] for details"
             ));
+            // Lint does not mutate files; never claim applied.
+            if output.files_changed
+                + output.files_created
+                + output.files_deleted
+                + output.files_renamed
+                == 0
+            {
+                output.applied = false;
+            }
         }
     }
     output
@@ -1232,7 +1243,8 @@ mod tests {
             },
         );
         assert!(!preview.applied, "preview must set applied=false");
-        let applied = build_tx_output_with_meta(
+        // success with zero mutations is a no-op / dry-run identity: applied=false
+        let noop = build_tx_output_with_meta(
             "success",
             true,
             Path::new("/tmp"),
@@ -1244,7 +1256,33 @@ mod tests {
                 renames: &[],
             },
         );
-        assert!(applied.applied, "success must set applied=true");
+        assert!(
+            !noop.applied,
+            "success with no file mutations must set applied=false"
+        );
+        let mut existed = HashSet::new();
+        existed.insert(PathBuf::from("/tmp/a.txt"));
+        let changes = vec![(
+            PathBuf::from("/tmp/a.txt"),
+            "old".to_string(),
+            "new".to_string(),
+        )];
+        let applied = build_tx_output_with_meta(
+            "success",
+            true,
+            Path::new("/tmp"),
+            TxOutputMetaInputs {
+                changes: &changes,
+                deletions: &Default::default(),
+                existed_before: &existed,
+                replace_match_meta: &Default::default(),
+                renames: &[],
+            },
+        );
+        assert!(
+            applied.applied,
+            "success with real file mutations must set applied=true"
+        );
         let err = build_error_output("invalid_input", "nope", None);
         assert!(!err.applied, "pure error must set applied=false");
     }

@@ -1042,3 +1042,42 @@ mod nth_count_tests {
         );
     }
 }
+
+mod expand_match_anchor_tests {
+    use crate::ops::replace::{
+        compile_replace_regex, context_filtered_span_with_re, expand_match_anchor_template,
+    };
+
+    #[test]
+    fn expand_match_anchor_template_expands_group_zero() {
+        assert_eq!(
+            expand_match_anchor_template("${0} // mark", "foo"),
+            "foo // mark"
+        );
+    }
+
+    #[test]
+    fn expand_match_anchor_template_preserves_escaped_dollars() {
+        // User insert "$price" is escaped to "$$price" in replacement_text.
+        assert_eq!(
+            expand_match_anchor_template("${0}$$price", "id"),
+            "id$price"
+        );
+    }
+
+    #[test]
+    fn context_filtered_span_with_re_word_boundary_skips_substrings() {
+        let content = "valid\nid here\nvalid again\nid two\n";
+        let re = compile_replace_regex("id", false, false, false, true)
+            .unwrap()
+            .expect("word boundary re");
+        let span = context_filtered_span_with_re(content, "id", Some(&re), None, Some("two"));
+        let (s, e) = span.expect("should pick whole-word id near 'two'");
+        assert_eq!(&content[s..e], "id");
+        // Must not land inside "valid"
+        assert!(
+            !content[..s].ends_with("val"),
+            "must not pick substring of valid"
+        );
+    }
+}

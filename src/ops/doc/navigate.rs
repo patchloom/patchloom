@@ -231,9 +231,13 @@ pub fn delete_at_selector(
         return Ok(false);
     }
     let (parent_path, last) = split_last(segments);
+    // Soft no-match only when a key is missing. Type/invalid errors (e.g. bare
+    // key under multi-doc array root, nested metadata.name) must propagate so
+    // agents get type_error instead of silent "already gone".
     let parent = match navigate_mut(root, parent_path, false) {
         Ok(p) => p,
-        Err(_) => return Ok(false),
+        Err(e) if crate::exit::is_no_match(&e) => return Ok(false),
+        Err(e) => return Err(e),
     };
     match last {
         selector::Segment::Key(k) => {
@@ -769,6 +773,19 @@ mod tests {
             "expected multi-doc index hint, got: {msg}"
         );
         assert_eq!(root, original);
+    }
+
+    #[test]
+    fn delete_at_selector_array_root_nested_key_is_type_error() {
+        // Nested bare path (metadata.name) must not soft-succeed as "already gone".
+        let mut root = json!([{"metadata": {"name": "a"}}, {"metadata": {"name": "b"}}]);
+        let original = root.clone();
+        let err = delete_at_selector(&mut root, &segs("metadata.name")).unwrap_err();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "expected type_error not soft false, got: {err}"
+        );
+        assert_eq!(root, original, "must not mutate on type error");
     }
 
     #[test]

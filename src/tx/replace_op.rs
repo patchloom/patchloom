@@ -6,8 +6,8 @@
 use super::execute::{TxState, read_and_probe, read_file_content};
 use crate::api::MatchMode;
 use crate::ops::replace::{
-    InsertSide, compile_replace_regex, context_filtered_offset, normalize_line_insert,
-    replace_content, replace_whole_lines, replacement_text,
+    InsertSide, compile_replace_regex, context_filtered_span_with_re, expand_match_anchor_template,
+    normalize_line_insert, replace_content, replace_whole_lines, replacement_text,
 };
 use crate::plan::Operation;
 use crate::tx::output::merge_match_modes;
@@ -270,17 +270,20 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 && !regex_mode
                 && (before_context.is_some() || after_context.is_some())
             {
-                if let Some(target_offset) = context_filtered_offset(
+                if let Some((target_offset, match_end)) = context_filtered_span_with_re(
                     content,
                     old,
+                    compiled_re.as_ref(),
                     before_context.as_deref(),
                     after_context.as_deref(),
                 ) {
+                    let matched = &content[target_offset..match_end];
+                    let piece = expand_match_anchor_template(&replacement, matched);
                     let new_content = format!(
                         "{}{}{}",
                         &content[..target_offset],
-                        replacement,
-                        &content[target_offset + old.len()..],
+                        piece,
+                        &content[match_end..],
                     );
                     tx.write_file(&file_path, new_content);
                     record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
@@ -588,17 +591,20 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     && !regex_mode
                     && (before_context.is_some() || after_context.is_some())
                 {
-                    if let Some(target_offset) = context_filtered_offset(
+                    if let Some((target_offset, match_end)) = context_filtered_span_with_re(
                         &content,
                         old,
+                        compiled_re.as_ref(),
                         before_context.as_deref(),
                         after_context.as_deref(),
                     ) {
+                        let matched = &content[target_offset..match_end];
+                        let piece = expand_match_anchor_template(&replacement, matched);
                         let new_content = format!(
                             "{}{}{}",
                             &content[..target_offset],
-                            replacement,
-                            &content[target_offset + old.len()..],
+                            piece,
+                            &content[match_end..],
                         );
                         tx.write_file(&file_path, new_content);
                         record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);

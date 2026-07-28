@@ -534,7 +534,14 @@ pub fn restore_path_from_session(
         FileAction::Modified => {
             let backup = session_dir.join(&entry.path);
             if !backup.exists() {
-                return Ok(false);
+                // Entry listed but blob gone: fail closed (not "path not in session").
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!(
+                        "backup session {session_timestamp} is incomplete for {}; modified backup blob missing",
+                        entry.path
+                    ),
+                }
+                .into());
             }
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).with_context(|| {
@@ -557,7 +564,13 @@ pub fn restore_path_from_session(
         FileAction::Deleted => {
             let backup = session_dir.join(&entry.path);
             if !backup.exists() {
-                return Ok(false);
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!(
+                        "backup session {session_timestamp} is incomplete for {}; deleted backup blob missing",
+                        entry.path
+                    ),
+                }
+                .into());
             }
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).with_context(|| {
@@ -581,24 +594,43 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     let manifest: Manifest = serde_json::from_str(&content)
         .with_context(|| format!("parsing backup manifest for session {timestamp}"))?;
 
-    let mut restored = 0;
+    // Phase 1: validate all entries and required blobs before any mutation so
+    // a missing blob cannot leave a half-undone tree.
     let mut missing: Vec<String> = Vec::new();
     for entry in &manifest.entries {
-        let target = resolve_restore_path(project_root, &entry.path);
-
-        // Validate that path components never escape upward. This catches both
-        // internal paths (`../../etc/passwd`) and crafted external prefixes
-        // (`__external__/../../../etc/shadow`) that abuse the prefix to skip
-        // validation. The `__external__/` prefix itself counts as a Normal
-        // component (+1 depth), so legitimate external paths pass.
         validate_restore_path(&entry.path)?;
+        match entry.action {
+            FileAction::Modified | FileAction::Deleted => {
+                let backup = session_dir.join(&entry.path);
+                if !backup.exists() {
+                    let kind = match entry.action {
+                        FileAction::Modified => "modified",
+                        FileAction::Deleted => "deleted",
+                        FileAction::Created => unreachable!(),
+                    };
+                    missing.push(format!("{} ({kind} backup blob missing)", entry.path));
+                }
+            }
+            FileAction::Created => {}
+        }
+    }
+    if !missing.is_empty() {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!(
+                "backup session {timestamp} is incomplete; not removing session. Missing: {}",
+                missing.join("; ")
+            ),
+        }
+        .into());
+    }
+
+    // Phase 2: apply restores only after every required blob exists.
+    let mut restored = 0;
+    for entry in &manifest.entries {
+        let target = resolve_restore_path(project_root, &entry.path);
         match entry.action {
             FileAction::Modified => {
                 let backup = session_dir.join(&entry.path);
-                if !backup.exists() {
-                    missing.push(format!("{} (modified backup blob missing)", entry.path));
-                    continue;
-                }
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent).with_context(|| {
                         format!("creating parent dir for restore target {}", entry.path)
@@ -620,10 +652,6 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
             }
             FileAction::Deleted => {
                 let backup = session_dir.join(&entry.path);
-                if !backup.exists() {
-                    missing.push(format!("{} (deleted backup blob missing)", entry.path));
-                    continue;
-                }
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent).with_context(|| {
                         format!("creating parent dir for restore target {}", entry.path)
@@ -634,16 +662,6 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
                 restored += 1;
             }
         }
-    }
-
-    if !missing.is_empty() {
-        return Err(crate::exit::InvalidInputError {
-            msg: format!(
-                "backup session {timestamp} is incomplete; not removing session. Missing: {}",
-                missing.join("; ")
-            ),
-        }
-        .into());
     }
 
     Ok(restored)

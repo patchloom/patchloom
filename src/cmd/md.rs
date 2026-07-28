@@ -536,12 +536,19 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 #[derive(Serialize)]
                 struct MdLintOutput {
                     ok: bool,
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    error_kind: Option<&'static str>,
                     path: String,
                     issue_count: usize,
                     issues: Vec<crate::ops::md::LintIssue>,
                 }
                 global.emit_json(&MdLintOutput {
                     ok: issues.is_empty(),
+                    error_kind: if issues.is_empty() {
+                        None
+                    } else {
+                        Some("changes_detected")
+                    },
                     path: file.clone(),
                     issue_count: issues.len(),
                     issues: issues.clone(),

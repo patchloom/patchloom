@@ -376,6 +376,15 @@ pub(crate) fn compare_snapshots(
 ) -> VerifyResult {
     match check {
         VerifyCheck::SymbolCount { kind, attr } => {
+            // Unknown kinds produce empty snapshots (0==0 would pass). Fail closed.
+            if symbols::parse_kind_filter(&Some(kind.clone())).is_err() {
+                return VerifyResult {
+                    passed: false,
+                    message: format!(
+                        "verify: unknown symbol kind '{kind}' (use function, method, class, struct, enum, interface, trait, type, const, variable, field, module, or property)"
+                    ),
+                };
+            }
             let label = if let Some(a) = attr {
                 format!("{kind} (attr={a})")
             } else {
@@ -458,9 +467,11 @@ pub(crate) fn compare_snapshots(
         VerifyCheck::Named { check } if check == "no_orphans" => {
             check_no_orphans(before, after, cwd)
         }
-        _ => VerifyResult {
-            passed: true,
-            message: "unknown check (skipped)".to_string(),
+        VerifyCheck::Named { check } => VerifyResult {
+            passed: false,
+            message: format!(
+                "unknown verify check '{check}' (supported: unique_names, no_orphans)"
+            ),
         },
     }
 }
