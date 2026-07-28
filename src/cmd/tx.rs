@@ -213,19 +213,31 @@ fn commit_and_finalize(
 
     if let Some(err) = run_lifecycle(ctx.plan, ctx.base_cwd, ctx.cwd) {
         if ctx.strict {
-            crate::tx::rollback_strict(
-                &result.changes,
-                &result.pending,
-                &result.deletions,
-                &result.existed_before,
-            );
+            // Backup restore keeps binary / invalid-UTF-8 bytes that soft-empty
+            // pending originals cannot reconstruct via string rollback.
+            let used_backup = apply_backup_session
+                .as_ref()
+                .is_some_and(|ts| crate::backup::restore_session(ctx.cwd, ts).is_ok());
+            if !used_backup {
+                crate::tx::rollback_strict(
+                    &result.changes,
+                    &result.pending,
+                    &result.deletions,
+                    &result.existed_before,
+                );
+            }
             crate::tx::restore_collateral_files(&collateral_snapshot);
             let rollback_msg = format!(
                 "rollback: strict mode -- all changes reverted ({})",
                 err.message
             );
             if ctx.structured {
-                let ok = emit_error_json(err.kind, &rollback_msg, None, ctx.compact);
+                let ok = emit_error_json(
+                    err.kind,
+                    &rollback_msg,
+                    apply_backup_session.as_deref(),
+                    ctx.compact,
+                );
                 return Ok(exit_after_emit(ok, exit::ROLLBACK));
             }
             eprintln!("tx: {rollback_msg}");

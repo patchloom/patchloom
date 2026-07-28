@@ -1189,6 +1189,12 @@ mod surface_core_tests {
         assert!(text.contains("Document ops"));
         assert!(text.contains("create_file"));
         assert!(text.contains("doc_set"));
+        // Morph-class apply_fragment is a first-class registry tool; hosts that
+        // bias on handshake text must see it next to replace_text.
+        assert!(
+            text.contains("apply_fragment"),
+            "full instructions must list apply_fragment: {text}"
+        );
         assert!(!text.contains("PATCHLOOM_MCP_SURFACE=core"));
     }
 

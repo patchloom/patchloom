@@ -60,7 +60,7 @@ fn full_server_instructions() -> String {
          - Markdown ops (by heading): md_replace_section, md_upsert_bullet, \
          md_table_append, md_insert_after_heading, md_insert_after_section, md_insert_before_heading, \
          md_move_section, md_dedupe_headings, md_lint\n\
-         - Text ops: replace_text, batch_replace, search_files, apply_patch\n\
+         - Text ops: replace_text, batch_replace, search_files, apply_fragment, apply_patch\n\
          - File ops: create_file, read_file, delete_file, move_file, append_file, \
          prepend_file, fix_whitespace, batch_tidy, git_status\n",
     );

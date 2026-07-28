@@ -228,16 +228,29 @@ pub fn execute_plan_direct(
     // Run format steps, then validation steps.
     if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
         if strict {
-            rollback_strict(
-                &result.changes,
-                &result.pending,
-                &result.deletions,
-                &result.existed_before,
-            );
+            // Prefer full backup restore so soft-empty non-text originals
+            // (binary / invalid UTF-8 path ops) are not rewritten as empty
+            // files by string rollback. Fall back to pending-based rollback
+            // when no session exists.
+            let used_backup = apply_backup_session
+                .as_ref()
+                .is_some_and(|ts| crate::backup::restore_session(&effective_cwd, ts).is_ok());
+            if !used_backup {
+                rollback_strict(
+                    &result.changes,
+                    &result.pending,
+                    &result.deletions,
+                    &result.existed_before,
+                );
+            }
             #[cfg(any(feature = "cli", feature = "files"))]
             restore_collateral_files(&collateral_snapshot);
             let msg = format!("strict mode -- all changes reverted ({})", err.message);
-            return Ok(build_error_output("rollback", &msg, None));
+            return Ok(build_error_output(
+                "rollback",
+                &msg,
+                apply_backup_session.as_deref(),
+            ));
         }
         // Non-strict: writes already committed. Report applied changes so
         // agents do not see files_changed=0 while the working tree changed.
