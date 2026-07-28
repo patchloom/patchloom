@@ -146,6 +146,16 @@ pub(crate) fn commit_changes(
             .save_before_delete(path)
             .map_err(|e| commit_error(format!("backing up {}: {e}", path.display())))?;
     }
+    // Force rename overwrite: dest may be soft-empty non-text and absent from
+    // `changes` (original == final == ""), so it would not be backed up above.
+    // `rename_or_copy` still overwrites dest; keep prior dest bytes for undo.
+    for (_, to) in renames {
+        if to.exists() {
+            backup.save_before_write(to).map_err(|e| {
+                commit_error(format!("backing up rename dest {}: {e}", to.display()))
+            })?;
+        }
+    }
 
     // Finalize before writes so undo can recover from a mid-commit failure.
     let backup_session = backup

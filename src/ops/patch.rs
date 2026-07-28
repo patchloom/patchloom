@@ -720,15 +720,53 @@ where
         } else {
             load_original(&pf.path)?
         };
-        // File deletion: result is empty string (caller handles removal).
+        // File deletion: still run hunk application so stale context fails
+        // closed (check and apply must agree). Skipping hunks always deleted
+        // even when the file was edited after the patch was made.
         if pf.is_deletion {
+            if pf.hunks.is_empty() {
+                // Pure delete marker without hunks: remove as-is.
+                results.push(PatchApplyFileResult {
+                    path: pf.path.clone(),
+                    content: String::new(),
+                    status: ApplyHunksStatus::Clean,
+                    conflicts: Vec::new(),
+                    is_creation: false,
+                    is_deletion: true,
+                });
+                continue;
+            }
+            let applied = match apply_hunks_with_options(&original, &pf.hunks, options) {
+                Ok(applied) => applied,
+                Err(msg) if msg.contains("conflict(s)") => {
+                    return Err(crate::exit::ConflictsError {
+                        msg: format!("patch apply: {} -- {msg}", pf.path),
+                    }
+                    .into());
+                }
+                Err(msg) if msg.contains("stale context") => {
+                    return Err(crate::exit::AmbiguousError {
+                        msg: format!("patch apply: {} -- {msg}", pf.path),
+                    }
+                    .into());
+                }
+                Err(msg) => {
+                    return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                        msg: format!("patch apply: {} -- {msg}", pf.path),
+                    }));
+                }
+            };
+            // Only treat as deletion when context matched (Clean empty result).
+            // Stale/conflict already returned Err above under OnStale::Fail.
+            let is_clean_delete =
+                applied.status == ApplyHunksStatus::Clean && applied.content.is_empty();
             results.push(PatchApplyFileResult {
                 path: pf.path.clone(),
-                content: String::new(),
-                status: ApplyHunksStatus::Clean,
-                conflicts: Vec::new(),
+                content: applied.content,
+                status: applied.status,
+                conflicts: applied.conflicts,
                 is_creation: false,
-                is_deletion: true,
+                is_deletion: is_clean_delete,
             });
             continue;
         }

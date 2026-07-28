@@ -646,22 +646,53 @@ fn serialize_multi_document_yaml(
         return Ok(preserve::hoist_comments(original_content, &body));
     };
 
-    let old_docs = old_value.as_array();
+    let old_docs = old_value.as_array().map(|a| a.as_slice()).unwrap_or(&[]);
     let mut out_docs: Vec<String> = Vec::with_capacity(new_docs.len());
 
-    for (i, new_doc) in new_docs.iter().enumerate() {
-        let orig_body = bodies.get(i).map(String::as_str).unwrap_or("");
-        let old_doc = old_docs.and_then(|arr| arr.get(i));
-        match old_doc {
-            Some(old_doc) if old_doc == new_doc && !orig_body.is_empty() => {
-                out_docs.push(orig_body.to_string());
+    // When document count is unchanged, pair by index (in-place field edits).
+    // When count changes (whole-doc delete/append), pair by value identity so
+    // surviving docs keep their original bodies/comments. Index pairing after
+    // `doc.delete 0` wrongly maps body[0] onto the former doc 1.
+    if old_docs.len() == new_docs.len() {
+        for (i, new_doc) in new_docs.iter().enumerate() {
+            let orig_body = bodies.get(i).map(String::as_str).unwrap_or("");
+            let old_doc = old_docs.get(i);
+            match old_doc {
+                Some(old_doc) if old_doc == new_doc && !orig_body.is_empty() => {
+                    out_docs.push(orig_body.to_string());
+                }
+                Some(old_doc) => {
+                    out_docs.push(serialize_single_yaml_document(orig_body, old_doc, new_doc)?);
+                }
+                None => {
+                    out_docs.push(serialize_value(new_doc, &FileFormat::Yaml)?);
+                }
             }
-            Some(old_doc) => {
-                out_docs.push(serialize_single_yaml_document(orig_body, old_doc, new_doc)?);
-            }
-            None => {
-                // Appended document: no original body to preserve.
-                out_docs.push(serialize_value(new_doc, &FileFormat::Yaml)?);
+        }
+    } else {
+        let mut used = vec![false; old_docs.len()];
+        for new_doc in new_docs {
+            let match_j = old_docs.iter().enumerate().find_map(|(j, old_doc)| {
+                if !used[j] && old_doc == new_doc {
+                    Some(j)
+                } else {
+                    None
+                }
+            });
+            match match_j {
+                Some(j) => {
+                    used[j] = true;
+                    let orig_body = bodies.get(j).map(String::as_str).unwrap_or("");
+                    if !orig_body.is_empty() {
+                        out_docs.push(orig_body.to_string());
+                    } else {
+                        out_docs.push(serialize_value(new_doc, &FileFormat::Yaml)?);
+                    }
+                }
+                None => {
+                    // New or edited without exact old identity: full serialize.
+                    out_docs.push(serialize_value(new_doc, &FileFormat::Yaml)?);
+                }
             }
         }
     }

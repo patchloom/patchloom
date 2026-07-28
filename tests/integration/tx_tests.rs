@@ -1278,6 +1278,59 @@ fn test_tx_file_rename_fails_if_dst_exists() {
     );
 }
 
+/// Force overwrite of existing binary dest must back up dest bytes for undo.
+#[test]
+fn test_tx_file_rename_force_binary_undo_restores_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.bin"), b"AAA\0").unwrap();
+    fs::write(dir.path().join("dst.bin"), b"BBB\0").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "file.rename",
+            "from": "src.bin",
+            "to": "dst.bin",
+            "force": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(fs::read(dir.path().join("dst.bin")).unwrap(), b"AAA\0");
+    assert!(!dir.path().join("src.bin").exists());
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("undo")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read(dir.path().join("src.bin")).unwrap(),
+        b"AAA\0",
+        "src restored"
+    );
+    assert_eq!(
+        fs::read(dir.path().join("dst.bin")).unwrap(),
+        b"BBB\0",
+        "prior dest bytes must be restored from backup"
+    );
+}
+
 #[test]
 fn test_tx_file_rename_force_overwrites() {
     let dir = TempDir::new().unwrap();

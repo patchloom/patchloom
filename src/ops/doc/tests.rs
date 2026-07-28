@@ -1066,6 +1066,36 @@ mod error_handling {
     }
 
     #[test]
+    fn yaml_multi_document_delete_first_preserves_surviving_comments() {
+        // Whole-doc delete must not pair body[0] onto former doc 1.
+        let yaml = "# doc A comment\nname: alpha\n---\n# doc B comment\nname: beta\n---\n# doc C comment\nname: gamma\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new.as_array_mut().unwrap().remove(0);
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("# doc B comment") && result.contains("name: beta"),
+            "surviving beta must keep its comment, got:\n{result}"
+        );
+        assert!(
+            result.contains("# doc C comment") && result.contains("name: gamma"),
+            "surviving gamma must keep its comment, got:\n{result}"
+        );
+        assert!(
+            !result.contains("# doc A comment"),
+            "deleted alpha comment must not stick to beta, got:\n{result}"
+        );
+        assert!(
+            !result.contains("name: alpha"),
+            "deleted alpha must be gone, got:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed.as_array().map(|a| a.len()), Some(2));
+        assert_eq!(reparsed[0]["name"], json!("beta"));
+        assert_eq!(reparsed[1]["name"], json!("gamma"));
+    }
+
+    #[test]
     fn yaml_multi_document_set_preserves_crlf_separators() {
         // Windows agent editing multi-doc k8s manifests must keep CRLF stream.
         let yaml = "---\r\na: 1\r\n---\r\nb: 2\r\n";

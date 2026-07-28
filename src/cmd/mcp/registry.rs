@@ -369,6 +369,11 @@ const FIELD_ALIASES: &[(&str, &str)] = &[
     ("key", "selector"),
     ("from", "old"),
     ("to", "new"),
+    // apply.fragment: agents copy replace_text priors (new/to/content → fragment).
+    // Applied only when the tool schema allows the canonical name.
+    ("new", "fragment"),
+    ("to", "fragment"),
+    ("content", "fragment"),
     ("ops", "operations"),
 ];
 
