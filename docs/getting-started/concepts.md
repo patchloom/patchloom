@@ -5,7 +5,7 @@
 Patchloom has 24 commands:
 
 - **search** / **replace** -- text-level find and replace across files
-- **apply-fragment** -- freeform fragment with required anchors (Morph-style markers stripped; no model merge)
+- **apply-fragment** -- freeform fragment with required anchors ([MorphLLM](https://www.morphllm.com/)-style `// ... existing code ...` markers stripped; no cloud model merge)
 - **patch** -- apply unified diffs
 - **md** -- markdown-aware editing (sections, bullets, tables, headings)
 - **doc** -- parser-backed JSON, YAML, and TOML mutations

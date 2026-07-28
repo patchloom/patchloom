@@ -288,7 +288,7 @@ patchloom mcp-server
 
 Handshake `instructions` match the active surface: core mode lists only the core tools (it does not advertise full-inventory names such as `create_file` or `ast_*`).
 
-**Note:** `execute_plan` remains on core, so multi-op plans can still run create/delete/AST-style plan ops when the host sends a full plan. The env flag reduces the *tool schema* surface for small agents; it is not a capability sandbox for the plan catalog.
+**Note:** `execute_plan` remains on core, so multi-op plans can still run create/delete/AST-style plan ops (and plan `apply.fragment`) when the host sends a full plan. Standalone tools such as `apply_fragment`, `create_file`, and `ast_*` are full-inventory only. The env flag reduces the *tool schema* surface for small agents; it is not a capability sandbox for the plan catalog.
 
 Example client env (Grok `config.toml`):
 
