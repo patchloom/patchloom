@@ -36,7 +36,7 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
     global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
 
-    let kind_filter = parse_kind_filter(&args.kind);
+    let kind_filter = parse_kind_filter(&args.kind)?;
     let lang_hint = args.lang.as_deref();
     crate::verbose!(
         "ast list: target={}, kind_filter={:?}",

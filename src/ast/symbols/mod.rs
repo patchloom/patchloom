@@ -410,13 +410,37 @@ pub fn extract_symbol_text<'a>(source: &'a str, sym: &SymbolDef, lang: Language)
 }
 
 /// Parse a comma-separated kind filter string into a list of `SymbolKind`s.
-pub fn parse_kind_filter(kind_arg: &Option<String>) -> Vec<SymbolKind> {
+///
+/// Unknown tokens fail closed with an error (agents inventing `functions` /
+/// `def` must not get an unfiltered list that looks filtered).
+pub fn parse_kind_filter(kind_arg: &Option<String>) -> anyhow::Result<Vec<SymbolKind>> {
     match kind_arg {
-        Some(s) => s
-            .split(',')
-            .filter_map(|k| SymbolKind::from_str_loose(k.trim()))
-            .collect(),
-        None => Vec::new(),
+        None => Ok(Vec::new()),
+        Some(s) if s.trim().is_empty() => Ok(Vec::new()),
+        Some(s) => {
+            let mut out = Vec::new();
+            let mut unknown = Vec::new();
+            for raw in s.split(',') {
+                let k = raw.trim();
+                if k.is_empty() {
+                    continue;
+                }
+                match SymbolKind::from_str_loose(k) {
+                    Some(sk) => out.push(sk),
+                    None => unknown.push(k.to_string()),
+                }
+            }
+            if !unknown.is_empty() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!(
+                        "unknown symbol kind(s): {}. Use function, method, class, struct, enum, interface, trait, type, const, variable, field, module, or property",
+                        unknown.join(", ")
+                    ),
+                }
+                .into());
+            }
+            Ok(out)
+        }
     }
 }
 

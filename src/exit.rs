@@ -396,25 +396,30 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
         output["backup_session"] = serde_json::Value::String(bs.to_string());
     }
     let written = format_failed_written_files(err);
-    if !written.is_empty() {
+    // Write landed if we have written paths, or a backup session (callback
+    // renames / soft-empty path-only ops attach backup with empty written[]).
+    let write_landed = !written.is_empty() || format_failed_backup_session(err).is_some();
+    if write_landed {
         // Canonical with other mutators (#1831 / #1788): agents branch on
         // `applied`. Keep `write_applied` as a deprecated alias for one release.
         output["applied"] = serde_json::Value::Bool(true);
         output["write_applied"] = serde_json::Value::Bool(true);
-        output["files_changed"] = serde_json::Value::Number(written.len().into());
-        output["files"] = serde_json::Value::Array(
-            written
-                .into_iter()
-                .map(|path| serde_json::json!({ "path": path }))
-                .collect(),
-        );
+        if !written.is_empty() {
+            output["files_changed"] = serde_json::Value::Number(written.len().into());
+            output["files"] = serde_json::Value::Array(
+                written
+                    .into_iter()
+                    .map(|path| serde_json::json!({ "path": path }))
+                    .collect(),
+            );
+        }
     } else if kind.is_some_and(error_kind_implies_not_applied)
         || matches!(kind, Some("format_failed"))
     {
         // Pre-write failures never mutate disk (#1835): agents branch on
         // `applied` alone. Also cover not_found / already_exists / parse_error
-        // (CLI emit_error_json_kind parity). format_failed with no written
-        // paths is applied:false (write did not land).
+        // (CLI emit_error_json_kind parity). format_failed with no write
+        // evidence is applied:false.
         output["applied"] = serde_json::Value::Bool(false);
     }
     (output, code)
@@ -547,6 +552,10 @@ mod tests {
         assert_eq!(code, FAILURE);
         assert_eq!(payload["error_kind"], "format_failed");
         assert_eq!(payload["backup_session"], "123_0");
+        assert_eq!(
+            payload["applied"], true,
+            "backup_session means write landed even without written_files: {payload}"
+        );
         assert!(
             payload["error"]
                 .as_str()

@@ -165,7 +165,12 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
 
     let (kind_filter, attr_filter) = match check {
         VerifyCheck::SymbolCount { kind, attr } => {
-            (parse_kind_filter(&Some(kind.clone())), attr.clone())
+            // Unknown kinds must not become an empty filter (empty = all symbols).
+            // Fail closed: return empty snapshot (total 0) instead of fail-open.
+            match parse_kind_filter(&Some(kind.clone())) {
+                Ok(f) => (f, attr.clone()),
+                Err(_) => return result,
+            }
         }
         VerifyCheck::Named { check } if check == "unique_names" || check == "no_orphans" => {
             // For named checks, capture all symbols
@@ -240,7 +245,11 @@ pub(crate) fn snapshot_symbols_from_pending(
 
     let (kind_filter, attr_filter) = match check {
         VerifyCheck::SymbolCount { kind, attr } => {
-            (parse_kind_filter(&Some(kind.clone())), attr.clone())
+            // Unknown kinds must not become an empty filter (empty = all symbols).
+            match parse_kind_filter(&Some(kind.clone())) {
+                Ok(f) => (f, attr.clone()),
+                Err(_) => return result,
+            }
         }
         VerifyCheck::Named { check } if check == "unique_names" || check == "no_orphans" => {
             (Vec::new(), None)

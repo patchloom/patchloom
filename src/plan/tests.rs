@@ -71,6 +71,30 @@ fn ast_rename_accepts_from_to_aliases() {
     }
 }
 
+#[cfg(feature = "ast")]
+#[test]
+fn ast_rewrite_signature_accepts_from_to_aliases() {
+    let v: serde_json::Value = serde_json::json!({
+        "op": "ast.rewrite_signature",
+        "path": "src/lib.rs",
+        "from": "process",
+        "to": "fn process(x: i32) -> String"
+    });
+    let op: Operation = serde_json::from_value(v).expect("from/to aliases");
+    match op {
+        Operation::AstRewriteSignature {
+            old, new_signature, ..
+        } => {
+            assert_eq!(old, "process");
+            assert_eq!(
+                new_signature.as_deref(),
+                Some("fn process(x: i32) -> String")
+            );
+        }
+        other => panic!("expected AstRewriteSignature, got {other:?}"),
+    }
+}
+
 #[test]
 fn apply_fragment_accepts_new_alias_for_fragment() {
     // Agents often copy replace_text priors (`new`/`to`) onto apply.fragment.

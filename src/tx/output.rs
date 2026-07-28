@@ -570,6 +570,20 @@ pub(crate) fn build_full_tx_output(
             .unwrap_or("no matches");
         output.error = Some(detail.to_string());
     }
+    // Lint-only (or any plan with lint issues): match CLI md lint-agents
+    // exit 2 / ok:false so agents branching on ok/exit do not treat dirty
+    // AGENTS.md as clean.
+    if matches!(status, "success" | "changes_detected") {
+        let lint_issues: usize = output.lints.iter().map(|l| l.issue_count).sum();
+        if lint_issues > 0 {
+            output.ok = false;
+            output.status = "changes_detected".to_string();
+            output.error_kind = Some("changes_detected".to_string());
+            output.error = Some(format!(
+                "lint found {lint_issues} issue(s); see lints[] for details"
+            ));
+        }
+    }
     output
 }
 
@@ -667,10 +681,12 @@ pub(crate) fn build_applied_with_error_output(
 /// Map a `TxOutput` (PlanReport) to the traditional exit code for CLI/MCP compat.
 pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
     if report.ok {
-        if report.status == "no_matches" {
-            exit::NO_MATCHES
-        } else {
-            exit::SUCCESS
+        // Preview/check with mutations keeps ok:true (not an error) but exit 2.
+        // Lint issues force ok:false + error_kind=changes_detected (handled below).
+        match report.status.as_str() {
+            "no_matches" => exit::NO_MATCHES,
+            "changes_detected" => exit::CHANGES_DETECTED,
+            _ => exit::SUCCESS,
         }
     } else {
         match report.error_kind.as_deref() {
@@ -887,6 +903,15 @@ mod tests {
         assert_eq!(
             exit_code_from_tx_output(&ok_output("success")),
             exit::SUCCESS
+        );
+    }
+
+    #[test]
+    fn exit_code_ok_changes_detected() {
+        // Dry-run/check with file changes: ok:true, status changes_detected, exit 2.
+        assert_eq!(
+            exit_code_from_tx_output(&ok_output("changes_detected")),
+            exit::CHANGES_DETECTED
         );
     }
 

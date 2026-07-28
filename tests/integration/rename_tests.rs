@@ -937,6 +937,17 @@ fn test_rename_format_failure_json_error_kind() {
         parsed["error_kind"], "format_failed",
         "rename --format failure should set error_kind: {parsed}"
     );
+    assert_eq!(
+        parsed["applied"], true,
+        "write landed before format failure must set applied:true: {parsed}"
+    );
+    assert!(
+        parsed
+            .get("backup_session")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "backup_session required for undo after format_failed: {parsed}"
+    );
     // Rename still applied before format failure.
     assert!(!dir.path().join("a.txt").exists());
     assert_eq!(

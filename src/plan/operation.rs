@@ -379,11 +379,12 @@ pub enum Operation {
     AstRewriteSignature {
         /// Source file containing the function.
         path: String,
-        /// Function name to rewrite (aliases `name` for agents).
-        #[serde(alias = "name")]
+        /// Function name to rewrite (aliases `name`/`from` for agents).
+        #[serde(alias = "name", alias = "from")]
         old: String,
         /// Full replacement signature text (replaces the signature span).
-        #[serde(default)]
+        /// Alias `to` matches rename/replace agent priors for the new text.
+        #[serde(default, alias = "to")]
         new_signature: Option<String>,
         /// New visibility (e.g. `"pub"`, `"pub(crate)"`, or `""` for private).
         #[serde(default)]

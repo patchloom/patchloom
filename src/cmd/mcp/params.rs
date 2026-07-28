@@ -515,11 +515,11 @@ pub(crate) struct AstReplaceParams {
 pub(crate) struct AstRewriteSignatureParams {
     /// File containing the function (relative to working directory).
     pub path: String,
-    /// Function name to rewrite. Alias `name` accepted for agents.
-    #[serde(alias = "name")]
+    /// Function name to rewrite. Aliases `name`/`from` accepted for agents.
+    #[serde(alias = "name", alias = "from")]
     pub old: String,
-    /// Full replacement signature text (optional).
-    #[serde(default)]
+    /// Full replacement signature text (optional). Alias `to` for agents.
+    #[serde(default, alias = "to")]
     pub new_signature: Option<String>,
     /// New visibility (e.g. "pub", "pub(crate)", or "").
     #[serde(default)]

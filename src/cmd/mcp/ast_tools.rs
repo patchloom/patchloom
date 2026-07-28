@@ -25,7 +25,8 @@ pub(super) fn handle_ast_list(
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
     let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
-    let kind_filter = crate::cmd::ast::parse_kind_filter(&p.kind);
+    let kind_filter = crate::cmd::ast::parse_kind_filter(&p.kind)
+        .map_err(|e| McpError::invalid_params(crate::exit::agent_error_message(&e), None))?;
 
     let mut results = Vec::new();
 
