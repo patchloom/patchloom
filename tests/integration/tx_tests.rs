@@ -8933,3 +8933,189 @@ fn test_tx_unreadable_plan_does_not_double_wrap() {
         "must not double-wrap load_text_strict: {v}"
     );
 }
+
+/// #2018: plan op `apply.fragment` desugars through tx (markers stripped + after-anchor).
+#[test]
+fn test_tx_apply_fragment_after_strips_markers() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.rs");
+    fs::write(&file, "fn foo() {\n  a();\n}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "apply.fragment",
+            "path": portable_path_str(&file),
+            "after": "  a();",
+            "fragment": "// ... existing code ...\n  b();\n// ... existing code ...\n",
+            "instruction": "add b"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let body = fs::read_to_string(&file).unwrap();
+    assert!(
+        body.contains("  a();\n  b();\n"),
+        "expected insert after a(); got {body:?}"
+    );
+    assert!(
+        !body.contains("existing code"),
+        "lazy markers must be stripped: {body:?}"
+    );
+}
+
+/// #2018: apply.fragment without placement anchors is invalid_input (exit 1).
+#[test]
+fn test_tx_apply_fragment_requires_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.rs");
+    fs::write(&file, "x\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "apply.fragment",
+            "path": portable_path_str(&file),
+            "fragment": "y\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout: {}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("placement anchor") || err.contains("anchor"),
+        "message should mention anchor: {v}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "x\n");
+}
+
+/// #2018: apply.fragment unique multi-match is ambiguous (exit 5).
+#[test]
+fn test_tx_apply_fragment_unique_ambiguous_exit_5() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "dup\ndup\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "apply.fragment",
+            "path": portable_path_str(&file),
+            "after": "dup",
+            "fragment": "x"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(5); // AMBIGUOUS
+    assert_eq!(fs::read_to_string(&file).unwrap(), "dup\ndup\n");
+}
+
+/// #2018: apply.fragment old-mode replace via plan.
+#[test]
+fn test_tx_apply_fragment_replace_old() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.rs");
+    fs::write(&file, "return 0;\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "apply.fragment",
+            "path": portable_path_str(&file),
+            "old": "return 0;",
+            "fragment": "return 1;"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let body = fs::read_to_string(&file).unwrap();
+    assert!(
+        body.starts_with("return 1;"),
+        "expected replace to return 1; got {body:?}"
+    );
+}
+
+/// #2018: apply.fragment mutual exclusion of after+before is invalid_input.
+#[test]
+fn test_tx_apply_fragment_mutual_exclusion() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.rs");
+    fs::write(&file, "x\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "apply.fragment",
+            "path": portable_path_str(&file),
+            "after": "x",
+            "before": "x",
+            "fragment": "y"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("mutually exclusive"),
+        "expected mutual exclusion message: {v}"
+    );
+}
