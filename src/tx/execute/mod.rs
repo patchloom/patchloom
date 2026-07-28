@@ -85,6 +85,36 @@ pub(crate) fn read_file_content_for_force_create<'a>(
     }
 }
 
+/// Soft-load for path-only ops (rename source / force dest) (#2031).
+///
+/// Binary / invalid UTF-8 become an empty text snapshot so staging does not
+/// fail; commit still uses `fs::rename` when `tx.renames` records the pair
+/// (bytes on disk are never rewritten as empty). Missing paths and other
+/// load failures still hard-fail.
+pub(crate) fn read_file_content_for_path_op<'a>(
+    pending: &'a mut HashMap<PathBuf, (String, String)>,
+    existed_before: &mut HashSet<PathBuf>,
+    path: &Path,
+) -> anyhow::Result<&'a str> {
+    match pending.entry(path.to_path_buf()) {
+        Entry::Occupied(entry) => Ok(&entry.into_mut().1),
+        Entry::Vacant(entry) => {
+            let display = path.display().to_string();
+            let content = match crate::files::load_text_strict(path, &display) {
+                Ok(s) => s,
+                Err(e) if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) => {
+                    String::new()
+                }
+                Err(e) => return Err(e),
+            };
+            if path.exists() {
+                existed_before.insert(path.to_path_buf());
+            }
+            Ok(&entry.insert((content.clone(), content)).1)
+        }
+    }
+}
+
 /// Soft content load for multi-path scans (#1894 / SoftTextSkip).
 ///
 /// Returns `Ok(true)` if the file is text (content stored in pending),

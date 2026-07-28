@@ -4714,13 +4714,12 @@ fn refuse_batch_if_suspicious_fuzzy_rejects_wide_honesty() {
         match_mode: Some(MatchMode::Fuzzy),
         match_score: Some(AGENT_MIN_FUZZY_SCORE),
         matched_text: Some("process_data_and_much_more_tail".into()),
-        op_honesty: vec![ContentEditHonesty {
-            op_index: 0,
-            match_mode: Some(MatchMode::Fuzzy),
-            match_score: Some(AGENT_MIN_FUZZY_SCORE),
-            matched_text: Some("process_data_and_much_more_tail".into()),
-            old: "process_data".into(),
-        }],
+        op_honesty: vec![ContentEditHonesty::fuzzy(
+            0,
+            "process_data",
+            AGENT_MIN_FUZZY_SCORE,
+            "process_data_and_much_more_tail",
+        )],
     };
     let err = refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())
         .expect_err("wide fuzzy honesty must refuse before write");
@@ -7000,27 +6999,51 @@ fn file_append_binary_is_binary() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
-fn file_rename_binary_is_binary() {
-    // Text-oriented rename refuses binary sources so embedders can fall back to
-    // std::fs::rename after branching on Binary (#1935 / #1963).
+fn file_rename_binary_path_only_succeeds() {
+    // Path-only rename: binary must move without host OS fallback (#2031).
     let dir = TempDir::new().unwrap();
     let bin = dir.path().join("b.bin");
     let bin_dst = dir.path().join("c.bin");
-    fs::write(&bin, b"x\x00y").unwrap();
-    let err = file_rename(&bin, &bin_dst, false, ApplyMode::Apply, None).unwrap_err();
-    assert_eq!(
-        crate::fallback::edit_error_kind(&err),
-        Some(EditErrorKind::Binary),
-        "binary rename must peel Binary (#1963): {err}"
-    );
-    assert!(crate::fallback::is_binary(&err), "is_binary peel: {err}");
-    assert_eq!(crate::fallback::error_kind_str(&err), Some("binary"));
+    let bytes = b"x\x00y".as_slice();
+    fs::write(&bin, bytes).unwrap();
+    let r = file_rename(&bin, &bin_dst, false, ApplyMode::Apply, None)
+        .expect("binary rename must succeed as path-only (#2031)");
+    assert!(r.applied);
+    assert_eq!(r.action, "rename");
+    assert!(!bin.exists(), "source must be gone after rename");
+    assert!(bin_dst.exists());
+    assert_eq!(fs::read(&bin_dst).unwrap(), bytes);
     assert!(
-        err.to_string().to_ascii_lowercase().contains("binary"),
-        "message: {err}"
+        r.backup_session.is_some(),
+        "path-only rename must still create backup"
     );
-    assert!(bin.exists());
-    assert!(!bin_dst.exists());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_invalid_utf8_path_only_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("bad.txt");
+    let dst = dir.path().join("ok.txt");
+    // Invalid UTF-8 without NUL (not binary probe) still must path-rename.
+    fs::write(&src, b"hello\xffworld").unwrap();
+    let r = file_rename(&src, &dst, false, ApplyMode::Apply, None)
+        .expect("invalid UTF-8 rename must succeed (#2031)");
+    assert!(r.applied);
+    assert!(!src.exists());
+    assert_eq!(fs::read(&dst).unwrap(), b"hello\xffworld");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_delete_binary_path_only_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let bin = dir.path().join("b.bin");
+    fs::write(&bin, b"x\x00y").unwrap();
+    let r = file_delete(&bin, ApplyMode::Apply, None).expect("binary delete (#2031)");
+    assert!(r.applied);
+    assert!(!bin.exists());
+    assert!(r.backup_session.is_some());
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -7236,4 +7259,113 @@ fn ast_rewrite_signature_empty_edit_is_invalid_input() {
         Some(EditErrorKind::InvalidInput),
         "empty edit fields: {err}"
     );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_fragment_to_file_after_strips_markers() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("t.rs");
+    fs::write(&path, "fn foo() {\n  a();\n}\n").unwrap();
+    let fragment = "// ... existing code ...\n  bar();\n// ... existing code ...\n";
+    let r = apply_fragment_to_file(
+        &path,
+        fragment,
+        FragmentPlacement::After("fn foo() {".into()),
+        true,
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("apply_fragment_to_file after (#2032)");
+    assert!(r.applied);
+    assert!(r.changed);
+    let body = fs::read_to_string(&path).unwrap();
+    assert!(body.contains("bar();"), "body: {body}");
+    assert!(!body.contains("existing code"), "markers stripped: {body}");
+    assert!(r.backup_session.is_some());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_fragment_to_file_requires_unique_anchor() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("t.rs");
+    fs::write(&path, "x\nx\n").unwrap();
+    let err = apply_fragment_to_file(
+        &path,
+        "y\n",
+        FragmentPlacement::After("x".into()),
+        true,
+        ApplyMode::Preview,
+        None,
+    )
+    .expect_err("ambiguous after must fail closed");
+    assert!(
+        crate::fallback::is_ambiguous(&err)
+            || crate::fallback::edit_error_kind(&err) == Some(EditErrorKind::AmbiguousTarget),
+        "ambiguous peel: {err}"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), "x\nx\n");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_fragment_to_file_empty_after_strip_invalid() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("t.rs");
+    fs::write(&path, "fn foo() {}\n").unwrap();
+    let err = apply_fragment_to_file(
+        &path,
+        "// ... existing code ...\n",
+        FragmentPlacement::After("fn foo() {}".into()),
+        true,
+        ApplyMode::Apply,
+        None,
+    )
+    .expect_err("empty fragment after strip");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "empty strip: {err}"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_fragment_to_file_replace_old() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("t.rs");
+    fs::write(&path, "return 0;\n").unwrap();
+    let r = apply_fragment_to_file(
+        &path,
+        "return 1;\n",
+        FragmentPlacement::Replace("return 0;".into()),
+        true,
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("replace old");
+    assert!(r.applied);
+    let body = fs::read_to_string(&path).unwrap();
+    assert!(
+        body.starts_with("return 1;"),
+        "replace old result: {body:?}"
+    );
+}
+
+#[test]
+fn content_edit_honesty_constructors_for_hosts() {
+    let exact = ContentEditHonesty::exact(0, "old", "old");
+    assert_eq!(exact.op_index, 0);
+    assert_eq!(exact.old, "old");
+    assert_eq!(exact.matched_text.as_deref(), Some("old"));
+    assert_eq!(exact.match_mode, Some(MatchMode::Exact));
+    assert!(exact.match_score.is_none());
+
+    let fuzzy = ContentEditHonesty::fuzzy(1, "a", 0.91, "aaaa");
+    assert_eq!(fuzzy.op_index, 1);
+    assert_eq!(fuzzy.match_mode, Some(MatchMode::Fuzzy));
+    assert_eq!(fuzzy.match_score, Some(0.91));
+    assert_eq!(fuzzy.matched_text.as_deref(), Some("aaaa"));
+    assert_eq!(fuzzy.old, "a");
 }

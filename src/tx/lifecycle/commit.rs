@@ -194,6 +194,11 @@ pub(crate) fn commit_changes(
             } else if renamed_to.contains(path.as_path()) {
                 // Dest exists after rename; rewrite final content in place so
                 // multi-hardlinked siblings stay in sync (nlink > 1 path).
+                // Path-only renames of binary / invalid UTF-8 stage empty
+                // text (#2031). Do not clobber the just-moved inode with "".
+                if new_content.is_empty() {
+                    continue;
+                }
                 injected_write_failure(path)?;
                 atomic_write(path, new_content, &noop_policy)?;
             } else {

@@ -52,6 +52,11 @@ pub enum ContentEdit {
 /// Hosts should call [`super::fuzzy_span_suspicious`] with this entry's `old`,
 /// `matched_text`, and `match_score` rather than rollup fields alone (rollup
 /// widest span and min score may come from different ops).
+///
+/// Prefer building this via real [`apply_content_edits`] / replace for
+/// integration tests. Downstream crates cannot use struct literals
+/// (`#[non_exhaustive]`); use [`Self::exact`] / [`Self::fuzzy`] for host
+/// refuse-glue unit tests (#2033).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ContentEditHonesty {
@@ -65,6 +70,40 @@ pub struct ContentEditHonesty {
     pub matched_text: Option<String>,
     /// The replace `old` string for this op (for refuse with matching old).
     pub old: String,
+}
+
+impl ContentEditHonesty {
+    /// Construct a minimal exact-match honesty row for host unit tests (#2033).
+    ///
+    /// Future fields get internal defaults; prefer live edits for integration
+    /// coverage.
+    #[must_use]
+    pub fn exact(op_index: usize, old: impl Into<String>, matched_text: impl Into<String>) -> Self {
+        Self {
+            op_index,
+            match_mode: Some(MatchMode::Exact),
+            match_score: None,
+            matched_text: Some(matched_text.into()),
+            old: old.into(),
+        }
+    }
+
+    /// Construct a minimal fuzzy-match honesty row for host unit tests (#2033).
+    #[must_use]
+    pub fn fuzzy(
+        op_index: usize,
+        old: impl Into<String>,
+        score: f64,
+        matched_text: impl Into<String>,
+    ) -> Self {
+        Self {
+            op_index,
+            match_mode: Some(MatchMode::Fuzzy),
+            match_score: Some(score),
+            matched_text: Some(matched_text.into()),
+            old: old.into(),
+        }
+    }
 }
 
 /// Result of applying a sequence of [`ContentEdit`]s to a buffer.

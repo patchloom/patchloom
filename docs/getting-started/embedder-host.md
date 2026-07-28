@@ -36,6 +36,15 @@ Bline is a real embedder that dogfooded these steps; the checklist is host-gener
    - Disk multi-op with a final gate:  
      `apply_content_edits_to_file_with_span_policy(path, edits, mode, guard, Some(&FuzzySpanPolicy::default()))`  
      refuses over-wide fuzzy **before** write/backup (#2008).
+8. **Path-only file ops on non-text:** `file_rename` / `file_delete` succeed on
+   binary and invalid UTF-8 with byte backup and PathGuard (no OS dual-path)
+   (#2031). Append/prepend/replace still refuse non-text loads.
+9. **Morph-class freeform on disk:** `apply_fragment_to_file(path, fragment,
+   FragmentPlacement::After|Before|Replace(...), unique, mode, guard)` strips
+   lazy markers and applies via the replace path (#2032).
+10. **Host unit tests for `op_honesty`:** `ContentEditHonesty` is
+    `#[non_exhaustive]`; use `ContentEditHonesty::exact` / `::fuzzy` instead of
+    struct literals (#2033). Prefer live `apply_content_edits` for integration tests.
 
 ## Minimal sketch
 
