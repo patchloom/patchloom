@@ -720,7 +720,7 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 global.emit_json(&output)?;
                 if !global.quiet {
                     eprintln!(
-                        "ambiguous match: pattern {:?} matches {} times in {}; use --nth or add context to disambiguate",
+                        "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), or --allow-non-unique (apply-fragment)",
                         crate::fallback::truncate_str(&args.old, 60),
                         r.match_count,
                         r.display_path,

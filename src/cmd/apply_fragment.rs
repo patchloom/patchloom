@@ -307,6 +307,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("t.rs");
         std::fs::write(&path, "dup\ndup\n").unwrap();
+        let g = GlobalFlags {
+            apply: true,
+            json: true,
+            quiet: true,
+            ..GlobalFlags::default()
+        };
         let code = run(
             ApplyFragmentArgs {
                 file: path.to_string_lossy().into(),
@@ -319,9 +325,38 @@ mod tests {
                 allow_non_unique: false,
                 write: Default::default(),
             },
-            &g_apply(),
+            &g,
         )
         .unwrap();
         assert_eq!(code, crate::exit::AMBIGUOUS);
+    }
+
+    #[test]
+    fn apply_fragment_allow_non_unique_applies_all() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.txt");
+        std::fs::write(&path, "dup\ndup\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("X".into()),
+                stdin: false,
+                instruction: None,
+                after: Some("dup".into()),
+                before: None,
+                old: None,
+                allow_non_unique: true,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let body = std::fs::read_to_string(&path).unwrap();
+        // Whole-line anchors use line-oriented insert (#1885).
+        assert_eq!(
+            body, "dup\nX\ndup\nX\n",
+            "both anchors should get insert: {body:?}"
+        );
     }
 }
