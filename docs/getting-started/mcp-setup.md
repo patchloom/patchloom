@@ -188,6 +188,7 @@ AST tools so `list_tools` stays honest about what is callable.
 | `server_info` | Return the server's working directory so the agent can discover the root path before file operations (read-only) |
 | `read_file` | Read file contents with optional line range |
 | `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped |
+| `apply_fragment` | Freeform fragment at a required after/before/old anchor; strips Morph-style `// ... existing code ...` markers (no cloud merge). Prefer when the agent has a snippet plus a known placement |
 | `md_upsert_bullet` | Add a bullet under a markdown heading |
 | `md_table_append` | Append a row to a markdown table |
 | `md_replace_section` | Replace a section by heading (through next same-or-higher heading) |

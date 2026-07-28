@@ -461,7 +461,8 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 | Structural code pattern search | [ast-grep](https://github.com/ast-grep/ast-grep) | Text-only grep for shapes |
 | Identifier rename in code | Patchloom `ast rename` | Fuzzy text replace for symbols |
 | Multi-file atomic apply + undo | Patchloom `batch` / `tx` | N sequential shell edits |
-| Cloud merge of LLM snippets | Morph Fast Apply (etc.) | Patchloom for local deterministic configs |
+| Freeform snippet **with** known anchor (after/before/old) | Patchloom `apply-fragment` (strips Morph-style `// ... existing code ...` markers) | Whole-file rewrite or guessing placement |
+| Freeform snippet **without** anchors (cloud model merge) | [Morph](https://www.morphllm.com/) Fast Apply or similar | Patchloom (anchor-less Morph merge is a non-goal) |
 | Full agent product | Claude Code / Codex / Cursor | Patchloom alone |
 
 Longer write-ups: [Comparisons](docs/getting-started/comparisons.md) · [Embedder host checklist](docs/getting-started/embedder-host.md) · [MCP setup](docs/getting-started/mcp-setup.md)
