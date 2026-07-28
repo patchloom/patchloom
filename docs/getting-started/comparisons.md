@@ -62,6 +62,24 @@ Typical pipeline: discover with ast-grep → apply policy-safe writes with Patch
 
 **Interop (no integration required):** a host may use Morph (or IDE apply) for freeform code and Patchloom for structured configs, plans, and peels. Patchloom does **not** depend on paid apply APIs for its core path.
 
+### Morph job migration (verified)
+
+Use this table when someone asks "can patchloom replace Morph for X?" Full PASS/PARTIAL/GAP matrix with re-run commands: [morph-gap-matrix](../plans/morph-gap-matrix.md).
+
+| Morph job | Prefer Patchloom | Notes |
+|-----------|------------------|-------|
+| Small exact edit | `replace OLD path --new NEW` | Exact; dry-run then `--apply` |
+| Whitespace / near-miss | `replace … --fuzzy` | Default **fail-closed** (reports `matched_text`, no write). Hosts: `for_agent` + `fuzzy_span_suspicious`; optional `--allow-absent-old` only when you accept a nearby span |
+| Large file, known line/symbol | `replace` or `ast replace PATH SYMBOL --old --new` | Scope to a symbol when possible |
+| Scattered multi-hunk / multi-file | `batch` / `tx` / library `apply_content_edits*` | One plan, atomic undo |
+| Config / comments | `doc set` | Not text replace |
+| Markdown section | `md replace-section` (etc.) | Not whole-file rewrite |
+| Preview / revert | default dry-run (exit 2); `undo --apply` | Backup session on apply |
+| Lazy `// ... existing code ...` with **no** anchors | Not first-class | **Gap** ([#2018](https://github.com/patchloom/patchloom/issues/2018)): supply matchable `old`, AST target, or `--insert-after` anchor. No Morph-style model merge |
+| Freeform "put method in the right place" with no anchors | Not first-class | **Gap** ([#2018](https://github.com/patchloom/patchloom/issues/2018)): use `ast list`/`read` then insert/replace with a chosen anchor |
+
+**Host routing (Morph MCP says "prefer edit_file"):** prefer `doc` / `md` / `ast` / `batch` when structure is known; use `replace` (+ fuzzy only when needed); never whole-file rewrite for a one-line change.
+
 ## vs full coding agents (Claude Code, Codex, Cursor, Aider)
 
 Those products own the **agent loop**. Patchloom is a **tool layer** (CLI / MCP / library) they can call. Do not install Patchloom expecting to replace the agent; install it so the agent edits structure safely.
