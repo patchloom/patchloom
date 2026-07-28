@@ -1066,6 +1066,27 @@ mod error_handling {
     }
 
     #[test]
+    fn yaml_multi_document_set_preserves_crlf_separators() {
+        // Windows agent editing multi-doc k8s manifests must keep CRLF stream.
+        let yaml = "---\r\na: 1\r\n---\r\nb: 2\r\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[0]["a"] = json!(9);
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("\r\n"),
+            "multi-doc write must preserve CRLF separators, got: {result:?}"
+        );
+        assert!(
+            !result.replace("\r\n", "").contains('\n'),
+            "must not mix bare LF into CRLF multi-doc stream: {result:?}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed[0]["a"], json!(9));
+        assert_eq!(reparsed[1]["b"], json!(2));
+    }
+
+    #[test]
     fn yaml_multi_document_set_second_doc_preserves_first() {
         let yaml = "---\nname: alpha\nversion: 1\n---\nname: beta\nversion: 2\n";
         let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
@@ -1386,6 +1407,30 @@ mod yaml_cst_cleanup {
             !result.ends_with("\n\n"),
             "double final newline: {:?}",
             &result[result.len().saturating_sub(4)..]
+        );
+    }
+
+    #[test]
+    fn yaml_cst_set_preserves_crlf_line_endings() {
+        // Real Windows path: doc set on CRLF YAML with comments uses CST preserve.
+        let yaml = "server:\r\n  port: 8080\r\n  # keep me\r\n  host: localhost\r\n";
+        let old = json!({"server": {"port": 8080, "host": "localhost"}});
+        let new = json!({"server": {"port": 9090, "host": "localhost"}});
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("\r\n"),
+            "CST preserve path must keep CRLF, got: {result:?}"
+        );
+        assert!(result.contains("9090"), "updated port missing: {result:?}");
+        assert!(
+            result.contains("# keep me"),
+            "comment must be preserved: {result:?}"
+        );
+        // Dominant EOL should remain CRLF (no mixed bare LF after strip).
+        let without_crlf = result.replace("\r\n", "");
+        assert!(
+            !without_crlf.contains('\n'),
+            "must not introduce bare LF into CRLF file: {result:?}"
         );
     }
 

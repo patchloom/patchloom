@@ -555,6 +555,74 @@ fn rename_deleted_source_is_rejected() {
     );
 }
 
+/// Case-only rename (readme.md → README.md) must stage `tx.renames` so commit
+/// uses `fs::rename`. Without that, write-dest + delete-src removes the only
+/// inode on case-insensitive filesystems (macOS APFS); agents hit this via
+/// plan/MCP while CLI bypasses the engine (#1167).
+#[test]
+fn case_only_rename_records_tx_renames() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("readme.md");
+    std::fs::write(&file, "hello content\n").unwrap();
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let op = Operation::FileRename {
+        from: "readme.md".into(),
+        to: "README.md".into(),
+        force: false,
+    };
+    execute_file_op(&op, &mut tx).expect("case-only rename should stage");
+    drop(tx);
+    assert!(
+        !f.renames.is_empty(),
+        "case-only rename must record tx.renames for fs::rename; got empty"
+    );
+    assert_eq!(
+        f.renames[0].0.file_name().and_then(|n| n.to_str()),
+        Some("readme.md")
+    );
+    assert_eq!(
+        f.renames[0].1.file_name().and_then(|n| n.to_str()),
+        Some("README.md")
+    );
+}
+
+/// End-to-end: plan/tx case-only rename must leave content on disk (not delete).
+#[test]
+fn case_only_rename_plan_apply_preserves_content() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("readme.md");
+    std::fs::write(&src, "hello content\n").unwrap();
+
+    let plan = crate::plan::Plan {
+        version: crate::plan::SCHEMA_VERSION,
+        cwd: None,
+        operations: vec![Operation::FileRename {
+            from: "readme.md".into(),
+            to: "README.md".into(),
+            force: false,
+        }],
+        write_policy: None,
+        strict: None,
+        format: None,
+        validate: None,
+        verify: None,
+        for_each: None,
+    };
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+    assert!(
+        report.ok,
+        "case-only rename plan should succeed: {report:?}"
+    );
+
+    // Content must still exist under either spelling (case-insensitive FS).
+    let content = std::fs::read_to_string(dir.path().join("README.md"))
+        .or_else(|_| std::fs::read_to_string(&src))
+        .expect("file must still exist after case-only rename");
+    assert_eq!(content, "hello content\n");
+}
+
 /// Regression: files loaded for Read/Search operations should not be
 /// modified by write policy (e.g. ensure_final_newline) (#1108).
 #[test]

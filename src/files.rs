@@ -301,6 +301,10 @@ pub(crate) fn ensure_files_from_nonempty(
 /// `ignore::WalkBuilder` (respects `.gitignore`).  When `root` is `Some`,
 /// paths are joined with it before walking.  Tidy commands set
 /// `include_hidden = true` so dotfiles are checked.
+///
+/// Pass `files_from_preload` when the caller already read `--files-from`
+/// (including stdin `-`). Stdin can only be consumed once; re-reading yields
+/// an empty list and breaks sole-binary / refused honesty.
 #[cfg(feature = "cli")]
 pub(crate) fn collect_file_paths_opts(
     paths: &[String],
@@ -308,11 +312,32 @@ pub(crate) fn collect_file_paths_opts(
     include_hidden: bool,
     root: Option<&Path>,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    if let Some(files) = global.read_files_from()? {
+    collect_file_paths_opts_with_list(paths, global, include_hidden, root, None)
+}
+
+/// Like [`collect_file_paths_opts`], but accepts a pre-read `--files-from` list.
+#[cfg(feature = "cli")]
+pub(crate) fn collect_file_paths_opts_with_list(
+    paths: &[String],
+    global: &GlobalFlags,
+    include_hidden: bool,
+    root: Option<&Path>,
+    files_from_preload: Option<&[String]>,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let files_owned;
+    let files_from: Option<&[String]> = if let Some(pre) = files_from_preload {
+        Some(pre)
+    } else if global.files_from.is_some() {
+        files_owned = global.read_files_from()?;
+        files_owned.as_deref()
+    } else {
+        None
+    };
+    if let Some(files) = files_from {
         // --files-from entries must honor --contain (paths may escape even when
         // CLI positional paths were empty or in-workspace).
         if let Some(r) = root {
-            global.check_paths_contained(r, &files)?;
+            global.check_paths_contained(r, files)?;
         }
         return Ok(files
             .iter()

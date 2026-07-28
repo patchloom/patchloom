@@ -132,14 +132,19 @@ pub fn serialize_value_preserving(
 /// `Mapping::remove()` can leave trailing whitespace on lines and may
 /// drop the final newline. This trims each line's trailing spaces and
 /// ensures the output ends with exactly one newline.
+///
+/// Line endings match the input (`detect_eol`) so Windows CRLF YAML is not
+/// rewritten to LF by the CST preserve path.
 fn cleanup_yaml_cst_whitespace(text: &str) -> String {
+    let eol = crate::write::detect_eol(text);
     let mut result: String = text
         .lines()
         .map(|line| line.trim_end())
         .collect::<Vec<_>>()
-        .join("\n");
-    if !result.ends_with('\n') {
-        result.push('\n');
+        .join(eol);
+    // Ensure a final newline (LF or CRLF matching input).
+    if result.is_empty() || !result.ends_with('\n') {
+        result.push_str(eol);
     }
     result
 }
@@ -220,9 +225,10 @@ fn fix_yaml_block_indentation(text: &str) -> String {
         result.push(line.to_string());
     }
 
-    let mut out = result.join("\n");
+    let eol = crate::write::detect_eol(text);
+    let mut out = result.join(eol);
     if text.ends_with('\n') && !out.ends_with('\n') {
-        out.push('\n');
+        out.push_str(eol);
     }
     out
 }
@@ -566,26 +572,31 @@ pub(crate) fn split_multi_document_yaml(content: &str) -> (bool, Vec<String>) {
 }
 
 /// Reassemble multi-document YAML from body strings.
-fn join_multi_document_yaml(leading_marker: bool, docs: &[String]) -> String {
+///
+/// `eol` is the dominant line ending from the original stream so separators
+/// stay CRLF on Windows manifests (mixed EOL confuses diffs and some tools).
+fn join_multi_document_yaml(leading_marker: bool, docs: &[String], eol: &str) -> String {
     let mut out = String::new();
     if leading_marker {
-        out.push_str("---\n");
+        out.push_str("---");
+        out.push_str(eol);
     }
     for (i, doc) in docs.iter().enumerate() {
         if i > 0 {
             if !out.ends_with('\n') {
-                out.push('\n');
+                out.push_str(eol);
             }
-            out.push_str("---\n");
+            out.push_str("---");
+            out.push_str(eol);
         }
         let body = doc.trim_end_matches(['\n', '\r']);
         if !body.is_empty() {
             out.push_str(body);
-            out.push('\n');
+            out.push_str(eol);
         }
     }
     if out.is_empty() {
-        out.push('\n');
+        out.push_str(eol);
     }
     out
 }
@@ -655,7 +666,8 @@ fn serialize_multi_document_yaml(
         }
     }
 
-    Ok(join_multi_document_yaml(leading_marker, &out_docs))
+    let eol = crate::write::detect_eol(original_content);
+    Ok(join_multi_document_yaml(leading_marker, &out_docs, eol))
 }
 
 // ---------------------------------------------------------------------------
