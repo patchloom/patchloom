@@ -14,6 +14,10 @@ pub struct Hunk {
     pub new_start: usize,
     pub new_count: usize,
     pub lines: Vec<PatchLine>,
+    /// `\ No newline at end of file` appeared after a remove/context line.
+    pub old_no_final_newline: bool,
+    /// `\ No newline at end of file` appeared after an add line.
+    pub new_no_final_newline: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +94,8 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             if lines[i].starts_with("@@ ") {
                 let hunk = parse_hunk_header(lines[i])?;
                 let mut hunk_lines: Vec<PatchLine> = Vec::new();
+                let mut old_no_final_newline = false;
+                let mut new_no_final_newline = false;
                 i += 1;
 
                 while i < lines.len()
@@ -105,6 +111,14 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                     } else if let Some(rest) = line.strip_prefix(' ') {
                         hunk_lines.push(PatchLine::Context(rest.to_string()));
                     } else if line == "\\ No newline at end of file" {
+                        // Marker applies to the previous hunk line (git format).
+                        match hunk_lines.last() {
+                            Some(PatchLine::Add(_)) => new_no_final_newline = true,
+                            Some(PatchLine::Remove(_) | PatchLine::Context(_)) => {
+                                old_no_final_newline = true;
+                            }
+                            None => {}
+                        }
                     } else {
                         hunk_lines.push(PatchLine::Context(line.to_string()));
                     }
@@ -117,6 +131,8 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                     new_start: hunk.new_start,
                     new_count: hunk.new_count,
                     lines: hunk_lines,
+                    old_no_final_newline,
+                    new_no_final_newline,
                 });
             } else {
                 i += 1;
@@ -180,6 +196,8 @@ fn parse_hunk_header(line: &str) -> Result<Hunk, String> {
         new_start,
         new_count,
         lines: Vec::new(),
+        old_no_final_newline: false,
+        new_no_final_newline: false,
     })
 }
 
@@ -285,7 +303,7 @@ pub struct PatchApplyFileResult {
 pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
     let eol = detect_eol(original);
     let mut src_lines: Vec<String> = original.lines().map(String::from).collect();
-    let had_final_newline =
+    let mut had_final_newline =
         original.ends_with('\n') || original.ends_with("\r\n") || original.is_empty();
     let mut offset: isize = 0;
 
@@ -346,7 +364,38 @@ pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
 
         let old_len = old_refs.len();
         let new_len = new_lines.len();
+        // When the match covers the end of the file, git "\ No newline" markers
+        // decide whether the result ends with a newline.
+        let touches_eof = pos + old_len >= src_lines.len();
         src_lines.splice(pos..pos + old_len, new_lines);
+        if touches_eof {
+            let last_new = hunk
+                .lines
+                .iter()
+                .rev()
+                .find(|pl| matches!(pl, PatchLine::Add(_) | PatchLine::Context(_)));
+            match last_new {
+                Some(PatchLine::Add(_)) => {
+                    if hunk.new_no_final_newline {
+                        // Explicit: new file ends without NL.
+                        had_final_newline = false;
+                    } else if hunk.old_no_final_newline {
+                        // Old last line lacked NL; new last line has no marker → has NL.
+                        had_final_newline = true;
+                    }
+                    // Else keep prior had_final_newline (preserve EOF when only
+                    // rewriting the last line without git markers).
+                }
+                Some(PatchLine::Context(_)) if hunk.old_no_final_newline => {
+                    // EOF context line that lacked NL on the old side.
+                    had_final_newline = false;
+                }
+                Some(PatchLine::Context(_)) if hunk.new_no_final_newline => {
+                    had_final_newline = false;
+                }
+                _ => {}
+            }
+        }
         let delta = isize::try_from(new_len).unwrap_or(isize::MAX)
             - isize::try_from(old_len).unwrap_or(isize::MAX);
         offset = offset.saturating_add(delta);

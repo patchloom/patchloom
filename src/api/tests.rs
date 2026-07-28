@@ -530,6 +530,26 @@ fn apply_content_edits_to_file_binary_is_binary() {
 }
 
 #[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn apply_content_edits_to_file_missing_is_not_found() {
+    use crate::api::{ContentEdit, apply_content_edits_to_file};
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("gone.txt");
+    let edits = [ContentEdit::Replace {
+        old: "a".into(),
+        new: "z".into(),
+        options: ReplaceOptions::default(),
+    }];
+    let err = apply_content_edits_to_file(&file, &edits, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "missing path must peel as NotFound not OperationFailed: {err}"
+    );
+    assert!(crate::api::is_not_found(&err), "is_not_found peel: {err}");
+}
+
+#[test]
 fn file_rename_works() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("old.txt");

@@ -271,8 +271,10 @@ pub fn apply_content_edits_to_file_with_span_policy(
     }
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
-        // Preserve content SoftSkip peels (#1963); do not collapse to OperationFailed.
-        if crate::exit::is_load_text_strict_fail(&e) {
+        // Preserve content SoftSkip peels (#1963) and NotFound for hosts that
+        // branch on is_not_found (create/retry). Do not collapse either to
+        // OperationFailed.
+        if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
             return e;
         }
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()

@@ -80,6 +80,68 @@ fn test_files_from_stdin_sole_binary_is_binary_kind() {
     );
 }
 
+/// Sole binary via `--files-from -` for tidy check must not look clean.
+#[test]
+fn test_tidy_files_from_stdin_sole_binary_is_binary_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("b.bin"), b"x\0y").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("-")
+        .arg("--json")
+        .arg("tidy")
+        .arg("check")
+        .write_stdin("b.bin\n")
+        .output()
+        .unwrap();
+
+    assert_ne!(output.status.code(), Some(0), "sole binary tidy must fail");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"error_kind\": \"binary\"")
+            || stdout.contains("\"error_kind\":\"binary\""),
+        "expected binary error_kind, got: {stdout}"
+    );
+}
+
+/// Sole binary via `--files-from -` for replace must not report no_matches.
+#[test]
+fn test_replace_files_from_stdin_sole_binary_is_binary_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("b.bin"), b"x\0y").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg("-")
+        .arg("--json")
+        .arg("replace")
+        .arg("foo")
+        .arg("--new")
+        .arg("bar")
+        .write_stdin("b.bin\n")
+        .output()
+        .unwrap();
+
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "sole binary replace must fail"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("\"error_kind\": \"binary\"")
+            || stdout.contains("\"error_kind\":\"binary\""),
+        "expected binary error_kind, got: {stdout}"
+    );
+}
+
 /// Multi-path `--files-from -` must report co-listed binary in `refused[]`.
 #[test]
 fn test_files_from_stdin_multi_reports_refused_binary() {

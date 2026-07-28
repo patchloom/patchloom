@@ -360,8 +360,12 @@ pub(crate) struct AstRenameParams {
     /// File or directory to rename in (relative to working directory).
     pub path: String,
     /// The identifier to rename (same name as replace / plan `old`).
+    /// Alias `from` accepted because agents often emit that name (LLM prior).
+    #[serde(alias = "from")]
     pub old: String,
     /// The new identifier name (same name as replace / plan `new`).
+    /// Alias `to` accepted because agents often emit that name (LLM prior).
+    #[serde(alias = "to")]
     pub new: String,
     /// Language hint.
     pub lang: Option<String>,

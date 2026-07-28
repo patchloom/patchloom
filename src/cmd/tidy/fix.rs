@@ -227,8 +227,8 @@ pub(super) fn run_fix(
 
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, &paths)?;
-    // Sole non-text before soft-skip scan (file-backed --files-from; not stdin).
-    let files_from_list = global.files_from_for_sole_scan()?;
+    // Read --files-from once (including stdin `-`); do not re-read empty stdin.
+    let files_from_list = global.read_files_from()?;
     if let Some(err) =
         crate::ops::file::sole_explicit_non_text_for_scan(&paths, files_from_list.as_deref(), &cwd)
     {
@@ -239,9 +239,21 @@ pub(super) fn run_fix(
         }
         return Ok(crate::exit::FAILURE);
     }
-    let skipped = crate::files::scan_missing_entries(global, &cwd, &paths)?;
+    let skipped = if files_from_list.is_some() {
+        files_from_list
+            .as_ref()
+            .and_then(|files| crate::files::explicit_paths_missing_entries(&cwd, files))
+    } else {
+        crate::files::scan_missing_entries(global, &cwd, &paths)?
+    };
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let fix_file_paths = crate::collect_file_paths_opts(&paths, global, true, Some(&cwd))?;
+    let fix_file_paths = crate::files::collect_file_paths_opts_with_list(
+        &paths,
+        global,
+        true,
+        Some(&cwd),
+        files_from_list.as_deref(),
+    )?;
     // Empty --files-from is invalid_input, not a successful no-op (#1796).
     crate::files::ensure_files_from_nonempty(global, &fix_file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&paths, global, Some(&cwd))?;
@@ -297,7 +309,12 @@ pub(super) fn run_fix(
 
     crate::verbose!("tidy: {} file(s) need fixing", dirty_rel_paths.len());
     if dirty_rel_paths.is_empty() {
-        if crate::files::all_scan_targets_missing(global, &paths, Some(&cwd))? {
+        let all_missing = if let Some(ref files) = files_from_list {
+            crate::files::all_explicit_paths_missing(files, Some(&cwd))
+        } else {
+            crate::files::all_scan_targets_missing(global, &paths, Some(&cwd))?
+        };
+        if all_missing {
             let msg = format!(
                 "no such file or directory: {}",
                 global.path_scope_description(&paths)
