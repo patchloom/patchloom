@@ -32,60 +32,88 @@ pub struct ApplyFragmentSpec {
 
 /// True when a line is a Morph-style lazy placeholder (not real source).
 ///
-/// Recognizes common forms agents emit for Fast Apply:
-/// - `// ... existing code ...`
-/// - `// ...existing code...`
+/// Only **comment-shaped** whole lines can be markers (avoids stripping Python
+/// `...`, string literals, or code with trailing notes). Recognized forms:
+/// - `// ... existing code ...` / `// ...existing code...`
 /// - `# ... existing code ...`
 /// - `/* ... existing code ... */`
-/// - lines that are only `// ...` / `# ...` with ellipsis fillers
+/// - pure ellipsis comments: `// ...` / `# ...`
 pub fn is_lazy_marker_line(line: &str) -> bool {
     let t = line.trim();
     if t.is_empty() {
         return false;
     }
     let lower = t.to_ascii_lowercase();
-    // Strip common comment wrappers for the core check.
-    let core = lower
-        .trim_start_matches("/*")
-        .trim_end_matches("*/")
-        .trim()
-        .trim_start_matches("//")
-        .trim_start_matches('#')
-        .trim_start_matches('*')
-        .trim();
+    // Whole line must be a comment first.
+    let core = if (lower.starts_with("/*") && lower.ends_with("*/"))
+        || (lower.starts_with("/**") && lower.ends_with("*/"))
+    {
+        lower
+            .trim_start_matches("/**")
+            .trim_start_matches("/*")
+            .trim_end_matches("*/")
+            .trim()
+            .to_string()
+    } else if lower.starts_with("//") {
+        lower.trim_start_matches("//").trim().to_string()
+    } else if lower.starts_with('#') {
+        lower.trim_start_matches('#').trim().to_string()
+    } else {
+        return false;
+    };
     if core.is_empty() {
         return false;
     }
-    // Must look like an ellipsis placeholder, not real code.
     let has_ellipsis = core.contains("...") || core.contains('\u{2026}');
     if !has_ellipsis {
         return false;
     }
-    // Morph default phrasing or pure ellipsis filler between punctuation/spaces.
     if core.contains("existing code") || core.contains("existingcode") {
         return true;
     }
-    // `// ...` or `// ... ...` only (no identifiers of length >= 2 without dots)
     let alnum: String = core.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     alnum.is_empty() || alnum == "existingcode" || alnum == "code"
 }
 
-/// Remove Morph-style lazy marker lines; preserve other content and relative newlines.
+fn dominant_eol(s: &str) -> &'static str {
+    let crlf = s.matches("\r\n").count();
+    let lf_only = s.as_bytes().iter().filter(|&&b| b == b'\n').count() - crlf;
+    let cr_only = s.as_bytes().iter().filter(|&&b| b == b'\r').count() - crlf;
+    if crlf >= lf_only && crlf >= cr_only && crlf > 0 {
+        "\r\n"
+    } else if cr_only > lf_only && cr_only > 0 {
+        "\r"
+    } else {
+        "\n"
+    }
+}
+
+/// Remove Morph-style lazy marker lines; preserve other content and dominant EOL.
 ///
 /// Does **not** invent placement. Empty result after strip is an error at the
 /// call site (invalid_input).
 pub fn strip_lazy_markers(fragment: &str) -> String {
-    let ends_with_nl = fragment.ends_with('\n');
-    let mut out_lines: Vec<&str> = Vec::new();
-    for line in fragment.lines() {
+    if fragment.is_empty() {
+        return String::new();
+    }
+    let eol = dominant_eol(fragment);
+    let ends_with_eol = fragment.ends_with("\r\n")
+        || (!fragment.ends_with("\r\n") && fragment.ends_with('\n'))
+        || fragment.ends_with('\r');
+    let mut out_lines: Vec<String> = Vec::new();
+    // Normalize split to logical lines without dropping empty ones incorrectly.
+    let normalized = fragment.replace("\r\n", "\n").replace('\r', "\n");
+    let had_trailing = normalized.ends_with('\n');
+    let body = normalized.strip_suffix('\n').unwrap_or(normalized.as_str());
+    for line in body.split('\n') {
         if is_lazy_marker_line(line) {
             continue;
         }
-        out_lines.push(line);
+        out_lines.push(line.to_string());
     }
-    let mut s = out_lines.join("\n");
-    if ends_with_nl && !s.is_empty() && !s.ends_with('\n') {
-        s.push('\n');
+    let mut s = out_lines.join(eol);
+    if (ends_with_eol || had_trailing) && !s.is_empty() && !s.ends_with(eol) {
+        s.push_str(eol);
     }
     s
 }
@@ -133,12 +161,15 @@ pub fn build_apply_fragment_spec(
         });
     }
 
-    let placement = if let Some(a) = after {
-        FragmentPlacement::After(a)
-    } else if let Some(b) = before {
-        FragmentPlacement::Before(b)
-    } else {
-        FragmentPlacement::Replace(old.unwrap())
+    let placement = match (after, before, old) {
+        (Some(a), None, None) => FragmentPlacement::After(a),
+        (None, Some(b), None) => FragmentPlacement::Before(b),
+        (None, None, Some(o)) => FragmentPlacement::Replace(o),
+        _ => {
+            return Err(InvalidInputError {
+                msg: "apply.fragment: internal placement error".into(),
+            });
+        }
     };
 
     Ok(ApplyFragmentSpec {
@@ -253,8 +284,22 @@ mod tests {
         assert!(is_lazy_marker_line("# ... existing code ..."));
         assert!(is_lazy_marker_line("/* ... existing code ... */"));
         assert!(is_lazy_marker_line("  // ...existing code...  "));
+        assert!(is_lazy_marker_line("// ..."));
         assert!(!is_lazy_marker_line("fn main() { /* real */ }"));
         assert!(!is_lazy_marker_line("let x = 1; // keep comment"));
+        // Must not strip non-comment code (reviewer #2021)
+        assert!(!is_lazy_marker_line("    ..."));
+        assert!(!is_lazy_marker_line(
+            r#"const s = "... existing code ...";"#
+        ));
+        assert!(!is_lazy_marker_line("x = 1  # ... existing code ..."));
+    }
+
+    #[test]
+    fn strip_preserves_crlf() {
+        let raw = "// ... existing code ...\r\nfn new() {}\r\n// ... existing code ...\r\n";
+        let cleaned = strip_lazy_markers(raw);
+        assert_eq!(cleaned, "fn new() {}\r\n");
     }
 
     #[test]
