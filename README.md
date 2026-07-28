@@ -467,7 +467,7 @@ The YAML parser changes the value at the selector path. Comments, indentation, k
 
 Longer write-ups: [Comparisons](docs/getting-started/comparisons.md) · [Embedder host checklist](docs/getting-started/embedder-host.md) · [MCP setup](docs/getting-started/mcp-setup.md)
 
-**Library hosts:** [Embedder host checklist](docs/getting-started/embedder-host.md) — dual-path `ReplaceOptions::for_agent()` (primary + fallback, includes `refuse_suspicious_fuzzy`), peels via `edit_error_kind` / `is_*` / `is_fuzzy_span_suspicious` with `#[non_exhaustive]` `_` arm, multi-op `ContentEditsResult.op_honesty`, plan/tx widest `matched_text`, optional `apply_content_edits_to_file_with_span_policy`. Custom options still use `api::fuzzy_span_suspicious` / `FuzzySpanPolicy` after fuzzy Apply.
+**Library hosts:** [Embedder host checklist](docs/getting-started/embedder-host.md): dual-path `ReplaceOptions::for_agent()` (primary + fallback, includes `refuse_suspicious_fuzzy`), peels via `edit_error_kind` / `is_*` / `is_fuzzy_span_suspicious` with `#[non_exhaustive]` `_` arm, multi-op `ContentEditsResult.op_honesty`, plan/tx widest `matched_text`, optional `apply_content_edits_to_file_with_span_policy`. Custom options still use `api::fuzzy_span_suspicious` / `FuzzySpanPolicy` after fuzzy Apply.
 
 **Context budget:** line-range `read`, `search --count` / `--files-with-matches`, one `batch`/`tx`, `--jsonl` for large streams.
 
