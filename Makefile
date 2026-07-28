@@ -137,7 +137,7 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Use MOD
 embedder-smoke: build ## Pre-release host contracts (CLI peels + library fuzzy/path-only/fragment honesty)
 	bash scripts/embedder-smoke.sh target/debug/patchloom
 
-windows-smoke: build ## Windows/PowerShell dogfood (create/replace/doc/tx/paths). Requires pwsh + Windows-style binary.
+windows-smoke: build ## Windows/PowerShell dogfood (paths/peels/tx/CRLF/rename force+binary). Requires pwsh + Windows-style binary.
 	@# Prefer .exe on Windows; omit -Bin so the script auto-picks debug/release + .exe.
 	@if command -v pwsh >/dev/null 2>&1; then \
 		if [ -f target/debug/patchloom.exe ]; then \

@@ -59,8 +59,8 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Full CI gate (run before every commit) |
 | `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README test count) |
-| `make embedder-smoke` | Pre-release host contracts (fuzzy token span, nested undo, plan key alias, peels, library `fuzzy_span_suspicious` #1981); not part of `check` |
-| `make windows-smoke` | Windows/PowerShell dogfood (`scripts/windows-smoke.ps1`; backslash paths, peels, tx, CRLF). Not part of `check`; runs in CI `ci-windows`. Requires `pwsh` |
+| `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033). Not part of `check`; run before tagging a release |
+| `make windows-smoke` | PowerShell dogfood (`scripts/windows-smoke.ps1`; peels, tx, CRLF, rename force/binary; backslash paths on Windows). Not part of `check`; CI `ci-windows`. Local `pwsh` on macOS/Linux supported. Requires `pwsh` |
 | `make audit` | Run `cargo audit` for known vulnerabilities (also in CI) |
 | `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; also in CI) |
 | `make update-readme` | Update README.md rounded test count |

@@ -4,9 +4,12 @@
   Windows / PowerShell host smoke for patchloom (create, replace, doc, tx, paths).
 
 .DESCRIPTION
-  Fixrealloop-style dogfood under PowerShell: Windows path separators, absolute
-  paths, JSON error_kind peels, insert-after, contain, multi-op tx.
-  Not part of make check (Linux/macOS gate). Run on Windows or via CI ci-windows.
+  Fixrealloop-style dogfood under PowerShell: nested relative paths (backslash
+  form on Windows; forward-slash nested form on macOS/Linux pwsh), absolute
+  paths, JSON error_kind peels, insert-after, contain, multi-op tx, rename
+  --force overwrite, and path-only binary rename (#2031).
+  Not part of make check. CI runs on ci-windows; local pwsh on macOS/Linux is
+  supported for peels/tx/rename dogfood (Windows-only path spelling is gated).
 
 .PARAMETER Bin
   Path to patchloom.exe (default: target\debug\patchloom.exe relative to repo root).
@@ -74,6 +77,17 @@ function Get-JsonField {
     }
 }
 
+# Host OS: full backslash + drive-letter paths only on Windows. On macOS/Linux
+# with pwsh (local dogfood of peels/tx/rename), use native nested paths so
+# `make windows-smoke` is an honest pass without a Windows runner.
+$IsWin = $false
+if ($PSVersionTable.PSEdition -eq "Core") {
+    $IsWin = [bool]$IsWindows
+} else {
+    $IsWin = ($env:OS -eq "Windows_NT")
+}
+Write-Host "HOST_WINDOWS=$IsWin"
+
 $ws = Join-Path ([System.IO.Path]::GetTempPath()) ("pl-win-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Path $ws | Out-Null
 try {
@@ -105,21 +119,26 @@ try {
         Fail "create force exit=$($r.ExitCode) content=$got"
     }
 
-    # --- replace with backslash-style path under --cwd ---
-    $sub = Join-Path $ws "sub\nested"
+    # --- nested relative path under --cwd (backslash form is Windows-agent style) ---
+    $sub = Join-Path $ws (Join-Path "sub" "nested")
     New-Item -ItemType Directory -Path $sub -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $sub "app.rs") -Value "use std::io;`nfn main() {}`n"
-    # Relative path with backslashes (Windows agent style)
-    $rel = "sub\nested\app.rs"
+    if ($IsWin) {
+        $rel = "sub\nested\app.rs"
+        $pathLabel = "backslash relative path"
+    } else {
+        $rel = "sub/nested/app.rs"
+        $pathLabel = "nested relative path (non-Windows pwsh)"
+    }
     $r = Invoke-Pl --cwd $ws replace "use std::io;" --insert-after "use std::fs;" $rel --apply
     $body = Get-Content -LiteralPath (Join-Path $sub "app.rs") -Raw
     if ($r.ExitCode -eq 0 -and $body -match "use std::io;" -and $body -match "use std::fs;") {
-        Pass "insert-after with backslash relative path"
+        Pass "insert-after with $pathLabel"
     } else {
         Fail "insert-after exit=$($r.ExitCode) body=$body out=$($r.Output)"
     }
 
-    # --- absolute Windows path ---
+    # --- absolute path (native to this host) ---
     $absFile = Join-Path $ws "abs_target.txt"
     Set-Content -LiteralPath $absFile -Value "hello world`n"
     $r = Invoke-Pl replace "world" --new "windows" $absFile --apply
@@ -180,10 +199,17 @@ try {
         Fail "preview exit=$($r.ExitCode) content=$still"
     }
 
-    # --- --contain rejects escape (Windows absolute outside workspace) ---
+    # --- --contain rejects escape (absolute path outside workspace) ---
     Set-Content -LiteralPath (Join-Path $ws "in.txt") -Value "x`n"
-    # Use a path that is clearly outside the temp workspace
-    $escape = "C:\Windows\System32\drivers\etc\hosts"
+    # Path must exist so we hit PathGuard, not a not_found peel before the guard.
+    if ($IsWin) {
+        $escape = "C:\Windows\System32\drivers\etc\hosts"
+    } else {
+        $escape = "/etc/hosts"
+        if (-not (Test-Path -LiteralPath $escape)) {
+            $escape = "/"
+        }
+    }
     $r = Invoke-Pl --json --cwd $ws --contain read $escape
     $kind = Get-JsonField $r.Output "error_kind"
     if ($kind -eq "guard_rejected") {
@@ -211,6 +237,30 @@ try {
         Pass "rename dest already_exists"
     } else {
         Fail "rename kind=$kind out=$($r.Output)"
+    }
+
+    # --- rename --force overwrites destination ---
+    $r = Invoke-Pl --json --cwd $ws rename from.txt to.txt --force --apply
+    $to = Get-Content -LiteralPath (Join-Path $ws "to.txt") -Raw
+    $fromExists = Test-Path -LiteralPath (Join-Path $ws "from.txt")
+    if ($r.ExitCode -eq 0 -and $to -match "a" -and -not $fromExists) {
+        Pass "rename --force overwrites dest"
+    } else {
+        Fail "rename force exit=$($r.ExitCode) to=$to fromExists=$fromExists out=$($r.Output)"
+    }
+
+    # --- path-only binary rename (NUL byte; #2031 host contract on Windows) ---
+    $binSrc = Join-Path $ws "blob.bin"
+    $binDst = Join-Path $ws "blob-moved.bin"
+    [System.IO.File]::WriteAllBytes($binSrc, [byte[]](0x00, 0x01, 0x02, 0xff))
+    $r = Invoke-Pl --json --cwd $ws rename blob.bin blob-moved.bin --apply
+    $dstBytes = if (Test-Path -LiteralPath $binDst) { [System.IO.File]::ReadAllBytes($binDst) } else { @() }
+    $srcGone = -not (Test-Path -LiteralPath $binSrc)
+    if ($r.ExitCode -eq 0 -and $srcGone -and $dstBytes.Length -eq 4 -and $dstBytes[0] -eq 0) {
+        Pass "binary rename path-only preserves bytes"
+    } else {
+        $snip = if ($r.Output.Length -gt 200) { $r.Output.Substring(0, 200) } else { $r.Output }
+        Fail "binary rename exit=$($r.ExitCode) srcGone=$srcGone len=$($dstBytes.Length) out=$snip"
     }
 
     # --- batch PATH OLD NEW ---
