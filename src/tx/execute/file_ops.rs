@@ -1,5 +1,7 @@
 //! File create/append/prepend/delete/rename for the tx engine.
-use super::{TxState, read_file_content, read_file_content_for_force_create};
+use super::{
+    TxState, read_file_content, read_file_content_for_force_create, read_file_content_for_path_op,
+};
 use crate::plan::Operation;
 
 // op_to_doc_mutation moved to plan.rs as the single source of truth for
@@ -194,8 +196,13 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 return Ok(0);
             }
 
-            // Read source content into pending (validates it exists).
-            let content = read_file_content(tx.pending, tx.existed_before, &src_path)?.to_string();
+            // Read source into pending (validates it exists). Soft-load binary /
+            // invalid UTF-8 as empty text snapshot (#2031): path rename is
+            // recorded in `tx.renames` so commit uses `fs::rename` (bytes stay
+            // intact). Hard fail only for missing / not-a-file (above) and
+            // unreadable IO that is not a content SoftSkip.
+            let content = read_file_content_for_path_op(tx.pending, tx.existed_before, &src_path)?
+                .to_string();
 
             // Check destination does not already exist (unless force or
             // case-only rename on case-insensitive FS).
@@ -213,9 +220,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
 
             // If destination exists on disk, load it into pending first so
             // existed_before is populated and commit uses atomic_write (not
-            // atomic_create_new which would fail on existing files).
+            // atomic_create_new which would fail on existing files). Soft-load
+            // non-text dest the same way as source (#2031 force overwrite).
             if (*force || case_only) && !tx.pending.contains_key(&dst_path) && dst_path.exists() {
-                let _ = read_file_content(tx.pending, tx.existed_before, &dst_path)?;
+                let _ = read_file_content_for_path_op(tx.pending, tx.existed_before, &dst_path)?;
             }
 
             // Record renames so commit can use fs::rename and preserve hardlinks

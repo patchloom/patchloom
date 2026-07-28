@@ -327,7 +327,10 @@ pub use api::{
     search_file, strip_lazy_markers, text_diff,
 };
 #[cfg(any(feature = "cli", feature = "files"))]
-pub use api::{apply_content_edits_to_file, apply_content_edits_to_file_with_span_policy};
+pub use api::{
+    apply_content_edits_to_file, apply_content_edits_to_file_with_span_policy,
+    apply_fragment_to_file,
+};
 pub use plan::Plan;
 
 #[cfg(any(feature = "cli", feature = "files"))]

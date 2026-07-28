@@ -247,6 +247,12 @@ pub use crate::ops::apply_fragment::{
     plan_apply_fragment_to_replace, strip_lazy_markers,
 };
 
+// Disk apply for Morph-class fragments (#2032).
+#[cfg(any(feature = "cli", feature = "files"))]
+mod apply_fragment;
+#[cfg(any(feature = "cli", feature = "files"))]
+pub use self::apply_fragment::apply_fragment_to_file;
+
 mod post_write;
 pub use self::post_write::*;
 
