@@ -20,9 +20,14 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 | Markdown section/bullet/table | `md *` | whole-file rewrite |
 | Identifier rename in code | `ast rename` / `ast_rename_project` | fuzzy replace for symbols |
 | Find code by AST shape (pattern DSL) | ast-grep (or `ast search`) | blind text grep only |
+| Freeform code body change (known span or symbol) | `replace` exact/`ast replace` | whole-file rewrite |
+| Place new lines next to known text | `replace` + `--insert-after` / `--insert-before` | inventing full-file rewrite |
+| Lazy Morph-style markers only (`// ... existing code ...`, no anchors) | **not supported** | Morph merge APIs; use matchable `old`, AST target, or insert anchors (#2018) |
 | Prose/typo in non-code text | `replace` (fuzzy last resort) | AST |
 | Multi-file atomic apply | `tx` / `batch` / `execute_plan` | sequential shell |
 | Host agent policy (Rust) | `ReplaceOptions::for_agent` + peels + `fuzzy_span_suspicious` | soft defaults |
+
+**Morph Fast Apply jobs:** prefer Patchloom for exact/`doc`/`md`/`ast`/`batch`/`undo` offline. There is no Morph-style model merge of incomplete snippets. Migration matrix: docs/plans/morph-gap-matrix.md.
 
 **Context budget:** prefer `read` with a line range, `search --count` / `--files-with-matches`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` for large result streams. Binary sole paths peel `error_kind: binary`.
 
