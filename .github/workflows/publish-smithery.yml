@@ -94,20 +94,10 @@ jobs:
             echo "Set the secret via: smithery auth login && smithery auth whoami --full | gh secret set SMITHERY_API_KEY"
             exit 0
           fi
-          # Wait briefly so npm patchloom@VERSION is available when clients
-          # first install the bundle (npx path). Soft wait only.
-          # Use registry JSON (not `npm view`) so Scorecard does not flag an
-          # unpinned npmCommand (alerts #49/#50).
-          for i in 1 2 3 4 5 6; do
-            if curl -fsSL "https://registry.npmjs.org/patchloom/${VERSION}" \
-              | python3 -c "import json,sys; json.load(sys.stdin); print('ok')" \
-              >/dev/null 2>&1; then
-              echo "npm patchloom@${VERSION} is live"
-              break
-            fi
-            echo "Waiting for npm patchloom@${VERSION} (attempt ${i})"
-            sleep 20
-          done
+          # Do not curl|python the npm registry here: Scorecard Pinned-
+          # Dependencies flags unpinned downloadThenRun (#51). Publish can
+          # proceed; npx clients may retry if npm lag. No network download
+          # in this step.
           # Use REST API (scripts/publish-smithery.sh). CLI 1.2.0 can 400 with
           # "No values to set" for stdio MCPB even when the API succeeds.
           bash scripts/publish-smithery.sh
