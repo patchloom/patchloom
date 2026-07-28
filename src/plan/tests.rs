@@ -52,6 +52,25 @@ fn substitute_single_pass_preserves_utf8() {
     );
 }
 
+#[cfg(feature = "ast")]
+#[test]
+fn ast_rename_accepts_from_to_aliases() {
+    let v: serde_json::Value = serde_json::json!({
+        "op": "ast.rename",
+        "path": "src/lib.rs",
+        "from": "OldName",
+        "to": "NewName"
+    });
+    let op: Operation = serde_json::from_value(v).expect("from/to should alias old/new");
+    match op {
+        Operation::AstRename { old, new, .. } => {
+            assert_eq!(old, "OldName");
+            assert_eq!(new, "NewName");
+        }
+        other => panic!("expected AstRename, got {other:?}"),
+    }
+}
+
 #[test]
 fn apply_fragment_accepts_new_alias_for_fragment() {
     // Agents often copy replace_text priors (`new`/`to`) onto apply.fragment.

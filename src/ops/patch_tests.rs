@@ -29,6 +29,8 @@ fn make_hunk(
         new_start: old_start,
         new_count,
         lines,
+        old_no_final_newline: false,
+        new_no_final_newline: false,
     }
 }
 
@@ -93,6 +95,8 @@ mod basic {
                 PatchLine::Add("LINE2".into()),
                 PatchLine::Context("line3".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, "line1\nLINE2\nline3\n");
@@ -111,6 +115,8 @@ mod basic {
                 PatchLine::Add("inserted".into()),
                 PatchLine::Context("b".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, "a\ninserted\nb\n");
@@ -129,6 +135,8 @@ mod basic {
                 PatchLine::Remove("remove_me".into()),
                 PatchLine::Context("b".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, "a\nb\n");
@@ -176,6 +184,8 @@ mod basic {
                     PatchLine::Add("INSERTED".into()),
                     PatchLine::Context("b".into()),
                 ],
+                old_no_final_newline: false,
+                new_no_final_newline: false,
             },
             Hunk {
                 old_start: 4,
@@ -187,6 +197,8 @@ mod basic {
                     PatchLine::Add("D".into()),
                     PatchLine::Context("e".into()),
                 ],
+                old_no_final_newline: false,
+                new_no_final_newline: false,
             },
         ];
         let result = apply_hunks(original, &hunks).unwrap();
@@ -336,6 +348,8 @@ mod basic {
                 PatchLine::Remove("old".into()),
                 PatchLine::Add("new".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         };
         let haystack: Vec<&str> = vec!["ctx1", "ctx2", "modified"];
         let result = locate_by_context_anchors(&haystack, &hunk, 0);
@@ -355,6 +369,8 @@ mod basic {
                 PatchLine::Add("new".into()),
                 PatchLine::Context("suffix".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         };
         let haystack: Vec<&str> = vec!["modified", "suffix"];
         let result = locate_by_context_anchors(&haystack, &hunk, 0);
@@ -375,6 +391,8 @@ mod basic {
                 PatchLine::Add("new".into()),
                 PatchLine::Context("suffix".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         };
         let haystack: Vec<&str> = vec!["prefix", "modified", "suffix"];
         let result = locate_by_context_anchors(&haystack, &hunk, 0);
@@ -427,6 +445,8 @@ mod basic {
                 PatchLine::Add("patched".into()),
                 PatchLine::Context("ctx2".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = merge_hunks(ours, &hunks).unwrap();
         // Line 2: ours changed "keep_this" → "ours_val" (theirs kept it) → ours wins
@@ -467,6 +487,8 @@ mod basic {
                 PatchLine::Add("patched".into()),
                 PatchLine::Context("ctx2".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let opts = ApplyHunksOptions {
             on_stale: OnStale::Merge,
@@ -547,6 +569,8 @@ mod edge_cases {
             new_start: 2,
             new_count: 1,
             lines: vec![PatchLine::Remove("c".into()), PatchLine::Add("C".into())],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, "a\nb\nC\nd\n");
@@ -566,6 +590,8 @@ mod edge_cases {
                 PatchLine::Add("new_line1".into()),
                 PatchLine::Add("new_line2".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         // Empty original is treated as having a final newline, so the
@@ -634,6 +660,8 @@ mod edge_cases {
                 PatchLine::Remove("old".into()),
                 PatchLine::Add("new".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         };
         let haystack: Vec<&str> = vec!["modified"];
         let result = locate_by_context_anchors(&haystack, &hunk, 0);
@@ -655,6 +683,8 @@ mod edge_cases {
                 PatchLine::Remove("target".into()),
                 PatchLine::Add("TARGET".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, "a\nb\nc\nd\nTARGET\nf\n");
@@ -675,6 +705,8 @@ mod edge_cases {
                 PatchLine::Remove("target".into()),
                 PatchLine::Add("TARGET".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         apply_hunks(original, &hunks).expect_err("expected error");
     }
@@ -692,6 +724,8 @@ mod edge_cases {
                 new_start: 1,
                 new_count: 1,
                 lines: vec![PatchLine::Remove("x".into()), PatchLine::Add("X".into())],
+                old_no_final_newline: false,
+                new_no_final_newline: false,
             },
             Hunk {
                 old_start: 4,
@@ -699,6 +733,8 @@ mod edge_cases {
                 new_start: 4,
                 new_count: 1,
                 lines: vec![PatchLine::Remove("y".into()), PatchLine::Add("Y".into())],
+                old_no_final_newline: false,
+                new_no_final_newline: false,
             },
         ];
         let result = apply_hunks(original, &hunks).unwrap();
@@ -718,6 +754,8 @@ mod edge_cases {
                 PatchLine::Remove("b".into()),
                 PatchLine::Remove("c".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         // All lines removed; join_lines on empty vec returns "".
@@ -738,6 +776,8 @@ mod edge_cases {
                 PatchLine::Context("line2".into()),
                 PatchLine::Context("line3".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, original);
@@ -771,6 +811,8 @@ mod error_handling {
                 PatchLine::Remove("wrong_context".into()),
                 PatchLine::Add("x".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         apply_hunks(original, &hunks).expect_err("expected error");
     }
@@ -818,6 +860,8 @@ mod format_preservation {
                 PatchLine::Remove("line2".into()),
                 PatchLine::Add("LINE2".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         let result = apply_hunks(original, &hunks).unwrap();
         assert_eq!(result, "line1\nLINE2");
@@ -841,8 +885,8 @@ mod format_preservation {
     }
 
     #[test]
-    fn parse_patch_skips_no_newline_marker() {
-        // The "\ No newline at end of file" marker must be silently skipped.
+    fn parse_patch_records_no_newline_marker_on_new_side() {
+        // Marker after `+` sets new_no_final_newline (git format).
         let diff = "\
 --- a/file.txt
 +++ b/file.txt
@@ -855,13 +899,34 @@ mod format_preservation {
         let files = parse_patch(diff).unwrap();
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].hunks[0].lines.len(), 3);
-        // Only Context("keep"), Remove("old"), Add("new") -- marker not present
         assert_eq!(
             files[0].hunks[0].lines[0],
             PatchLine::Context("keep".into())
         );
         assert_eq!(files[0].hunks[0].lines[1], PatchLine::Remove("old".into()));
         assert_eq!(files[0].hunks[0].lines[2], PatchLine::Add("new".into()));
+        assert!(
+            files[0].hunks[0].new_no_final_newline,
+            "marker after + must set new_no_final_newline"
+        );
+        assert!(!files[0].hunks[0].old_no_final_newline);
+    }
+
+    #[test]
+    fn apply_hunks_adds_final_newline_when_patch_removes_old_no_nl_marker() {
+        // File is "line" without EOF NL; patch adds trailing NL (git-style).
+        let original = "line";
+        let diff = "\
+--- a/f.txt
++++ b/f.txt
+@@ -1 +1 @@
+-line
+\\ No newline at end of file
++line
+";
+        let files = parse_patch(diff).unwrap();
+        let result = apply_hunks(original, &files[0].hunks).unwrap();
+        assert_eq!(result, "line\n");
     }
 }
 
@@ -878,6 +943,8 @@ mod regression {
             new_start: 1,
             new_count: 1,
             lines: vec![PatchLine::Context("x".into())],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         // Must return Err, never panic.
         apply_hunks("x\n", &hunks).expect_err("expected error");
@@ -931,6 +998,8 @@ mod regression {
             new_start: 1,
             new_count: 1,
             lines: vec![PatchLine::Add("new".into())],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         }];
         // apply_hunks uses a fuzz of 2 internally; the regression was
         // in find_match when delta values caused isize overflow. Just
@@ -1039,6 +1108,8 @@ mod regression {
                 PatchLine::Add("new2".into()),
                 PatchLine::Context("after".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         };
         let (prefix, suffix) = hunk_context_anchors(&hunk);
         assert_eq!(
@@ -1067,6 +1138,8 @@ mod regression {
                 PatchLine::Remove("line2".into()),
                 PatchLine::Add("replaced".into()),
             ],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
         };
         let result = apply_hunks(original, &[hunk]).expect("should apply");
         assert!(

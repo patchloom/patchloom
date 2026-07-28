@@ -292,13 +292,28 @@ fn parse_range_arg(spec: Option<&str>) -> anyhow::Result<Option<(usize, Option<u
 ///
 /// Second return value is exact zero-match `refused[]` for explicit file lists
 /// (#1792), built from the same path walk so `--files-from -` is not re-read.
+#[cfg_attr(not(test), allow(dead_code))]
 fn collect_replacements(
     args: &ReplaceArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<(Vec<FileReplacement>, Option<Vec<RefuseFileResult>>)> {
+    collect_replacements_with_list(args, global, None)
+}
+
+fn collect_replacements_with_list(
+    args: &ReplaceArgs,
+    global: &GlobalFlags,
+    files_from_preload: Option<&[String]>,
+) -> anyhow::Result<(Vec<FileReplacement>, Option<Vec<RefuseFileResult>>)> {
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+    let file_paths = crate::files::collect_file_paths_opts_with_list(
+        &args.paths,
+        global,
+        false,
+        Some(&cwd),
+        files_from_preload,
+    )?;
     // Empty --files-from is an input error, not a pattern miss (#1796).
     // Detected here (single read of stdin) before soft no_matches handling.
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
@@ -650,8 +665,9 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         normalized_paths.push(global.rewrite_user_path_arg(&cwd, p)?);
     }
     args.paths = normalized_paths;
-    // Sole non-text before soft-skip scan (file-backed --files-from; not stdin).
-    let files_from_list = global.files_from_for_sole_scan()?;
+    // Read --files-from once (including stdin `-`); sole/refused/scan must not
+    // re-read empty stdin (same class as search #2040).
+    let files_from_list = global.read_files_from()?;
     if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
         &args.paths,
         files_from_list.as_deref(),
@@ -664,7 +680,13 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         return Ok(exit::FAILURE);
     }
-    let skipped = crate::files::scan_missing_entries(global, &cwd, &args.paths)?;
+    let skipped = if files_from_list.is_some() {
+        files_from_list
+            .as_ref()
+            .and_then(|files| crate::files::explicit_paths_missing_entries(&cwd, files))
+    } else {
+        crate::files::scan_missing_entries(global, &cwd, &args.paths)?
+    };
 
     // Context / pure fuzzy: route through the tx engine where the
     // context_filtered_offset and fallback chain live (#1668).
@@ -675,16 +697,17 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Phase 1: Parallel file scan to identify files with matches (includes identity).
     // Also builds exact zero-match refused for explicit path lists (#1792) from
     // the same path walk so --files-from - is only read once (#1796).
-    let (mut replacements, zero_match_refused) = match collect_replacements(&args, global) {
-        Ok(r) => r,
-        Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
-            let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
-            let msg = crate::exit::agent_error_message(&e);
-            global.emit_error_json_kind(Some(kind), &msg)?;
-            return Ok(exit::FAILURE);
-        }
-        Err(e) => return Err(e),
-    };
+    let (mut replacements, zero_match_refused) =
+        match collect_replacements_with_list(&args, global, files_from_list.as_deref()) {
+            Ok(r) => r,
+            Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&e);
+                global.emit_error_json_kind(Some(kind), &msg)?;
+                return Ok(exit::FAILURE);
+            }
+            Err(e) => return Err(e),
+        };
     let raw_match_count: usize = replacements.iter().map(|r| r.match_count).sum();
 
     // Unique check: fail if any file has more than one match (before identity
@@ -742,7 +765,13 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             args.multiline,
             args.word_boundary,
         )?;
-        let file_paths = crate::collect_file_paths_opts(&args.paths, global, false, Some(&cwd))?;
+        let file_paths = crate::files::collect_file_paths_opts_with_list(
+            &args.paths,
+            global,
+            false,
+            Some(&cwd),
+            files_from_list.as_deref(),
+        )?;
         let range = parse_range_arg(args.range.as_deref())?;
         for path in &file_paths {
             // SoftSkip multi-path (#1894).
@@ -829,7 +858,12 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_json(&output)?;
             return Ok(exit::SUCCESS);
         }
-        if crate::files::all_scan_targets_missing(global, &args.paths, Some(&cwd))? {
+        let all_missing = if let Some(ref files) = files_from_list {
+            crate::files::all_explicit_paths_missing(files, Some(&cwd))
+        } else {
+            crate::files::all_scan_targets_missing(global, &args.paths, Some(&cwd))?
+        };
+        if all_missing {
             let msg = format!(
                 "no such file or directory: {}",
                 global.path_scope_description(&args.paths)
@@ -851,7 +885,13 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::FAILURE);
         }
         // Multi-path / dir walk: unreadable may have masked the scan (#1894).
-        let scanned = crate::collect_file_paths_opts(&args.paths, global, true, Some(&cwd))?;
+        let scanned = crate::files::collect_file_paths_opts_with_list(
+            &args.paths,
+            global,
+            true,
+            Some(&cwd),
+            files_from_list.as_deref(),
+        )?;
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);

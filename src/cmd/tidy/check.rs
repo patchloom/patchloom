@@ -143,14 +143,29 @@ fn editorconfig_check_props(_path: &Path) -> (Option<crate::write::EolMode>, boo
 /// Collect all issues from the given paths, honouring .gitignore and optional
 /// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
 /// so dotfiles are also checked.  File scanning is parallelized.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn collect_issues(
     paths: &[String],
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<TidyIssue>> {
+    collect_issues_with_list(paths, global, None)
+}
+
+pub(super) fn collect_issues_with_list(
+    paths: &[String],
+    global: &GlobalFlags,
+    files_from_preload: Option<&[String]>,
+) -> anyhow::Result<Vec<TidyIssue>> {
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, paths)?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let file_paths = crate::collect_file_paths_opts(paths, global, true, Some(&cwd))?;
+    let file_paths = crate::files::collect_file_paths_opts_with_list(
+        paths,
+        global,
+        true,
+        Some(&cwd),
+        files_from_preload,
+    )?;
     // Empty --files-from must not report ok:true / zero issues (#1796).
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
@@ -254,8 +269,8 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(exit::FAILURE);
     }
-    // Sole non-text: positionals or file-backed --files-from (not stdin).
-    let files_from_list = global.files_from_for_sole_scan()?;
+    // Read --files-from once (including stdin `-`); do not re-read empty stdin.
+    let files_from_list = global.read_files_from()?;
     if let Some(err) =
         crate::ops::file::sole_explicit_non_text_for_scan(paths, files_from_list.as_deref(), &cwd)
     {
@@ -266,13 +281,25 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
         }
         return Ok(exit::FAILURE);
     }
-    let skipped = crate::files::scan_missing_entries(global, &cwd, paths)?;
+    let skipped = if files_from_list.is_some() {
+        files_from_list
+            .as_ref()
+            .and_then(|files| crate::files::explicit_paths_missing_entries(&cwd, files))
+    } else {
+        crate::files::scan_missing_entries(global, &cwd, paths)?
+    };
     let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(paths);
     let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
-    let issues = collect_issues(paths, global)?;
+    let issues = collect_issues_with_list(paths, global, files_from_list.as_deref())?;
     if issues.is_empty() {
         // Unreadable paths soft-skipped as "clean" would mask permission failures.
-        let scanned = crate::collect_file_paths_opts(paths, global, true, Some(&cwd))?;
+        let scanned = crate::files::collect_file_paths_opts_with_list(
+            paths,
+            global,
+            true,
+            Some(&cwd),
+            files_from_list.as_deref(),
+        )?;
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);

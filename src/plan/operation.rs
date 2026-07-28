@@ -336,8 +336,12 @@ pub enum Operation {
         /// File or directory to rename in. Directories are walked recursively.
         path: String,
         /// The identifier to rename (same field name as replace / ast.replace).
+        /// Alias `from` matches replace/ast.replace agent priors.
+        #[serde(alias = "from")]
         old: String,
         /// The new identifier name (same field name as replace / ast.replace JSON `new`).
+        /// Alias `to` matches replace/ast.replace agent priors.
+        #[serde(alias = "to")]
         new: String,
         /// Language hint (e.g. "rust", "go"). Overrides extension-based detection.
         #[serde(default)]
