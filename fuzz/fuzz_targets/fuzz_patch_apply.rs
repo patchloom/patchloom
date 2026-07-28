@@ -17,9 +17,9 @@ struct FuzzHunk {
     new_start: usize,
     new_count: usize,
     lines: Vec<FuzzLine>,
-            old_no_final_newline: false,
-            new_no_final_newline: false,
-        }
+    old_no_final_newline: bool,
+    new_no_final_newline: bool,
+}
 
 #[derive(Debug, Arbitrary)]
 enum FuzzLine {
@@ -46,8 +46,8 @@ fuzz_target!(|input: FuzzInput| {
                     FuzzLine::Add(s) => PatchLine::Add(s),
                 })
                 .collect(),
-                    old_no_final_newline: false,
-            new_no_final_newline: false,
+            old_no_final_newline: h.old_no_final_newline,
+            new_no_final_newline: h.new_no_final_newline,
         })
         .collect();
 
