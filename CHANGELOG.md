@@ -11,6 +11,25 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.22.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.21.0...patchloom-v0.22.0) (2026-07-28)
+
+
+### Features
+
+* **api:** refuse_suspicious_fuzzy on for_agent + content_edits op_honesty ([#2010](https://github.com/patchloom/patchloom/issues/2010)) ([3016fb2](https://github.com/patchloom/patchloom/commit/3016fb22d0982b7554a0bd333621f21c324a2775))
+* **api:** tx multi-path widest matched_text + file span refuse ([#2012](https://github.com/patchloom/patchloom/issues/2012)) ([d3c649b](https://github.com/patchloom/patchloom/commit/d3c649bd57b9e8b505ceb8830e5066ddd9aa897a))
+* constrained apply-fragment for Morph-class freeform jobs ([#2021](https://github.com/patchloom/patchloom/issues/2021)) ([d167f29](https://github.com/patchloom/patchloom/commit/d167f29da1fc9db80952f999c2f00dd50e9df135))
+* **mcp:** PATCHLOOM_MCP_SURFACE=core|full progressive tool pack ([#2015](https://github.com/patchloom/patchloom/issues/2015)) ([1a937af](https://github.com/patchloom/patchloom/commit/1a937afdbf1fc7d5bfe39505a8bdb0b6af5e4e9e))
+
+
+### Bug Fixes
+
+* apply-fragment marker safety and exit-code tests ([#2022](https://github.com/patchloom/patchloom/issues/2022)) ([f68cb63](https://github.com/patchloom/patchloom/commit/f68cb6369f80b1b2c877963e4293fba9a85a8dba))
+* clear code-scanning alerts [#48](https://github.com/patchloom/patchloom/issues/48) and [#49](https://github.com/patchloom/patchloom/issues/49) ([#2023](https://github.com/patchloom/patchloom/issues/2023)) ([3f9b494](https://github.com/patchloom/patchloom/commit/3f9b49471f66a6516732023bba95256a09ff3ee8))
+* drop curl|python npm wait (Scorecard [#51](https://github.com/patchloom/patchloom/issues/51)) ([#2025](https://github.com/patchloom/patchloom/issues/2025)) ([1d8cfa1](https://github.com/patchloom/patchloom/commit/1d8cfa1784643967ba7c9467708ee430265d0d86))
+* **mcp:** surface-aware handshake instructions for core pack ([#2016](https://github.com/patchloom/patchloom/issues/2016)) ([d82efe1](https://github.com/patchloom/patchloom/commit/d82efe1520585629a693d563d1fc15edfe71a6f1))
+* pack MCPB without npm (Scorecard [#50](https://github.com/patchloom/patchloom/issues/50)) ([#2024](https://github.com/patchloom/patchloom/issues/2024)) ([cede3a1](https://github.com/patchloom/patchloom/commit/cede3a1251fba50ce26d08e10be4f9dde8525a12))
+
 ## [0.21.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.20.0...patchloom-v0.21.0) (2026-07-27)
 
 
