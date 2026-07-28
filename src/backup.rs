@@ -582,6 +582,7 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
         .with_context(|| format!("parsing backup manifest for session {timestamp}"))?;
 
     let mut restored = 0;
+    let mut missing: Vec<String> = Vec::new();
     for entry in &manifest.entries {
         let target = resolve_restore_path(project_root, &entry.path);
 
@@ -594,19 +595,22 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
         match entry.action {
             FileAction::Modified => {
                 let backup = session_dir.join(&entry.path);
-                if backup.exists() {
-                    if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent).with_context(|| {
-                            format!("creating parent dir for restore target {}", entry.path)
-                        })?;
-                    }
-                    std::fs::copy(&backup, &target)
-                        .with_context(|| format!("restoring modified file {}", entry.path))?;
-                    restored += 1;
+                if !backup.exists() {
+                    missing.push(format!("{} (modified backup blob missing)", entry.path));
+                    continue;
                 }
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent).with_context(|| {
+                        format!("creating parent dir for restore target {}", entry.path)
+                    })?;
+                }
+                std::fs::copy(&backup, &target)
+                    .with_context(|| format!("restoring modified file {}", entry.path))?;
+                restored += 1;
             }
             FileAction::Created => {
-                // File was newly created by the apply; remove it.
+                // File was newly created by the apply; remove it if still present.
+                // Already gone is fine (idempotent undo of create).
                 if target.exists() {
                     std::fs::remove_file(&target).with_context(|| {
                         format!("removing created file {} during undo", entry.path)
@@ -616,18 +620,30 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
             }
             FileAction::Deleted => {
                 let backup = session_dir.join(&entry.path);
-                if backup.exists() {
-                    if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent).with_context(|| {
-                            format!("creating parent dir for restore target {}", entry.path)
-                        })?;
-                    }
-                    std::fs::copy(&backup, &target)
-                        .with_context(|| format!("restoring deleted file {}", entry.path))?;
-                    restored += 1;
+                if !backup.exists() {
+                    missing.push(format!("{} (deleted backup blob missing)", entry.path));
+                    continue;
                 }
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent).with_context(|| {
+                        format!("creating parent dir for restore target {}", entry.path)
+                    })?;
+                }
+                std::fs::copy(&backup, &target)
+                    .with_context(|| format!("restoring deleted file {}", entry.path))?;
+                restored += 1;
             }
         }
+    }
+
+    if !missing.is_empty() {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!(
+                "backup session {timestamp} is incomplete; not removing session. Missing: {}",
+                missing.join("; ")
+            ),
+        }
+        .into());
     }
 
     Ok(restored)
@@ -802,6 +818,44 @@ mod tests {
         let restored = restore_session(dir.path(), &ts).unwrap();
         assert_eq!(restored, 1);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "doomed content");
+    }
+
+    #[test]
+    fn restore_incomplete_session_errors_and_keeps_session() {
+        // Missing Modified backup blob must fail closed (not silently skip and
+        // delete the session), so agents can still recover via manual copy.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("keep.txt");
+        std::fs::write(&file, "original").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        // Corrupt: remove the backup blob but leave the manifest entry.
+        let backup_blob = dir
+            .path()
+            .join(".patchloom/backups")
+            .join(&ts)
+            .join("keep.txt");
+        assert!(backup_blob.exists(), "precondition: backup blob exists");
+        std::fs::remove_file(&backup_blob).unwrap();
+
+        std::fs::write(&file, "mutated").unwrap();
+        let err = restore_session(dir.path(), &ts).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("incomplete") && msg.contains("keep.txt"),
+            "expected incomplete-session error, got: {msg}"
+        );
+        // Session must remain so a second undo attempt or manual recovery works.
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert!(
+            sessions.iter().any(|s| s.timestamp == ts),
+            "incomplete restore must not remove the session"
+        );
+        // Disk left as-is (mutated content not partially restored).
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "mutated");
     }
 
     #[test]

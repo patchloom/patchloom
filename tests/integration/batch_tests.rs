@@ -36,12 +36,15 @@ fn test_batch_md_lint_agents() {
         .output()
         .unwrap();
 
-    assert!(
-        output.status.success(),
-        "stderr: {}",
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "lint issues must exit 2, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "changes_detected", "{json}");
     let lints = json["lints"].as_array().unwrap();
     assert_eq!(lints.len(), 1);
     assert!(lints[0]["issue_count"].as_u64().unwrap() >= 1);

@@ -4,7 +4,8 @@ use crate::exit;
 use crate::plan::{self, Plan};
 use crate::tx::{
     CommitError, TxArgs, TxExecResult, TxOutput, build_applied_with_error_output,
-    build_error_output, build_full_tx_output, format_error_with_backup_hint, run_lifecycle,
+    build_error_output, build_full_tx_output, exit_code_from_tx_output,
+    format_error_with_backup_hint, run_lifecycle,
 };
 use crate::write::run_format_command;
 
@@ -276,7 +277,7 @@ fn commit_and_finalize(
             output.backup_session = apply_backup_session;
         }
         let ok = emit_output_json(&output, ctx.compact);
-        return Ok(exit_after_emit(ok, exit::SUCCESS));
+        return Ok(exit_after_emit(ok, exit_code_from_tx_output(&output)));
     }
     print_human_replace_honesty(result, ctx.cwd, global.quiet);
     if global.show_status() {
@@ -288,7 +289,12 @@ fn commit_and_finalize(
         let total = result.changes.len() + extra_deletions;
         eprintln!("applied: {total} file(s) affected");
     }
-    Ok(exit::SUCCESS)
+    let lint_issues: usize = result.tx_lints.iter().map(|l| l.issue_count).sum();
+    if lint_issues > 0 {
+        Ok(exit::CHANGES_DETECTED)
+    } else {
+        Ok(exit::SUCCESS)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -573,14 +579,19 @@ pub(crate) fn run_parsed_plan(
             if structured {
                 let output = build_full_tx_output("success", &mut result, &cwd);
                 let ok = emit_output_json(&output, compact);
-                return Ok(exit_after_emit(ok, exit::SUCCESS));
+                return Ok(exit_after_emit(ok, exit_code_from_tx_output(&output)));
+            }
+            // Lint-only check still has no file changes but issues in lints[].
+            let lint_issues: usize = result.tx_lints.iter().map(|l| l.issue_count).sum();
+            if lint_issues > 0 {
+                return Ok(exit::CHANGES_DETECTED);
             }
             return Ok(exit::SUCCESS);
         }
         if structured {
             let output = build_full_tx_output("changes_detected", &mut result, &cwd);
             let ok = emit_output_json(&output, compact);
-            return Ok(exit_after_emit(ok, exit::CHANGES_DETECTED));
+            return Ok(exit_after_emit(ok, exit_code_from_tx_output(&output)));
         } else if !global.quiet {
             println!(
                 "{} file(s) would change",
@@ -625,11 +636,7 @@ pub(crate) fn run_parsed_plan(
     if structured {
         let output = build_full_tx_output(preview_status, &mut result, &cwd);
         let ok = emit_output_json(&output, compact);
-        let planned = if result.no_effective_changes {
-            exit::SUCCESS
-        } else {
-            exit::CHANGES_DETECTED
-        };
+        let planned = exit_code_from_tx_output(&output);
         // Continue into confirm path only when primary emit succeeded and
         // should_apply; otherwise return planned/failure exit now.
         if !ok {
@@ -663,7 +670,12 @@ pub(crate) fn run_parsed_plan(
     if !result.no_effective_changes {
         Ok(exit::CHANGES_DETECTED)
     } else {
-        Ok(exit::SUCCESS)
+        let lint_issues: usize = result.tx_lints.iter().map(|l| l.issue_count).sum();
+        if lint_issues > 0 {
+            Ok(exit::CHANGES_DETECTED)
+        } else {
+            Ok(exit::SUCCESS)
+        }
     }
 }
 

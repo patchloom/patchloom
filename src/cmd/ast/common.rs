@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn parse_kind_filter_works() {
-        let filter = parse_kind_filter(&Some("function,struct".to_string()));
+        let filter = parse_kind_filter(&Some("function,struct".to_string())).unwrap();
         assert_eq!(filter.len(), 2);
         assert!(filter.contains(&SymbolKind::Function));
         assert!(filter.contains(&SymbolKind::Struct));
@@ -239,8 +239,18 @@ mod tests {
 
     #[test]
     fn parse_kind_filter_empty() {
-        let filter = parse_kind_filter(&None);
+        let filter = parse_kind_filter(&None).unwrap();
         assert!(filter.is_empty());
+    }
+
+    #[test]
+    fn parse_kind_filter_unknown_fails_closed() {
+        let err = parse_kind_filter(&Some("functions,def".to_string())).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unknown symbol kind") && msg.contains("functions"),
+            "expected unknown kind error, got: {msg}"
+        );
     }
 
     #[test]
