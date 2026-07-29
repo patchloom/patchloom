@@ -413,7 +413,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             };
             let (_new, removed) = dedupe_headings_in(&original);
 
-            // Human / JSONL: one line (or item) per removed heading.
+            // Human: one line per removed heading. JSONL streams headings then
+            // a type:summary trailer with applied/backup (tidy/replace parity).
             // --json uses a single object with applied (see finalize below).
             if !removed.is_empty() {
                 if global.jsonl {
@@ -445,6 +446,22 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 #[serde(skip_serializing_if = "Option::is_none")]
                 diff: Option<String>,
             }
+            let emit_dedupe_jsonl_summary = |g: &GlobalFlags,
+                                             applied: Option<bool>,
+                                             backup: Option<String>,
+                                             diff: Option<String>|
+             -> anyhow::Result<()> {
+                g.emit_json(&serde_json::json!({
+                    "type": "summary",
+                    "ok": true,
+                    "path": path_for_json.clone(),
+                    "removed": removed_for_json.clone(),
+                    "applied": applied,
+                    "backup_session": backup,
+                    "diff": diff,
+                }))?;
+                Ok(())
+            };
             finalize_report(
                 global,
                 &cwd,
@@ -461,6 +478,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                                 backup_session: None,
                                 diff: None,
                             })?;
+                        } else if g.jsonl {
+                            emit_dedupe_jsonl_summary(g, Some(false), None, None)?;
                         }
                         let _ = has;
                         Ok(())
@@ -476,9 +495,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                                 path: path_for_json.clone(),
                                 removed: removed_for_json.clone(),
                                 applied: Some(has),
-                                backup_session: backup,
-                                diff: plain,
+                                backup_session: backup.clone(),
+                                diff: plain.clone(),
                             })?;
+                        } else if g.jsonl {
+                            emit_dedupe_jsonl_summary(g, Some(has), backup, plain)?;
                         }
                         Ok(())
                     },
@@ -493,9 +514,11 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                                 removed: removed_for_json.clone(),
                                 applied: Some(false),
                                 backup_session: None,
-                                diff: plain,
+                                diff: plain.clone(),
                             })?;
-                        } else if !diffs.is_empty() && !g.jsonl && !g.quiet {
+                        } else if g.jsonl {
+                            emit_dedupe_jsonl_summary(g, Some(false), None, plain)?;
+                        } else if !diffs.is_empty() && !g.quiet {
                             let dr = crate::diff::DiffResult {
                                 diffs: diffs.to_vec(),
                             };

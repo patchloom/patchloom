@@ -446,6 +446,7 @@ pub fn error_kind_implies_not_applied(kind: &str) -> bool {
             | "conflicts"
             | "parse_error"
             | "changes_detected"
+            | "fuzzy_span_suspicious"
     )
 }
 
@@ -704,6 +705,7 @@ mod tests {
         assert!(error_kind_implies_not_applied("guard_rejected"));
         assert!(error_kind_implies_not_applied("binary"));
         assert!(error_kind_implies_not_applied("invalid_encoding"));
+        assert!(error_kind_implies_not_applied("fuzzy_span_suspicious"));
         assert!(!error_kind_implies_not_applied("format_failed"));
     }
 

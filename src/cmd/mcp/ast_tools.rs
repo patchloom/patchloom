@@ -44,7 +44,15 @@ pub(super) fn handle_ast_list(
                 None,
             ));
         }
-        let symbols = crate::ast::symbols::extract_symbols_from_file(&target, Some(lang));
+        // Strict sole-path load (CLI list parity): binary/utf8 must not soft-empty.
+        let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
+            if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
+                McpError::invalid_params(e.to_string(), None)
+            } else {
+                McpError::internal_error(e.to_string(), None)
+            }
+        })?;
+        let symbols = crate::ast::symbols::extract_symbols(&source, lang);
         let filtered = crate::cmd::ast::filter_symbols(&symbols, &kind_filter);
         if !filtered.is_empty() {
             for sym in &filtered {
@@ -75,6 +83,12 @@ pub(super) fn handle_ast_list(
         });
         for r in par_results {
             results.extend(r.entries);
+        }
+        // All-unreadable dirs must not soft-empty as "No symbols found".
+        if results.is_empty()
+            && let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd)
+        {
+            return Err(McpError::invalid_params(err.msg, None));
         }
     } else {
         return Err(McpError::invalid_params(
@@ -111,6 +125,18 @@ pub(super) fn handle_ast_read(
             McpError::internal_error(e.to_string(), None)
         }
     })?;
+    if !lang.has_grammar() {
+        return Err(McpError::invalid_params(
+            format!(
+                "Unsupported language: {} (detected from {}). \
+                 Supported: Rust, Python, TypeScript, JavaScript, Go, Java, \
+                 C#, Ruby, PHP, Swift, Kotlin, C, C++, HCL, XML, Protobuf, \
+                 TOML, YAML, JSON, Shell.",
+                lang, p.path,
+            ),
+            None,
+        ));
+    }
     let all_symbols = crate::ast::symbols::extract_symbols(&source, lang);
     let sym = crate::ast::symbols::find_symbol(&all_symbols, &p.symbol).ok_or_else(|| {
         McpError::invalid_params(
@@ -158,6 +184,16 @@ pub(super) fn handle_ast_rename(
 
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+
+    // Sole explicit non-text: fail closed (CLI rename parity), not soft empty.
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(e.to_string(), None));
+        }
+    }
 
     // Pre-filter to files with matches (parallel, same as CLI ast rename),
     // build one AstRename op per file, then tx engine for backup/rollback (#1100).
@@ -274,6 +310,21 @@ pub(super) fn handle_ast_validate(
         }
     }
 
+    // Preflight grammar paths: any binary/unreadable co-path fails closed
+    // (CLI validate parity; soft-drop would claim partial trees validated OK).
+    for path in &paths {
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
+        if !lang.has_grammar() {
+            continue;
+        }
+        let display = crate::cmd::ast::display_path(path, &cwd);
+        if let Err(e) = crate::files::load_text_strict(path, &display)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(e.to_string(), None));
+        }
+    }
+
     let results: Vec<serde_json::Value> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
         if !lang.has_grammar() {
@@ -327,17 +378,27 @@ pub(super) fn handle_ast_search(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
+    // Sole explicit non-text: fail closed (CLI search parity).
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(e.to_string(), None));
+        }
+    }
+
     struct SearchFileResult {
         entries: Vec<serde_json::Value>,
     }
-    // Pre-validate pattern query compilation before entering the parallel loop.
-    // Without this, compile_pattern_query errors are silently swallowed via .ok()?,
-    // causing "No matches found" instead of a useful error message.
+    // Pre-validate pattern / S-expression before the walk soft-drops ParseError
+    // into "No matches found".
     let precompiled_query = if p.pattern {
         let validation_lang = lang_hint.unwrap_or_else(|| {
             paths
-                .first()
-                .map(|p| crate::ast::Language::from_path(p))
+                .iter()
+                .find(|path| crate::ast::Language::from_path(path).has_grammar())
+                .map(|path| crate::ast::Language::from_path(path))
                 .unwrap_or(crate::ast::Language::Rust)
         });
         Some(
@@ -346,6 +407,21 @@ pub(super) fn handle_ast_search(
             })?,
         )
     } else {
+        if let Some(sample) = paths.iter().find(|path| {
+            lang_hint
+                .unwrap_or_else(|| crate::ast::Language::from_path(path))
+                .has_grammar()
+        }) {
+            let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sample));
+            if let Err(e) = crate::ast::search::search_file(sample, &p.query, Some(lang), Some(1))
+                && crate::exit::is_parse_error(&e)
+            {
+                return Err(McpError::invalid_params(
+                    crate::exit::agent_error_message(&e),
+                    None,
+                ));
+            }
+        }
         None
     };
 
@@ -383,6 +459,9 @@ pub(super) fn handle_ast_search(
         par_results.into_iter().flat_map(|r| r.entries).collect();
 
     if all_matches.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            return Err(McpError::invalid_params(err.msg, None));
+        }
         return no_results("No matches found.");
     }
     let json = serde_json::to_string_pretty(&all_matches)

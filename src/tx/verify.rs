@@ -381,7 +381,7 @@ pub(crate) fn compare_snapshots(
                 return VerifyResult {
                     passed: false,
                     message: format!(
-                        "verify: unknown symbol kind '{kind}' (use function, method, class, struct, enum, interface, trait, type, const, variable, field, module, or property)"
+                        "verify: unknown symbol kind '{kind}' (use function, method, class, struct, enum, interface, trait, type, const, impl, or module)"
                     ),
                 };
             }

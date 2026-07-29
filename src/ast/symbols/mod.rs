@@ -433,7 +433,7 @@ pub fn parse_kind_filter(kind_arg: &Option<String>) -> anyhow::Result<Vec<Symbol
             if !unknown.is_empty() {
                 return Err(crate::exit::InvalidInputError {
                     msg: format!(
-                        "unknown symbol kind(s): {}. Use function, method, class, struct, enum, interface, trait, type, const, variable, field, module, or property",
+                        "unknown symbol kind(s): {}. Use function, method, class, struct, enum, interface, trait, type, const, impl, or module",
                         unknown.join(", ")
                     ),
                 }
@@ -444,7 +444,8 @@ pub fn parse_kind_filter(kind_arg: &Option<String>) -> anyhow::Result<Vec<Symbol
     }
 }
 
-/// Filter symbols by kind. Returns all symbols if filter is empty.
+/// Filter symbols by kind (includes nested children, e.g. methods under impl/class).
+/// Returns all top-level symbols if filter is empty.
 pub fn filter_symbols<'a>(
     symbols: &'a [SymbolDef],
     kind_filter: &[SymbolKind],
@@ -452,10 +453,24 @@ pub fn filter_symbols<'a>(
     if kind_filter.is_empty() {
         return symbols.iter().collect();
     }
-    symbols
-        .iter()
-        .filter(|s| kind_filter.contains(&s.kind))
-        .collect()
+    let mut out = Vec::new();
+    filter_symbols_recursive(symbols, kind_filter, &mut out);
+    out
+}
+
+fn filter_symbols_recursive<'a>(
+    symbols: &'a [SymbolDef],
+    kind_filter: &[SymbolKind],
+    out: &mut Vec<&'a SymbolDef>,
+) {
+    for s in symbols {
+        if kind_filter.contains(&s.kind) {
+            out.push(s);
+        }
+        if !s.children.is_empty() {
+            filter_symbols_recursive(&s.children, kind_filter, out);
+        }
+    }
 }
 
 #[cfg(test)]

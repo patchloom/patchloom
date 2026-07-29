@@ -587,6 +587,103 @@ fn test_ast_search_invalid_query_exits_4() {
     assert_eq!(json["error_kind"], "parse_error", "{json}");
 }
 
+/// Pattern mode must fail closed on compile errors (not soft no_matches).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_search_invalid_pattern_exits_4() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "fn foo() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "ast",
+            "search",
+            "--pattern",
+            "!!!not a valid pattern!!!",
+            "lib.rs",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["error_kind"], "parse_error", "{json}");
+}
+
+/// Unsupported language on read is invalid_input, not symbol no_matches.
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_read_unsupported_language_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("data.csv");
+    fs::write(&f, "a,b,c\n1,2,3\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["--json", "ast", "read", "data.csv", "SomeName"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+}
+
+/// Nested methods must match --kind method (not only top-level symbols).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_kind_method_includes_impl_methods() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "struct Foo;\nimpl Foo {\n    fn bar(&self) {}\n}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["--json", "ast", "list", "lib.rs", "--kind", "method"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("bar"),
+        "expected nested method in list output: {text}"
+    );
+}
+
+/// Unknown kind help must not advertise dead aliases (variable/field/property).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_unknown_kind_help_matches_allowlist() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "fn foo() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["--json", "ast", "list", "lib.rs", "--kind", "variable"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("impl") && !err.contains("variable, field"),
+        "help must list real kinds only: {err}"
+    );
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_refs_no_references_exits_3() {

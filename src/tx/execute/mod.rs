@@ -804,6 +804,14 @@ pub(crate) fn execute_and_collect(
                         .with_backup_session(backup)
                         .into());
                 }
+                // Re-emit EditError so guard_rejected / fuzzy_span_suspicious
+                // keep structured kinds after the op wrapper (not operation_failed).
+                if let Some(edit) = e.chain().find_map(|c| {
+                    c.downcast_ref::<crate::fallback::EditError>()
+                        .map(|ed| ed.kind)
+                }) {
+                    return Err(crate::fallback::EditError::new(edit, msg).into());
+                }
                 anyhow::bail!("{msg}");
             }
         }

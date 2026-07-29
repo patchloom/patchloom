@@ -420,11 +420,25 @@ fn test_md_dedupe_headings_jsonl_output() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
-    assert_eq!(lines.len(), 1);
-    let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    // Removed heading string(s) + type:summary trailer with applied/backup.
+    assert!(
+        lines.len() >= 2,
+        "expected heading line(s) + summary, got {lines:?}"
+    );
+    let heading: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     // JSONL dedupe-headings emits one JSON string per removed heading (not an
     // object). `.as_str()` is intentional.
-    assert_eq!(json.as_str().unwrap(), "## Dup");
+    assert_eq!(heading.as_str().unwrap(), "## Dup");
+    let summary: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
+    assert_eq!(summary["type"], "summary", "{summary}");
+    assert_eq!(summary["ok"], true, "{summary}");
+    assert_eq!(summary["applied"], true, "{summary}");
+    assert!(
+        summary["backup_session"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "apply must expose backup_session in JSONL summary: {summary}"
+    );
 }
 
 #[test]
