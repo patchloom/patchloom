@@ -318,6 +318,71 @@ fn test_batch_malformed_line_fails() {
         .stderr(predicates::str::contains("unknown operation"));
 }
 
+/// Plan-only AST ops should steer agents to tx/MCP, not bare "unknown".
+#[test]
+fn test_batch_ast_insert_hints_tx_plan() {
+    let dir = TempDir::new().unwrap();
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "ast.insert lib.rs after foo \"fn bar() {}\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(4)
+        .stderr(predicates::str::contains("not supported in batch"))
+        .stderr(predicates::str::contains("tx plan"));
+}
+
+/// Nested JSON quotes keep batch doc.set values as strings (not float 2.0).
+#[test]
+fn test_batch_doc_set_version_string_not_float() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, "{\"version\":\"1.0.0\"}\n").unwrap();
+    let ops = dir.path().join("ops.txt");
+    // File form: "\"2.0\"" → after strip → \"2.0\" JSON string (not float).
+    fs::write(&ops, "doc.set config.json version \"\\\"2.0\\\"\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(
+        v["version"], "2.0",
+        "must remain a string, not number 2.0: {v}"
+    );
+    assert!(v["version"].is_string(), "version must be JSON string: {v}");
+}
+
+/// Bare `"2.0"` becomes a JSON number (documented footgun).
+#[test]
+fn test_batch_doc_set_version_bare_2_0_becomes_number() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, "{\"version\":\"1.0.0\"}\n").unwrap();
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "doc.set config.json version \"2.0\"\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert!(
+        v["version"].is_number(),
+        "bare 2.0 becomes JSON number (use nested quotes for string): {v}"
+    );
+}
+
 /// CLI path: agents paste `replace OLD --new NEW path` into batch (fixrealloop/MPI).
 #[test]
 fn test_batch_replace_cli_new_flag_hints_path_old_new() {

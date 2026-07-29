@@ -45,12 +45,13 @@ Every write command supports four modes:
 
 | Flag | Behavior | Use case |
 |------|----------|----------|
-| `--diff` (default) | Print a unified diff of what would change | Preview before applying |
+| default (preview) | Show what would change without writing (exit 2 when changes would occur) | Dry-run before `--apply` |
+| `--diff` | Attach/print a unified diff (combinable with `--apply`) | Prefer explicit diff text |
 | `--check` | Exit 0 if clean, exit 2 if changes detected | CI pipelines, dry-run validation |
 | `--apply` | Write changes to disk | Actual mutation |
 | `--confirm` | Show the diff, then prompt before writing | Interactive preview-then-apply |
 
-These modes are mutually exclusive. Patchloom is safe by default: nothing is written unless you pass `--apply` or confirm an interactive prompt.
+`--apply` / `--check` / `--confirm` conflict with each other; `--diff` may combine with `--apply`. Patchloom is safe by default: nothing is written unless you pass `--apply` or confirm an interactive prompt.
 
 ## Write safety on disk
 

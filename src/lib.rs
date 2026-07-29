@@ -21,17 +21,16 @@
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { default-features = false }
+//! patchloom = { version = "0.22", default-features = false }
 //! ```
 //!
 //! Or with AST support:
 //!
 //! ```toml
-//! patchloom = { default-features = false, features = ["ast"] }
+//! patchloom = { version = "0.22", default-features = false, features = ["ast"] }
 //! ```
 //!
-//! (Update the version number in these examples when the next release-please
-//! PR bumps the crate version. See the release checklist.)
+//! (Keep the version in sync with Cargo.toml / release-please. See the release checklist.)
 //!
 //! This gives you the [`api`] module (primary editing interface), [`ops`],
 //! and utility modules:

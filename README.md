@@ -240,11 +240,14 @@ patchloom doc set config.yaml database.port 5432 --apply
 
 ```bash
 patchloom batch --apply <<'EOF'
-doc.set config.json version "2.0"
+doc.set config.json version '"2.0.0"'
 md.upsert_bullet AGENTS.md "Rules" "- Always test"
 replace src/main.rs "v1" "v2"
 EOF
 ```
+
+Values are JSON-first: unquoted `2.0` becomes a number. Force a string with nested
+quotes as above (Unix shells).
 
 Or use a JSON plan with format and validate lifecycle:
 
@@ -252,7 +255,7 @@ Or use a JSON plan with format and validate lifecycle:
 {
   "version": 1,
   "operations": [
-    { "op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0" },
+    { "op": "doc.set", "path": "config.json", "selector": "version", "value": "2.0.0" },
     { "op": "md.upsert_bullet", "path": "AGENTS.md", "heading": "Rules", "bullet": "- Always test" },
     { "op": "replace", "path": "src/main.rs", "old": "v1", "new": "v2" }
   ],
@@ -287,7 +290,7 @@ Add patchloom as a dependency (omit CLI/MCP/AST with `default-features = false`)
 
 ```toml
 [dependencies]
-patchloom = { default-features = false }
+patchloom = { version = "0.22", default-features = false }
 ```
 
 ```rust

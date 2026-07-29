@@ -135,9 +135,7 @@ fn test_agents_doc_project_inventory_matches_repo_state() {
         "AGENTS.md should describe the current agent-rules implementation location"
     );
     assert!(
-        agents.contains(
-            "25 operation types including all doc/md/replace/tidy/file/patch/read/search ops"
-        ),
+        agents.contains("40 operation types (doc/md/replace/tidy/file/patch/read/search/ast/…)."),
         "AGENTS.md should describe the current tx operation count"
     );
 }

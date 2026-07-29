@@ -113,11 +113,12 @@ src/
   cmd/read.rs          Read file contents with optional line range
   cmd/schema.rs        Export operation schemas with tier filtering and system prompt generation
   cmd/status.rs        Show uncommitted file changes vs git HEAD
-  cmd/tx.rs            Transaction engine: execute a multi-operation plan atomically
+  cmd/tx.rs            Thin CLI entry for `tx` / plan file; engine lives under `tx/`
   cmd/explain/         Parse a tx plan and print a human-readable summary
                          (mod + describe; JSON includes schema catalog blurb per op)
   cmd/undo.rs          Restore files from backup sessions created by --apply
   cmd/init.rs          Project setup: shell completion install, AGENTS.md generation
+  tx/                  Transaction engine (stage, execute, lifecycle, replace/ast ops, output)
   config.rs            Project config file (.patchloom.toml) loading and merging
   backup.rs            Backup session management for undo safety net
   schema.rs            Intent format spec: OperationSchema, Tier, OPERATION_REGISTRY (metadata table),
@@ -133,18 +134,15 @@ src/
                        NO_MATCHES=3, PARSE_ERROR=4, AMBIGUOUS=5, VALIDATION_FAILED=6, ROLLBACK=7,
                        CONFLICTS=8, OPERATION_FAILED=9
   diff.rs              Unified diff generation using similar::TextDiff; FileDiff and DiffResult types
-  ops.rs               Shared operation helpers used by cmd/tx.rs, cmd/doc.rs, cmd/md.rs:
-                       replace (validation, replacement text, content replacement),
-                       doc (format detection, parsing, navigation, merge, update),
-                       md (heading parse, section replace, bullet upsert, table append),
-                       patch (parse, apply hunks with fuzz, loader). Each is a pub(crate) submodule.
+  ops/                 Shared operation helpers used by tx, cmd/doc, cmd/md:
+                       replace, doc, md, patch (each a pub(crate) submodule)
   write.rs             Atomic file writes via tempfile; WritePolicy applies trim, EOL, final newline
   plan/                Transaction plan format (`mod.rs`, `operation.rs`, `tests.rs`): Plan, Operation, …
-                       25 operation types including all doc/md/replace/tidy/file/patch/read/search ops.
+                       40 operation types (doc/md/replace/tidy/file/patch/read/search/ast/…).
                        VerifyCheck defines pre/post symbol verification specs (must live here, not in
                        feature-gated modules, because Plan is always compiled)
 tests/
-  integration.rs       Rust integration tests (cargo test --test integration)
+  integration/         Integration crate (`main.rs` + `*_tests.rs`; cargo test --test integration)
   agent/               Python (pytest) agent integration tests verifying AI agents use patchloom
     conftest.py        Fixtures: workspace with AGENTS.md, patchloom shim for invocation capture
     drivers/           Pluggable agent drivers (GrokDriver first, extensible)
