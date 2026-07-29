@@ -552,6 +552,25 @@ mod basic {
     }
 
     #[test]
+    fn parse_line_file_rename_force_flag() {
+        let op = parse_line("file.rename old.txt new.txt --force", 1).unwrap();
+        assert!(
+            matches!(op, Operation::FileRename { ref from, ref to, force: true }
+            if from == "old.txt" && to == "new.txt"),
+            "got {op:?}"
+        );
+        let op = parse_line("file.rename --force a b", 1).unwrap();
+        assert!(matches!(
+            op,
+            Operation::FileRename {
+                ref from,
+                ref to,
+                force: true
+            } if from == "a" && to == "b"
+        ));
+    }
+
+    #[test]
     fn full_batch_parse() {
         let input = r#"
 # Update versions across the project
