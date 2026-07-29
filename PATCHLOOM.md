@@ -505,7 +505,7 @@ dependencies[name=react].version # predicate filter
 - `doc.prepend`: Prepend a value to the beginning of an array at a selector path.
 - `doc.update`: Set a new value at every location matching a selector. Use wildcards (items[*].enabled) or selector predicates (items[name=foo].v). Not a separate --where flag; the filter is part of the selector string.
 - `doc.delete_where`: Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path. CLI --json and MCP/tx success include changed and removed (0 when no elements match; exit 0 / ok is idempotent).
-- `search`: Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores: literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.
+- `search`: Search for text across files. Pattern is regex by default (set literal:true for fixed strings). Optional context and count assertion. Supports layered ignores: literal, globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.
 - `read`: Read file contents with optional line range.
 - `md.dedupe_headings`: Remove later whole sections whose heading text+level already appeared (heading and body until next same-or-higher heading; unique second-section content is discarded).
 - `md.lint_agents`: Lint an AGENTS.md file for common issues.

@@ -33,17 +33,16 @@ pub(super) fn handle_ast_list(
     if target.is_file() {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
         if !lang.has_grammar() {
-            return exit_code_to_result(
-                exit::NO_MATCHES,
-                &format!(
+            return Err(McpError::invalid_params(
+                format!(
                     "Unsupported language: {} (detected from {}). \
                      Supported: Rust, Python, TypeScript, JavaScript, Go, Java, \
                      C#, Ruby, PHP, Swift, Kotlin, C, C++, HCL, XML, Protobuf, \
                      TOML, YAML, JSON, Shell.",
                     lang, p.path,
                 ),
-                "",
-            );
+                None,
+            ));
         }
         let symbols = crate::ast::symbols::extract_symbols_from_file(&target, Some(lang));
         let filtered = crate::cmd::ast::filter_symbols(&symbols, &kind_filter);

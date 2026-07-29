@@ -549,29 +549,41 @@ fn context_fragment_score(content_fragment: &str, ctx_fragment: &str) -> f64 {
 /// For `after_context`, the first N lines following the match are compared,
 /// plus the same-line suffix after a single-line match.
 /// Tie-breaking: first occurrence (lowest byte offset) wins on equal scores.
-pub fn context_filtered_offset(
+/// Expand a replace template that may contain `${0}` / `$$` (match-anchor form
+/// used for case_insensitive / word_boundary inserts) against the matched text.
+pub fn expand_match_anchor_template(template: &str, matched: &str) -> String {
+    // Reuse regex::Captures::expand so $$ and ${0} match replace_content.
+    let Ok(re) = Regex::new(&format!("^{}$", regex::escape(matched))) else {
+        return template.replace("${0}", matched);
+    };
+    match re.captures(matched) {
+        Some(caps) => expand_regex_replacement(&caps, template),
+        None => template.replace("${0}", matched),
+    }
+}
+
+/// Context disambiguation over precomputed match spans `(start, end)`.
+/// Prefer this when matches come from a regex (case_insensitive / word_boundary).
+pub fn context_filtered_span(
     content: &str,
-    old: &str,
+    matches: &[(usize, usize)],
+    old_for_line_count: &str,
     before_context: Option<&str>,
     after_context: Option<&str>,
-) -> Option<usize> {
+) -> Option<(usize, usize)> {
     if before_context.is_none() && after_context.is_none() {
         return None;
     }
-
-    let offsets: Vec<usize> = content.match_indices(old).map(|(i, _)| i).collect();
-    if offsets.len() < 2 {
-        return None; // single match: no disambiguation needed
+    if matches.len() < 2 {
+        return None;
     }
 
     let lines: Vec<&str> = content.lines().collect();
-    // Build a map: byte-offset-of-line-start -> line-index
     let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
     let mut off = 0;
     for line in &lines {
         line_starts.push(off);
         off += line.len();
-        // skip the newline character(s)
         if content.as_bytes().get(off) == Some(&b'\r') {
             off += 1;
         }
@@ -588,23 +600,20 @@ pub fn context_filtered_offset(
     };
 
     const MAX_CONTEXT_LINES: usize = 3;
-    let old_line_count = old.lines().count().max(1);
-    let single_line_old = old_line_count == 1 && !old.contains('\n');
+    let old_line_count = old_for_line_count.lines().count().max(1);
+    let single_line_old = old_line_count == 1 && !old_for_line_count.contains('\n');
 
-    let mut best: Option<(usize, f64)> = None;
-    for &match_off in &offsets {
+    let mut best: Option<(usize, usize, f64)> = None;
+    for &(match_off, match_end) in matches {
         let match_line = line_index_at(match_off);
         let mut score = 0.0f64;
         let mut checks = 0u32;
 
         if let Some(before) = before_context {
             let ctx_lines: Vec<&str> = before.lines().collect();
-            // Take up to MAX_CONTEXT_LINES from the end (nearest to match first).
             let start = ctx_lines.len().saturating_sub(MAX_CONTEXT_LINES);
             let ctx_tail = &ctx_lines[start..];
             for (i, ctx_line) in ctx_tail.iter().rev().enumerate() {
-                // Nearest before-context fragment also scores the same-line
-                // prefix (agents pass anchors that sit on the match line).
                 if i == 0 && single_line_old && match_line < lines.len() {
                     let line = lines[match_line];
                     let col = match_off
@@ -634,10 +643,8 @@ pub fn context_filtered_offset(
             let n = ctx_lines.len().min(MAX_CONTEXT_LINES);
             let end_line = match_line + old_line_count;
             for (i, ctx_line) in ctx_lines[..n].iter().enumerate() {
-                // Same-line suffix for nearest after-context fragment.
                 if i == 0 && single_line_old && match_line < lines.len() {
                     let line = lines[match_line];
-                    let match_end = match_off.saturating_add(old.len());
                     let col = match_end
                         .saturating_sub(line_starts[match_line])
                         .min(line.len());
@@ -660,12 +667,68 @@ pub fn context_filtered_offset(
             }
         }
 
-        if checks > 0 && score > 0.0 && best.is_none_or(|(_, s)| score > s) {
-            best = Some((match_off, score));
+        if checks > 0 && score > 0.0 && best.is_none_or(|(_, _, s)| score > s) {
+            best = Some((match_off, match_end, score));
         }
     }
 
-    best.map(|(off, _)| off)
+    best.map(|(s, e, _)| (s, e))
+}
+
+pub fn context_filtered_offset(
+    content: &str,
+    old: &str,
+    before_context: Option<&str>,
+    after_context: Option<&str>,
+) -> Option<usize> {
+    context_filtered_offset_with_re(content, old, None, before_context, after_context)
+}
+
+/// Like [`context_filtered_offset`], but when `compiled_re` is set uses regex
+/// match spans (word_boundary / case_insensitive) instead of literal indices.
+pub fn context_filtered_offset_with_re(
+    content: &str,
+    old: &str,
+    compiled_re: Option<&Regex>,
+    before_context: Option<&str>,
+    after_context: Option<&str>,
+) -> Option<usize> {
+    context_filtered_span_with_re(content, old, compiled_re, before_context, after_context)
+        .map(|(s, _)| s)
+}
+
+/// Return `(start, end)` of the context-selected match.
+pub fn context_filtered_span_with_re(
+    content: &str,
+    old: &str,
+    compiled_re: Option<&Regex>,
+    before_context: Option<&str>,
+    after_context: Option<&str>,
+) -> Option<(usize, usize)> {
+    if before_context.is_none() && after_context.is_none() {
+        return None;
+    }
+
+    let matches: Vec<(usize, usize)> = match compiled_re {
+        Some(re) => {
+            let content_len = content.len();
+            re.find_iter(content)
+                .filter(|m| !(m.start() == content_len && m.end() == content_len))
+                .map(|m| (m.start(), m.end()))
+                .collect()
+        }
+        None => {
+            if old.is_empty() {
+                Vec::new()
+            } else {
+                content
+                    .match_indices(old)
+                    .map(|(i, s)| (i, i + s.len()))
+                    .collect()
+            }
+        }
+    };
+    context_filtered_span(content, &matches, old, before_context, after_context)
 }
 
 /// Whole-line replacement: when a line matches the pattern, the entire line

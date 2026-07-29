@@ -256,17 +256,20 @@ fn replace_write(
             && !is_regex
             && (before_context.is_some() || after_context.is_some())
         {
-            if let Some(target_offset) = ops::replace::context_filtered_offset(
+            if let Some((target_offset, match_end)) = ops::replace::context_filtered_span_with_re(
                 &original,
                 &old,
+                compiled_re.as_ref(),
                 before_context.as_deref(),
                 after_context.as_deref(),
             ) {
+                let matched = &original[target_offset..match_end];
+                let piece = ops::replace::expand_match_anchor_template(&replacement, matched);
                 let ctx_content = format!(
                     "{}{}{}",
                     &original[..target_offset],
-                    &replacement,
-                    &original[target_offset + old.len()..],
+                    piece,
+                    &original[match_end..],
                 );
                 let policy = crate::write::WritePolicy::default();
                 let (applied, backup_session) =
@@ -677,17 +680,20 @@ fn replace_in_content_inner(
         && !is_regex
         && (opts.before_context.is_some() || opts.after_context.is_some())
     {
-        if let Some(target_offset) = ops::replace::context_filtered_offset(
+        if let Some((target_offset, match_end)) = ops::replace::context_filtered_span_with_re(
             content,
             from,
+            compiled_re.as_ref(),
             opts.before_context.as_deref(),
             opts.after_context.as_deref(),
         ) {
+            let matched = &content[target_offset..match_end];
+            let piece = ops::replace::expand_match_anchor_template(&replacement, matched);
             let ctx_content = format!(
                 "{}{}{}",
                 &content[..target_offset],
-                replacement,
-                &content[target_offset + from.len()..],
+                piece,
+                &content[match_end..],
             );
             let diff = super::make_diff("<content>", content, &ctx_content);
             return Ok(ContentEditResult {
@@ -698,9 +704,9 @@ fn replace_in_content_inner(
                 match_count: 1,
                 match_mode: Some(MatchMode::Anchored),
                 match_score: None,
-                // Exact span at the context-picked offset (equals `from`; hosts
-                // still get a non-null matched_text on Anchored like fuzzy #1736).
-                matched_text: Some(from.to_string()),
+                // Exact span at the context-picked offset (hosts still get a
+                // non-null matched_text on Anchored like fuzzy #1736).
+                matched_text: Some(matched.to_string()),
             });
         }
         return Err(anyhow::Error::new(crate::exit::AmbiguousError {

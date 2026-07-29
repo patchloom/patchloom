@@ -136,9 +136,12 @@ impl PatchloomService {
         log_flag: Option<String>,
         surface: surface::McpSurface,
     ) -> anyhow::Result<Self> {
+        // Allow absolute paths inside the workspace: agents often copy
+        // server_info.cwd + relative into an absolute path. Outside workspace
+        // still fails closed via PathGuard resolution.
         let path_guard = crate::containment::PathGuard::new(
             cwd.clone(),
-            crate::containment::AbsolutePathPolicy::Reject,
+            crate::containment::AbsolutePathPolicy::AllowIfContained,
         )
         .map_err(|e| {
             anyhow::Error::new(crate::exit::InvalidInputError {

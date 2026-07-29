@@ -233,8 +233,8 @@ pub(crate) struct BatchReplaceParams {
     #[serde(default)]
     pub files: Vec<String>,
     /// Single file (LLM prior). Equivalent to `files: [file]` when `files` is empty.
-    /// If both are set, `files` wins.
-    #[serde(default)]
+    /// If both are set, `files` wins. Alias `path` matches replace_text priors.
+    #[serde(default, alias = "path")]
     pub file: Option<String>,
     /// Text to find in each file.
     /// Alias `from` accepted because agents often emit that name (LLM prior).
@@ -291,8 +291,8 @@ pub(crate) struct BatchTidyParams {
     #[serde(default)]
     pub files: Vec<String>,
     /// Single file (LLM prior). Equivalent to `files: [file]` when `files` is empty.
-    /// If both are set, `files` wins.
-    #[serde(default)]
+    /// If both are set, `files` wins. Alias `path` matches other tools.
+    #[serde(default, alias = "path")]
     pub file: Option<String>,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]

@@ -519,7 +519,7 @@ fn test_ast_list_unsupported_file_reports_language() {
     patchloom_in(dir.path())
         .args(["ast", "list", "data.csv"])
         .assert()
-        .code(3) // NO_MATCHES
+        .code(1) // FAILURE / invalid_input (not empty-symbol no_matches)
         .stderr(predicates::str::contains("Unsupported language"))
         .stderr(predicates::str::contains("Rust"));
 }
@@ -537,7 +537,7 @@ fn test_ast_list_unsupported_quiet_suppresses_stderr() {
         .args(["ast", "list", "data.csv"])
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(output.status.code(), Some(1)); // invalid_input / FAILURE
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.is_empty(),
@@ -1008,7 +1008,7 @@ fn test_ast_list_whitespace_only_path_rejected() {
 
 #[cfg(feature = "ast")]
 #[test]
-fn test_ast_validate_unsupported_language_is_no_matches() {
+fn test_ast_validate_unsupported_language_is_invalid_input() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("notes.txt"), "not source code\n").unwrap();
 
@@ -1019,13 +1019,13 @@ fn test_ast_validate_unsupported_language_is_no_matches() {
 
     assert_eq!(
         output.status.code(),
-        Some(3),
-        "unsupported language must not exit 0; stdout={}",
+        Some(1),
+        "unsupported language is invalid_input (not empty-symbol no_matches); stdout={}",
         String::from_utf8_lossy(&output.stdout)
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert_eq!(json["error_kind"], "no_matches");
+    assert_eq!(json["error_kind"], "invalid_input");
     assert!(
         json["error"]
             .as_str()

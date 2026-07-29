@@ -286,10 +286,12 @@ fn inject_stale_label(msg: &str, label: &str) -> String {
 fn emit_error(global: &GlobalFlags, error: &str, error_kind: &str) -> anyhow::Result<()> {
     // Include error_kind so agents can branch (ambiguous=stale, conflicts=merge
     // conflicts) without scraping the English STALE/MERGE FAILED label.
+    // applied:false matches replace/create error parity (#1835).
     if !global.emit_json(&serde_json::json!({
         "ok": false,
         "error": error,
         "error_kind": error_kind,
+        "applied": false,
     }))? && !global.quiet
     {
         eprintln!("{error}");

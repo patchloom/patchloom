@@ -438,9 +438,12 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "search",
-        description: "Search for text across files with optional regex, context, and count assertion. Supports advanced layered ignores: literal (vs regex), globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.",
+        description: "Search for text across files. Pattern is regex by default (set literal:true for fixed strings). Optional context and count assertion. Supports layered ignores: literal, globs (include), exclude_patterns, custom_ignore_filenames, max_results, before_context/after_context.",
         tier: Tier::Strong,
-        examples: &[],
+        examples: &[(
+            "Literal search (agents: always set literal:true for fixed strings)",
+            r###"{"op":"search","path":".","pattern":"TODO","literal":true}"###,
+        )],
     },
     OpMeta {
         name: "read",

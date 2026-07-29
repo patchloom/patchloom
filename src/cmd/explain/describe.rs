@@ -330,10 +330,11 @@ pub(super) fn describe_operation(op: &Operation) -> String {
         Operation::Search {
             path,
             pattern,
-            regex,
+            literal,
             ..
         } => {
-            let mode = if *regex { "regex" } else { "literal" };
+            // Default (literal=false) is regex to match CLI/MCP behavior.
+            let mode = if *literal { "literal" } else { "regex" };
             format!("Search for \"{pattern}\" in {path} ({mode})")
         }
         Operation::Read { path, lines } => match lines {
