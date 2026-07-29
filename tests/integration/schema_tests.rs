@@ -323,3 +323,25 @@ fn test_schema_ast_rename_path_description_mentions_directory() {
 // ---------------------------------------------------------------------------
 // md --check produces stdout output (#544)
 // ---------------------------------------------------------------------------
+
+#[test]
+fn test_schema_jsonl_global_flag_is_single_line() {
+    // Agents often pass --jsonl globally; format=json must still emit one compact line.
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--jsonl", "schema", "--format", "json"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "schema --jsonl must be one JSON line, got {} lines",
+        lines.len()
+    );
+    let parsed: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(parsed["ok"], true);
+    assert!(parsed["operations"].is_array());
+}

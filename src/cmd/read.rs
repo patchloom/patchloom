@@ -189,7 +189,7 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let multi = args.files.len() > 1;
     let mut outputs: Vec<ReadOutput> = Vec::new();
-    let mut errors: Vec<ReadFail> = Vec::new();
+    let mut errors: Vec<(String, ReadFail)> = Vec::new();
 
     for (i, path) in args.files.iter().enumerate() {
         let resolved = cwd.join(path);
@@ -215,20 +215,35 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 if !structured {
                     eprintln!("read: {e}");
                 }
-                errors.push(e);
+                errors.push((path.clone(), e));
             }
         }
     }
 
     if errors.len() == args.files.len() {
-        let msg = errors
+        let fails: Vec<ReadFail> = errors.iter().map(|(_, e)| e.clone()).collect();
+        let msg = fails
             .iter()
             .map(|e| e.msg.as_str())
             .collect::<Vec<_>>()
             .join("\n");
-        let (kind, code) = classify_read_failures(&errors);
+        let (kind, code) = classify_read_failures(&fails);
+        // All-fail: single error object (json/jsonl), not N lines.
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(code);
+    }
+
+    // Partial --jsonl: stream one failure object per bad path so agents that
+    // only parse stdout still see error_kind (successes already emitted).
+    if global.jsonl && !errors.is_empty() {
+        for (path, e) in &errors {
+            let _ = global.emit_json(&serde_json::json!({
+                "ok": false,
+                "path": path,
+                "error_kind": e.kind,
+                "error": e.msg,
+            }));
+        }
     }
 
     if global.json {
@@ -245,11 +260,12 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 error_kind: &'static str,
                 error: String,
             }
-            let (kind, _) = classify_read_failures(&errors);
+            let fails: Vec<ReadFail> = errors.iter().map(|(_, e)| e.clone()).collect();
+            let (kind, _) = classify_read_failures(&fails);
             let report = PartialReadReport {
                 ok: false,
                 files: outputs,
-                skipped: errors.iter().map(|e| e.msg.clone()).collect(),
+                skipped: errors.iter().map(|(_, e)| e.msg.clone()).collect(),
                 error_kind: kind,
                 error: format!("partial read failure: {} path(s) failed", errors.len()),
             };
@@ -261,7 +277,7 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Always show errors on stderr, even with --quiet (#1179).
     if structured {
-        for error in &errors {
+        for (_, error) in &errors {
             eprintln!("read: {error}");
         }
     }

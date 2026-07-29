@@ -277,9 +277,58 @@ impl PatchloomService {
                 },
             )?;
 
+            let cwd = global
+                .resolve_cwd()
+                .map_err(|e| McpError::internal_error(format!("resolve cwd: {e}"), None))?;
+
+            // Shared CLI honesty for empty scans (missing / sole binary /
+            // unreadable-masked). Used by assert_count(actual=0) and no-match.
+            let empty_scan_hard_fail = |global: &GlobalFlags,
+                                       paths: &[String],
+                                       cwd: &std::path::Path|
+             -> Result<(), McpError> {
+                match crate::files::all_scan_targets_missing(global, paths, Some(cwd)) {
+                    Ok(true) => {
+                        return Err(McpError::invalid_params(
+                            format!(
+                                "no such file or directory: {}",
+                                global.path_scope_description(paths)
+                            ),
+                            None,
+                        ));
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        return Err(McpError::invalid_params(
+                            crate::exit::agent_error_message(&e),
+                            None,
+                        ));
+                    }
+                }
+                if let Some(err) =
+                    crate::ops::file::sole_explicit_non_text_for_scan(paths, None, cwd)
+                {
+                    let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&err);
+                    return Err(McpError::invalid_params(format!("{kind}: {msg}"), None));
+                }
+                let scanned = crate::files::collect_file_paths_opts(paths, global, false, Some(cwd))
+                    .map_err(|e| {
+                        McpError::invalid_params(crate::exit::agent_error_message(&e), None)
+                    })?;
+                if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, cwd)
+                {
+                    return Err(McpError::invalid_params(err.msg, None));
+                }
+                Ok(())
+            };
+
             // --assert-count mode: return count comparison instead of matches.
             if let Some(expected) = p.assert_count {
                 let actual: usize = results.file_match_counts.values().sum();
+                if actual == 0 {
+                    empty_scan_hard_fail(&global, &search_args.paths, &cwd)?;
+                }
                 let matched = actual == expected;
                 let status = if matched {
                     "success"
@@ -313,33 +362,7 @@ impl PatchloomService {
                 results.has_matches()
             };
             if !has_matches {
-                // CLI honesty: missing/binary/unreadable are not soft no-matches.
-                let cwd = global.resolve_cwd().map_err(|e| {
-                    McpError::internal_error(format!("resolve cwd: {e}"), None)
-                })?;
-                if crate::files::all_scan_targets_missing(&global, &search_args.paths, Some(&cwd))
-                    .unwrap_or(false)
-                {
-                    return Err(McpError::invalid_params(
-                        format!(
-                            "no such file or directory: {}",
-                            global.path_scope_description(&search_args.paths)
-                        ),
-                        None,
-                    ));
-                }
-                if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
-                    &search_args.paths,
-                    None,
-                    &cwd,
-                ) {
-                    let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
-                    let msg = crate::exit::agent_error_message(&err);
-                    return Err(McpError::invalid_params(
-                        format!("{kind}: {msg}"),
-                        None,
-                    ));
-                }
+                empty_scan_hard_fail(&global, &search_args.paths, &cwd)?;
                 // True pattern miss: CLI-shaped JSON so agents can branch.
                 let body = serde_json::json!({
                     "ok": false,
@@ -353,16 +376,18 @@ impl PatchloomService {
                 )]));
             }
 
-            let cwd = global.resolve_cwd().map_err(|e| {
-                McpError::internal_error(format!("resolve cwd: {e}"), None)
-            })?;
+            // cwd already resolved for empty-scan honesty.
             let refused =
                 crate::cmd::search::explicit_binary_refused(&search_args, &global, &cwd);
+            let skipped = crate::files::scan_missing_entries(&global, &cwd, &search_args.paths)
+                .map_err(|e| {
+                    McpError::invalid_params(crate::exit::agent_error_message(&e), None)
+                })?;
             let output = crate::cmd::search::format_results(
                 results,
                 &search_args,
                 &global,
-                None,
+                skipped,
                 refused,
             )
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;

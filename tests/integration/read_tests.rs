@@ -359,6 +359,50 @@ fn test_read_multiple_files_jsonl() {
     assert!(j2["content"].as_str().unwrap().contains("second"));
 }
 
+/// Partial multi-path --jsonl must emit structured failure lines with error_kind
+/// so agents that only parse stdout do not miss failed paths.
+#[test]
+fn test_read_jsonl_partial_failure_emits_error_lines() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("ok.txt");
+    fs::write(&existing, "hello\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--jsonl")
+        .arg("read")
+        .arg(existing.to_str().unwrap())
+        .arg(nonexistent_path("missing-jsonl-partial"))
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let lines: Vec<&str> = std::str::from_utf8(&output.stdout)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert!(
+        lines.len() >= 2,
+        "expect success line + failure line, got: {lines:?}"
+    );
+    let ok_line: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert!(
+        ok_line["content"].as_str().unwrap_or("").contains("hello"),
+        "{ok_line}"
+    );
+    let fail_line: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(fail_line["ok"], false, "{fail_line}");
+    assert_eq!(fail_line["error_kind"], "not_found", "{fail_line}");
+    assert!(
+        fail_line["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("missing-jsonl-partial"),
+        "{fail_line}"
+    );
+}
+
 #[test]
 fn test_read_partial_failure_returns_failure() {
     let dir = TempDir::new().unwrap();
