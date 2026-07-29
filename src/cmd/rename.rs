@@ -308,17 +308,19 @@ fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Resul
     match fs::rename(src, dst) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device(&e) => {
+            // Only remove dest on rollback if we created it; force overwrite
+            // must not delete the pre-existing dest (backup holds prior bytes).
+            let dest_existed = dst.exists();
             fs::copy(src, dst).with_context(|| {
                 format!("cross-device copy {} -> {}", src.display(), dst.display())
             })?;
             if let Err(remove_err) = fs::remove_file(src) {
-                // Best-effort rollback: drop the dest copy so we do not leave
-                // two copies after a failed apply (backup session may still
-                // recover source via undo).
-                let _ = fs::remove_file(dst);
+                if !dest_existed {
+                    let _ = fs::remove_file(dst);
+                }
                 return Err(remove_err).with_context(|| {
                     format!(
-                        "removing source after cross-device copy: {}; rolled back dest {}",
+                        "removing source after cross-device copy: {} -> {}",
                         src.display(),
                         dst.display()
                     )
