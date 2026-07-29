@@ -26,8 +26,8 @@ def test_doc_set(agent, workspace, patchloom_shim):
         workspace,
         patchloom_shim,
         "Set the 'debug' key to true in config.json.",
+        require_patchloom=True,
     )
-
     # Primary: patchloom doc was used
     assert_patchloom_used(result, "doc")
 
@@ -65,8 +65,8 @@ def test_md_table(agent, workspace, patchloom_shim):
         patchloom_shim,
         "Add a new row to the Commands table in README.md: "
         "command is `lint` and description is `Run the linter`.",
+        require_patchloom=True,
     )
-
     # Primary: patchloom md was used
     assert_patchloom_used(result, "md")
 
@@ -95,8 +95,8 @@ def test_doc_merge(agent, workspace, patchloom_shim):
         "Add a 'database' section to config.yaml with these values: "
         "host is 'localhost', port is 5432, and name is 'mydb'. "
         "Keep the existing 'app' section intact.",
+        require_patchloom=True,
     )
-
     # Primary: patchloom doc was used
     assert_patchloom_used(result, "doc")
 
@@ -137,8 +137,8 @@ def test_md_replace_section(agent, workspace, patchloom_shim):
         "pip install myproject\n"
         "```\n\n"
         "Keep all other sections unchanged.",
+        require_patchloom=True,
     )
-
     # Primary: patchloom md was used
     assert_patchloom_used(result, "md")
 
@@ -175,8 +175,8 @@ def test_md_upsert_bullet(agent, workspace, patchloom_shim):
         "CONTRIBUTING.md if it is not already there: "
         "'All functions must have type annotations'. "
         "Do not duplicate it if it already exists.",
+        require_patchloom=True,
     )
-
     # Primary: patchloom md was used
     assert_patchloom_used(result, "md")
 

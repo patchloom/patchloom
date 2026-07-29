@@ -40,6 +40,29 @@ pytest -v --model gpt-5
    - **Patchloom was used** for the expected command (primary, hard failure)
    - **Correct file state** after the operation (secondary)
 
+### Why agents skip the shim (and how the harness forces CLI use)
+
+Two independent bypasses were observed:
+
+1. **Native `search_replace`** edits files without any CLI (PATH never involved).
+2. **Grok shell ignores process PATH** and runs a global install
+   (`/opt/homebrew/bin/patchloom`, often an old version). The logging shim on
+   `PATH` is never hit, so `patchloom_calls: []` even when the model “used
+   patchloom.”
+
+Soft AGENTS.md language (“prefer `doc` / `md`”) is not enough.
+
+For tests that call `assert_patchloom_used`, pass `require_patchloom=True` to
+`run_scenario`. That:
+
+1. Prepends a hard requirement to use **`./bin/patchloom`** (workspace shim)
+2. Appends an **Agent harness contract** block to workspace `AGENTS.md`
+3. On Grok, passes `--disallowed-tools search_replace` plus `--rules`
+4. Installs `workspace/bin/patchloom` as a logging shim to the cargo-built binary
+
+Always invoke `./bin/patchloom` in agent-facing prompts for require_patchloom
+tests; bare `patchloom` may still resolve to Homebrew.
+
 ## Adding a new scenario
 
 1. Pick the right test file (`test_basic.py`, `test_batch.py`, `test_structured.py`, or `test_files.py`)

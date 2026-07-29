@@ -61,8 +61,8 @@ def test_tx_multi_file(agent, workspace, patchloom_shim):
         "2. Update the version in package.json from '1.0.0' to '3.0.0'\n"
         "Use a single patchloom tx plan so both changes happen atomically.",
         max_turns=20,
+        require_patchloom=True,
     )
-
     # Primary: patchloom tx was used
     assert_patchloom_used(result, "tx")
 
@@ -86,8 +86,8 @@ def test_tidy(agent, workspace, patchloom_shim):
         workspace,
         patchloom_shim,
         "Fix trailing whitespace in all text files in this project.",
+        require_patchloom=True,
     )
-
     # Primary: patchloom tidy was used
     assert_patchloom_used(result, "tidy")
 
@@ -128,8 +128,8 @@ def test_tx_read_then_edit(agent, workspace, patchloom_shim):
         "Use patchloom tx with a read operation followed by replace operations "
         "so everything happens in one atomic plan.",
         max_turns=20,
+        require_patchloom=True,
     )
-
     # Primary: patchloom tx was used (the tx plan should include a read op)
     assert_patchloom_used(result, "tx")
 
@@ -171,8 +171,8 @@ def test_tx_format_validate(agent, workspace, patchloom_shim):
         "transaction plan. Include a validate step that runs "
         "'./check.sh' to verify both files were updated correctly.",
         max_turns=20,
+        require_patchloom=True,
     )
-
     # Primary: patchloom tx was used
     assert_patchloom_used(result, "tx")
 

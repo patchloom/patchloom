@@ -25,6 +25,8 @@ class GrokDriver(AgentDriver):
         max_turns: int = 10,
         timeout_secs: int = 120,
         extra_env: dict | None = None,
+        disallowed_tools: list[str] | None = None,
+        extra_rules: str | None = None,
     ) -> AgentResult:
         shim_env = extra_env or {}
         env = {**os.environ, **shim_env}
@@ -42,6 +44,12 @@ class GrokDriver(AgentDriver):
             "-m",
             self.model,
         ]
+        # Deny native file-edit tools so structured-edit tests cannot pass by
+        # rewriting files without ever hitting the PATH patchloom shim.
+        if disallowed_tools:
+            cmd.extend(["--disallowed-tools", ",".join(disallowed_tools)])
+        if extra_rules:
+            cmd.extend(["--rules", extra_rules])
 
         start = time.monotonic()
         try:

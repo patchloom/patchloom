@@ -25,8 +25,11 @@ class ClineDriver(AgentDriver):
         max_turns: int = 10,
         timeout_secs: int = 120,
         extra_env: dict | None = None,
+        disallowed_tools: list[str] | None = None,
+        extra_rules: str | None = None,
     ) -> AgentResult:
         env = {**os.environ, **(extra_env or {})}
+        _ = (disallowed_tools, extra_rules)  # optional; not all CLIs support
         cmd = [
             "cline",
             prompt,
