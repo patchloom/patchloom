@@ -663,18 +663,27 @@ fn test_md_lint_agents_jsonl_output() {
     assert_eq!(output.status.code(), Some(2));
     let stdout = String::from_utf8(output.stdout).unwrap();
     let lines: Vec<&str> = stdout.trim().lines().collect();
-    assert!(!lines.is_empty());
-    // Each line must be valid JSON with an "issue" string field
+    assert!(lines.len() >= 2, "issues + summary: {lines:?}");
+    let mut saw_issue = false;
+    let mut saw_summary = false;
     for line in &lines {
         let parsed: serde_json::Value = serde_json::from_str(line).unwrap();
-        let issue_val = parsed
-            .get("issue")
-            .expect("issue field missing in JSONL line");
-        assert!(
-            issue_val.is_string(),
-            "issue field should be a string: {issue_val}"
-        );
+        if parsed.get("type").and_then(|t| t.as_str()) == Some("summary") {
+            saw_summary = true;
+            assert_eq!(parsed["ok"], false, "{parsed}");
+            assert_eq!(parsed["error_kind"], "changes_detected", "{parsed}");
+        } else {
+            saw_issue = true;
+            let issue_val = parsed
+                .get("issue")
+                .expect("issue field missing in JSONL line");
+            assert!(
+                issue_val.is_string(),
+                "issue field should be a string: {issue_val}"
+            );
+        }
     }
+    assert!(saw_issue && saw_summary, "need issues + dirty summary");
 }
 
 // ---------------------------------------------------------------------------

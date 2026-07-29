@@ -554,7 +554,16 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     issues: issues.clone(),
                 })?;
             } else if global.jsonl {
+                // Stream issues, then summary with ok/error_kind (parity --json).
                 global.emit_json_items(&issues)?;
+                let dirty = !issues.is_empty();
+                global.emit_json(&serde_json::json!({
+                    "type": "summary",
+                    "ok": !dirty,
+                    "path": file,
+                    "issue_count": issues.len(),
+                    "error_kind": if dirty { Some("changes_detected") } else { None::<&str> },
+                }))?;
             } else if !global.quiet {
                 for issue in &issues {
                     match (issue.line, &issue.heading) {

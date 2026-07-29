@@ -274,10 +274,18 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
             if !lang.has_grammar() {
                 return None;
             }
+            // Do not soft-drop load failures (.ok()?): binary / unreadable
+            // would become invisible "validated OK" on partial trees.
             let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
             let display = display_path(path, &cwd);
             Some(ValidateFileResult { display, result })
         });
+
+    // Unreadable co-paths must not look like clean validate or empty grammar set.
+    if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+        global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+        return Ok(exit::FAILURE);
+    }
 
     // Directory walk can include only non-grammar files filtered inside the
     // loop, or every validate_file call can fail. Do not report success with
@@ -367,6 +375,22 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
     struct SearchFileResult {
         display: String,
         matches: Vec<crate::ast::search::SearchMatch>,
+    }
+
+    // Fail closed on invalid S-expression before the walk soft-drops ParseError.
+    if !args.pattern
+        && let Some(sample) = paths
+            .iter()
+            .find(|p| resolve_lang(lang_hint, p).has_grammar())
+    {
+        let lang = resolve_lang(lang_hint, sample);
+        if let Err(e) = crate::ast::search::search_file(sample, &args.query, Some(lang), Some(1))
+            && crate::exit::is_parse_error(&e)
+        {
+            let msg = crate::exit::agent_error_message(&e);
+            global.emit_error_json_kind(Some("parse_error"), &msg)?;
+            return Ok(exit::PARSE_ERROR);
+        }
     }
 
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
@@ -768,6 +792,10 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
     let nodes = crate::ast::impact::compute_impact(&args.symbol, &file_pairs, args.depth);
 
     if nodes.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         global.emit_error_json_kind(
             Some("no_matches"),
             &format!("no references found for '{}'", args.symbol),

@@ -1494,6 +1494,50 @@ fn test_search_files_from_missing_reported_in_json() {
     );
 }
 
+/// --jsonl with hits + missing co-path must trailer skipped (parity with --json).
+#[test]
+fn test_search_jsonl_partial_files_from_emits_skipped_summary() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hello world\n").unwrap();
+    let list = dir.path().join("list.txt");
+    fs::write(&list, "a.txt\nmissing.txt\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--jsonl", "--quiet", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "search", "hello"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    let summary = lines
+        .iter()
+        .rev()
+        .find_map(|l| {
+            let v: serde_json::Value = serde_json::from_str(l).ok()?;
+            if v.get("type").and_then(|t| t.as_str()) == Some("summary") {
+                Some(v)
+            } else {
+                None
+            }
+        })
+        .expect("jsonl search with skipped must emit type=summary trailer");
+    let skipped = summary["skipped"]
+        .as_array()
+        .expect("summary.skipped array");
+    assert!(
+        skipped.iter().any(|s| s.as_str() == Some("missing.txt")),
+        "expected missing.txt in summary.skipped: {summary}"
+    );
+}
+
 /// --max-results caps the matches array while match_count stays full.
 /// Agents need truncated=true so they do not treat matches as complete.
 #[test]

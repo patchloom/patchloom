@@ -340,12 +340,18 @@ pub(crate) fn format_results(
                 }
                 out.push('\n');
             }
-            if truncated {
+            let need_summary = truncated
+                || skipped.as_ref().is_some_and(|s| !s.is_empty())
+                || refused.as_ref().is_some_and(|r| !r.is_empty());
+            if need_summary {
                 out.push_str(&serde_json::to_string(&serde_json::json!({
                     "type": "summary",
+                    "ok": true,
                     "file_count": full_file_count,
                     "file_emitted": paths.len(),
-                    "truncated": true,
+                    "truncated": truncated,
+                    "skipped": skipped,
+                    "refused": refused,
                 }))?);
                 out.push('\n');
             }
@@ -357,15 +363,21 @@ pub(crate) fn format_results(
                 out.push_str(&serde_json::to_string(m)?);
                 out.push('\n');
             }
-            // Trailer when --max-results capped the stream (fixrealloop):
-            // agents using --jsonl cannot infer total from match lines alone.
-            if truncated {
+            // Trailer when --max-results capped the stream, or when skipped/
+            // refused would only appear under --json (agent --jsonl parity).
+            let need_summary = truncated
+                || skipped.as_ref().is_some_and(|s| !s.is_empty())
+                || refused.as_ref().is_some_and(|r| !r.is_empty());
+            if need_summary {
                 out.push_str(&serde_json::to_string(&serde_json::json!({
                     "type": "summary",
+                    "ok": true,
                     "match_count": match_count,
                     "match_emitted": emitted,
                     "file_count": results.file_match_counts.len(),
-                    "truncated": true,
+                    "truncated": truncated,
+                    "skipped": skipped,
+                    "refused": refused,
                 }))?);
                 out.push('\n');
             }

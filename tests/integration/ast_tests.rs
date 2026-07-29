@@ -554,11 +554,37 @@ fn test_ast_search_no_match_exits_3() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("lib.rs");
     fs::write(&f, "fn foo() {}\n").unwrap();
-    // Query for class_declaration which does not exist in Rust
+    // Valid Rust S-expression that simply finds nothing (no structs in file).
+    // Invalid node types for the language are parse_error exit 4, not no_matches.
     patchloom_in(dir.path())
-        .args(["ast", "search", "(class_declaration) @cls", "lib.rs"])
+        .args(["ast", "search", "(struct_item) @s", "lib.rs"])
         .assert()
         .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_search_invalid_query_exits_4() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "fn foo() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "ast",
+            "search",
+            "(class_declaration) @cls",
+            "lib.rs",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "invalid S-expression must be parse_error"
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["error_kind"], "parse_error", "{json}");
 }
 
 #[test]
