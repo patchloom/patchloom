@@ -538,9 +538,11 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     }
 
     if matched.is_empty() {
-        // No files matched; clear operations (nothing to do).
-        plan.operations.clear();
-        return Ok(());
+        // Fail closed: typo globs / wrong cwd must not look like a successful
+        // empty apply. Agents branch on exit 0 as "batch done".
+        return Err(anyhow::Error::new(crate::exit::NoMatchError {
+            msg: "for_each matched zero files (check glob, cwd, exclude, and filter)".into(),
+        }));
     }
 
     // 4. Serialize template operations once, then substitute per file.

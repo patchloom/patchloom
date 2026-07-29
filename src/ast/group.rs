@@ -19,14 +19,27 @@ pub enum GroupPosition {
 /// Parse a plan/CLI position string into [`GroupPosition`].
 ///
 /// Shared by library AST ops and the tx engine so `after:` parsing cannot
-/// diverge (#1376).
-pub fn parse_group_position(s: Option<&str>) -> GroupPosition {
+/// diverge (#1376). Unknown tokens fail closed (agents inventing `start` /
+/// `top` / `before:X` must not silently land at FirstSymbol).
+pub fn parse_group_position(s: Option<&str>) -> anyhow::Result<GroupPosition> {
     match s {
-        Some("end") => GroupPosition::End,
+        None | Some("") | Some("first-symbol") | Some("first") => Ok(GroupPosition::FirstSymbol),
+        Some("end") => Ok(GroupPosition::End),
         Some(raw) if let Some(name) = raw.strip_prefix("after:") => {
-            GroupPosition::After(name.to_string())
+            if name.is_empty() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "ast.group position after: requires a symbol name".into(),
+                }
+                .into());
+            }
+            Ok(GroupPosition::After(name.to_string()))
         }
-        _ => GroupPosition::FirstSymbol,
+        Some(other) => Err(crate::exit::InvalidInputError {
+            msg: format!(
+                "unknown ast.group position {other:?}; use end, first-symbol, first, or after:NAME"
+            ),
+        }
+        .into()),
     }
 }
 
@@ -229,7 +242,13 @@ pub fn group_symbols(
             if let Some(sym) = find_symbol(&mod_symbols, sym_name) {
                 sym.end_line.min(modified_lines.len())
             } else {
-                modified_lines.len()
+                // Fail closed: missing anchor must not silently place at EOF
+                // (parity with ast.move).
+                return Err(anyhow::Error::new(crate::exit::NoMatchError {
+                    msg: format!(
+                        "ast.group position after:{sym_name}: symbol not found in remaining file"
+                    ),
+                }));
             }
         }
     };
@@ -289,21 +308,28 @@ mod tests {
     #[test]
     fn parse_group_position_variants() {
         assert!(matches!(
-            parse_group_position(None),
+            parse_group_position(None).unwrap(),
             GroupPosition::FirstSymbol
         ));
         assert!(matches!(
-            parse_group_position(Some("end")),
+            parse_group_position(Some("end")).unwrap(),
             GroupPosition::End
         ));
         assert!(matches!(
-            parse_group_position(Some("after:Foo")),
+            parse_group_position(Some("after:Foo")).unwrap(),
             GroupPosition::After(ref name) if name == "Foo"
         ));
         assert!(matches!(
-            parse_group_position(Some("unknown")),
+            parse_group_position(Some("first-symbol")).unwrap(),
             GroupPosition::FirstSymbol
         ));
+        let err = parse_group_position(Some("start")).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown"),
+            "start is not a group position: {err}"
+        );
+        let err = parse_group_position(Some("top")).unwrap_err();
+        assert!(err.to_string().contains("unknown"), "{err}");
     }
 
     #[test]

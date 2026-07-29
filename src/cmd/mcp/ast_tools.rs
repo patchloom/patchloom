@@ -257,6 +257,23 @@ pub(super) fn handle_ast_validate(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
+    // Sole explicit path without grammar: invalid_input (CLI parity).
+    if paths.len() == 1 {
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&paths[0]));
+        if !lang.has_grammar() {
+            return Err(McpError::invalid_params(
+                format!(
+                    "Unsupported language: {} (detected from {}). \
+                     Supported: Rust, Python, TypeScript, JavaScript, Go, Java, \
+                     C#, Ruby, PHP, Swift, Kotlin, C, C++, HCL, XML, Protobuf, \
+                     TOML, YAML, JSON, Shell.",
+                    lang, p.path,
+                ),
+                None,
+            ));
+        }
+    }
+
     let results: Vec<serde_json::Value> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
         if !lang.has_grammar() {
@@ -273,11 +290,22 @@ pub(super) fn handle_ast_validate(
     });
 
     if results.is_empty() {
-        return no_results("No files with grammars found.");
+        return Err(McpError::invalid_params(
+            "No files with grammars found.",
+            None,
+        ));
     }
+    let any_invalid = results
+        .iter()
+        .any(|r| r.get("valid") == Some(&serde_json::json!(false)));
     let json = serde_json::to_string_pretty(&results)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    // CLI exits 1 when invalid; hosts that only check isError must see failure.
+    if any_invalid {
+        Ok(CallToolResult::error(vec![ContentBlock::text(json)]))
+    } else {
+        Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
 }
 
 pub(super) fn handle_ast_search(
@@ -990,6 +1018,10 @@ impl Point {
         };
 
         let result = handle_ast_validate(&svc, params).unwrap();
+        assert!(
+            result.is_error.is_some_and(|v| v),
+            "invalid syntax must set isError so agents do not treat as clean"
+        );
         let text = extract_text(&result);
         assert!(text.contains("\"valid\": false"));
     }

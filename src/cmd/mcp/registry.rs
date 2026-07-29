@@ -374,6 +374,8 @@ const FIELD_ALIASES: &[(&str, &str)] = &[
     ("new", "fragment"),
     ("to", "fragment"),
     ("content", "fragment"),
+    // md.upsert_bullet: CLI --content alias; only when schema allows bullet.
+    ("content", "bullet"),
     ("ops", "operations"),
 ];
 

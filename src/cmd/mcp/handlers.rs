@@ -499,12 +499,17 @@ impl PatchloomService {
             let issues = crate::ops::md::lint_agents_content(&content);
             // Envelope matches CLI `md lint-agents --json` (#1854 / #1859).
             // Always tool success (isError=false); agents branch on ok / issue_count.
-            let envelope = serde_json::json!({
+            let mut envelope = serde_json::json!({
                 "ok": issues.is_empty(),
                 "path": p.path,
                 "issue_count": issues.len(),
                 "issues": issues,
             });
+            // CLI md lint-agents --json sets error_kind when dirty; agents
+            // branch the same way across surfaces.
+            if !issues.is_empty() {
+                envelope["error_kind"] = serde_json::json!("changes_detected");
+            }
             let json = serde_json::to_string_pretty(&envelope)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))

@@ -213,8 +213,14 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
             let pos = match position.as_deref() {
+                None | Some("") | Some("end") => crate::ast::insert::InsertPosition::End,
                 Some("start") => crate::ast::insert::InsertPosition::Start,
-                _ => crate::ast::insert::InsertPosition::End,
+                Some(other) => {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("unknown ast.insert position {other:?}; use start or end"),
+                    }
+                    .into());
+                }
             };
             let result = crate::ast::insert::insert_code(
                 file_content,
@@ -332,7 +338,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .as_deref()
                 .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
-            let pos = crate::ast::group::parse_group_position(position.as_deref());
+            let pos = crate::ast::group::parse_group_position(position.as_deref())?;
             let spec = crate::ast::group::GroupSpec {
                 module: module.clone(),
                 symbols: sym_names.clone(),
@@ -370,7 +376,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .as_deref()
                 .map(crate::ast::Language::from_name_or_ext)
                 .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
-            let pos = crate::ast::move_symbols::parse_position(position.as_deref());
+            let pos = crate::ast::move_symbols::parse_position(position.as_deref())?;
             let result = crate::ast::move_symbols::move_symbols(
                 &source_content,
                 &target_content,

@@ -587,6 +587,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         };
         let mut results = Vec::new();
         let mut all_ok = true;
+        let mut any_would_change = false;
         for pf in &patch_files {
             let file_path = cwd.join(&pf.path);
             // Merge check: missing target → empty; binary/utf8 → typed kinds.
@@ -621,6 +622,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     if applied.status == ApplyHunksStatus::Conflict {
                         all_ok = false;
                     }
+                    // Clean means apply without fuzz, not "no content change".
+                    // Compare content for identity (new-file create is Clean).
+                    if applied.content != original {
+                        any_would_change = true;
+                    }
                     results.push(patch_file_result(&pf.path, &applied));
                 }
                 Err(msg) => {
@@ -637,13 +643,16 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         emit_patch_files_output(global, all_ok, &results, Some(false), None)?;
         let has_errors = results.iter().any(|r| r.status == "error");
         let has_conflicts = results.iter().any(|r| r.status == "conflict");
+        // Identity / already-applied (content == original): exit 0 so agents
+        // do not loop on exit 2 forever (parity with patch check).
         return Ok(if has_errors {
             exit::AMBIGUOUS
         } else if has_conflicts && !apply_options.allow_conflicts {
             exit::CONFLICTS
-        } else {
-            // Preview/check mode: report that changes would be applied.
+        } else if any_would_change {
             exit::CHANGES_DETECTED
+        } else {
+            exit::SUCCESS
         });
     }
 
@@ -701,11 +710,12 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             on_check: |g: &GlobalFlags, _has: bool, diffs: &[crate::diff::FileDiff]| {
                 let files = build_file_results(diffs, "would_change");
                 let changed = files.len();
-                if changed > 0 {
+                // Always emit JSON on --check (even empty) so agents parse stdout.
+                if g.json || g.jsonl || changed > 0 {
                     emit_patch_files_output(g, true, &files, Some(false), None)?;
-                    if !(g.json || g.jsonl || g.quiet) {
-                        println!("{changed} file(s) would change");
-                    }
+                }
+                if changed > 0 && !(g.json || g.jsonl || g.quiet) {
+                    println!("{changed} file(s) would change");
                 }
                 Ok(())
             },

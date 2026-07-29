@@ -384,12 +384,18 @@ pub(crate) fn run_parsed_plan(
         && let Err(e) = crate::plan::expand_for_each(&mut plan, &base_cwd)
     {
         let msg = e.to_string();
+        // Zero matches is no_matches (exit 3); other expand failures stay parse_error.
+        let (kind, code) = if crate::exit::is_no_match(&e) {
+            ("no_matches", exit::NO_MATCHES)
+        } else {
+            ("parse_error", exit::PARSE_ERROR)
+        };
         if structured {
-            let ok = emit_error_json("parse_error", &msg, None, compact);
-            return Ok(exit_after_emit(ok, exit::PARSE_ERROR));
+            let ok = emit_error_json(kind, &msg, None, compact);
+            return Ok(exit_after_emit(ok, code));
         }
         eprintln!("tx: {msg}");
-        return Ok(exit::PARSE_ERROR);
+        return Ok(code);
     }
 
     // Symbol verify needs AST. Without the feature, reject so agents do not
