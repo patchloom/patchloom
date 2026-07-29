@@ -289,6 +289,11 @@ pub(super) fn handle_ast_validate(
         }))
     });
 
+    // CLI parity: unreadable co-paths are not soft empty / no-grammar.
+    if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+        return Err(McpError::invalid_params(err.msg, None));
+    }
+
     if results.is_empty() {
         return Err(McpError::invalid_params(
             "No files with grammars found.",

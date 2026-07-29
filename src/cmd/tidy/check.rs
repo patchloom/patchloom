@@ -243,7 +243,19 @@ pub(super) fn render_issues(
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
+        // Stream issues, then dirty summary so agents that only parse stdout
+        // still see error_kind / skipped / refused (parity with --json).
         global.emit_json_items(issues)?;
+        let dirty = !issues.is_empty();
+        global.emit_json(&serde_json::json!({
+            "type": "summary",
+            "ok": !dirty,
+            "issue_count": issues.len(),
+            "status": if dirty { Some("changes_detected") } else { None::<&str> },
+            "error_kind": if dirty { Some("changes_detected") } else { None::<&str> },
+            "skipped": skipped,
+            "refused": refused,
+        }))?;
     } else {
         for issue in issues {
             if let Some(line) = issue.line {

@@ -95,13 +95,24 @@ fn test_tidy_check_jsonl_output() {
         .collect();
 
     assert!(
-        lines.len() >= 2,
-        "should have at least one JSONL line per issue"
+        lines.len() >= 3,
+        "expect issue lines + dirty summary trailer, got {lines:?}"
     );
+    let mut saw_issue = false;
+    let mut saw_summary = false;
     for line in &lines {
-        assert!(line["path"].is_string());
-        assert!(line["issue"].is_string());
+        if line.get("type").and_then(|t| t.as_str()) == Some("summary") {
+            saw_summary = true;
+            assert_eq!(line["ok"], false, "{line}");
+            assert_eq!(line["error_kind"], "changes_detected", "{line}");
+        } else {
+            saw_issue = true;
+            assert!(line["path"].is_string());
+            assert!(line["issue"].is_string());
+        }
     }
+    assert!(saw_issue, "expected issue lines");
+    assert!(saw_summary, "expected type=summary dirty trailer");
 }
 
 #[test]
