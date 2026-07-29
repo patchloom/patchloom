@@ -4415,12 +4415,14 @@ fn test_tx_strict_mode_reverts_on_validate_failure() {
     let file = dir.path().join("test.txt");
     fs::write(&file, "original\n").unwrap();
 
+    // Relative path + --cwd (same as format-fail restore tests): absolute
+    // plan paths can desync backup restore keys on Windows.
     let plan = serde_json::json!({
-            "version": 1,
+        "version": 1,
         "strict": true,
         "operations": [{
             "op": "replace",
-            "path": file.to_str().unwrap(),
+            "path": "test.txt",
             "old": "original",
             "new": "changed"
         }],
@@ -4432,15 +4434,28 @@ fn test_tx_strict_mode_reverts_on_validate_failure() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
         .arg("tx")
-        .arg(plan_file.to_str().unwrap())
+        .arg("plan.json")
         .arg("--apply")
-        .assert()
-        .code(7); // ROLLBACK
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(7), // ROLLBACK
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
-    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "original\n",
+        "strict validate fail must restore original content"
+    );
 }
 
 #[test]
