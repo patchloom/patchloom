@@ -211,11 +211,11 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             op!(FilePrepend { path, content })
         }
         "file.create" => {
-            let (path, content) = path_and_joined_content(op, args, line_num)?;
+            let (path, content, force) = path_and_joined_content_create(op, args, line_num)?;
             op!(FileCreate {
                 path,
                 content,
-                force: None
+                force: if force { Some(true) } else { None }
             })
         }
         "file.delete" => {
@@ -745,6 +745,39 @@ fn path_and_joined_content(
         args[1..].join(" ")
     };
     Ok((path, expand_content_escapes(&raw)))
+}
+
+/// Like [`path_and_joined_content`], but peels optional `--force` so CLI-shaped
+/// batch lines do not write the flag into file content.
+fn path_and_joined_content_create(
+    op: &str,
+    args: &[String],
+    line_num: usize,
+) -> anyhow::Result<(String, String, bool)> {
+    if args.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: '{op}' requires a path argument, got 0"),
+        }));
+    }
+    let path = args[0].clone();
+    let mut force = false;
+    let mut content_parts: Vec<&str> = Vec::new();
+    for tok in args.iter().skip(1) {
+        if tok == "--force" {
+            force = true;
+            continue;
+        }
+        if tok.starts_with("--") {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!(
+                    "line {line_num}: '{op}' unknown flag {tok}; only --force is supported before content"
+                ),
+            }));
+        }
+        content_parts.push(tok.as_str());
+    }
+    let raw = content_parts.join(" ");
+    Ok((path, expand_content_escapes(&raw), force))
 }
 
 /// Expand common escapes in batch file content (`\n` `\t` `\r` `\\` `\"`).

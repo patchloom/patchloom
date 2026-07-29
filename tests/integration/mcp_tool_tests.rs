@@ -3251,8 +3251,11 @@ async fn test_mcp_ast_validate_syntax_error() {
         serde_json::json!({"path": "bad.rs"}),
     )
     .await;
-    // ast_validate returns success with errors in the response body
-    assert!(!is_error, "ast_validate should not be a tool error: {val}");
+    // Syntax errors must set isError so hosts that only check the flag fail closed.
+    assert!(
+        is_error,
+        "ast_validate syntax error must be a tool error: {val}"
+    );
     let results = val.as_array().expect("ast_validate should return array");
     assert!(
         results.iter().any(|r| r["valid"] == false),

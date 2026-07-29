@@ -227,6 +227,8 @@ pub enum Operation {
     MdUpsertBullet {
         path: String,
         heading: String,
+        /// Bullet text. Alias `content` matches CLI `--content` / other md ops.
+        #[serde(alias = "content")]
         bullet: String,
     },
     #[serde(rename = "md.table_append")]

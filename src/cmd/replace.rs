@@ -690,8 +690,9 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     // Context / pure fuzzy: route through the tx engine where the
     // context_filtered_offset and fallback chain live (#1668).
+    // Pass files_from_list so --files-from - is not re-read empty.
     if args.fuzzy || args.before_context.is_some() || args.after_context.is_some() {
-        return run_context_replace(args, global, &cwd, skipped);
+        return run_context_replace(args, global, &cwd, skipped, files_from_list.as_deref());
     }
 
     // Phase 1: Parallel file scan to identify files with matches (includes identity).
@@ -1247,18 +1248,27 @@ fn run_context_replace(
     global: &GlobalFlags,
     cwd: &std::path::Path,
     skipped: Option<Vec<String>>,
+    files_from_list: Option<&[String]>,
 ) -> anyhow::Result<u8> {
     use crate::plan::Operation;
 
     // Expand directories the same way as the default replace scan so
     // `patchloom replace --fuzzy OLD --new NEW src/` works (not only
     // single-file paths). Empty roots default to `.` via collect.
+    // Use preloaded files_from_list so --files-from - works (exact path
+    // already read stdin once).
     let paths = if args.paths.is_empty() {
         vec![".".to_string()]
     } else {
         args.paths.clone()
     };
-    let file_paths = crate::collect_file_paths_opts(&paths, global, false, Some(cwd))?;
+    let file_paths = crate::collect_file_paths_opts_with_list(
+        &paths,
+        global,
+        false,
+        Some(cwd),
+        files_from_list,
+    )?;
     // Empty --files-from is input error on fuzzy/context path too (#1796).
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     if file_paths.is_empty() {

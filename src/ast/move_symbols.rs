@@ -23,19 +23,37 @@ pub struct MoveResult {
 }
 
 /// Parse a position string into a MovePosition.
-pub fn parse_position(s: Option<&str>) -> MovePosition {
+///
+/// Unknown tokens fail closed so agents inventing `top` / `first` do not
+/// silently append at end.
+pub fn parse_position(s: Option<&str>) -> anyhow::Result<MovePosition> {
     match s {
-        Some("start") => MovePosition::Start,
-        Some(s) => {
-            if let Some(name) = s.strip_prefix("after:") {
-                MovePosition::After(name.to_string())
-            } else if let Some(name) = s.strip_prefix("before:") {
-                MovePosition::Before(name.to_string())
-            } else {
-                MovePosition::End
+        None | Some("") | Some("end") => Ok(MovePosition::End),
+        Some("start") => Ok(MovePosition::Start),
+        Some(raw) if let Some(name) = raw.strip_prefix("after:") => {
+            if name.is_empty() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "ast.move position after: requires a symbol name".into(),
+                }
+                .into());
             }
+            Ok(MovePosition::After(name.to_string()))
         }
-        None => MovePosition::End,
+        Some(raw) if let Some(name) = raw.strip_prefix("before:") => {
+            if name.is_empty() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "ast.move position before: requires a symbol name".into(),
+                }
+                .into());
+            }
+            Ok(MovePosition::Before(name.to_string()))
+        }
+        Some(other) => Err(crate::exit::InvalidInputError {
+            msg: format!(
+                "unknown ast.move position {other:?}; use start, end, after:NAME, or before:NAME"
+            ),
+        }
+        .into()),
     }
 }
 
@@ -433,16 +451,27 @@ mod tests {
 
     #[test]
     fn parse_position_variants() {
-        assert!(matches!(parse_position(None), MovePosition::End));
-        assert!(matches!(parse_position(Some("end")), MovePosition::End));
-        assert!(matches!(parse_position(Some("start")), MovePosition::Start));
+        assert!(matches!(parse_position(None).unwrap(), MovePosition::End));
         assert!(matches!(
-            parse_position(Some("after:foo")),
+            parse_position(Some("end")).unwrap(),
+            MovePosition::End
+        ));
+        assert!(matches!(
+            parse_position(Some("start")).unwrap(),
+            MovePosition::Start
+        ));
+        assert!(matches!(
+            parse_position(Some("after:foo")).unwrap(),
             MovePosition::After(ref s) if s == "foo"
         ));
         assert!(matches!(
-            parse_position(Some("before:bar")),
+            parse_position(Some("before:bar")).unwrap(),
             MovePosition::Before(ref s) if s == "bar"
         ));
+        let err = parse_position(Some("top")).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown"),
+            "top must fail closed: {err}"
+        );
     }
 }

@@ -7607,13 +7607,23 @@ fn test_tx_for_each_no_matches_produces_empty_plan() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    // No matching files means no operations, success with no changes
-    patchloom_in(dir.path())
-        .arg("tx")
+    // Zero for_each matches fail closed (not silent success) so typo globs
+    // do not look like a completed multi-file apply.
+    let output = patchloom_in(dir.path())
+        .args(["--json", "tx"])
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
-        .assert()
-        .code(0);
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "for_each empty must be no_matches; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "no_matches", "{json}");
 }
 
 #[test]
