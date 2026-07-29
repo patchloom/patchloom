@@ -185,18 +185,28 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let restored = backup::restore_session(&backup_root, &timestamp)?;
     // Remove the consumed session so subsequent `undo` calls advance to
     // the next-oldest session instead of replaying the same one.
+    // Even when restored == 0 (e.g. create-only session, files already gone),
+    // the session is complete and safe to drop; do not claim applied:true.
     backup::remove_session(&backup_root, &timestamp)?;
     crate::verbose!("undo: restored {} file(s)", restored);
+    let applied = restored > 0;
+    let status = if applied { "restored" } else { "noop" };
     if !global.emit_json(&serde_json::json!({
         "ok": true,
-        "status": "restored",
-        "applied": true,
+        "status": status,
+        "applied": applied,
         "session": timestamp,
         "project_root": display_root(&cwd, &backup_root),
         "file_count": restored,
     }))? && !global.quiet
     {
-        eprintln!("restored {restored} file(s) from session {timestamp}");
+        if applied {
+            eprintln!("restored {restored} file(s) from session {timestamp}");
+        } else {
+            eprintln!(
+                "session {timestamp}: nothing to restore (already undone or files gone); session removed"
+            );
+        }
     }
 
     Ok(exit::SUCCESS)

@@ -1846,7 +1846,12 @@ async fn test_mcp_status_round_trip() {
 
     let client = spawn_mcp_client(dir.path()).await;
     let (is_error, status) = call_tool_value(&client, "git_status", serde_json::json!({})).await;
-    assert!(!is_error, "status should succeed: {status}");
+    assert!(!is_error, "status tool isError should stay false: {status}");
+    assert_eq!(
+        status["ok"], false,
+        "dirty tree must set ok:false (agents branch on ok): {status}"
+    );
+    assert_eq!(status["error_kind"], "changes_detected", "{status}");
     let modified: Vec<String> = status
         .get("modified")
         .and_then(|v| v.as_array())

@@ -1,3 +1,6 @@
+// size-waiver: accepted single-domain bulk (policy #1408). Line-oriented batch
+// parse + op dispatch for all plan ops stay one module; do not split for LOC alone.
+// Provenance: fixloop R8 (file.create/rename flag peel) crossed 1000-line alert.
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::plan::{Operation, Plan};
@@ -225,11 +228,35 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
         "file.rename" => {
-            require_args(op, args, 2, line_num)?;
+            // Peel optional --force (CLI-shaped batch lines).
+            let mut force = false;
+            let mut path_args: Vec<String> = Vec::new();
+            for tok in args {
+                if tok == "--force" {
+                    force = true;
+                    continue;
+                }
+                if tok.starts_with("--") {
+                    return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                        msg: format!(
+                            "line {line_num}: 'file.rename' unknown flag {tok}; only --force is supported"
+                        ),
+                    }));
+                }
+                path_args.push(tok.clone());
+            }
+            if path_args.len() != 2 {
+                return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                    msg: format!(
+                        "line {line_num}: 'file.rename' requires exactly 2 arguments (from to [--force]), got {}",
+                        path_args.len()
+                    ),
+                }));
+            }
             op!(FileRename {
-                from: args[0].clone(),
-                to: args[1].clone(),
-                force: false
+                from: path_args[0].clone(),
+                to: path_args[1].clone(),
+                force
             })
         }
 

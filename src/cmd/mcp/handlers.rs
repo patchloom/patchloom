@@ -24,7 +24,7 @@ use crate::plan::Operation;
 use super::ast_tools;
 use super::params::*;
 use super::{
-    PatchloomService, doc_readonly, execute_plan_validated, exit_code_to_result, no_results,
+    PatchloomService, doc_readonly, execute_plan_validated, exit_code_to_result,
     validate_batch_size, validate_content_size, validate_param_size,
 };
 
@@ -255,8 +255,27 @@ impl PatchloomService {
             global.glob = p.globs;
             global.exclude = p.exclude_patterns;
             global.ignore_file = p.custom_ignore_filenames;
-            let results = crate::cmd::search::collect_matches(&search_args, &global)
-                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let results = crate::cmd::search::collect_matches(&search_args, &global).map_err(
+                |e| {
+                    // Prefer invalid_params for typed agent failures (bad regex,
+                    // invalid_input) so hosts do not treat them as server bugs.
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&e);
+                    if matches!(
+                        kind,
+                        "invalid_input"
+                            | "parse_error"
+                            | "guard_rejected"
+                            | "not_found"
+                            | "binary"
+                            | "invalid_encoding"
+                    ) {
+                        McpError::invalid_params(msg, None)
+                    } else {
+                        McpError::internal_error(msg, None)
+                    }
+                },
+            )?;
 
             // --assert-count mode: return count comparison instead of matches.
             if let Some(expected) = p.assert_count {
@@ -294,7 +313,44 @@ impl PatchloomService {
                 results.has_matches()
             };
             if !has_matches {
-                return no_results("No matches found.");
+                // CLI honesty: missing/binary/unreadable are not soft no-matches.
+                let cwd = global.resolve_cwd().map_err(|e| {
+                    McpError::internal_error(format!("resolve cwd: {e}"), None)
+                })?;
+                if crate::files::all_scan_targets_missing(&global, &search_args.paths, Some(&cwd))
+                    .unwrap_or(false)
+                {
+                    return Err(McpError::invalid_params(
+                        format!(
+                            "no such file or directory: {}",
+                            global.path_scope_description(&search_args.paths)
+                        ),
+                        None,
+                    ));
+                }
+                if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
+                    &search_args.paths,
+                    None,
+                    &cwd,
+                ) {
+                    let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&err);
+                    return Err(McpError::invalid_params(
+                        format!("{kind}: {msg}"),
+                        None,
+                    ));
+                }
+                // True pattern miss: CLI-shaped JSON so agents can branch.
+                let body = serde_json::json!({
+                    "ok": false,
+                    "error_kind": "no_matches",
+                    "error": "No matches found.",
+                    "match_count": 0,
+                    "file_count": 0,
+                });
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
+                    body.to_string(),
+                )]));
             }
 
             let cwd = global.resolve_cwd().map_err(|e| {
@@ -757,6 +813,8 @@ impl PatchloomService {
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             let json = serde_json::to_string_pretty(&status)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            // Always tool success (isError=false); agents branch on ok /
+            // total_changes / error_kind like md_lint dirty envelopes.
             Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
         })
         .await

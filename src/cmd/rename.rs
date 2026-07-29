@@ -311,9 +311,19 @@ fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Resul
             fs::copy(src, dst).with_context(|| {
                 format!("cross-device copy {} -> {}", src.display(), dst.display())
             })?;
-            fs::remove_file(src).with_context(|| {
-                format!("removing source after cross-device copy: {}", src.display())
-            })?;
+            if let Err(remove_err) = fs::remove_file(src) {
+                // Best-effort rollback: drop the dest copy so we do not leave
+                // two copies after a failed apply (backup session may still
+                // recover source via undo).
+                let _ = fs::remove_file(dst);
+                return Err(remove_err).with_context(|| {
+                    format!(
+                        "removing source after cross-device copy: {}; rolled back dest {}",
+                        src.display(),
+                        dst.display()
+                    )
+                });
+            }
             Ok(())
         }
         Err(e) => Err(e.into()),

@@ -90,7 +90,9 @@ fn test_status_jsonl_output() {
 
     assert_eq!(output.status.code(), Some(2));
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["ok"], true);
+    assert_eq!(json["ok"], false, "dirty tree must set ok:false: {json}");
+    assert_eq!(json["error_kind"], "changes_detected", "{json}");
+    assert_eq!(json["status"], "changes_detected", "{json}");
     assert_eq!(json["total_changes"], 1);
     assert!(
         json["created"]
@@ -119,7 +121,9 @@ fn test_status_json_output() {
         .unwrap();
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(json["ok"], true);
+    assert_eq!(json["ok"], false, "dirty tree must set ok:false: {json}");
+    assert_eq!(json["error_kind"], "changes_detected", "{json}");
+    assert_eq!(json["status"], "changes_detected", "{json}");
     assert_eq!(json["total_changes"], 1);
     assert!(
         json["created"]
