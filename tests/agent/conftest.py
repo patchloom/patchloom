@@ -26,8 +26,8 @@ def pytest_addoption(parser):
     )
     parser.addoption(
         "--model",
-        default=os.environ.get("AGENT_TEST_MODEL", "grok-build"),
-        help="Model to use (default: grok-build)",
+        default=os.environ.get("AGENT_TEST_MODEL", "grok-4.5"),
+        help="Model to use (default: grok-4.5)",
     )
     parser.addoption(
         "--runs",

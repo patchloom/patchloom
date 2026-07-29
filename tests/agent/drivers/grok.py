@@ -14,7 +14,7 @@ from .base import AgentDriver, AgentMetadata, AgentResult, load_shim_calls, pars
 class GrokDriver(AgentDriver):
     """Invokes Grok Build CLI in headless mode."""
 
-    def __init__(self, model: str = "grok-build"):
+    def __init__(self, model: str = "grok-4.5"):
         super().__init__(name="grok", model=model)
 
     def run_prompt(

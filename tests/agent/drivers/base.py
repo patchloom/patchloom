@@ -25,7 +25,7 @@ class AgentMetadata:
     """Metadata about the agent and model used for a test run."""
 
     agent_name: str       # e.g. "grok"
-    model_alias: str      # e.g. "grok-build"
+    model_alias: str      # e.g. "grok-4.5"
     model_name: str       # e.g. "Grok 4.3"
     cli_version: str      # e.g. "grok 0.1.211 (2f2cd6d5c)"
 

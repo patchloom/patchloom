@@ -13,7 +13,7 @@ Verify that AI agents, given patchloom's AGENTS.md instructions, actually use pa
 ## Running tests
 
 ```bash
-# Run all tests with default agent (grok) and model (grok-build)
+# Run all tests with default agent (grok) and model (grok-4.5)
 make agent-test
 
 # Or run directly with options
@@ -21,7 +21,7 @@ cd tests/agent
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-pytest -v --agent grok --model grok-build
+pytest -v --agent grok --model grok-4.5
 
 # Run a specific test
 pytest -v -k test_search
@@ -75,7 +75,7 @@ tests; bare `patchloom` may still resolve to Homebrew.
 
 | Agent | Driver | Default model | CLI | API key env var |
 |-------|--------|---------------|-----|-----------------|
-| `grok` | `drivers/grok.py` | `grok-build` | `grok` | `GROK_CODE_XAI_API_KEY` |
+| `grok` | `drivers/grok.py` | `grok-4.5` | `grok` | `GROK_CODE_XAI_API_KEY` |
 | `claude` | `drivers/claude.py` | `claude-sonnet-4-20250514` | `claude` | `ANTHROPIC_API_KEY` |
 | `codex` | `drivers/codex.py` | `o3` | `codex` | `CODEX_API_KEY` or `OPENAI_API_KEY` |
 | `cline` | `drivers/cline.py` | `claude-sonnet-4-20250514` | `cline` | Provider-specific (configured via `cline auth`) |
@@ -109,7 +109,7 @@ pytest -v --agent aider --model sonnet
 | Variable | Description |
 |----------|-------------|
 | `AGENT_TEST_AGENT` | Agent name (default: `grok`) |
-| `AGENT_TEST_MODEL` | Model name (default: `grok-build`) |
+| `AGENT_TEST_MODEL` | Model name (default: `grok-4.5`) |
 | `GROK_CODE_XAI_API_KEY` | API key for Grok Build CLI |
 | `ANTHROPIC_API_KEY` | API key for Claude Code CLI and Aider |
 | `CODEX_API_KEY` or `OPENAI_API_KEY` | API key for OpenAI Codex CLI |
