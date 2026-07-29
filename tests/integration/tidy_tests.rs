@@ -198,12 +198,29 @@ fn test_tidy_fix_jsonl_output() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.trim().lines().collect();
-    assert!(!lines.is_empty(), "expected at least one JSONL line");
+    assert!(
+        lines.len() >= 2,
+        "expected file row(s) + summary trailer, got: {lines:?}"
+    );
+    let mut saw_path = false;
+    let mut saw_summary = false;
     for line in &lines {
         let v: serde_json::Value =
             serde_json::from_str(line).expect("each JSONL line should be valid JSON");
-        assert!(v["path"].is_string());
+        if v.get("type").and_then(|t| t.as_str()) == Some("summary") {
+            saw_summary = true;
+            assert_eq!(v["ok"], true, "{v}");
+            assert!(v.get("applied").is_some(), "summary needs applied: {v}");
+        } else {
+            saw_path = true;
+            assert!(v["path"].is_string(), "{v}");
+        }
     }
+    assert!(saw_path, "expected at least one path row");
+    assert!(
+        saw_summary,
+        "expected type=summary trailer for agent honesty"
+    );
 }
 
 #[test]

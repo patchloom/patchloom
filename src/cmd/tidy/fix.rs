@@ -160,7 +160,19 @@ fn emit_tidy_fix_output(
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
+        // Stream per-file rows, then a summary trailer so agents using --jsonl
+        // still get applied / backup_session / skipped / refused (parity JSON).
         global.emit_json_items(fix_files)?;
+        global.emit_json(&serde_json::json!({
+            "type": "summary",
+            "ok": true,
+            "files_changed": fix_files.len(),
+            "applied": applied,
+            "backup_session": backup_session,
+            "skipped": skipped,
+            "refused": refused,
+            "diff": diff_text,
+        }))?;
     }
     Ok(())
 }

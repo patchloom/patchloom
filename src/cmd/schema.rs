@@ -72,11 +72,15 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     "write_policy": schema::plan_write_policy_schema()
                 }
             });
-            let output = serde_json::to_string_pretty(&envelope)?;
             if global.quiet {
                 return Ok(exit::SUCCESS);
             }
-            println!("{output}");
+            // Honor global --json / --jsonl (pretty vs compact). Agents that
+            // always pass --jsonl break on multi-line pretty-only stdout.
+            if !global.emit_json(&envelope)? {
+                let output = serde_json::to_string_pretty(&envelope)?;
+                println!("{output}");
+            }
         }
         SchemaFormat::Prompt => {
             let prompt = match args.tier {

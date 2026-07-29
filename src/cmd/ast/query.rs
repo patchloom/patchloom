@@ -434,6 +434,11 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
     }
 
     if total_matches == 0 {
+        // Unreadable-masked walks must not look like pattern miss.
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let msg = format!("no matches for pattern in {}", args.path);
         global.emit_error_json_kind(Some("no_matches"), &msg)?;
         Ok(exit::NO_MATCHES)
@@ -491,6 +496,10 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
     }
 
     if all_refs.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let msg = format!("no references found for '{}' in {}", args.symbol, args.path);
         global.emit_error_json_kind(Some("no_matches"), &msg)?;
         return Ok(exit::NO_MATCHES);
@@ -641,6 +650,10 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
         }
         Ok(exit::SUCCESS)
     } else {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let msg = format!("no imports found in {}", args.path);
         global.emit_error_json_kind(Some("no_matches"), &msg)?;
         Ok(exit::NO_MATCHES)
