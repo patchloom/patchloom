@@ -46,8 +46,14 @@ class AgentDriver(ABC):
         max_turns: int = 10,
         timeout_secs: int = 120,
         extra_env: dict | None = None,
+        disallowed_tools: list[str] | None = None,
+        extra_rules: str | None = None,
     ) -> AgentResult:
-        """Run a single prompt and return the result."""
+        """Run a single prompt and return the result.
+
+        ``disallowed_tools`` / ``extra_rules`` are best-effort: drivers that
+        support them (e.g. Grok) apply them; others ignore.
+        """
 
     @abstractmethod
     def is_available(self) -> bool:
@@ -122,10 +128,19 @@ def assert_patchloom_used(result: AgentResult, expected_command: str) -> None:
         for c in result.patchloom_calls
         if c.get("args")
     ]
+    raw = report_raw_tool_usage(result)
+    raw_hint = f" Raw tools mentioned in transcript: {raw}." if raw else ""
+    native_hint = (
+        " File may still have been changed via native search_replace "
+        "(bypasses PATH shim)."
+        if not result.patchloom_calls
+        else ""
+    )
     assert matching, (
         f"Expected patchloom {expected_command} to be invoked, but "
         f"patchloom was called {len(result.patchloom_calls)} time(s) "
-        f"with subcommands: {[c for c in all_commands if c] or 'none'}"
+        f"with subcommands: {[c for c in all_commands if c] or 'none'}."
+        f"{native_hint}{raw_hint}"
     )
 
 

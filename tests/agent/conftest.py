@@ -74,24 +74,28 @@ def patchloom_bin() -> str:
     return _find_patchloom_binary()
 
 
-@pytest.fixture
-def patchloom_shim(tmp_path, patchloom_bin):
-    """Set up a patchloom shim that logs invocations, return (env_dict, log_path)."""
-    shim_dir = tmp_path / "shim_bin"
-    shim_dir.mkdir()
-    log_file = tmp_path / "patchloom_calls.jsonl"
+# Appended to workspace AGENTS.md when require_patchloom=True so project rules
+# reinforce the harness (soft "prefer" language alone is not enough).
+_HARNESS_CONTRACT = """
 
-    shim_script = SHIM_TEMPLATE.replace("__REAL_PATH__", patchloom_bin)
-    shim_script = shim_script.replace("__LOG_PATH__", str(log_file))
-    shim_path = shim_dir / "patchloom"
-    shim_path.write_text(shim_script)
-    shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
+## Agent harness contract (this test)
 
-    env = {
-        "PATH": f"{shim_dir}:{os.environ.get('PATH', '')}",
-        "PATCHLOOM_SHIM_LOG": str(log_file),
-    }
-    return env, log_file
+For **all file mutations** in this task you MUST use the project-local patchloom
+CLI at **`./bin/patchloom`** (or `bin/patchloom`) via the shell. Do not use a
+global install (`which patchloom` may point at an old Homebrew binary).
+
+Examples:
+
+- JSON/YAML/TOML: `./bin/patchloom doc set PATH SELECTOR VALUE --apply`
+- Markdown table/section/bullet: `./bin/patchloom md … --apply`
+- Multi-file atomic: `./bin/patchloom tx plan.json --apply`
+
+Optional once per session: `export PATH="$PWD/bin:$PATH"` then bare `patchloom`.
+
+Do **not** use native file-edit tools (`search_replace`, whole-file rewrite) or
+`sed`/`jq`/`yq` for these edits. The harness fails if `./bin/patchloom` is not
+invoked, even if the file ends up correct.
+"""
 
 
 @pytest.fixture
@@ -133,6 +137,31 @@ def workspace(tmp_path, patchloom_bin):
     return tmp_path
 
 
+@pytest.fixture
+def patchloom_shim(workspace, patchloom_bin):
+    """Install workspace ``bin/patchloom`` logging shim; return (env, log_path).
+
+    Grok ``run_terminal_cmd`` often ignores process PATH and runs a global
+    Homebrew ``patchloom`` (stale version). A project-local ``./bin/patchloom``
+    is what agents must invoke so the harness can log calls.
+    """
+    log_file = workspace / "patchloom_calls.jsonl"
+    bin_dir = workspace / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    shim_script = SHIM_TEMPLATE.replace("__REAL_PATH__", patchloom_bin)
+    shim_script = shim_script.replace("__LOG_PATH__", str(log_file))
+    shim_path = bin_dir / "patchloom"
+    shim_path.write_text(shim_script)
+    shim_path.chmod(shim_path.stat().st_mode | stat.S_IEXEC)
+
+    env = {
+        "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+        "PATCHLOOM_SHIM_LOG": str(log_file),
+        "PATCHLOOM": str(shim_path),
+    }
+    return env, log_file
+
+
 def pytest_report_header(config):
     """Print agent and model metadata at the top of every test run."""
     agent_name = config.getoption("--agent")
@@ -169,16 +198,53 @@ def run_scenario(
     *,
     max_turns: int = 15,
     timeout_secs: int = 180,
+    require_patchloom: bool = False,
 ) -> AgentResult:
-    """Run a prompt through the agent with patchloom shim capture."""
+    """Run a prompt through the agent with patchloom shim capture.
+
+    When ``require_patchloom`` is True (tests that assert the CLI was used):
+    - Prepend a hard requirement to the prompt
+    - Append a harness contract to workspace ``AGENTS.md``
+    - Disable native ``search_replace`` so the agent cannot pass by rewriting
+      files without hitting the PATH shim (Grok ``--disallowed-tools``)
+    """
     shim_env, log_path = patchloom_shim
 
+    disallowed_tools = None
+    extra_rules = None
+    final_prompt = prompt
+    if require_patchloom:
+        # Grok shell often ignores PATH and runs /opt/homebrew/bin/patchloom.
+        # Force the workspace logging shim by absolute relative path.
+        final_prompt = (
+            "HARD REQUIREMENT: perform every file mutation with "
+            "`./bin/patchloom` (project-local CLI) via the shell "
+            "(e.g. `./bin/patchloom doc set … --apply`, "
+            "`./bin/patchloom md … --apply`, `./bin/patchloom tx … --apply`). "
+            "Do not call a global `patchloom` from Homebrew/PATH. "
+            "Do not use search_replace or other native file-edit tools.\n\n"
+            + prompt
+        )
+        agents_md = workspace / "AGENTS.md"
+        if agents_md.exists():
+            body = agents_md.read_text()
+            if "Agent harness contract" not in body:
+                agents_md.write_text(body + _HARNESS_CONTRACT)
+        # Denying search_replace forces shell for edits (when the CLI honors it).
+        disallowed_tools = ["search_replace"]
+        extra_rules = (
+            "All file mutations MUST use ./bin/patchloom via the shell "
+            "(not a global patchloom install). Native search_replace is forbidden."
+        )
+
     result = agent.run_prompt(
-        prompt,
+        final_prompt,
         workspace,
         max_turns=max_turns,
         timeout_secs=timeout_secs,
         extra_env=shim_env,
+        disallowed_tools=disallowed_tools,
+        extra_rules=extra_rules,
     )
     # Re-parse shim log in case the driver didn't pick it up
     if not result.patchloom_calls:
