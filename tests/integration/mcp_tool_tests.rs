@@ -2837,6 +2837,61 @@ async fn test_mcp_append_file_missing_file_returns_error() {
 }
 
 #[tokio::test]
+async fn test_mcp_prepend_file_round_trip() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.txt");
+    fs::write(&file, "line two\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "prepend_file",
+        serde_json::json!({"path": "data.txt", "content": "line one\n"}),
+    )
+    .await;
+    assert!(!is_error, "prepend_file should succeed: {val}");
+    assert_eq!(val["ok"], true, "prepend ok field: {val}");
+    assert_eq!(val["files_changed"], 1, "prepend files_changed: {val}");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line one\nline two\n",
+        "content should be prepended"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_prepend_file_missing_file_returns_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "prepend_file",
+        serde_json::json!({"path": "nonexistent.txt", "content": "data\n"}),
+    )
+    .await;
+    assert!(
+        is_error,
+        "prepend_file should fail when file does not exist: {val}"
+    );
+    // Prefer structured kind when present (agent branching parity with tx).
+    if let Some(kind) = val.get("error_kind") {
+        assert_eq!(
+            kind, "not_found",
+            "prepend missing should peel not_found: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_md_move_section_round_trip() {
     if !has_mcp_support() {
         return;

@@ -42,7 +42,7 @@ Patchloom write commands default to preview mode. The canonical semantics live i
 - **Use when:** You want a single-command preview-then-apply workflow instead of running the command twice.
 - **Prefer instead:** Use `--apply` when scripting (no interactive prompt), or `--diff` when you only want the preview.
 
-`--diff`, `--apply`, `--check`, and `--confirm` are mutually exclusive. Passing more than one is rejected with an error. When none is specified, `--diff` is the default. When `--confirm` is used and stdin is not a TTY, the command shows the diff without prompting (same as `--diff`).
+`--apply` and `--check` conflict with each other (and with `--confirm`). `--diff` is **not** exclusive: you can pass `--diff --apply` to print a unified diff after a successful write. When none of `--apply`, `--check`, or interactive confirm is used, the default is **preview** (show what would change without writing; exit 2 when changes would occur). When `--confirm` is used and stdin is not a TTY, the command shows the preview without prompting.
 
 ### Write policy flags
 

@@ -70,9 +70,10 @@ REPLACE SHAPE:
   Do not paste CLI --new into a batch line (parse error with PATH OLD NEW hint).
 
 EXAMPLES:
-  printf 'doc.set config.json version "2.0"\nreplace README.md v1 v2\n' | patchloom batch
+  # Force string values with nested JSON quotes (bare 2.0 becomes a number).
+  printf 'doc.set config.json version '"'"'"2.0.0"'"'"'\nreplace README.md v1 v2\n' | patchloom batch
   patchloom batch --apply <<'EOF'
-  doc.set package.json version "3.0.0"
+  doc.set package.json version '"3.0.0"'
   replace README.md "v1.0" "v3.0"
   replace src/main.rs "proccess" "process" --fuzzy --min-fuzzy-score 0.80
   EOF"#)]
@@ -418,6 +419,18 @@ fn batch_unsupported_hint(op: &str) -> Option<&'static str> {
         "status" | "git_status" => Some("not supported in batch; use `patchloom status`"),
         "undo" => Some("not supported in batch; use `patchloom undo`"),
         "explain" => Some("not supported in batch; use `patchloom explain`"),
+        // Plan/MCP-only write ops (no batch line form): steer agents to tx.
+        "apply.fragment" | "apply_fragment" | "apply-fragment" => {
+            Some("not supported in batch; use a tx plan (`apply.fragment`) or MCP `apply_fragment`")
+        }
+        "ast.insert"
+        | "ast.wrap"
+        | "ast.imports"
+        | "ast.group"
+        | "ast.move"
+        | "ast.extract_to_file"
+        | "ast.split"
+        | "ast.reorder" => Some("not supported in batch; use a tx plan or MCP ast_* tools"),
         _ => None,
     }
 }
