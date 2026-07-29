@@ -387,6 +387,54 @@ fn test_undo_json_no_sessions_sets_error_kind() {
     );
 }
 
+/// Create-only session where the created file is already gone: restore is a
+/// no-op. Must not claim applied:true (agents branch on applied for undo success).
+#[test]
+fn test_undo_apply_create_already_gone_is_noop_not_applied() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ephemeral.txt");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "create",
+            "ephemeral.txt",
+            "--content",
+            "temp\n",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .assert()
+        .code(0);
+    assert!(file.exists());
+
+    // User/agent already deleted the file; undo of create would only remove it.
+    fs::remove_file(&file).unwrap();
+    assert!(!file.exists());
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "undo", "--apply", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["status"], "noop", "{json}");
+    assert_eq!(
+        json["applied"], false,
+        "noop undo must not claim applied:true: {json}"
+    );
+    assert_eq!(json["file_count"], 0, "{json}");
+}
+
 // ---------------------------------------------------------------------------
 // Non-TTY error output (#1341)
 // ---------------------------------------------------------------------------

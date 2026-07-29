@@ -21,7 +21,14 @@ pub struct StatusArgs {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct StatusOutput {
+    /// True only when the tree is clean. Dirty trees set ok:false +
+    /// error_kind/status changes_detected so agents that branch on ok match
+    /// CLI exit 2 (same pattern as md lint / tx lint).
     ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
     modified: Vec<String>,
     created: Vec<String>,
     deleted: Vec<String>,
@@ -126,9 +133,20 @@ pub(crate) fn collect_status(
     }
 
     let total_changes = modified.len() + created.len() + deleted.len();
+    let dirty = total_changes > 0;
 
     Ok(StatusOutput {
-        ok: true,
+        ok: !dirty,
+        status: if dirty {
+            Some("changes_detected")
+        } else {
+            Some("clean")
+        },
+        error_kind: if dirty {
+            Some("changes_detected")
+        } else {
+            None
+        },
         modified,
         created,
         deleted,

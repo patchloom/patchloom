@@ -13,7 +13,8 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReplaceParams {
-    /// File path (relative to working directory).
+    /// File path (relative to working directory). Alias `file` matches CLI/batch.
+    #[serde(alias = "file")]
     pub path: String,
     /// Text to find.
     /// Alias `from` accepted because agents often emit that name (LLM prior).

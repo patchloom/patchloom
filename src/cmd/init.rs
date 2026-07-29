@@ -163,23 +163,33 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
 
     // 3. Keep undo backups out of git noise (pairs with `status` filtering).
-    match ensure_gitignore_patchloom(&cwd) {
-        Ok(GitignorePatchloom::Created) => {
-            report.gitignore = "created".into();
-            status!("created .gitignore with .patchloom/");
+    // Same consent as agent rules: do not silently mutate .gitignore when the
+    // user declined interactive init (no --yes / no structured auto-accept).
+    let auto_gitignore = auto_yes || structured;
+    if auto_gitignore
+        || confirm("Add .patchloom/ to .gitignore (hides undo backup sessions from git)?")
+    {
+        match ensure_gitignore_patchloom(&cwd) {
+            Ok(GitignorePatchloom::Created) => {
+                report.gitignore = "created".into();
+                status!("created .gitignore with .patchloom/");
+            }
+            Ok(GitignorePatchloom::Appended) => {
+                report.gitignore = "appended".into();
+                status!("appended .patchloom/ to .gitignore");
+            }
+            Ok(GitignorePatchloom::AlreadyPresent) => {
+                report.gitignore = "already_present".into();
+                status!(".gitignore already ignores .patchloom/");
+            }
+            Err(e) => {
+                report.gitignore = format!("error:{e}");
+                status!("could not update .gitignore: {e}");
+            }
         }
-        Ok(GitignorePatchloom::Appended) => {
-            report.gitignore = "appended".into();
-            status!("appended .patchloom/ to .gitignore");
-        }
-        Ok(GitignorePatchloom::AlreadyPresent) => {
-            report.gitignore = "already_present".into();
-            status!(".gitignore already ignores .patchloom/");
-        }
-        Err(e) => {
-            report.gitignore = format!("error:{e}");
-            status!("could not update .gitignore: {e}");
-        }
+    } else {
+        report.gitignore = "skipped_use_yes".into();
+        status!("skipped .gitignore (declined or non-interactive; re-run with --yes or --json)");
     }
 
     if !quiet && !structured {
@@ -212,6 +222,14 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         eprintln!("setup complete.");
     }
 
+    // Completions install failure is soft (we still print a manual command).
+    // Hard fail only on agent_rules/gitignore write errors.
+    let hard_fail =
+        report.agent_rules.starts_with("error") || report.gitignore.starts_with("error:");
+    // Structured JSON: ok:false on hard fail only (completions failed: is soft).
+    // Interactive decline of AGENTS.md/.gitignore is not a hard fail (exit 0).
+    let ok = !hard_fail;
+
     if structured {
         #[derive(serde::Serialize)]
         struct InitJson<'a> {
@@ -224,7 +242,7 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             mcp_available: bool,
         }
         let payload = InitJson {
-            ok: true,
+            ok,
             agent_rules: &report.agent_rules,
             agent_rules_path: report.agent_rules_path.as_deref(),
             completions: &report.completions,
@@ -233,7 +251,11 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         };
         global.emit_json(&payload)?;
     }
-    Ok(exit::SUCCESS)
+    if hard_fail {
+        Ok(exit::FAILURE)
+    } else {
+        Ok(exit::SUCCESS)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

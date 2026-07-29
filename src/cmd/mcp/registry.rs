@@ -369,6 +369,8 @@ const FIELD_ALIASES: &[(&str, &str)] = &[
     ("key", "selector"),
     ("from", "old"),
     ("to", "new"),
+    // CLI/batch use `file`; plan/MCP tools use `path`.
+    ("file", "path"),
     // apply.fragment: agents copy replace_text priors (new/to/content → fragment).
     // Applied only when the tool schema allows the canonical name.
     ("new", "fragment"),

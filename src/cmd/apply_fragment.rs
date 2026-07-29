@@ -98,8 +98,12 @@ pub fn run(args: ApplyFragmentArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
         return Ok(crate::exit::FAILURE);
     }
 
+    // Parity with create/delete/rename: rewrite absolute/contain paths before plan.
+    let cwd = global.resolve_cwd()?;
+    let file = global.rewrite_user_path_arg(&cwd, &args.file)?;
+
     let op = Operation::ApplyFragment {
-        path: args.file.clone(),
+        path: file.clone(),
         fragment: raw,
         instruction: args.instruction.clone(),
         after: args.after.clone(),
@@ -113,7 +117,7 @@ pub fn run(args: ApplyFragmentArgs, global: &GlobalFlags) -> anyhow::Result<u8> 
         global,
         |phase, diff, backup| ApplyFragmentOutput {
             ok: true,
-            path: args.file.clone(),
+            path: file.clone(),
             op: "apply.fragment",
             instruction: args.instruction.clone(),
             diff,

@@ -204,6 +204,10 @@ fn test_init_json_without_yes_creates_agents_md() {
         dir.path().join("AGENTS.md").exists(),
         "AGENTS.md must exist after init --json without --yes"
     );
+    assert!(
+        dir.path().join(".gitignore").exists(),
+        "structured init must still write .gitignore (auto-accept)"
+    );
     let content = fs::read_to_string(dir.path().join("AGENTS.md")).unwrap();
     assert!(
         content.contains("patchloom") || content.len() > 100,
@@ -238,14 +242,19 @@ fn test_init_falls_back_to_completion_command_when_completion_dir_creation_fails
 #[test]
 fn test_init_confirm_eof_skips_agents_creation() {
     let dir = TempDir::new().unwrap();
+    // Two prompts now: AGENTS.md and .gitignore. EOF on each declines both.
     let output = run_patchloom_confirm_in_pty_with_env(
         &["init", "--cwd", dir.path().to_str().unwrap()],
-        "\u{4}",
+        "\u{4}\u{4}",
         &[("SHELL", "unknown")],
     );
 
     assert!(output.status.success());
     assert!(!dir.path().join("AGENTS.md").exists());
+    assert!(
+        !dir.path().join(".gitignore").exists(),
+        "declined gitignore must not create .gitignore"
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Create AGENTS.md? [Y/n]"));
@@ -273,12 +282,20 @@ fn test_init_noninteractive_without_yes_hints_use_yes() {
         !dir.path().join("AGENTS.md").exists(),
         "non-interactive init without --yes must not create AGENTS.md"
     );
+    assert!(
+        !dir.path().join(".gitignore").exists(),
+        "non-interactive init without --yes must not silently create .gitignore"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("skipped AGENTS.md")
             && stderr.contains("--yes")
             && stderr.contains("--json"),
         "stderr must explain how to create rules: {stderr}"
+    );
+    assert!(
+        stderr.contains("skipped .gitignore") || stderr.contains(".gitignore"),
+        "stderr must mention gitignore skip: {stderr}"
     );
 }
 

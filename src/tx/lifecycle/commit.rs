@@ -359,9 +359,18 @@ fn rename_or_copy(src: &Path, dst: &Path) -> anyhow::Result<()> {
             std::fs::copy(src, dst).with_context(|| {
                 format!("cross-device copy {} -> {}", src.display(), dst.display())
             })?;
-            std::fs::remove_file(src).with_context(|| {
-                format!("removing source after cross-device copy: {}", src.display())
-            })?;
+            if let Err(remove_err) = std::fs::remove_file(src) {
+                // Best-effort rollback: drop dest copy so apply does not leave
+                // two copies when source remove fails after EXDEV copy.
+                let _ = std::fs::remove_file(dst);
+                return Err(remove_err).with_context(|| {
+                    format!(
+                        "removing source after cross-device copy: {}; rolled back dest {}",
+                        src.display(),
+                        dst.display()
+                    )
+                });
+            }
             Ok(())
         }
         Err(e) => Err(e.into()),
