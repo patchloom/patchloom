@@ -435,9 +435,23 @@ fn test_patch_check_jsonl_output() {
         .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
         .collect();
 
-    assert_eq!(lines.len(), 1, "should have one JSONL line per patch file");
-    assert_eq!(lines[0]["path"], "test.txt");
-    assert_eq!(lines[0]["status"], "would_change");
+    // Per-file row + type:summary trailer (applied:false for check).
+    assert!(
+        lines.len() >= 2,
+        "file row + summary expected, got {lines:?}"
+    );
+    let file_row = lines
+        .iter()
+        .find(|v| v.get("path").is_some())
+        .expect("file row");
+    assert_eq!(file_row["path"], "test.txt");
+    assert_eq!(file_row["status"], "would_change");
+    let summary = lines
+        .iter()
+        .find(|v| v.get("type").and_then(|t| t.as_str()) == Some("summary"))
+        .expect("summary trailer");
+    assert_eq!(summary["ok"], true);
+    assert_eq!(summary["applied"], false);
 }
 
 #[test]
@@ -667,7 +681,7 @@ fn test_patch_apply_on_stale_merge() {
 }
 
 #[test]
-fn test_patch_check_exits_5_on_directory_read_error() {
+fn test_patch_check_exits_1_on_directory_read_error() {
     let dir = TempDir::new().unwrap();
     let target = dir.path().join("test.txt");
     fs::create_dir(&target).unwrap();
@@ -679,6 +693,7 @@ fn test_patch_check_exits_5_on_directory_read_error() {
     )
     .unwrap();
 
+    // invalid_input / exit 1 (shared table), not ambiguous/exit 5.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--cwd")
@@ -687,7 +702,7 @@ fn test_patch_check_exits_5_on_directory_read_error() {
         .arg("check")
         .arg(&patch_file)
         .assert()
-        .code(5)
+        .code(1)
         .stderr(predicate::str::contains(
             "patch check: test.txt -- READ ERROR: target is not a file",
         ));
@@ -717,10 +732,11 @@ fn test_patch_check_json_reports_directory_read_error() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(5));
+    assert_eq!(output.status.code(), Some(1));
 
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
+    assert_eq!(json["error_kind"], "invalid_input");
     assert_eq!(json["files"][0]["status"], "error");
     assert!(
         json["files"][0]["error"]
@@ -756,7 +772,7 @@ fn test_patch_check_jsonl_reports_directory_read_error() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(5));
+    assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).trim().is_empty());
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -766,14 +782,101 @@ fn test_patch_check_jsonl_reports_directory_read_error() {
         .map(|l| serde_json::from_str(l).expect("each line should be valid JSON"))
         .collect();
 
-    assert_eq!(lines.len(), 1, "should have one JSONL line per patch file");
-    assert_eq!(lines[0]["path"], "test.txt");
-    assert_eq!(lines[0]["status"], "error");
+    // Per-file row + type:summary trailer with ok/error_kind.
     assert!(
-        lines[0]["error"].as_str().unwrap().contains("not a file"),
-        "error={}",
-        lines[0]["error"]
+        lines.len() >= 2,
+        "file row + summary trailer expected, got {lines:?}"
     );
+    let file_row = lines
+        .iter()
+        .find(|v| v.get("path").is_some())
+        .expect("file row");
+    assert_eq!(file_row["path"], "test.txt");
+    assert_eq!(file_row["status"], "error");
+    assert!(
+        file_row["error"].as_str().unwrap().contains("not a file"),
+        "error={}",
+        file_row["error"]
+    );
+    let summary = lines
+        .iter()
+        .find(|v| v.get("type").and_then(|t| t.as_str()) == Some("summary"))
+        .expect("summary trailer");
+    assert_eq!(summary["ok"], false);
+    assert_eq!(summary["error_kind"], "invalid_input");
+    assert_eq!(summary["applied"], false);
+}
+
+/// Missing patch target → not_found + exit 1 (not ambiguous/exit 5).
+#[test]
+fn test_patch_check_json_missing_target_not_found_exit_1() {
+    let dir = TempDir::new().unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/missing.txt\n+++ b/missing.txt\n@@ -0,0 +1 @@\n+new line\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "not_found", "{json}");
+    assert_eq!(json["files"][0]["status"], "missing");
+}
+
+/// Apply when target file is gone: not_found, not STALE/ambiguous.
+#[test]
+fn test_patch_apply_missing_target_json_not_found() {
+    let dir = TempDir::new().unwrap();
+    let patch_file = dir.path().join("change.patch");
+    // Existing-file hunk (not new-file create): context requires a real target.
+    fs::write(
+        &patch_file,
+        "--- a/gone.txt\n+++ b/gone.txt\n@@ -1,1 +1,1 @@\n-old\n+new\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "not_found", "{json}");
+    assert_eq!(json["applied"], false, "{json}");
 }
 
 #[test]
@@ -857,7 +960,7 @@ fn test_patch_malformed_file_fails() {
 // multi-file patch.  The error was masked because `has_conflicts && allow_conflicts`
 // short-circuited before checking for errors.
 #[test]
-fn test_patch_merge_check_allow_conflicts_still_exits_5_on_error() {
+fn test_patch_merge_check_allow_conflicts_still_fails_on_error() {
     let dir = TempDir::new().unwrap();
     // File A: will produce a conflict (content diverged from patch context).
     let file_a = dir.path().join("a.txt");
@@ -886,7 +989,8 @@ fn test_patch_merge_check_allow_conflicts_still_exits_5_on_error() {
     )
     .unwrap();
     // With --allow-conflicts, the conflict on a.txt is acceptable, but the
-    // error on b.txt should still produce a non-zero exit code (AMBIGUOUS=5).
+    // error on b.txt still fails. Kind is invalid_input (status error), exit 1
+    // (shared agent table), not conflicts/8 and not always ambiguous/5.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--cwd")
@@ -897,7 +1001,7 @@ fn test_patch_merge_check_allow_conflicts_still_exits_5_on_error() {
         .arg("--check")
         .arg("--allow-conflicts")
         .assert()
-        .code(5);
+        .code(1);
 }
 
 // ---------------------------------------------------------------------------

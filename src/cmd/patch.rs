@@ -1,3 +1,9 @@
+//! Unified-diff check/apply/merge CLI surface.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). One module owns
+//! patch check/apply/merge modes, agent JSON/JSONL honesty, and exit/kind
+//! mapping for multi-file results; do not split for LOC alone.
+
 use crate::cli::global::GlobalFlags;
 use crate::diff::{DiffResult, format_diff_result_colored};
 use crate::exit;
@@ -299,9 +305,11 @@ fn emit_error(global: &GlobalFlags, error: &str, error_kind: &str) -> anyhow::Re
     Ok(())
 }
 
-/// Top-level error_kind for multi-file patch JSON when `ok` is false.
-/// Matches CLI exit codes agents already branch on (stale → exit 5 / ambiguous).
-fn patch_problem_error_kind(results: &[PatchFileResult]) -> (&'static str, String) {
+/// Top-level `error_kind`, message, and exit code for multi-file patch when `ok` is false.
+///
+/// Exit codes match the shared agent table (`classify_typed_error`):
+/// conflicts → 8, ambiguous/stale → 5, not_found/invalid_input → 1.
+fn patch_problem_kind(results: &[PatchFileResult]) -> (&'static str, String, u8) {
     let has_stale = results.iter().any(|r| r.status == "stale");
     let has_missing = results.iter().any(|r| r.status == "missing");
     let has_error = results.iter().any(|r| r.status == "error");
@@ -310,21 +318,32 @@ fn patch_problem_error_kind(results: &[PatchFileResult]) -> (&'static str, Strin
         (
             "conflicts",
             "one or more patch targets have merge conflicts".into(),
+            exit::CONFLICTS,
         )
     } else if has_stale {
         (
             "ambiguous",
             "one or more patch targets are stale (context no longer matches)".into(),
+            exit::AMBIGUOUS,
         )
     } else if has_missing && !has_error {
-        ("not_found", "one or more patch targets are missing".into())
+        (
+            "not_found",
+            "one or more patch targets are missing".into(),
+            exit::FAILURE,
+        )
     } else if has_error {
         (
             "invalid_input",
             "one or more patch targets could not be read".into(),
+            exit::FAILURE,
         )
     } else {
-        ("ambiguous", "one or more patch targets failed".into())
+        (
+            "ambiguous",
+            "one or more patch targets failed".into(),
+            exit::AMBIGUOUS,
+        )
     }
 }
 
@@ -335,24 +354,35 @@ fn emit_patch_files_output(
     applied: Option<bool>,
     backup_session: Option<String>,
 ) -> anyhow::Result<()> {
+    let (error_kind, error) = if ok {
+        (None, None)
+    } else {
+        let (k, e, _) = patch_problem_kind(results);
+        (Some(k), Some(e))
+    };
     if global.json {
-        let (error_kind, error) = if ok {
-            (None, None)
-        } else {
-            let (k, e) = patch_problem_error_kind(results);
-            (Some(k), Some(e))
-        };
         let output = PatchFilesOutput {
             ok,
             files: results.to_vec(),
             error_kind,
-            error,
+            error: error.clone(),
             applied,
-            backup_session,
+            backup_session: backup_session.clone(),
         };
         global.emit_json(&output)?;
     } else if global.jsonl {
+        // Stream per-file rows, then a summary trailer (replace/tidy/search parity)
+        // so agents get ok / error_kind / applied without scraping exit alone.
         global.emit_json_items(results)?;
+        global.emit_json(&serde_json::json!({
+            "type": "summary",
+            "ok": ok,
+            "error_kind": error_kind,
+            "error": error,
+            "applied": applied,
+            "backup_session": backup_session,
+            "file_count": results.len(),
+        }))?;
     } else if !global.quiet {
         for r in results {
             let label = match r.status {
@@ -571,8 +601,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 .count();
             println!("{n} file(s) would change");
         }
+        // Exit must match JSON error_kind (not_found/invalid_input → 1, not 5).
         return Ok(if any_problem {
-            exit::AMBIGUOUS
+            patch_problem_kind(&results).2
         } else if any_would_change {
             exit::CHANGES_DETECTED
         } else {
@@ -645,8 +676,20 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let has_conflicts = results.iter().any(|r| r.status == "conflict");
         // Identity / already-applied (content == original): exit 0 so agents
         // do not loop on exit 2 forever (parity with patch check).
+        // Errors use shared kind→exit (invalid_input → 1), not always ambiguous.
+        // When --allow-conflicts, derive kind from non-conflict rows so a
+        // read/stale error is not masked as conflicts (exit 8).
         return Ok(if has_errors {
-            exit::AMBIGUOUS
+            if apply_options.allow_conflicts {
+                let non_conflict: Vec<PatchFileResult> = results
+                    .iter()
+                    .filter(|r| r.status != "conflict")
+                    .cloned()
+                    .collect();
+                patch_problem_kind(&non_conflict).2
+            } else {
+                patch_problem_kind(&results).2
+            }
         } else if has_conflicts && !apply_options.allow_conflicts {
             exit::CONFLICTS
         } else if any_would_change {
@@ -672,17 +715,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // The engine error from apply_patch_with_loader already includes
                 // "patch apply: <path> -- <detail>", so we add the STALE/MERGE
                 // FAILED label to match the original CLI format.
-                // Prefer typed kinds. Sole-path binary / invalid UTF-8 from
-                // load_text_strict must stay invalid_input (exit 1), not get
-                // STALE/ambiguous labels (fixrealloop 2026-07-21).
+                // Prefer shared classify_typed_error so missing targets peel
+                // not_found (exit 1), not STALE/ambiguous (exit 5). Tx already
+                // does this; sole-path binary/utf8 stay typed (fixrealloop).
                 let (exit_code, kind) = if exit::is_conflicts(&e) || msg.contains("conflict(s)") {
                     (exit::CONFLICTS, "conflicts")
-                } else if exit::is_binary(&e) {
-                    (exit::FAILURE, "binary")
-                } else if exit::is_invalid_encoding(&e) {
-                    (exit::FAILURE, "invalid_encoding")
-                } else if exit::is_invalid_input(&e) {
-                    (exit::FAILURE, "invalid_input")
+                } else if let Some((k, c)) = exit::classify_typed_error(&e) {
+                    (c, k)
                 } else {
                     // Ambiguous / stale context and remaining untyped errors.
                     (exit::AMBIGUOUS, "ambiguous")

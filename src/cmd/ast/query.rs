@@ -176,6 +176,19 @@ pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u
         args.path,
         args.symbol
     );
+    // Unsupported language is invalid_input (list/validate parity), not
+    // "symbol not found" which sends agents hunting alternate spellings.
+    if !lang.has_grammar() {
+        let msg = format!(
+            "Unsupported language: {} (detected from {}). \
+             Supported: Rust, Python, TypeScript, JavaScript, Go, Java, \
+             C#, Ruby, PHP, Swift, Kotlin, C, C++, HCL, XML, Protobuf, \
+             TOML, YAML, JSON, Shell.",
+            lang, args.path,
+        );
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(exit::FAILURE);
+    }
     let all_symbols = symbols::extract_symbols(&source, lang);
     let sym = match symbols::find_symbol(&all_symbols, &args.symbol) {
         Some(s) => s,
@@ -261,6 +274,24 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
     let mut all_valid = true;
     crate::verbose!("ast validate: checking {} files", paths.len());
 
+    // Preflight grammar paths: any binary/unreadable co-path fails closed.
+    // Soft-dropping mid-walk would report partial trees as validated OK.
+    for path in &paths {
+        let lang = resolve_lang(lang_hint, path);
+        if !lang.has_grammar() {
+            continue;
+        }
+        let display = display_path(path, &cwd);
+        if let Err(e) = crate::files::load_text_strict(path, &display)
+            && crate::exit::is_load_text_strict_fail(&e)
+        {
+            let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+            let msg = crate::exit::agent_error_message(&e);
+            global.emit_error_json_kind(Some(kind), &msg)?;
+            return Ok(exit::FAILURE);
+        }
+    }
+
     struct ValidateFileResult {
         display: String,
         result: crate::ast::validate::ValidationResult,
@@ -274,8 +305,6 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
             if !lang.has_grammar() {
                 return None;
             }
-            // Do not soft-drop load failures (.ok()?): binary / unreadable
-            // would become invisible "validated OK" on partial trees.
             let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
             let display = display_path(path, &cwd);
             Some(ValidateFileResult { display, result })
@@ -377,14 +406,21 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         matches: Vec<crate::ast::search::SearchMatch>,
     }
 
-    // Fail closed on invalid S-expression before the walk soft-drops ParseError.
-    if !args.pattern
-        && let Some(sample) = paths
-            .iter()
-            .find(|p| resolve_lang(lang_hint, p).has_grammar())
+    // Fail closed on invalid S-expression / pattern compile before the walk
+    // soft-drops ParseError into no_matches.
+    if let Some(sample) = paths
+        .iter()
+        .find(|p| resolve_lang(lang_hint, p).has_grammar())
     {
         let lang = resolve_lang(lang_hint, sample);
-        if let Err(e) = crate::ast::search::search_file(sample, &args.query, Some(lang), Some(1))
+        if args.pattern {
+            if let Err(e) = crate::ast::search::compile_pattern_query(&args.query, lang) {
+                let msg = crate::exit::agent_error_message(&e);
+                global.emit_error_json_kind(Some("parse_error"), &msg)?;
+                return Ok(exit::PARSE_ERROR);
+            }
+        } else if let Err(e) =
+            crate::ast::search::search_file(sample, &args.query, Some(lang), Some(1))
             && crate::exit::is_parse_error(&e)
         {
             let msg = crate::exit::agent_error_message(&e);
@@ -570,9 +606,18 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
     let paths = resolve_target_paths(&target, &args.path, global)?;
     crate::verbose!("ast deps: scanning {} files", paths.len());
 
+    if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
+        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+        let msg = crate::exit::agent_error_message(&err);
+        global.emit_error_json_kind(Some(kind), &msg)?;
+        return Ok(exit::FAILURE);
+    }
+
     let mut any_output = false;
     let structured = global.json || global.jsonl;
     let mut structured_items: Vec<serde_json::Value> = Vec::new();
+    // Reverse deps scan cwd; empty-mask must use that scan set, not only `paths`.
+    let mut reverse_scan_files: Option<Vec<std::path::PathBuf>> = None;
 
     if args.reverse {
         // For reverse deps, scan all files and find which ones import
@@ -586,6 +631,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
         // Scan from the project root (cwd), not just the target's parent
         // directory, to find importers anywhere in the project.
         let all_files = collect_source_files(&cwd, global)?;
+        reverse_scan_files = Some(all_files.clone());
 
         struct ReverseHit {
             display: String,
@@ -674,7 +720,8 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
         }
         Ok(exit::SUCCESS)
     } else {
-        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+        let mask_paths = reverse_scan_files.as_deref().unwrap_or(&paths);
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(mask_paths, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }

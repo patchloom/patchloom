@@ -92,9 +92,22 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
                 let mut total = 0usize;
                 for file_path in &files {
-                    let count = ast_rename_single_file(tx, file_path, old, new, lang.as_deref());
-                    if let Ok(n) = count {
-                        total += n;
+                    // Expanded paths must pass PathGuard (MCP list/rename do;
+                    // plan/tx must not skip expanded children).
+                    if let Some(g) = tx.guard {
+                        let rel = file_path
+                            .strip_prefix(tx.cwd)
+                            .unwrap_or(file_path.as_path())
+                            .to_string_lossy();
+                        g.check_path(rel.as_ref())
+                            .map_err(crate::fallback::EditError::guard_rejected)?;
+                    }
+                    match ast_rename_single_file(tx, file_path, old, new, lang.as_deref()) {
+                        Ok(n) => total = total.saturating_add(n),
+                        // Soft miss in one file does not abort the directory walk.
+                        Err(e) if crate::exit::is_no_match(&e) => {}
+                        // Hard failures (binary, guard, IO) must not soft-succeed.
+                        Err(e) => return Err(e),
                     }
                 }
                 if total == 0 {

@@ -78,11 +78,12 @@ impl Foo {
     let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
     assert!(names.contains(&"Foo"));
     assert!(names.contains(&"bar"));
-    // impl Foo should contain baz as a child
+    // impl Foo should contain baz as a child (Method, not free Function)
     let impl_sym = symbols.iter().find(|s| s.kind == SymbolKind::Impl).unwrap();
     assert_eq!(impl_sym.name, "Foo");
     assert_eq!(impl_sym.children.len(), 1);
     assert_eq!(impl_sym.children[0].name, "baz");
+    assert_eq!(impl_sym.children[0].kind, SymbolKind::Method);
 }
 
 #[test]
@@ -292,6 +293,28 @@ fn symbol_kind_from_str() {
     );
     assert_eq!(SymbolKind::from_str_loose("CONST"), Some(SymbolKind::Const));
     assert_eq!(SymbolKind::from_str_loose("unknown"), None);
+    // Dead aliases must not appear in parse_kind_filter help.
+    assert_eq!(SymbolKind::from_str_loose("variable"), None);
+    assert_eq!(SymbolKind::from_str_loose("field"), None);
+    assert_eq!(SymbolKind::from_str_loose("property"), None);
+}
+
+#[test]
+fn filter_symbols_includes_nested_methods() {
+    let source = r#"
+struct Foo;
+impl Foo {
+    fn bar(&self) {}
+    fn baz(&self) {}
+}
+"#;
+    let symbols = extract_symbols(source, Language::Rust);
+    let methods = filter_symbols(&symbols, &[SymbolKind::Method]);
+    let names: Vec<&str> = methods.iter().map(|s| s.name.as_str()).collect();
+    assert!(
+        names.contains(&"bar") && names.contains(&"baz"),
+        "nested methods must match --kind method, got {names:?}"
+    );
 }
 
 #[test]

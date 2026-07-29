@@ -533,6 +533,21 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // actual==0 with unreadable paths must not count as a clean match
         // (assert-count 0 would otherwise pass while the scan was masked).
         if actual == 0 {
+            // All targets missing must fail closed (same as normal no-match path).
+            // assert-count 0 on a typo path must not report success / "no TODOs".
+            let all_missing = if let Some(ref files) = files_from_list {
+                crate::files::all_explicit_paths_missing(files, Some(&cwd))
+            } else {
+                crate::files::all_scan_targets_missing(global, &args.paths, Some(&cwd))?
+            };
+            if all_missing {
+                let msg = format!(
+                    "no such file or directory: {}",
+                    global.path_scope_description(&args.paths)
+                );
+                global.emit_error_json_kind(Some("not_found"), &msg)?;
+                return Ok(exit::FAILURE);
+            }
             if let Some(err) = crate::ops::file::sole_explicit_non_text_for_scan(
                 &args.paths,
                 files_from_list.as_deref(),

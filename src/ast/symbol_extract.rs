@@ -111,7 +111,25 @@ fn extract_rust(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind
     match node.kind() {
         "function_item" => {
             let name = child_text_by_kind(node, "identifier", source)?;
-            Some((SymbolKind::Function, name.to_string()))
+            // Methods live inside impl blocks; free functions stay Function.
+            // Agents filter with --kind method (Python/TS parity).
+            let kind = {
+                let mut ancestor = node.parent();
+                let mut is_method = false;
+                while let Some(a) = ancestor {
+                    if a.kind() == "impl_item" {
+                        is_method = true;
+                        break;
+                    }
+                    ancestor = a.parent();
+                }
+                if is_method {
+                    SymbolKind::Method
+                } else {
+                    SymbolKind::Function
+                }
+            };
+            Some((kind, name.to_string()))
         }
         "struct_item" => {
             let name = child_text_by_kind(node, "type_identifier", source)?;

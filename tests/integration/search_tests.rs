@@ -1786,6 +1786,63 @@ fn test_search_dir_all_unreadable_not_no_matches() {
     }
 }
 
+/// --assert-count 0 must not succeed when every target path is missing.
+#[test]
+fn test_search_assert_count_zero_all_missing_not_success() {
+    let dir = TempDir::new().unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "search",
+            "TODO",
+            "totally_missing_path/",
+            "--assert-count",
+            "0",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+    assert_ne!(v["ok"], true, "must not claim assert-count success: {v}");
+}
+
+/// --assert-count N>0 on all-missing must be not_found, not changes_detected.
+#[test]
+fn test_search_assert_count_nonzero_all_missing_not_found() {
+    let dir = TempDir::new().unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "search",
+            "TODO",
+            "totally_missing_path/",
+            "--assert-count",
+            "5",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+}
+
 /// --assert-count 0 must not succeed when the scan is all-unreadable.
 #[test]
 fn test_search_assert_count_zero_all_unreadable_not_success() {
