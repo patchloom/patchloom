@@ -235,7 +235,7 @@ On Windows (where heredocs are not available), write operations to a file and pa
 patchloom batch ops.txt --apply
 ```
 
-**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. To force a string, wrap in JSON quotes. Unix-like shells (bash/zsh): `doc.set config.json version '"1.0"'`. Windows (`cmd.exe`/PowerShell): `doc.set config.json version "\"1.0\""`.
+**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. Batch `doc.set f.json v "2.0"` is still a number (quote removal leaves `2.0`). Force a string with nested JSON quotes: batch `doc.set f.json v "\"2.0\""`, or CLI Unix `doc.set config.json version '"1.0"'` / Windows `doc.set config.json version "\"1.0\""`. Prefer `tx`/MCP JSON `"value": "2.0"` when quoting is painful.
 
 For complex plans needing format/validate lifecycle, regex replace, or `--nth`, use `tx` with JSON:
 
