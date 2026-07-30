@@ -186,11 +186,14 @@ impl PatchloomService {
                     let svc = ctx.service.clone();
                     let args = ctx.arguments.unwrap_or_default();
                     Box::pin(async move {
+                        // Dyn routes must return CallToolResponse (rmcp 3.x MRTR).
+                        // Individual handlers still produce CallToolResult; map via From.
                         svc.blocking(move |svc| {
                             let args_value = serde_json::Value::Object(args);
                             handle_simple_op(svc, meta, args_value, &fields)
                         })
                         .await
+                        .map(Into::into)
                     })
                 },
             ));
@@ -260,13 +263,16 @@ impl PatchloomService {
         &self,
         tool: &str,
         duration_ms: u64,
-        result: &Result<CallToolResult, McpError>,
+        result: &Result<rmcp::model::CallToolResponse, McpError>,
     ) {
         let Some(ref log_path) = self.call_log else {
             return;
         };
         let (ok, error) = match result {
-            Ok(r) => (!r.is_error.unwrap_or(false), None),
+            Ok(rmcp::model::CallToolResponse::Complete(r)) => (!r.is_error.unwrap_or(false), None),
+            // MRTR / tasks intermediate results (and future non-exhaustive variants)
+            // are not protocol failures for call-log purposes.
+            Ok(_) => (true, None),
             Err(e) => (false, Some(format!("{e}"))),
         };
         let ts = {

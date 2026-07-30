@@ -2,8 +2,8 @@
 
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, ErrorData as McpError, ListToolsResult,
-    PaginatedRequestParams, ServerCapabilities, ServerInfo,
+    CallToolRequestParams, CallToolResponse, ErrorData as McpError, Implementation,
+    ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ServerHandler, ServiceExt};
@@ -85,11 +85,9 @@ fn full_server_instructions() -> String {
 
 impl ServerHandler for PatchloomService {
     fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_instructions(server_instructions(self.surface()));
-        info.server_info.name = "patchloom".into();
-        info.server_info.version = env!("CARGO_PKG_VERSION").into();
-        info
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions(server_instructions(self.surface()))
+            .with_server_info(Implementation::new("patchloom", env!("CARGO_PKG_VERSION")))
     }
 
     async fn list_tools(
@@ -97,10 +95,11 @@ impl ServerHandler for PatchloomService {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
+        // Use Default for SEP-2549/SEP-2322 optional fields (result_type, ttl_ms,
+        // cache_scope) so we stay compatible when rmcp adds more result metadata.
         Ok(ListToolsResult {
             tools: self.tool_router.list_all(),
-            next_cursor: None,
-            meta: None,
+            ..ListToolsResult::default()
         })
     }
 
@@ -108,7 +107,7 @@ impl ServerHandler for PatchloomService {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<CallToolResponse, McpError> {
         let tool_name = request.name.clone();
         crate::verbose!("mcp: tool call -> {tool_name}");
         let start = std::time::Instant::now();
