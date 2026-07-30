@@ -361,21 +361,6 @@ impl PatchloomService {
             } else {
                 results.has_matches()
             };
-            if !has_matches {
-                empty_scan_hard_fail(&global, &search_args.paths, &cwd)?;
-                // True pattern miss: CLI-shaped JSON so agents can branch.
-                let body = serde_json::json!({
-                    "ok": false,
-                    "error_kind": "no_matches",
-                    "error": "No matches found.",
-                    "match_count": 0,
-                    "file_count": 0,
-                });
-                return Ok(CallToolResult::success(vec![ContentBlock::text(
-                    body.to_string(),
-                )]));
-            }
-
             // cwd already resolved for empty-scan honesty.
             let refused =
                 crate::cmd::search::explicit_binary_refused(&search_args, &global, &cwd);
@@ -383,6 +368,32 @@ impl PatchloomService {
                 .map_err(|e| {
                     McpError::invalid_params(crate::exit::agent_error_message(&e), None)
                 })?;
+            if !has_matches {
+                empty_scan_hard_fail(&global, &search_args.paths, &cwd)?;
+                // True pattern miss: include refused/skipped like CLI so agents
+                // know binary co-paths were not searched as text.
+                let mut body = serde_json::json!({
+                    "ok": false,
+                    "error_kind": "no_matches",
+                    "error": "No matches found.",
+                    "match_count": 0,
+                    "file_count": 0,
+                });
+                if let Some(ref r) = refused
+                    && !r.is_empty()
+                {
+                    body["refused"] = serde_json::to_value(r).unwrap_or_default();
+                }
+                if let Some(ref s) = skipped
+                    && !s.is_empty()
+                {
+                    body["skipped"] = serde_json::to_value(s).unwrap_or_default();
+                }
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
+                    body.to_string(),
+                )]));
+            }
+
             let output = crate::cmd::search::format_results(
                 results,
                 &search_args,

@@ -19,6 +19,18 @@ fn cwd_from_path(path: &Path) -> &Path {
     path.parent().unwrap_or_else(|| Path::new("."))
 }
 
+/// Absolutize for engine handoff; map IO errors to OperationFailed.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn abs_path(path: &Path) -> anyhow::Result<std::path::PathBuf> {
+    super::absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+        .into()
+    })
+}
+
 /// Unified write path for standard file operations.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn file_write(
@@ -239,6 +251,10 @@ pub fn file_create(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path_owned = abs_path(path)?;
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path = path_owned.as_path();
     let op = Operation::FileCreate {
         path: path.to_string_lossy().into(),
         content: content.into(),
@@ -253,6 +269,10 @@ pub fn file_delete(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path_owned = abs_path(path)?;
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path = path_owned.as_path();
     let op = Operation::FileDelete {
         path: path.to_string_lossy().into(),
     };
@@ -267,6 +287,14 @@ pub fn file_rename(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let src_owned = abs_path(src)?;
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let dst_owned = abs_path(dst)?;
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let src = src_owned.as_path();
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let dst = dst_owned.as_path();
     let op = Operation::FileRename {
         from: src.to_string_lossy().into(),
         to: dst.to_string_lossy().into(),
@@ -286,6 +314,10 @@ pub fn file_append(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path_owned = abs_path(path)?;
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path = path_owned.as_path();
     let op = Operation::FileAppend {
         path: path.to_string_lossy().into(),
         content: content.into(),
@@ -302,6 +334,10 @@ pub fn file_prepend(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path_owned = abs_path(path)?;
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path = path_owned.as_path();
     let op = Operation::FilePrepend {
         path: path.to_string_lossy().into(),
         content: content.into(),

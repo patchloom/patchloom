@@ -345,3 +345,19 @@ fn test_schema_jsonl_global_flag_is_single_line() {
     assert_eq!(parsed["ok"], true);
     assert!(parsed["operations"].is_array());
 }
+
+#[test]
+fn test_schema_quiet_with_global_json_still_emits() {
+    // Agents often pass --json --quiet together; structured stdout must remain.
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--quiet", "schema", "--format", "json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).expect("json under --quiet");
+    assert_eq!(v["ok"], true);
+    assert!(v["operations"].is_array());
+}

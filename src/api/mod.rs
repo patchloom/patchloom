@@ -1,5 +1,8 @@
 //! Public library API for embedding patchloom in Rust applications.
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). Library facade
+//! (re-exports, engine bridge, path absolutize, shared helpers) is one unit.
+//!
 //! This module provides a clean, CLI-independent interface to patchloom's
 //! editing operations. Functions accept `&Path`/`&str` parameters and return
 //! `Result<EditResult>`, with no dependency on `clap` or process arguments.
@@ -657,6 +660,23 @@ fn make_diff(path: &str, old: &str, new: &str) -> String {
         diffs: vec![file_diff],
     };
     format_diff_result(&result)
+}
+
+/// Absolutize a library caller path before engine handoff.
+///
+/// Engine staging does `cwd.join(op_path)`. Library helpers historically set
+/// `cwd = path.parent()` and put the full path string in the op. Multi-component
+/// relatives then double-join (`src/lib.rs` → `src/src/lib.rs`). Absolute paths
+/// join correctly because `Path::join` keeps an absolute second component.
+///
+/// Callers should put the returned path into the plan op and pass its parent
+/// (or `.`) as engine cwd.
+pub(crate) fn absolute_for_engine(path: &Path) -> std::io::Result<std::path::PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
 }
 
 /// Generalized helper for Apply-mode mutations that need backup + guard.
