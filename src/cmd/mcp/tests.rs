@@ -1035,6 +1035,17 @@ mod server_info_tests {
             info["tool_count"].as_u64().unwrap() as usize,
             surface::McpSurface::Full.expected_tool_count()
         );
+        assert_eq!(
+            info["version"].as_str().unwrap(),
+            env!("CARGO_PKG_VERSION"),
+            "server_info must report package version for host diagnostics"
+        );
+        assert!(
+            info["protocol_version"]
+                .as_str()
+                .is_some_and(|s| !s.is_empty()),
+            "server_info must report MCP protocol_version matching handshake"
+        );
         client.cancel().await.unwrap();
     }
 

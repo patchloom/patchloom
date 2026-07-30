@@ -428,10 +428,13 @@ Both `--tls-cert` and `--tls-key` must be provided together. The server uses rus
 Use any MCP client that supports Streamable HTTP transport. Example with the `rmcp` Rust client:
 
 ```rust
+// Requires `rmcp` 3.x with client + HTTP transport features (see crates.io).
+use rmcp::ServiceExt;
 use rmcp::transport::StreamableHttpClientTransport;
 
 let transport = StreamableHttpClientTransport::from_uri("http://localhost:8080/mcp");
 let client = ().serve(transport).await?;
+// Negotiate initialize; tool calls go through client.peer().call_tool(...).
 ```
 
 ### Logging with HTTP transport
