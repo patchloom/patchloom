@@ -201,4 +201,13 @@ mod tests {
         }
         assert_eq!(CORE_MCP_TOOL_NAMES.len(), 10);
     }
+
+    #[test]
+    fn yaml_honesty_mentions_style_changed_on_all_surfaces() {
+        let t = yaml_style_honesty_markdown();
+        assert!(t.contains("style_changed"));
+        assert!(t.contains("changes[]") || t.contains("changes"));
+        assert!(t.contains("CLI") || t.contains("doc --json"));
+        assert!(t.contains("MCP") || t.contains("plan"));
+    }
 }
