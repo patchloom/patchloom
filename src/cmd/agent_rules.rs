@@ -165,7 +165,7 @@ tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n
              | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |\n\
              | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |\n\
              | Apply same operation to many files | `execute_plan` with `for_each` glob |\n\
-             | Get server version and working directory | `server_info` |\n\n\
+             | Get package version, MCP protocol_version, surface, tool_count, and cwd | `server_info` |\n\n\
              **`replace_text` / plan replace flags (default false):**\n\
              - `require_change`: error when the pattern matches zero times (fail closed).\n\
              - `command_position`: rewrite only shell invocable tokens (`sudo`/`timeout`/`flock`/`runuser`/`setsid`/`run0`/`gosu`/`su-exec`/`tini`/`dumb-init`/`unshare`/`nsenter`/`taskset`/`systemd-run`/`firejail`/`busybox`/`chpst`/`softlimit`/`envdir`/`setlock` wrappers yes; `uv pip` no).\n\
@@ -1098,6 +1098,18 @@ mod tests {
                 && mcp.contains("no_matches")
                 && mcp.contains("truncated"),
             "MCP-only agent-rules must document replace_text flags, fuzzy fail-closed, refused[], and search truncated"
+        );
+    }
+
+    #[test]
+    fn agent_rules_mcp_documents_server_info_version_fields() {
+        let out = generate_agent_rules(&args(AgentMode::Mcp, AgentPlatform::All));
+        assert!(
+            out.contains("protocol_version")
+                && out.contains("tool_count")
+                && out.contains("server_info")
+                && out.contains("package `version`"),
+            "MCP agent-rules must document server_info version + protocol_version (#2060)"
         );
     }
 
