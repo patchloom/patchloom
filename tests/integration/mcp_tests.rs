@@ -23,6 +23,25 @@ fn test_mcp_setup_documents_surface_core_honesty() {
     );
 }
 
+/// #2060: setup docs must list package version + protocol_version on server_info
+/// (not only cwd/surface), matching the tool payload and agent-rules.
+#[test]
+fn test_mcp_setup_documents_server_info_version_fields() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("protocol_version"),
+        "mcp-setup must document server_info protocol_version after #2060"
+    );
+    assert!(
+        doc.contains("package `version`") || doc.contains("package \"version\""),
+        "mcp-setup must document server_info package version after #2060"
+    );
+    assert!(
+        doc.contains("tool_count"),
+        "mcp-setup must keep documenting server_info tool_count"
+    );
+}
+
 /// Invalid `PATCHLOOM_MCP_SURFACE` must fail closed at process start (#1994).
 #[cfg(feature = "mcp")]
 #[test]

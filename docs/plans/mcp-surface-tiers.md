@@ -21,7 +21,7 @@ Exactly these tools (AST off):
 
 Defined in `src/cmd/mcp/surface.rs` as `CORE_MCP_TOOL_NAMES` / `McpSurface`.
 
-`server_info` reports `surface` and `tool_count`.
+`server_info` reports `cwd`, `surface`, `tool_count`, package `version`, and MCP `protocol_version`.
 
 Handshake `instructions` (MCP `ServerInfo`) are surface-aware: core mode lists
 only the core tools and names `PATCHLOOM_MCP_SURFACE=core`, so agents do not
