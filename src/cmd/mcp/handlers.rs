@@ -14,7 +14,7 @@
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ContentBlock, ErrorData as McpError};
-use rmcp::{tool, tool_router};
+use rmcp::{ServerHandler, tool, tool_router};
 
 use crate::cli::global::GlobalFlags;
 use crate::exit;
@@ -846,18 +846,23 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Return the server's working directory. Use this to discover the root path before file operations. All path parameters in other tools are relative to this directory."
+        description = "Return server identity and workspace root: cwd, surface (full|core), tool_count, package version, and MCP protocol_version from handshake. Use this to discover the root path before file operations; path parameters on other tools are relative to cwd."
     )]
     async fn server_info(
         &self,
         Parameters(_p): Parameters<EmptyParams>,
     ) -> Result<CallToolResult, McpError> {
         let cwd = self.cwd().to_string_lossy().to_string();
+        // Match ServerHandler::get_info so protocol_version cannot drift from
+        // the initialize handshake (rmcp 3 defaults ProtocolVersion::LATEST).
+        let handshake = ServerHandler::get_info(self);
         let info = serde_json::json!({
             "cwd": cwd,
             // Surface active at handshake (PATCHLOOM_MCP_SURFACE).
             "surface": self.surface().as_str(),
             "tool_count": self.surface().expected_tool_count(),
+            "version": env!("CARGO_PKG_VERSION"),
+            "protocol_version": handshake.protocol_version.to_string(),
         });
         let json = serde_json::to_string_pretty(&info)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;

@@ -40,7 +40,7 @@ fn core_server_instructions() -> String {
          - doc_get, doc_set, doc_query: parser-backed JSON/YAML/TOML by selector path\n\
          - md_replace_section: replace a markdown heading section\n\
          - execute_plan: multi-op atomic plans (tx)\n\
-         - server_info: cwd, surface, tool_count\n\n\
+         - server_info: cwd, surface, tool_count, version, protocol_version\n\n\
          Use doc_get/doc_set/doc_query for structured config; replace_text only where structure does not matter.",
     )
 }
