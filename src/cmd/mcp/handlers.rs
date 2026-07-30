@@ -863,7 +863,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Return server identity and workspace root: cwd, surface (full|core), tool_count, package version, and MCP protocol_version from handshake. Use this to discover the root path before file operations; path parameters on other tools are relative to cwd."
+        description = "Return server identity and workspace root: cwd, surface (full|core), tool_count, package version, MCP protocol_version from handshake, and optional recommendation (coding agents may prefer core). Use this to discover the root path before file operations; path parameters on other tools are relative to cwd."
     )]
     async fn server_info(
         &self,
@@ -873,14 +873,23 @@ impl PatchloomService {
         // Match ServerHandler::get_info so protocol_version cannot drift from
         // the initialize handshake (rmcp 3 defaults ProtocolVersion::LATEST).
         let handshake = ServerHandler::get_info(self);
-        let info = serde_json::json!({
+        let surface = self.surface();
+        let tool_count = surface.expected_tool_count();
+        let mut info = serde_json::json!({
             "cwd": cwd,
             // Surface active at handshake (PATCHLOOM_MCP_SURFACE).
-            "surface": self.surface().as_str(),
-            "tool_count": self.surface().expected_tool_count(),
+            "surface": surface.as_str(),
+            "tool_count": tool_count,
             "version": env!("CARGO_PKG_VERSION"),
             "protocol_version": handshake.protocol_version.to_string(),
         });
+        // Full inventory is large: nudge coding agents toward core without
+        // changing the product default (#2070 / #1994).
+        if matches!(surface, super::surface::McpSurface::Full) {
+            info["recommendation"] = serde_json::Value::String(
+                crate::cmd::agent_packaging::server_info_full_recommendation(tool_count),
+            );
+        }
         let json = serde_json::to_string_pretty(&info)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))

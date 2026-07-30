@@ -58,6 +58,7 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let rules = generate_agent_rules(&AgentRulesArgs {
         mode: AgentMode::All,
         platform: AgentPlatform::All,
+        surface: crate::cmd::agent_rules::AgentRulesSurface::Full,
     });
 
     let target = find_agent_file(&cwd);

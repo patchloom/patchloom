@@ -46,3 +46,6 @@ capability sandbox.
 - [x] Unit + protocol tests for core list_tools and rejected full-only calls
 - [x] Surface-aware handshake `instructions` (core does not advertise full-only tools)
 - [x] mcp-setup.md host configuration
+- [x] Coding-agent host default docs + `server_info.recommendation` when full (#2070)
+- [x] Handshake name map + explore guidance + YAML `style_changed` honesty (#2070)
+- [x] `agent-rules --surface core` short pack (#2070)

@@ -1,3 +1,4 @@
+pub mod agent_packaging;
 pub mod agent_rules;
 pub mod append;
 pub mod apply_fragment;

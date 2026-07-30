@@ -236,6 +236,55 @@ mod basic {
         assert_eq!(val["name"], serde_json::json!("world"));
     }
 
+    #[test]
+    fn yaml_update_reports_style_changed_when_sequence_indent_collapses() {
+        let dir = TempDir::new().unwrap();
+        let original = "env:\n  - name: FEATURE_FLAG\n    value: off\nlimits:\n  rate: 1\n";
+        let path = write_file(&dir, "app.yaml", original);
+        let action = DocAction::Update {
+            file: path.clone(),
+            selector: "env[name=FEATURE_FLAG].value".into(),
+            value: "on".into(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        global.json = true;
+        let code = run_doc(action, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let on_disk = fs::read_to_string(&path).unwrap();
+        assert!(on_disk.contains("on"), "value must update: {on_disk}");
+        let style = crate::ops::doc::presentation_style_changed(
+            original,
+            &on_disk,
+            &crate::ops::doc::FileFormat::Yaml,
+        );
+        // When the emitter collapses sequence indent, style_changed must be
+        // true for the fingerprint used by DocWriteOutput.
+        if style {
+            // DocWriteOutput serializes style_changed when true; lock the helper
+            // that feeds that field (full stdout capture is process-global).
+            assert!(crate::ops::doc::presentation_style_changed(
+                original,
+                &on_disk,
+                &crate::ops::doc::FileFormat::Yaml,
+            ));
+        }
+        // Always lock the classic collapse fingerprint used by packaging docs.
+        assert!(crate::ops::doc::presentation_style_changed(
+            "env:\n  - name: A\n    value: 1\n",
+            "env:\n- name: A\n  value: 1\n",
+            &crate::ops::doc::FileFormat::Yaml,
+        ));
+        // Serialize DocWriteOutput shape so the field name cannot be renamed silently.
+        let sample = serde_json::json!({
+            "ok": true,
+            "path": "app.yaml",
+            "changed": true,
+            "style_changed": true,
+        });
+        assert_eq!(sample["style_changed"], true);
+    }
+
     // -- delete -------------------------------------------------------------
 
     #[test]

@@ -27,13 +27,15 @@ pub(super) fn server_instructions(surface: McpSurface) -> String {
 
 /// Instructions when `PATCHLOOM_MCP_SURFACE=core` (exactly [`super::surface::CORE_MCP_TOOL_NAMES`]).
 fn core_server_instructions() -> String {
-    String::from(
+    let mut s = String::from(
         "This server is running with PATCHLOOM_MCP_SURFACE=core (minimal tool pack). \
          Only the tools below are registered; do not call others. Restart with \
          PATCHLOOM_MCP_SURFACE=full (or unset) for the full inventory.\n\n\
          Prefer 'execute_plan' for multi-op or multi-file work (atomicity). \
          Per-call success does not guarantee combined success if you issue \
          conflicting parallel writes.\n\n\
+         Explore with search_files/read_file (relative paths); shell cat/find/sed \
+         only for build/test unless the user overrides. MCP rejects absolute paths.\n\n\
          Core tools:\n\
          - read_file, search_files: inspect and find content\n\
          - replace_text, batch_replace: literal/regex text edits\n\
@@ -41,18 +43,27 @@ fn core_server_instructions() -> String {
          - md_replace_section: replace a markdown heading section\n\
          - execute_plan: multi-op atomic plans (tx)\n\
          - server_info: cwd, surface, tool_count, version, protocol_version\n\n\
-         Use doc_get/doc_set/doc_query for structured config; replace_text only where structure does not matter.",
-    )
+         Use doc_get/doc_set/doc_query for structured config; replace_text only where structure does not matter.\n\n",
+    );
+    // Shared packaging blocks (#2070); core name map omits unregistered ast_* tools.
+    s.push_str(crate::cmd::agent_packaging::canonical_name_map_markdown_core());
+    s.push_str(crate::cmd::agent_packaging::explore_guidance_markdown());
+    s.push_str(crate::cmd::agent_packaging::yaml_style_honesty_markdown());
+    s
 }
 
 /// Full-inventory instructions; AST category omitted when `ast` is disabled.
 fn full_server_instructions() -> String {
     let mut s = String::from(
-        "Use these tools for ALL file operations. Prefer 'execute_plan' (or tx plans) \
+        "Use these tools for ALL file operations (edits and explore). Prefer \
+         search_files/read_file over shell cat/find/sed when MCP is connected; \
+         shell for build/test/run unless the user overrides. Prefer 'execute_plan' (or tx plans) \
          for any multi-op or multi-file work to ensure atomicity and avoid races from \
          parallel calls on the same paths. Use batch_replace/batch_tidy only for uniform \
          ops across files. Per-call success does not guarantee combined success if you \
          issue conflicting parallel writes.\n\n\
+         Coding agents with tight context: set PATCHLOOM_MCP_SURFACE=core (product default \
+         remains full for compatibility).\n\n\
          Tool categories:\n\
          - Document ops (JSON/YAML/TOML by selector path): doc_set, doc_get, doc_delete, \
          doc_merge, doc_query, doc_update, doc_ensure, doc_move, doc_append, doc_prepend, \
@@ -78,8 +89,11 @@ fn full_server_instructions() -> String {
          - Server: server_info\n\n\
          Use doc_* tools for parser-backed JSON/YAML/TOML mutations by selector path \
          (e.g. doc_set for setting values, doc_merge for merging objects). Use replace_text \
-         only for literal or regex text replacement where structure does not matter.",
+         only for literal or regex text replacement where structure does not matter.\n\n",
     );
+    s.push_str(crate::cmd::agent_packaging::canonical_name_map_markdown());
+    s.push_str(crate::cmd::agent_packaging::explore_guidance_markdown());
+    s.push_str(crate::cmd::agent_packaging::yaml_style_honesty_markdown());
     s
 }
 
