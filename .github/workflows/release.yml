@@ -907,6 +907,73 @@ jobs:
             exit $LASTEXITCODE
           }
 
+
+  # Open a version PR on microsoft/winget-pkgs via winget-releaser (komac).
+  # Requires classic PAT secret WINGET_TOKEN (public_repo) with a fork of
+  # microsoft/winget-pkgs (fork-user below). Soft-skip when secret is unset.
+  # Package id Patchloom.Patchloom must already exist in winget-pkgs (first
+  # version was added manually; this only publishes subsequent versions).
+  # cargo-dist tags look like patchloom-vX.Y.Z; pass version + release-tag
+  # explicitly (action default only strips a leading "v").
+  publish-winget:
+    needs:
+      - plan
+      - host
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PLAN: ${{ needs.plan.outputs.val }}
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Resolve version and tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(echo "$PLAN" | jq -r '.releases[0].app_version // empty')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "PLAN had no releases[0].app_version" >&2
+            exit 1
+          fi
+          # Prefer cargo-dist style tag; fall back to v-prefixed.
+          if gh release view "patchloom-v${version}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            tag="patchloom-v${version}"
+          elif gh release view "v${version}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            tag="v${version}"
+          else
+            tag="patchloom-v${version}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved winget publish version=${version} tag=${tag}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to WinGet
+        if: env.WINGET_TOKEN != ''
+        uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2
+        with:
+          identifier: Patchloom.Patchloom
+          version: ${{ steps.meta.outputs.version }}
+          release-tag: ${{ steps.meta.outputs.tag }}
+          installers-regex: '-pc-windows-msvc\.zip$'
+          fork-user: SebTardif
+          token: ${{ env.WINGET_TOKEN }}
+
+      - name: Soft-skip when WINGET_TOKEN is unset
+        if: env.WINGET_TOKEN == ''
+        shell: bash
+        run: |
+          echo "WINGET_TOKEN not set; skipping winget-pkgs PR (packaging docs still apply)."
+          echo "Set a classic PAT with public_repo on a fork of microsoft/winget-pkgs"
+          echo "(fork-user SebTardif) as secret WINGET_TOKEN to enable auto version PRs."
+
   announce:
     needs:
       - plan
@@ -915,11 +982,12 @@ jobs:
       - publish-scoop-bucket
       - publish-npm
       - publish-chocolatey
+      - publish-winget
       - custom-publish-crates
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.publish-chocolatey.result == 'skipped' || needs.publish-chocolatey.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
+    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.publish-chocolatey.result == 'skipped' || needs.publish-chocolatey.result == 'success') && (needs.publish-winget.result == 'skipped' || needs.publish-winget.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 10
     env:

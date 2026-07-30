@@ -40,6 +40,26 @@ scoop update
 scoop update patchloom
 ```
 
+## From winget (Windows)
+
+```powershell
+winget install Patchloom.Patchloom
+```
+
+The community package id is `Patchloom.Patchloom` (portable zip from GitHub
+Releases, x64 and arm64). After install, `patchloom` is on PATH via the
+portable alias.
+
+Version updates are submitted as PRs to
+[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs). When the
+`WINGET_TOKEN` secret is configured, Release CI opens those PRs automatically
+via [winget-releaser](https://github.com/vedantmgoyal9/winget-releaser). The
+index can lag the latest GitHub Release until Microsoft validation merges the
+version PR. If `winget search patchloom` is empty or only an older version
+appears, use Scoop, Chocolatey, or the
+[GitHub Release](https://github.com/patchloom/patchloom/releases/latest) zip
+meanwhile.
+
 ## From Chocolatey (Windows)
 
 ```powershell
