@@ -1615,3 +1615,40 @@ fn multi_file_match_mode_worst_case_rollup() {
     assert_eq!(mode, Some("anchored"));
     assert!(score.is_none());
 }
+
+#[test]
+fn multi_fuzzy_total_miss_in_refused() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    std::fs::write(&a, "hello world\n").unwrap();
+    std::fs::write(&b, "unrelated content\n").unwrap();
+    let out = assert_cmd::Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "replace",
+            "hello world",
+            "--new",
+            "hi",
+            "--fuzzy",
+            "--apply",
+            "a.txt",
+            "b.txt",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["ok"], true);
+    let refused = v["refused"].as_array().expect("refused array");
+    assert!(
+        refused
+            .iter()
+            .any(|r| r["path"] == "b.txt" && r["reason"] == "no_matches"),
+        "got {refused:?}"
+    );
+}

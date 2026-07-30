@@ -483,6 +483,19 @@ pub(super) fn handle_ast_refs(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
+    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(
+                crate::exit::agent_error_message(&e),
+                None,
+            ));
+        }
+    }
+
     let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
         crate::par_process_files(&paths, None, &[], |path| {
             let display = crate::cmd::ast::display_path(path, &cwd);
@@ -496,6 +509,9 @@ pub(super) fn handle_ast_refs(
     }
 
     if all_refs.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            return Err(McpError::invalid_params(err.msg, None));
+        }
         return no_results("No references found.");
     }
 
@@ -521,6 +537,19 @@ pub(super) fn handle_ast_deps(
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+
+    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(
+                crate::exit::agent_error_message(&e),
+                None,
+            ));
+        }
+    }
 
     let mut results = Vec::new();
 
@@ -596,6 +625,9 @@ pub(super) fn handle_ast_deps(
     }
 
     if results.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            return Err(McpError::invalid_params(err.msg, None));
+        }
         return no_results("No imports found.");
     }
     let json = serde_json::to_string_pretty(&results)
@@ -713,6 +745,19 @@ pub(super) fn handle_ast_impact(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
+    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(
+                crate::exit::agent_error_message(&e),
+                None,
+            ));
+        }
+    }
+
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
         .iter()
         .map(|fp| {
@@ -724,6 +769,9 @@ pub(super) fn handle_ast_impact(
     let nodes = crate::ast::impact::compute_impact(&p.symbol, &file_pairs, p.depth);
 
     if nodes.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            return Err(McpError::invalid_params(err.msg, None));
+        }
         return no_results(&format!("No references found for '{}'.", p.symbol));
     }
 

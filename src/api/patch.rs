@@ -24,7 +24,27 @@ pub fn apply_patch(
         on_stale: Default::default(),
         allow_conflicts: false,
     };
-    let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+    // Resolve cwd so multi-component relative paths (and git-style patch
+    // paths that match the caller path) join correctly.
+    let abs = super::absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let cwd_owned: std::path::PathBuf;
+    let cwd = if path.is_absolute() {
+        abs.parent().unwrap_or_else(|| Path::new("."))
+    } else {
+        // path "src/lib.rs" → strip components so cwd is project root and
+        // patch path "src/lib.rs" resolves once.
+        cwd_owned = abs
+            .ancestors()
+            .nth(path.components().count())
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        cwd_owned.as_path()
+    };
     patch_write(op, cwd, mode, guard)
 }
 
