@@ -3432,3 +3432,38 @@ fn test_doc_merge_multi_doc_selector() {
         "second doc must remain: {text}"
     );
 }
+
+#[test]
+fn style_changed_true_on_yaml_sequence_collapse() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("app.yaml");
+    std::fs::write(
+        &path,
+        "env:\n  - name: FEATURE_FLAG\n    value: off\nlimits:\n  rate: 1\n",
+    )
+    .unwrap();
+    let out = assert_cmd::Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "doc",
+            "update",
+            "app.yaml",
+            "env[name=FEATURE_FLAG].value",
+            "on",
+            "--apply",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["changed"], true);
+    assert_eq!(
+        v["style_changed"], true,
+        "CLI doc --json must report style_changed when sequence indent collapses: {v}"
+    );
+}

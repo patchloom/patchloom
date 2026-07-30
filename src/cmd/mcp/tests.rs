@@ -1192,6 +1192,7 @@ mod surface_core_tests {
             "batch_tidy",
             "apply_patch",
             "ast_list",
+            "ast_rename", // not registered on core; plan-only via execute_plan
             "git_status",
             "File ops",
             "AST ops",

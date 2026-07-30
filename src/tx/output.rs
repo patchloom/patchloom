@@ -138,6 +138,19 @@ pub struct TxChange {
     /// Text actually matched for fuzzy/anchored replace on this path (#1736).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub matched_text: Option<String>,
+    /// YAML presentation style shifted (e.g. block-sequence indent collapse)
+    /// while values may still be correct (#2070). Omitted when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub style_changed: bool,
+}
+
+/// Presentation honesty for a path write (#2070).
+fn path_style_changed(path: &Path, original: &str, new_text: &str) -> bool {
+    let display = path.to_string_lossy();
+    let Ok(fmt) = crate::ops::doc::detect_format(display.as_ref()) else {
+        return false;
+    };
+    crate::ops::doc::presentation_style_changed(original, new_text, &fmt)
 }
 
 /// A search match in the tx output.
@@ -338,11 +351,12 @@ pub(crate) fn build_tx_output_with_meta(
             match_score,
             match_count,
             matched_text,
+            style_changed: false,
         });
         renamed_count += 1;
     }
 
-    for (path, _original, _) in changes {
+    for (path, original, new_content) in changes {
         // Covered by a renamed entry (source deleted / dest created).
         if rename_from.contains(path) || rename_to.contains(path) {
             continue;
@@ -363,6 +377,7 @@ pub(crate) fn build_tx_output_with_meta(
             top_matched_text =
                 crate::api::prefer_widest_matched_text(top_matched_text, m.matched_text.clone());
         }
+        let style_changed = path_style_changed(path, original, new_content);
         if deletions.contains(path) {
             tx_changes.push(TxChange {
                 path: path_str,
@@ -373,6 +388,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_score,
                 match_count,
                 matched_text,
+                style_changed: false,
             });
             deleted_count += 1;
         } else if !existed_before.contains(path) {
@@ -385,6 +401,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_score,
                 match_count,
                 matched_text,
+                style_changed: false,
             });
             created += 1;
         } else {
@@ -397,6 +414,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_score,
                 match_count,
                 matched_text,
+                style_changed,
             });
             modified += 1;
         }
@@ -432,6 +450,7 @@ pub(crate) fn build_tx_output_with_meta(
                 match_score,
                 match_count,
                 matched_text,
+                style_changed: false,
             });
             deleted_count += 1;
         }

@@ -6,7 +6,7 @@
 | Intent | CLI | Plan op (`execute_plan`) | MCP tool |
 |--------|-----|--------------------------|----------|
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |
-| identifier rename | `ast rename` | `ast.rename` | `ast_rename` / plan via `execute_plan` |
+| identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |
 | structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |
 | search | `search` | n/a | `search_files` |
 | read | `read` | n/a | `read_file` |
@@ -23,7 +23,7 @@ When patchloom MCP is connected:
 
 ## Structured doc style honesty
 
-`doc.*` (CLI, plan, MCP) may re-emit **canonical YAML presentation** while keeping values correct (for example collapsing indented block sequences under a key). When presentation shifts, write JSON includes `style_changed: true`. Do not claim a pure surgical text edit when `style_changed` is true or when only the value field was intended but list indentation moved.
+`doc.*` (CLI, plan, MCP) may re-emit **canonical YAML presentation** while keeping values correct (for example collapsing indented block sequences under a key). When **block-sequence indent presentation** shifts, write JSON reports `style_changed: true` on CLI `doc --json` and on plan/MCP `changes[]` entries for modified files. Detection is a block-sequence indent fingerprint (not every possible formatting change). Do not claim a pure surgical text edit when `style_changed` is true.
 
 ## Recommended MCP surface for coding agents
 

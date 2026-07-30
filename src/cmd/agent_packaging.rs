@@ -4,14 +4,26 @@
 //! drift on the name map, explore rule, or surface recommendations.
 
 /// Compact CLI / plan / MCP name map (models must not invent tool ids).
+///
+/// Full surface: MCP column may list registered tools including AST.
 pub(crate) fn canonical_name_map_markdown() -> &'static str {
-    "\
+    canonical_name_map_markdown_for_surface(true)
+}
+
+/// Core surface: do not list unregistered MCP tool ids (e.g. `ast_rename`).
+pub(crate) fn canonical_name_map_markdown_core() -> &'static str {
+    canonical_name_map_markdown_for_surface(false)
+}
+
+fn canonical_name_map_markdown_for_surface(full_ast_tools: bool) -> &'static str {
+    if full_ast_tools {
+        "\
 ## Canonical names (do not invent tool ids)\n\
 \n\
 | Intent | CLI | Plan op (`execute_plan`) | MCP tool |\n\
 |--------|-----|--------------------------|----------|\n\
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |\n\
-| identifier rename | `ast rename` | `ast.rename` | `ast_rename` / plan via `execute_plan` |\n\
+| identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |\n\
 | structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |\n\
 | search | `search` | n/a | `search_files` |\n\
 | read | `read` | n/a | `read_file` |\n\
@@ -19,6 +31,21 @@ pub(crate) fn canonical_name_map_markdown() -> &'static str {
 Host meta-tools (for example a host `search_tool` catalog lookup) are **not** \
 patchloom MCP tools. Only list registered MCP tool names when summarizing \
 patchloom usage.\n\n"
+    } else {
+        "\
+## Canonical names (do not invent tool ids)\n\
+\n\
+| Intent | CLI | Plan op (`execute_plan`) | MCP tool (core pack) |\n\
+|--------|-----|--------------------------|----------------------|\n\
+| multi-op atomic | `tx` | (plan root) | `execute_plan` |\n\
+| identifier rename | `ast rename` | `ast.rename` | plan via `execute_plan` only (no standalone `ast_*` on core) |\n\
+| structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |\n\
+| search | `search` | n/a | `search_files` |\n\
+| read | `read` | n/a | `read_file` |\n\
+\n\
+Host meta-tools (for example a host `search_tool` catalog lookup) are **not** \
+patchloom MCP tools. Only list **registered** MCP tool names when summarizing.\n\n"
+    }
 }
 
 /// Dual-host explore rule: MCP for inspect, shell for build/test.
@@ -43,9 +70,11 @@ pub(crate) fn yaml_style_honesty_markdown() -> &'static str {
 \n\
 `doc.*` (CLI, plan, MCP) may re-emit **canonical YAML presentation** while \
 keeping values correct (for example collapsing indented block sequences under \
-a key). When presentation shifts, write JSON includes `style_changed: true`. \
-Do not claim a pure surgical text edit when `style_changed` is true or when \
-only the value field was intended but list indentation moved.\n\n"
+a key). When **block-sequence indent presentation** shifts, write JSON reports \
+`style_changed: true` on CLI `doc --json` and on plan/MCP `changes[]` entries \
+for modified files. Detection is a block-sequence indent fingerprint (not every \
+possible formatting change). Do not claim a pure surgical text edit when \
+`style_changed` is true.\n\n"
 }
 
 /// Host default for coding agents (product default remains full).
@@ -91,7 +120,7 @@ to the MCP workspace (absolute paths and `../` escapes are rejected).\n\n\
 `execute_plan`, `server_info`. Prefer `execute_plan` for multi-op atomic work.\n\n\
          Dry-run is the default on CLI; MCP writes apply unless the host says otherwise. \
 Branch on `applied` / `error_kind`, not `ok` alone.\n",
-        canonical_name_map_markdown(),
+        canonical_name_map_markdown_core(),
         explore_guidance_markdown(),
         yaml_style_honesty_markdown(),
         core_surface_host_recommendation(),

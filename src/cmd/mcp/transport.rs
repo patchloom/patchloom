@@ -42,11 +42,11 @@ fn core_server_instructions() -> String {
          - doc_get, doc_set, doc_query: parser-backed JSON/YAML/TOML by selector path\n\
          - md_replace_section: replace a markdown heading section\n\
          - execute_plan: multi-op atomic plans (tx)\n\
-         - server_info: cwd, surface, tool_count, version, protocol_version, recommendation\n\n\
+         - server_info: cwd, surface, tool_count, version, protocol_version\n\n\
          Use doc_get/doc_set/doc_query for structured config; replace_text only where structure does not matter.\n\n",
     );
-    // Shared packaging blocks (#2070); keep after core tool list so inventory stays first.
-    s.push_str(crate::cmd::agent_packaging::canonical_name_map_markdown());
+    // Shared packaging blocks (#2070); core name map omits unregistered ast_* tools.
+    s.push_str(crate::cmd::agent_packaging::canonical_name_map_markdown_core());
     s.push_str(crate::cmd::agent_packaging::explore_guidance_markdown());
     s.push_str(crate::cmd::agent_packaging::yaml_style_honesty_markdown());
     s
