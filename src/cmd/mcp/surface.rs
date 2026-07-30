@@ -258,22 +258,9 @@ pub(super) const MCP_SURFACE_ENV: &str = "PATCHLOOM_MCP_SURFACE";
 
 /// Tools registered when [`McpSurface::Core`] is active.
 ///
-/// Keep this list small and agent-default: read/search/replace, doc get/set/query,
-/// one markdown write, plans, and server metadata. AST stays full-only.
-///
-/// Documented in `docs/plans/mcp-surface-tiers.md` and agent-rules.
-pub(super) const CORE_MCP_TOOL_NAMES: &[&str] = &[
-    "read_file",
-    "search_files",
-    "replace_text",
-    "batch_replace",
-    "doc_get",
-    "doc_set",
-    "doc_query",
-    "md_replace_section",
-    "execute_plan",
-    "server_info",
-];
+/// Canonical list lives in [`crate::cmd::agent_packaging::CORE_MCP_TOOL_NAMES`]
+/// so agent-rules prose and MCP registration cannot drift.
+pub(super) use crate::cmd::agent_packaging::CORE_MCP_TOOL_NAMES;
 
 /// Which tool inventory the MCP server registers.
 ///
