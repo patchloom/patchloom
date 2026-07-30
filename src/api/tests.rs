@@ -7498,3 +7498,67 @@ fn content_edit_honesty_constructors_for_hosts() {
     assert_eq!(fuzzy.matched_text.as_deref(), Some("aaaa"));
     assert_eq!(fuzzy.old, "a");
 }
+
+/// Prove library multi-component relative path (fixloop).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_relative_nested_path_does_not_double_join() {
+    use std::env;
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("src");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("lib.rs");
+    fs::write(&file, "fn old() {}\n").unwrap();
+    let prev = env::current_dir().unwrap();
+    env::set_current_dir(dir.path()).unwrap();
+    let result = replace_text(
+        Path::new("src/lib.rs"),
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    );
+    let _ = env::set_current_dir(prev);
+    let r = result.expect("relative nested path should resolve");
+    assert!(r.changed, "expected change: {:?}", r);
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(content.contains("fn new"), "got {content}");
+}
+
+/// Missing path peels NotFound (not OperationFailed) for library hosts.
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_missing_path_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nope.rs");
+    let err = ast_rename(&missing, "foo", "bar", ApplyMode::Preview, None).unwrap_err();
+    assert!(
+        crate::api::is_not_found(&err),
+        "expected not_found peel, got kind={:?} err={err}",
+        crate::fallback::edit_error_kind(&err)
+    );
+}
+
+/// Batch remapper preserves Binary peel from sole-path load.
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_rename_batch_binary_peels_binary() {
+    let dir = TempDir::new().unwrap();
+    let bin = dir.path().join("x.rs");
+    fs::write(&bin, b"fn foo() {}\0").unwrap();
+    let opts = AstRenameBatchOptions {
+        mode: ApplyMode::Preview,
+        continue_on_no_match: true,
+        fail_fast: false,
+        ..Default::default()
+    };
+    let results = ast_rename_batch(&[&bin], "foo", "bar", &opts, None).unwrap();
+    assert_eq!(results.len(), 1);
+    let err = results[0].result.as_ref().unwrap_err();
+    assert_eq!(
+        err.kind,
+        EditErrorKind::Binary,
+        "batch must not collapse Binary to OperationFailed: {err:?}"
+    );
+}

@@ -87,10 +87,15 @@ pub enum QueryKeysResult {
 /// Get the keys of an object at a selector path.
 ///
 /// When the selector matches multiple values, returns keys of the first match.
+/// Bare object keys at an array root (multi-doc YAML) return
+/// [`crate::exit::TypeErrorError`] like [`query_get`] / [`query_has`].
 pub fn query_keys(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryKeysResult> {
     let segments = selector::parse_anyhow(selector)?;
     let results = selector::eval(root, &segments);
     if results.is_empty() {
+        if let Some(hint) = array_root_bare_key_hint(root, &segments) {
+            return Err(crate::exit::TypeErrorError { msg: hint }.into());
+        }
         return Ok(QueryKeysResult::NoMatch);
     }
     match results[0].as_object() {
@@ -111,10 +116,14 @@ pub enum QueryLenResult {
 /// Get the length of an array or object at a selector path.
 ///
 /// When the selector matches multiple values, returns the length of the first match.
+/// Bare object keys at an array root return type_error like [`query_get`].
 pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryLenResult> {
     let segments = selector::parse_anyhow(selector)?;
     let results = selector::eval(root, &segments);
     if results.is_empty() {
+        if let Some(hint) = array_root_bare_key_hint(root, &segments) {
+            return Err(crate::exit::TypeErrorError { msg: hint }.into());
+        }
         return Ok(QueryLenResult::NoMatch);
     }
     let target = results[0];
@@ -303,6 +312,31 @@ mod tests {
             query_keys(&doc, "nonexistent").unwrap(),
             QueryKeysResult::NoMatch
         ));
+    }
+
+    #[test]
+    fn keys_bare_key_at_array_root_is_type_error() {
+        let doc = serde_json::json!([{"a": 1}, {"b": 2}]);
+        let err = query_keys(&doc, "a").expect_err("bare key at array root");
+        assert!(
+            crate::fallback::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("0.a") || msg.contains("[0].a"),
+            "hint missing index form: {msg}"
+        );
+    }
+
+    #[test]
+    fn len_bare_key_at_array_root_is_type_error() {
+        let doc = serde_json::json!([{"a": 1}, {"b": 2}]);
+        let err = query_len(&doc, "a").expect_err("bare key at array root");
+        assert!(
+            crate::fallback::is_type_error(&err),
+            "expected type_error, got: {err}"
+        );
     }
 
     // -- query_len --

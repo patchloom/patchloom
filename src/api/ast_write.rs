@@ -130,8 +130,9 @@ pub fn ast_rename(
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
-        // Preserve Binary / InvalidEncoding / InvalidInput peels (#1963).
-        if crate::exit::is_load_text_strict_fail(&e) {
+        // Preserve Binary / InvalidEncoding / InvalidInput (#1963) and
+        // NotFound so hosts can peel is_not_found (parity with content_edits).
+        if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
             return e;
         }
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
@@ -193,8 +194,8 @@ pub fn ast_replace_in_symbol(
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
-        // Preserve Binary / InvalidEncoding / InvalidInput peels (#1963).
-        if crate::exit::is_load_text_strict_fail(&e) {
+        // Preserve Binary / InvalidEncoding / InvalidInput (#1963) and NotFound.
+        if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
             return e;
         }
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
@@ -506,7 +507,24 @@ pub fn ast_rename_batch(
                 });
             }
             Err(e) => {
+                // Prefer typed EditError; else peel load_text_strict kinds so
+                // Binary/InvalidEncoding/NotFound survive batch results.
                 let edit_err = e.downcast::<EditError>().unwrap_or_else(|e| {
+                    if let Some(kind) = crate::fallback::edit_error_kind(&e) {
+                        return EditError::new(kind, e.to_string());
+                    }
+                    if crate::exit::is_load_text_strict_fail(&e) {
+                        if crate::fallback::is_binary(&e) {
+                            return EditError::new(EditErrorKind::Binary, e.to_string());
+                        }
+                        if crate::fallback::is_invalid_encoding(&e) {
+                            return EditError::new(EditErrorKind::InvalidEncoding, e.to_string());
+                        }
+                        return EditError::new(EditErrorKind::InvalidInput, e.to_string());
+                    }
+                    if crate::exit::is_io_not_found(&e) {
+                        return EditError::new(EditErrorKind::NotFound, e.to_string());
+                    }
                     EditError::new(EditErrorKind::OperationFailed, e.to_string())
                 });
                 let is_no_match = edit_err.kind == EditErrorKind::NoMatch;

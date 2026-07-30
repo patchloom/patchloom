@@ -86,9 +86,16 @@ pub fn replace_text(
         return Ok(result);
     }
 
+    // Absolutize so parent-cwd + full path does not double-join relatives.
+    let abs = super::absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
     let op = Operation::Replace {
         glob: None,
-        path: Some(path.to_string_lossy().into()),
+        path: Some(abs.to_string_lossy().into()),
         regex: opts.regex,
         old: from.into(),
         new_text: Some(to.into()),
@@ -111,7 +118,7 @@ pub fn replace_text(
         min_fuzzy_score: opts.min_fuzzy_score,
         allow_absent_old: opts.allow_absent_old,
     };
-    let mut result = replace_write(op, path, mode, guard, opts.fuzzy)?;
+    let mut result = replace_write(op, &abs, mode, guard, opts.fuzzy)?;
     // if_exists intentionally softens zero-match (Ok unchanged). require_change
     // must not override that: both true means if_exists wins (#1492 docs).
     if opts.require_change && !opts.if_exists && !result.changed && result.match_count == 0 {

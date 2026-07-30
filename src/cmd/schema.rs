@@ -72,12 +72,9 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     "write_policy": schema::plan_write_policy_schema()
                 }
             });
-            if global.quiet {
-                return Ok(exit::SUCCESS);
-            }
-            // Honor global --json / --jsonl (pretty vs compact). Agents that
-            // always pass --jsonl break on multi-line pretty-only stdout.
-            if !global.emit_json(&envelope)? {
+            // Global --json/--jsonl still emit under --quiet (structured only).
+            // Quiet suppresses human pretty-print, not agent envelopes.
+            if !global.emit_json(&envelope)? && !global.quiet {
                 let output = serde_json::to_string_pretty(&envelope)?;
                 println!("{output}");
             }
@@ -87,16 +84,14 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Some(t) => schema::system_prompt_for_tier(t)?,
                 None => schema::system_prompt_for_tier(Tier::Strong)?,
             };
-            if global.quiet {
-                return Ok(exit::SUCCESS);
-            }
-            // Global --json/--jsonl must not print raw markdown (agents
-            // call `json.loads` on stdout). Parity with agent-rules.
+            // Quiet + --json still emits the envelope; quiet alone suppresses
+            // raw markdown prompt text.
             if !global.emit_json(&serde_json::json!({
                 "ok": true,
                 "format": "prompt",
                 "content": prompt,
-            }))? {
+            }))? && !global.quiet
+            {
                 print!("{prompt}");
             }
         }
