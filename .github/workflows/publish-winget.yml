@@ -1,0 +1,82 @@
+# Manually open a microsoft/winget-pkgs version PR for a published release.
+# Automatic path is publish-winget in release.yml (when WINGET_TOKEN is set).
+name: Publish WinGet package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >
+          Semver without tag prefix (e.g. 0.22.0). Leave empty to use the
+          latest GitHub Release tag (strip patchloom-v / v prefix).
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  group: publish-winget-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Open winget-pkgs version PR
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Resolve version and tag
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION}" ]; then
+            version="${INPUT_VERSION}"
+          else
+            tag=$(gh release view --repo "${{ github.repository }}" --json tagName -q .tagName)
+            version="${tag#patchloom-v}"
+            version="${version#v}"
+          fi
+          if gh release view "patchloom-v${version}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            tag="patchloom-v${version}"
+          elif gh release view "v${version}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            tag="v${version}"
+          else
+            echo "No GitHub Release for version ${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved winget publish version=${version} tag=${tag}"
+
+      - name: Require WINGET_TOKEN
+        if: env.WINGET_TOKEN == ''
+        shell: bash
+        run: |
+          echo "::error::WINGET_TOKEN secret is not set."
+          echo "Create a classic PAT (public_repo) for the account that owns"
+          echo "the microsoft/winget-pkgs fork (fork-user SebTardif), then:"
+          echo "  gh secret set WINGET_TOKEN --repo patchloom/patchloom"
+          exit 1
+
+      - name: Publish to WinGet
+        if: env.WINGET_TOKEN != ''
+        uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2
+        with:
+          identifier: Patchloom.Patchloom
+          version: ${{ steps.meta.outputs.version }}
+          release-tag: ${{ steps.meta.outputs.tag }}
+          installers-regex: '-pc-windows-msvc\.zip$'
+          fork-user: SebTardif
+          token: ${{ env.WINGET_TOKEN }}

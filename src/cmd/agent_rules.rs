@@ -450,9 +450,11 @@ success lines are the full path list.\n\n\
 
         out.push_str(
             "**Note:** Values are parsed as JSON first. An unquoted `1.0` is parsed as a number. \
-             To force a string, wrap in JSON quotes. Unix-like shells (bash/zsh): \
-             `doc.set config.json version '\"1.0\"'`. Windows (`cmd.exe`/PowerShell): \
-             `doc.set config.json version \"\\\"1.0\\\"\"`.\n\n",
+             Batch `doc.set f.json v \"2.0\"` is still a number (quote removal leaves `2.0`). \
+             Force a string with nested JSON quotes: batch `doc.set f.json v \"\\\"2.0\\\"\"`, \
+             or CLI Unix `doc.set config.json version '\"1.0\"'` / Windows \
+             `doc.set config.json version \"\\\"1.0\\\"\"`. Prefer `tx`/MCP JSON \
+             `\"value\": \"2.0\"` when quoting is painful.\n\n",
         );
 
         out.push_str(
@@ -832,6 +834,11 @@ mod tests {
         assert!(
             out.contains("multi-line content") || out.contains(r#"\\\""#),
             "batch section must document quote escapes / multi-line guidance"
+        );
+        assert!(
+            out.contains("Batch `doc.set f.json v \"2.0\"` is still a number")
+                || out.contains("still a number"),
+            "batch value note must warn that double-quoted 2.0 stays a JSON number: {out}"
         );
     }
 
