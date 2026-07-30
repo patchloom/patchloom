@@ -4716,14 +4716,15 @@ fn apply_content_edits_to_file_span_policy_refuses_fuzzy_before_write() {
     assert_ne!(fs::read_to_string(&file).unwrap(), original);
 }
 
-/// #2008: refuse_batch_if_suspicious_fuzzy blocks before write (deterministic).
-#[cfg(any(feature = "cli", feature = "files"))]
+/// #2008 / #2064: refuse_batch_if_suspicious_fuzzy blocks over-wide fuzzy
+/// honesty (deterministic; public crate + api paths).
 #[test]
 fn refuse_batch_if_suspicious_fuzzy_rejects_wide_honesty() {
-    use crate::api::content_edits::{
-        ContentEditHonesty, ContentEditsResult, refuse_batch_if_suspicious_fuzzy,
+    use crate::api::{
+        ContentEditHonesty, ContentEditsResult, FuzzySpanPolicy, is_fuzzy_span_suspicious,
+        refuse_batch_if_suspicious_fuzzy,
     };
-    use crate::api::{FuzzySpanPolicy, is_fuzzy_span_suspicious};
+
     let batch = ContentEditsResult {
         original: "x".into(),
         modified: "y".into(),
@@ -4741,22 +4742,113 @@ fn refuse_batch_if_suspicious_fuzzy_rejects_wide_honesty() {
             "process_data_and_much_more_tail",
         )],
     };
-    let err = refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())
+    // Crate-root re-export (host `use patchloom::refuse_batch_if_suspicious_fuzzy`).
+    let err = crate::refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())
         .expect_err("wide fuzzy honesty must refuse before write");
     assert!(is_fuzzy_span_suspicious(&err));
     assert_eq!(
         crate::api::error_kind_str(&err),
         Some("fuzzy_span_suspicious")
     );
+    assert!(
+        err.to_string().contains("content edit 1"),
+        "message should name 1-based op index: {err}"
+    );
 
     // Unchanged batch must not refuse.
     let soft = ContentEditsResult {
         changed: false,
         modified: batch.original.clone(),
-        ..batch
+        ..batch.clone()
     };
     refuse_batch_if_suspicious_fuzzy(&soft, &FuzzySpanPolicy::default())
         .expect("unchanged batch must not refuse");
+
+    // Exact honesty is not refused even when matched_text is long (#2064 Fuzzy-only).
+    let exact_wide = ContentEditsResult {
+        changed: true,
+        match_mode: Some(MatchMode::Exact),
+        match_score: None,
+        matched_text: Some("process_data_and_much_more_tail".into()),
+        op_honesty: vec![ContentEditHonesty::exact(
+            0,
+            "process_data",
+            "process_data_and_much_more_tail",
+        )],
+        ..batch.clone()
+    };
+    refuse_batch_if_suspicious_fuzzy(&exact_wide, &FuzzySpanPolicy::default())
+        .expect("exact match_mode must skip span refuse");
+
+    // Safe token-scale fuzzy passes.
+    let safe = ContentEditsResult {
+        op_honesty: vec![ContentEditHonesty::fuzzy(
+            0,
+            "process_data",
+            0.99,
+            "process_data",
+        )],
+        matched_text: Some("process_data".into()),
+        match_score: Some(0.99),
+        ..batch
+    };
+    refuse_batch_if_suspicious_fuzzy(&safe, &FuzzySpanPolicy::default())
+        .expect("token-scale fuzzy must pass default policy");
+}
+
+/// #2064: live buffer multi-op + public batch refuse (host EditEngine shape).
+#[test]
+fn refuse_batch_if_suspicious_fuzzy_after_live_content_edits() {
+    use crate::api::{
+        ContentEdit, FuzzySpanPolicy, apply_content_edits, is_fuzzy_span_suspicious,
+        refuse_batch_if_suspicious_fuzzy,
+    };
+    let original = "fn process_data() {}\nkeep exact\n";
+    let edits = [
+        ContentEdit::Replace {
+            old: "keep exact".into(),
+            new: "KEEP EXACT".into(),
+            options: ReplaceOptions::default(),
+        },
+        ContentEdit::Replace {
+            old: "fn proccess_data() {}".into(),
+            new: "fn handle_data() {}".into(),
+            options: ReplaceOptions {
+                fuzzy: true,
+                min_fuzzy_score: None,
+                allow_absent_old: true,
+                require_change: true,
+                refuse_suspicious_fuzzy: false,
+                ..Default::default()
+            },
+        },
+    ];
+    let batch = apply_content_edits(original, &edits).expect("buffer multi-op applies");
+    assert!(batch.changed);
+    assert!(
+        batch
+            .op_honesty
+            .iter()
+            .any(|h| h.match_mode == Some(MatchMode::Fuzzy)),
+        "expected a fuzzy honesty row: {:?}",
+        batch.op_honesty
+    );
+    let strict = FuzzySpanPolicy {
+        max_ratio: 1.0,
+        abs_extra_chars: 0,
+        near_floor_score_lo: 0.0,
+        near_floor_score_hi: 1.01,
+        near_floor_ratio: 0.0,
+    };
+    let err = refuse_batch_if_suspicious_fuzzy(&batch, &strict)
+        .expect_err("strict policy must refuse fuzzy multi-op batch");
+    assert!(is_fuzzy_span_suspicious(&err), "got: {err}");
+    assert_eq!(
+        crate::api::error_kind_str(&err),
+        Some("fuzzy_span_suspicious")
+    );
+    // Host still holds original; no write occurred.
+    assert_eq!(batch.original, original);
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]

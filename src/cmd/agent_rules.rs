@@ -206,7 +206,9 @@ Default policy (Unicode chars): refuse when matched is wider than \
 Do not rely on score alone. Multi-op `apply_content_edits` rolls up the **widest** \
 `matched_text` and the **minimum** fuzzy `match_score` independently (they may come from \
 different ops); use **`ContentEditsResult.op_honesty`** per replace (`old`, `matched_text`, \
-`match_score`) for correct refuse pairing (#2006). Plan/tx multi-path top-level uses the same \
+`match_score`) for correct refuse pairing (#2006), or call \
+`api::refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())` for a full \
+batch gate after buffer multi-op (#2064). Plan/tx multi-path top-level uses the same \
 worst-case rollup as content_edits: **widest** `matched_text` + **min** fuzzy score (#2007). \
 Per-path details stay on `changes[]`. File multi-op Apply with a final span gate: \
 `apply_content_edits_to_file_with_span_policy(..., Some(&FuzzySpanPolicy::default()))` \
@@ -1310,11 +1312,12 @@ mod tests {
                 && out.contains("FuzzySpanPolicy")
                 && out.contains("refuse_suspicious_fuzzy")
                 && out.contains("op_honesty")
+                && out.contains("refuse_batch_if_suspicious_fuzzy")
                 && out.contains("apply_content_edits_to_file_with_span_policy")
                 && out.contains("widest")
                 && out.contains("embedder-host.md")
                 && out.contains("primary + fallback"),
-            "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009)"
+            "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064)"
         );
         assert!(
             out.contains("Which surface to use")

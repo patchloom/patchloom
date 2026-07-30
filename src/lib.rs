@@ -213,6 +213,7 @@
 //! | Over-wide fuzzy auto-refuse on `for_agent` | [`ReplaceOptions::refuse_suspicious_fuzzy`] / [`EditErrorKind::FuzzySpanSuspicious`] / [`api::is_fuzzy_span_suspicious`] (#2005) |
 //! | Custom over-wide fuzzy refuse | [`api::fuzzy_span_suspicious`] / [`FuzzySpanPolicy`] (#1981) |
 //! | Multi-op per-replace honesty | [`ContentEditsResult::op_honesty`] / [`ContentEditHonesty`] (#2006) |
+//! | Buffer multi-op over-wide fuzzy refuse | [`api::refuse_batch_if_suspicious_fuzzy`] (#2064) |
 //! | Plan/tx multi-path worst-case span | [`prefer_widest_matched_text`] / top-level `matched_text` (#2007) |
 //! | File multi-op pre-write span refuse | [`apply_content_edits_to_file_with_span_policy`] + [`FuzzySpanPolicy`] (#2008) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
@@ -325,8 +326,8 @@ pub use api::{
     is_guard_rejected, is_invalid_encoding, is_invalid_input, is_lazy_marker_line,
     is_load_text_strict_fail, is_no_match, is_not_found, is_type_error, load_text,
     load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
-    plan_apply_fragment_to_replace, prefer_widest_matched_text, run_post_write_validation,
-    search_file, strip_lazy_markers, text_diff,
+    plan_apply_fragment_to_replace, prefer_widest_matched_text, refuse_batch_if_suspicious_fuzzy,
+    run_post_write_validation, search_file, strip_lazy_markers, text_diff,
 };
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::{
