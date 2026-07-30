@@ -199,6 +199,50 @@ impl SearchParams {
     }
 }
 
+/// Parameters for MCP `list_files` (bounded directory inventory; #2076).
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ListFilesParams {
+    /// Walk roots relative to working directory (defaults to workspace root).
+    /// Prefer this for multi-root lists.
+    #[serde(default)]
+    pub paths: Vec<String>,
+    /// Single walk root (LLM prior). Equivalent to `paths: [path]` when `paths`
+    /// is empty. If both are set, `paths` wins.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Glob include patterns (same role as search `globs` / CLI `--glob`).
+    #[serde(default)]
+    pub globs: Vec<String>,
+    /// Exclude glob patterns (in addition to ignore files).
+    #[serde(default)]
+    pub exclude_patterns: Vec<String>,
+    /// Custom ignore filenames (e.g. `.agentignore`).
+    #[serde(default)]
+    pub custom_ignore_filenames: Vec<String>,
+    /// Max paths to return. Default 500 when omitted or 0 (agent context budget).
+    #[serde(default)]
+    pub max_results: usize,
+    /// Max path depth under each root (1 = only files directly under the root).
+    /// Omit for unlimited depth (still subject to max_results).
+    pub max_depth: Option<usize>,
+    /// Include hidden files (still never walks `.git` / `.patchloom`).
+    #[serde(default)]
+    pub include_hidden: bool,
+}
+
+impl ListFilesParams {
+    pub(crate) fn effective_paths(&self) -> Vec<String> {
+        if !self.paths.is_empty() {
+            self.paths.clone()
+        } else if let Some(ref path) = self.path {
+            vec![path.clone()]
+        } else {
+            vec![".".into()]
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DocQueryParams {

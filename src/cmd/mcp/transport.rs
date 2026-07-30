@@ -34,11 +34,12 @@ fn core_server_instructions() -> String {
          Prefer 'execute_plan' for multi-op or multi-file work (atomicity). \
          Per-call success does not guarantee combined success if you issue \
          conflicting parallel writes.\n\n\
-         Explore with search_files/read_file (prefer relative paths); shell cat/find/sed \
-         only for build/test unless the user overrides. MCP allows absolute paths only \
-         when they resolve inside the workspace; `../` and outside paths are rejected.\n\n\
+         Explore with list_files/search_files/read_file (prefer relative paths); shell \
+         cat/find/sed only for build/test unless the user overrides. Do not also install \
+         a generic filesystem MCP for list+edit. MCP allows absolute paths only when they \
+         resolve inside the workspace; `../` and outside paths are rejected.\n\n\
          Core tools:\n\
-         - read_file, search_files: inspect and find content\n\
+         - read_file, search_files, list_files: inspect, find, and inventory files\n\
          - replace_text, batch_replace: literal/regex text edits\n\
          - doc_get, doc_set, doc_query: parser-backed JSON/YAML/TOML by selector path\n\
          - md_replace_section: replace a markdown heading section\n\
@@ -57,8 +58,9 @@ fn core_server_instructions() -> String {
 fn full_server_instructions() -> String {
     let mut s = String::from(
         "Use these tools for ALL file operations (edits and explore). Prefer \
-         search_files/read_file over shell cat/find/sed when MCP is connected; \
-         shell for build/test/run unless the user overrides. Prefer 'execute_plan' (or tx plans) \
+         list_files/search_files/read_file over shell cat/find/ls/sed (and over a second \
+         filesystem MCP) when MCP is connected; shell for build/test/run unless the user \
+         overrides. Prefer 'execute_plan' (or tx plans) \
          for any multi-op or multi-file work to ensure atomicity and avoid races from \
          parallel calls on the same paths. Use batch_replace/batch_tidy only for uniform \
          ops across files. Per-call success does not guarantee combined success if you \
@@ -72,7 +74,7 @@ fn full_server_instructions() -> String {
          - Markdown ops (by heading): md_replace_section, md_upsert_bullet, \
          md_table_append, md_insert_after_heading, md_insert_after_section, md_insert_before_heading, \
          md_move_section, md_dedupe_headings, md_lint\n\
-         - Text ops: replace_text, batch_replace, search_files, apply_fragment, apply_patch\n\
+         - Text ops: replace_text, batch_replace, search_files, list_files, apply_fragment, apply_patch\n\
          - File ops: create_file, read_file, delete_file, move_file, append_file, \
          prepend_file, fix_whitespace, batch_tidy, git_status\n",
     );

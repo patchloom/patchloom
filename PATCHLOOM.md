@@ -9,6 +9,7 @@
 | identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |
 | structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |
 | search | `search` | n/a | `search_files` |
+| list files | n/a (MCP) | n/a | `list_files` |
 | read | `read` | n/a | `read_file` |
 
 Host meta-tools (for example a host `search_tool` catalog lookup) are **not** patchloom MCP tools. Only list registered MCP tool names when summarizing patchloom usage.
@@ -17,7 +18,7 @@ Host meta-tools (for example a host `search_tool` catalog lookup) are **not** pa
 
 When patchloom MCP is connected:
 
-- Prefer `search_files` and `read_file` with paths **relative** to MCP cwd over shell `cat` / `head` / `find` / `sed` / `rg` for exploring and reading source.
+- Prefer `list_files`, `search_files`, and `read_file` with paths **relative** to MCP cwd over shell `cat` / `head` / `find` / `ls` / `sed` / `rg` (and over a second generic filesystem MCP) for explore and inventory.
 - Use shell only for build/test/run (`make`, `cargo test`, language runners) unless the user explicitly overrides.
 - MCP path containment: relative paths and absolute paths that resolve **inside** the server workspace are allowed (agents often join `server_info.cwd` + relative). `../` escapes, absolute paths outside the workspace, and escaping symlinks are rejected. Prefer relative paths in tool calls.
 
@@ -67,7 +68,7 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 
 **Context budget:** prefer `read` with a line range, `search --count` / `--files-with-matches`, and one `batch`/`tx` over N full-file dumps. Use `--jsonl` for large result streams. Binary sole paths peel `error_kind: binary`.
 
-**MCP tool volume:** the server may expose many tools; start from this table (and `schema --tier weak|medium|strong` for plan prompts). Full inventory is the default. Small agents / tight context: set env `PATCHLOOM_MCP_SURFACE=core` so handshake registers only the minimal pack (`read_file`, `search_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info`). `PATCHLOOM_MCP_SURFACE=full` or unset keeps the full inventory. `server_info` reports `cwd`, `surface`, `tool_count`, package `version`, and MCP `protocol_version`. Handshake instructions are surface-aware (core does not list full-only tool names). `execute_plan` on core can still run full plan ops; the env reduces tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.
+**MCP tool volume:** the server may expose many tools; start from this table (and `schema --tier weak|medium|strong` for plan prompts). Full inventory is the default. Small agents / tight context: set env `PATCHLOOM_MCP_SURFACE=core` so handshake registers only the core pack (`read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info`). Prefer core alone for list+edit (no second filesystem MCP). `PATCHLOOM_MCP_SURFACE=full` or unset keeps the full inventory. `server_info` reports `cwd`, `surface`, `tool_count`, package `version`, and MCP `protocol_version`. Handshake instructions are surface-aware (core does not list full-only tool names). `execute_plan` on core can still run full plan ops; the env reduces tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.
 
 ## Tool selection guide
 
@@ -88,6 +89,7 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
+| List/inventory files (ignore-aware, capped; prefer over FS MCP) | `list_files` |
 | Apply a unified diff patch | `apply_patch` |
 | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |
 | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
