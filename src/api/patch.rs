@@ -117,6 +117,10 @@ fn patch_write(
 /// Retains direct implementation since it produces multiple `EditResult`s
 /// (one per file), which the single-op `execute_as_edit_result` adapter
 /// doesn't support.
+///
+/// **Atomic Apply:** all files are load+hunk preflighted first; on Apply a
+/// single backup session covers every path. Any write failure restores the
+/// whole batch (no half-applied multi-file patch).
 pub fn apply_patch_file(
     patch_text: &str,
     cwd: &Path,
@@ -129,7 +133,8 @@ pub fn apply_patch_file(
         })
     })?;
 
-    let mut results = Vec::new();
+    // Phase 1: preflight load + hunk apply for every file (no disk writes).
+    let mut staged: Vec<(std::path::PathBuf, String, String, String)> = Vec::new();
     for pf in &patch_files {
         let file_path = cwd.join(&pf.path);
         // Strict sole-path (#1894).
@@ -146,13 +151,24 @@ pub fn apply_patch_file(
                 })
             }
         })?;
+        staged.push((file_path, pf.path.clone(), original, new_content));
+    }
 
-        let policy = crate::write::WritePolicy::default();
-        let (applied, backup_session) =
-            super::write_if_apply(&file_path, &new_content, mode, &policy, guard)?;
+    // Phase 2: one backup session + all-or-nothing write on Apply.
+    let policy = crate::write::WritePolicy::default();
+    let write_pairs: Vec<(&std::path::Path, &str)> = staged
+        .iter()
+        .map(|(p, _, _, n)| (p.as_path(), n.as_str()))
+        .collect();
+    let (applied, backup_session) =
+        super::write_if_apply_many(&write_pairs, mode, &policy, guard, cwd)?;
+
+    let mut results = Vec::with_capacity(staged.len());
+    for (_abs, display, original, new_content) in staged {
         let mut edit =
-            super::build_edit_result(&pf.path, original, new_content, applied, "patch", None);
-        edit.backup_session = backup_session;
+            super::build_edit_result(&display, original, new_content, applied, "patch", None);
+        // Same session id on every file result so hosts can undo once.
+        edit.backup_session = backup_session.clone();
         results.push(edit);
     }
     Ok(results)

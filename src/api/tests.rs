@@ -1047,6 +1047,97 @@ fn apply_patch_file_applies_multi_file_patch() {
     assert!(results.iter().all(|r| r.changed && r.applied));
     assert_eq!(fs::read_to_string(&a).unwrap(), "AAA\n");
     assert_eq!(fs::read_to_string(&b).unwrap(), "BBB\n");
+    // One shared backup session across files (atomic multi-file apply).
+    let sessions: Vec<_> = results
+        .iter()
+        .filter_map(|r| r.backup_session.clone())
+        .collect();
+    assert_eq!(sessions.len(), 2);
+    assert_eq!(sessions[0], sessions[1], "both files share one session");
+}
+
+/// Multi-file Apply must not leave a half-applied tree when a later file fails
+/// hunk preflight (stale context). Previously wrote earlier files then Err.
+#[test]
+fn apply_patch_file_stale_second_file_leaves_first_unchanged() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "aaa\n").unwrap();
+    fs::write(&b, "bbb\n").unwrap();
+
+    let patch = "\
+--- a/a.txt\n\
++++ b/a.txt\n\
+@@ -1 +1 @@\n\
+-aaa\n\
++AAA\n\
+--- a/b.txt\n\
++++ b/b.txt\n\
+@@ -1 +1 @@\n\
+-not-the-content\n\
++BBB\n";
+
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("stale") || msg.contains("patch apply"),
+        "expected hunk failure, got: {msg}"
+    );
+    assert_eq!(
+        fs::read_to_string(&a).unwrap(),
+        "aaa\n",
+        "first file must not be half-applied when later file fails preflight"
+    );
+    assert_eq!(fs::read_to_string(&b).unwrap(), "bbb\n");
+}
+
+/// Mid-write failure after a successful first write must restore all files.
+#[test]
+fn write_if_apply_many_restores_on_second_write_failure() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "aaa\n").unwrap();
+    fs::write(&b, "bbb\n").unwrap();
+
+    let policy = crate::write::WritePolicy::default();
+    // Replace b with a directory so the second atomic_write fails after a writes.
+    fs::remove_file(&b).unwrap();
+    fs::create_dir(&b).unwrap();
+    let files: [(&std::path::Path, &str); 2] = [(&a, "AAA\n"), (&b, "BBB\n")];
+    assert!(
+        super::write_if_apply_many(&files, ApplyMode::Apply, &policy, None, dir.path()).is_err()
+    );
+    assert_eq!(
+        fs::read_to_string(&a).unwrap(),
+        "aaa\n",
+        "first write must be rolled back when later write fails"
+    );
+}
+
+/// Mutation failure after finalize must leave original content and a listable session.
+#[test]
+fn apply_mutation_restores_on_perform_failure() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("f.txt");
+    fs::write(&file, "original\n").unwrap();
+
+    let err = super::apply_mutation(
+        &file,
+        ApplyMode::Apply,
+        None,
+        |backup| backup.save_before_write(&file),
+        || anyhow::bail!("simulated write failure after backup finalize"),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("simulated write failure"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+    let sessions = crate::backup::list_sessions(dir.path()).unwrap();
+    assert!(
+        !sessions.is_empty(),
+        "finalize-before-mutate must leave a discoverable session for undo"
+    );
 }
 
 #[test]
@@ -1245,6 +1336,10 @@ fn md_move_section_cross_file_writes_dest() {
     assert!(
         dst_content.contains("# Move"),
         "section should be inserted into destination"
+    );
+    assert!(
+        result.backup_session.is_some(),
+        "cross-file move must report one backup session covering both files"
     );
 }
 

@@ -683,6 +683,11 @@ pub(crate) fn absolute_for_engine(path: &Path) -> std::io::Result<std::path::Pat
 ///
 /// Used by write_if_apply and special file ops (create/delete/rename cross-file).
 /// Returns `(applied, backup_session)`.
+///
+/// Order matches tx `commit_changes` and [`crate::backup::backup_write_files`]:
+/// save → finalize (manifest) → mutate. On mutation failure, restore from the
+/// finalized session so hosts never see "Err but disk already changed with no
+/// undo handle."
 pub(crate) fn apply_mutation(
     path: &Path,
     mode: ApplyMode,
@@ -699,16 +704,25 @@ pub(crate) fn apply_mutation(
     let cwd = path.parent().unwrap_or_else(|| Path::new("."));
     let mut backup = BackupSession::new(cwd)?;
     prepare_backup(&mut backup)?;
-    perform_mutation()?;
+    // Finalize before mutation so undo can recover mid-write failure.
     let session = backup.finalize()?;
+    if let Err(e) = perform_mutation() {
+        if let Some(ref ts) = session {
+            let _ = crate::backup::restore_session(cwd, ts);
+        }
+        return Err(e);
+    }
     Ok((true, session))
 }
 
-/// Generalized cross-file mutation helper (for rename and md cross-file moves).
+/// Generalized cross-file mutation helper (for rename without tx engine).
 ///
 /// Handles guard checks and backup for src (and optional dst).
-/// Centralizes the cross-file guard and backup logic.
-/// Returns `(applied, backup_session)`.
+/// Only used on the no-`cli`/`files` library fallback path; with those
+/// features rename goes through the engine.
+///
+/// Same finalize-then-mutate order as [`apply_mutation`].
+#[cfg(not(any(feature = "cli", feature = "files")))]
 fn apply_cross_file_mutation(
     src: &Path,
     dst: Option<&Path>,
@@ -727,8 +741,13 @@ fn apply_cross_file_mutation(
     let cwd = src.parent().unwrap_or_else(|| Path::new("."));
     let mut backup = BackupSession::new(cwd)?;
     prepare_backup(&mut backup)?;
-    perform_mutation()?;
     let session = backup.finalize()?;
+    if let Err(e) = perform_mutation() {
+        if let Some(ref ts) = session {
+            let _ = crate::backup::restore_session(cwd, ts);
+        }
+        return Err(e);
+    }
     Ok((true, session))
 }
 
@@ -747,6 +766,51 @@ pub(crate) fn write_if_apply(
         |backup| backup.save_before_write(path),
         || atomic_write(path, new_content, policy),
     )
+}
+
+/// Apply several file writes under one backup session (all-or-nothing).
+///
+/// Used by multi-file library paths (`apply_patch_file`, cross-file
+/// `md_move_section`). Preflight must already have produced the new content
+/// for every path; this only guards, backs up, finalizes, then writes.
+/// On any write failure, restores the whole session.
+///
+/// `backup_root` is the project root for the session (usually the host cwd
+/// or a common parent of the files).
+pub(crate) fn write_if_apply_many(
+    files: &[(&Path, &str)],
+    mode: ApplyMode,
+    policy: &WritePolicy,
+    guard: Option<&PathGuard>,
+    backup_root: &Path,
+) -> anyhow::Result<(bool, Option<String>)> {
+    if mode != ApplyMode::Apply {
+        return Ok((false, None));
+    }
+    if files.is_empty() {
+        return Ok((false, None));
+    }
+    for (path, _) in files {
+        ensure_contained(guard, path)?;
+    }
+    let mut backup = BackupSession::new(backup_root)?;
+    for (path, _) in files {
+        backup.save_before_write(path)?;
+    }
+    let session = backup.finalize()?;
+    let write_result = (|| -> anyhow::Result<()> {
+        for (path, content) in files {
+            atomic_write(path, content, policy)?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = write_result {
+        if let Some(ref ts) = session {
+            let _ = crate::backup::restore_session(backup_root, ts);
+        }
+        return Err(e);
+    }
+    Ok((true, session))
 }
 
 /// Run optional post-write hooks after a successful Apply (#1690).
