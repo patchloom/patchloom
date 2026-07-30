@@ -346,4 +346,40 @@ mod tests {
         assert_eq!(report.paths, sorted);
         assert_eq!(report.roots, vec!["src".to_string(), "vendor".to_string()]);
     }
+
+    /// #2078: max_depth applies per walk root when multiple roots are set.
+    #[test]
+    fn multi_root_max_depth_prunes_each_root() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join("a/nested")).unwrap();
+        fs::create_dir_all(dir.path().join("b/nested")).unwrap();
+        fs::write(dir.path().join("a/top_a.txt"), "a\n").unwrap();
+        fs::write(dir.path().join("a/nested/deep_a.txt"), "da\n").unwrap();
+        fs::write(dir.path().join("b/top_b.txt"), "b\n").unwrap();
+        fs::write(dir.path().join("b/nested/deep_b.txt"), "db\n").unwrap();
+        fs::write(dir.path().join("root.md"), "r\n").unwrap();
+        let global = GlobalFlags::test_default();
+        let report = collect_list_files(
+            &["a".into(), "b".into()],
+            &global,
+            dir.path(),
+            500,
+            Some(1),
+            false,
+        )
+        .unwrap();
+        let joined = report.paths.join(" ");
+        assert!(joined.contains("top_a"), "a top: {:?}", report.paths);
+        assert!(joined.contains("top_b"), "b top: {:?}", report.paths);
+        assert!(
+            !joined.contains("deep_"),
+            "deep pruned per root: {:?}",
+            report.paths
+        );
+        assert!(
+            !joined.contains("root.md"),
+            "outside multi-root: {:?}",
+            report.paths
+        );
+    }
 }
