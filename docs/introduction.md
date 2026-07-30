@@ -77,7 +77,8 @@ replace paths share one policy (`unique`, `require_change`, fuzzy at
 `refuse_suspicious_fuzzy: true` for over-wide fuzzy auto-refuse as
 `FuzzySpanSuspicious`; #1965 / #2005). Custom options still call
 `api::fuzzy_span_suspicious` after fuzzy Apply (#1981). Multi-op hosts use
-`ContentEditsResult.op_honesty` for per-replace pairing (#2006). Opt-in
+`ContentEditsResult.op_honesty` for per-replace pairing (#2006), or
+`api::refuse_batch_if_suspicious_fuzzy` after buffer multi-op (#2064). Opt-in
 `command_position` rewrites shell command tokens without touching arguments
 (including after `sudo` / `timeout 30` / `nice -n 10` / `setsid` / `busybox` /
 `runuser` / `flock` / `chroot` wrappers, across lines). The same replace options

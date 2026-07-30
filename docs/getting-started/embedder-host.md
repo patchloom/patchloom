@@ -30,6 +30,11 @@ Bline is a real embedder that dogfooded these steps; the checklist is host-gener
 7. **Multi-op / multi-path honesty:**
    - Buffer multi-op: `apply_content_edits` + **`ContentEditsResult.op_honesty`**
      (per-replace `old` + `matched_text` + `match_score`; #2006).
+   - Buffer multi-op with host-owned write: after a successful batch, call
+     `refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())`
+     before trusting `batch.modified` (#2064). Same kind as single-op refuse;
+     only Fuzzy honesty rows are checked. Prefer this over reimplementing the
+     loop with `fuzzy_span_suspicious` alone.
    - Plan/tx multi-path: top-level **widest** `matched_text` + **min** fuzzy
      score (#2007); pair refuse with `changes[]` / plan `old`, not unpaired
      rollup fields.
@@ -51,7 +56,8 @@ Bline is a real embedder that dogfooded these steps; the checklist is host-gener
 ```rust
 use patchloom::api::{
     replace_in_content, ReplaceOptions, edit_error_kind, EditErrorKind,
-    is_fuzzy_span_suspicious, ApplyMode, apply_content_edits_to_file_with_span_policy,
+    is_fuzzy_span_suspicious, ApplyMode, apply_content_edits,
+    apply_content_edits_to_file_with_span_policy, refuse_batch_if_suspicious_fuzzy,
     ContentEdit, FuzzySpanPolicy,
 };
 use patchloom::containment::PathGuard;
@@ -76,7 +82,7 @@ match replace_in_content(content, old, new, &opts) {
     }
 }
 
-// 6–7) Multi-op Apply with optional pre-write span policy
+// 6–7a) Disk multi-op Apply with optional pre-write span policy
 let edits = [ContentEdit::Replace {
     old: old.into(),
     new: new.into(),
@@ -90,6 +96,11 @@ let _ = apply_content_edits_to_file_with_span_policy(
     Some(&guard),
     Some(&policy),
 )?;
+
+// 6–7b) Buffer multi-op + host write: public batch refuse (#2064)
+let batch = apply_content_edits("notes body", &edits)?;
+refuse_batch_if_suspicious_fuzzy(&batch, &policy)?;
+// host write of batch.modified (hardlinks, custom backup, …)
 ```
 
 Approximate recovery stays an explicit override:
@@ -108,7 +119,8 @@ auto-refuse: also set `refuse_suspicious_fuzzy: false`.
 
 `apply_content_edits` rolls up the **widest** `matched_text` and the **minimum**
 fuzzy score independently (may be different ops). Prefer **`op_honesty`** for
-refuse pairing. When each replace uses `for_agent()`, over-wide fuzzy fails
+refuse pairing, or call **`refuse_batch_if_suspicious_fuzzy`** for the full
+batch gate (#2064). When each replace uses `for_agent()`, over-wide fuzzy fails
 inside that op (all-or-nothing batch). Plan/tx multi-path top-level honesty
 matches that worst-case rollup (#2007).
 

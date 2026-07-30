@@ -51,7 +51,9 @@ pub enum ContentEdit {
 ///
 /// Hosts should call [`super::fuzzy_span_suspicious`] with this entry's `old`,
 /// `matched_text`, and `match_score` rather than rollup fields alone (rollup
-/// widest span and min score may come from different ops).
+/// widest span and min score may come from different ops). For a full batch
+/// refuse with the same error shape as `for_agent`, prefer
+/// [`refuse_batch_if_suspicious_fuzzy`] (#2064).
 ///
 /// Prefer building this via real [`apply_content_edits`] / replace for
 /// integration tests. Downstream crates cannot use struct literals
@@ -306,9 +308,45 @@ pub fn apply_content_edits_to_file_with_span_policy(
     Ok(result)
 }
 
-/// Refuse before write when any fuzzy op honesty is over-wide (#2008).
-#[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) fn refuse_batch_if_suspicious_fuzzy(
+/// Refuse when any fuzzy op in a multi-op batch is over-wide (#2008 / #2064).
+///
+/// Intended for **buffer multi-op** hosts that call [`apply_content_edits`] /
+/// [`apply_content_edits_with_label`] then write themselves (hardlink-aware
+/// Apply, custom backup). Same thresholds as
+/// [`super::fuzzy_span_suspicious_with_policy`]; same kind as single-op
+/// `for_agent` refuse (`EditErrorKind::FuzzySpanSuspicious`).
+///
+/// Only rows with [`MatchMode::Fuzzy`] are checked. Exact and anchored
+/// honesty rows are skipped. Unchanged batches (`changed == false`) pass.
+///
+/// Disk multi-op with a single write path should prefer
+/// [`apply_content_edits_to_file_with_span_policy`] (calls this helper before
+/// write/backup). Per-op [`super::ReplaceOptions::for_agent`] still refuses
+/// inside each replace when `refuse_suspicious_fuzzy` is set.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use patchloom::api::{
+///     apply_content_edits, refuse_batch_if_suspicious_fuzzy, ContentEdit,
+///     FuzzySpanPolicy, ReplaceOptions,
+/// };
+///
+/// let edits = [ContentEdit::Replace {
+///     old: "old".into(),
+///     new: "new".into(),
+///     options: ReplaceOptions {
+///         fuzzy: true,
+///         refuse_suspicious_fuzzy: false, // host will gate
+///         ..ReplaceOptions::default()
+///     },
+/// }];
+/// let batch = apply_content_edits("old value\n", &edits)?;
+/// refuse_batch_if_suspicious_fuzzy(&batch, &FuzzySpanPolicy::default())?;
+/// // host write of batch.modified ...
+/// # Ok::<(), anyhow::Error>(())
+/// ```
+pub fn refuse_batch_if_suspicious_fuzzy(
     batch: &ContentEditsResult,
     policy: &super::FuzzySpanPolicy,
 ) -> anyhow::Result<()> {
