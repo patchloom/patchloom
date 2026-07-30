@@ -251,4 +251,67 @@ mod tests {
         let total = report.total_matched.expect("total_matched when truncated");
         assert!(total > 1, "total_matched={total}");
     }
+
+    #[test]
+    fn include_hidden_lists_dotfiles() {
+        let dir = TempDir::new().unwrap();
+        write_tree(dir.path());
+        fs::write(dir.path().join(".secret"), "s\n").unwrap();
+        let global = GlobalFlags::test_default();
+        let hidden_off =
+            collect_list_files(&[".".into()], &global, dir.path(), 500, None, false).unwrap();
+        assert!(
+            !hidden_off.paths.iter().any(|p| p.contains(".secret")),
+            "hidden off must skip .secret: {:?}",
+            hidden_off.paths
+        );
+        let hidden_on =
+            collect_list_files(&[".".into()], &global, dir.path(), 500, None, true).unwrap();
+        assert!(
+            hidden_on
+                .paths
+                .iter()
+                .any(|p| p.ends_with(".secret") || p == ".secret"),
+            "include_hidden must list .secret: {:?}",
+            hidden_on.paths
+        );
+    }
+
+    #[test]
+    fn multi_root_union_sorted() {
+        let dir = TempDir::new().unwrap();
+        write_tree(dir.path());
+        let global = GlobalFlags::test_default();
+        let report = collect_list_files(
+            &["src".into(), "vendor".into()],
+            &global,
+            dir.path(),
+            500,
+            None,
+            false,
+        )
+        .unwrap();
+        assert!(
+            report.paths.iter().any(|p| p.contains("a.rs")),
+            "src root: {:?}",
+            report.paths
+        );
+        assert!(
+            report.paths.iter().any(|p| p.contains("x.js")),
+            "vendor root: {:?}",
+            report.paths
+        );
+        assert!(
+            !report
+                .paths
+                .iter()
+                .any(|p| p == "README.md" || p.ends_with("README.md")),
+            "README is outside roots: {:?}",
+            report.paths
+        );
+        let mut sorted = report.paths.clone();
+        sorted.sort();
+        assert_eq!(report.paths, sorted);
+        assert_eq!(report.roots, vec!["src".to_string(), "vendor".to_string()]);
+    }
 }
