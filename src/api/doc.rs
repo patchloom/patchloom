@@ -33,13 +33,39 @@ fn load_doc_value(path: &Path) -> anyhow::Result<serde_json::Value> {
 /// falls back to direct mutation when the tx module is not compiled in.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn doc_write(
-    op: Operation,
+    mut op: Operation,
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action, None)
+    let abs = super::absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    rewrite_op_path(&mut op, abs.to_string_lossy().as_ref());
+    super::execute_as_edit_result(op, mode, cwd_from_path(&abs), guard, action, None)
+}
+
+/// Put absolutized path into doc/md plan ops so engine join is correct.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn rewrite_op_path(op: &mut Operation, abs: &str) {
+    match op {
+        Operation::DocSet { path, .. }
+        | Operation::DocDelete { path, .. }
+        | Operation::DocMerge { path, .. }
+        | Operation::DocAppend { path, .. }
+        | Operation::DocPrepend { path, .. }
+        | Operation::DocUpdate { path, .. }
+        | Operation::DocMove { path, .. }
+        | Operation::DocEnsure { path, .. }
+        | Operation::DocDeleteWhere { path, .. } => {
+            *path = abs.into();
+        }
+        _ => {}
+    }
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]

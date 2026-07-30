@@ -4724,3 +4724,37 @@ async fn test_mcp_replace_text_sole_binary_refused() {
     );
     client.cancel().await.unwrap();
 }
+
+/// Sole binary via MCP ast_refs fails closed (not soft "No references found").
+#[tokio::test]
+#[cfg(all(feature = "mcp", feature = "ast"))]
+async fn test_mcp_ast_refs_sole_binary_is_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("x.rs"), b"fn foo() {}\x00").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_refs",
+        serde_json::json!({"path": "x.rs", "symbol": "foo"}),
+    )
+    .await;
+    assert!(
+        is_error || val["ok"] == false,
+        "sole binary ast_refs should fail: {val}"
+    );
+    let text = val.to_string().to_lowercase();
+    assert!(
+        text.contains("binary") || text.contains("nul") || text.contains("invalid"),
+        "sole binary must not soft-empty: {val}"
+    );
+    // Must not look like a clean empty search.
+    assert!(
+        !text.contains("no references found"),
+        "must not soft-empty: {val}"
+    );
+    client.cancel().await.unwrap();
+}

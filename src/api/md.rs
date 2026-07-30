@@ -21,13 +21,38 @@ fn cwd_from_path(path: &Path) -> &Path {
 /// Unified write path for standard md operations.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn md_write(
-    op: Operation,
+    mut op: Operation,
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action, None)
+    let abs = super::absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    rewrite_md_op_path(&mut op, abs.to_string_lossy().as_ref());
+    super::execute_as_edit_result(op, mode, cwd_from_path(&abs), guard, action, None)
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+fn rewrite_md_op_path(op: &mut Operation, abs: &str) {
+    match op {
+        Operation::MdReplaceSection { path, .. }
+        | Operation::MdInsertAfterHeading { path, .. }
+        | Operation::MdInsertAfterSection { path, .. }
+        | Operation::MdInsertBeforeHeading { path, .. }
+        | Operation::MdUpsertBullet { path, .. }
+        | Operation::MdTableAppend { path, .. }
+        | Operation::MdMoveSection { path, .. }
+        | Operation::MdDedupeHeadings { path, .. }
+        | Operation::MdLintAgents { path, .. } => {
+            *path = abs.into();
+        }
+        _ => {}
+    }
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]

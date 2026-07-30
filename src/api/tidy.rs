@@ -55,6 +55,15 @@ pub fn tidy_with_indent(
         EolMode::Cr => "cr".to_string(),
         EolMode::Keep => "keep".to_string(),
     });
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path_owned = super::absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let path = path_owned.as_path();
     let op = Operation::TidyFix {
         path: path.to_string_lossy().into(),
         ensure_final_newline: Some(policy_opts.ensure_final_newline),

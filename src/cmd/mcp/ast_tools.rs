@@ -274,7 +274,15 @@ pub(super) fn handle_ast_rename(
                 None,
             ));
         }
-        return no_results("No matches found.");
+        // Write tool: miss is not a successful soft query (contrast ast_list/refs).
+        // Agents must see isError + no_matches, not a green tool result.
+        let body = serde_json::json!({
+            "ok": false,
+            "error_kind": "no_matches",
+            "error": "No matches found.",
+            "applied": false,
+        });
+        return exit_code_to_result(exit::NO_MATCHES, &body.to_string(), "No matches found.");
     }
 
     svc.run_ops(operations, None)
@@ -483,6 +491,19 @@ pub(super) fn handle_ast_refs(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
+    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(
+                crate::exit::agent_error_message(&e),
+                None,
+            ));
+        }
+    }
+
     let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
         crate::par_process_files(&paths, None, &[], |path| {
             let display = crate::cmd::ast::display_path(path, &cwd);
@@ -496,6 +517,9 @@ pub(super) fn handle_ast_refs(
     }
 
     if all_refs.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            return Err(McpError::invalid_params(err.msg, None));
+        }
         return no_results("No references found.");
     }
 
@@ -521,6 +545,19 @@ pub(super) fn handle_ast_deps(
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+
+    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(
+                crate::exit::agent_error_message(&e),
+                None,
+            ));
+        }
+    }
 
     let mut results = Vec::new();
 
@@ -596,6 +633,9 @@ pub(super) fn handle_ast_deps(
     }
 
     if results.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            return Err(McpError::invalid_params(err.msg, None));
+        }
         return no_results("No imports found.");
     }
     let json = serde_json::to_string_pretty(&results)
@@ -713,6 +753,19 @@ pub(super) fn handle_ast_impact(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
+    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
+            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
+        {
+            return Err(McpError::invalid_params(
+                crate::exit::agent_error_message(&e),
+                None,
+            ));
+        }
+    }
+
     let file_pairs: Vec<(std::path::PathBuf, String)> = paths
         .iter()
         .map(|fp| {
@@ -724,6 +777,9 @@ pub(super) fn handle_ast_impact(
     let nodes = crate::ast::impact::compute_impact(&p.symbol, &file_pairs, p.depth);
 
     if nodes.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            return Err(McpError::invalid_params(err.msg, None));
+        }
         return no_results(&format!("No references found for '{}'.", p.symbol));
     }
 
@@ -1166,5 +1222,35 @@ impl Point {
 
         let result = handle_ast_rename(&svc, params).unwrap();
         assert!(result.is_error.unwrap_or(false));
+    }
+
+    #[test]
+    fn ast_rename_missing_symbol_is_error_not_soft_success() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstRenameParams {
+            path: "sample.rs".into(),
+            old: "does_not_exist_symbol".into(),
+            new: "other".into(),
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_rename(&svc, params).unwrap();
+        assert!(
+            result.is_error.unwrap_or(false),
+            "write miss must set isError so agents do not treat rename as applied"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("no_matches") || text.contains("No matches"),
+            "got: {text}"
+        );
+        let content = std::fs::read_to_string(dir.path().join("sample.rs")).unwrap();
+        assert!(
+            content.contains("greet"),
+            "file must stay unchanged on rename miss"
+        );
     }
 }

@@ -327,7 +327,14 @@ pub fn merge_file_results(
     }
 
     if !count_only {
-        all_matches.sort_unstable_by(|a, b| a.path.cmp(&b.path).then_with(|| a.line.cmp(&b.line)));
+        // Tie-break by column so same-line hits stay left-to-right. Agents map
+        // search index → replace --nth; unstable (path, line) alone can scramble.
+        all_matches.sort_by(|a, b| {
+            a.path
+                .cmp(&b.path)
+                .then_with(|| a.line.cmp(&b.line))
+                .then_with(|| a.column.cmp(&b.column))
+        });
     }
 
     if max_results > 0 && !count_only {
@@ -423,6 +430,46 @@ mod tests {
         let results = merge_file_results(vec![fr1, fr2], false, 0);
         assert_eq!(results.matches[0].text, "a1");
         assert_eq!(results.matches[1].text, "b1");
+    }
+
+    #[test]
+    fn merge_file_results_sorts_same_line_by_column() {
+        // Scrambled same-line hits must re-order left-to-right for --nth.
+        let fr = FileResult {
+            path_str: Arc::from("t.txt"),
+            matches: vec![
+                SearchMatch {
+                    path: Arc::from("t.txt"),
+                    line: 1,
+                    column: 7,
+                    text: "hi".into(),
+                    context_before: None,
+                    context_after: None,
+                },
+                SearchMatch {
+                    path: Arc::from("t.txt"),
+                    line: 1,
+                    column: 1,
+                    text: "hi".into(),
+                    context_before: None,
+                    context_after: None,
+                },
+                SearchMatch {
+                    path: Arc::from("t.txt"),
+                    line: 1,
+                    column: 4,
+                    text: "hi".into(),
+                    context_before: None,
+                    context_after: None,
+                },
+            ],
+            count: 3,
+        };
+        let results = merge_file_results(vec![fr], false, 0);
+        assert_eq!(
+            results.matches.iter().map(|m| m.column).collect::<Vec<_>>(),
+            vec![1, 4, 7]
+        );
     }
 
     #[test]

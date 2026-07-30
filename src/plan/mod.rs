@@ -523,9 +523,11 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         let sym_name = sym_name.trim();
         #[cfg(feature = "ast")]
         {
+            // find_symbol walks nested children (impl methods, mod items).
+            // Top-level-only matching dropped realistic method filters.
             matched.retain(|p| {
                 let syms = crate::ast::symbols::extract_symbols_from_file(p, None);
-                syms.iter().any(|s| s.name == sym_name)
+                crate::ast::symbols::find_symbol(&syms, sym_name).is_some()
             });
         }
         #[cfg(not(feature = "ast"))]

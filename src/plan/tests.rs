@@ -526,6 +526,35 @@ fn for_each_item_alias_substitutes_path() {
     );
 }
 
+#[cfg(all(feature = "cli", feature = "ast"))]
+#[test]
+fn for_each_has_symbol_matches_nested_method() {
+    // Methods live under impl; top-level-only filter would drop the file.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("svc.rs"),
+        "struct S;\nimpl S {\n    fn process_request(&self) {}\n}\n",
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("other.rs"), "fn unrelated() {}\n").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.rs", "filter": "has_symbol(process_request)" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    expand_for_each(&mut plan, dir.path()).unwrap();
+    assert_eq!(plan.operations.len(), 1, "only the method host file");
+    let op_json = serde_json::to_string(&plan.operations[0]).unwrap();
+    assert!(
+        op_json.contains("svc.rs"),
+        "nested method filter must keep svc.rs: {op_json}"
+    );
+}
+
 #[cfg(feature = "cli")]
 #[test]
 fn for_each_unknown_path_template_is_invalid_input() {

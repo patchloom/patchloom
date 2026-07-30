@@ -7562,3 +7562,32 @@ fn ast_rename_batch_binary_peels_binary() {
         "batch must not collapse Binary to OperationFailed: {err:?}"
     );
 }
+
+/// Library doc_set multi-component relative path (sibling of replace absolutize).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn doc_set_relative_nested_path_does_not_double_join() {
+    use std::env;
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("cfg");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("app.json");
+    fs::write(&file, r#"{"v":1}"#).unwrap();
+    let prev = env::current_dir().unwrap();
+    env::set_current_dir(dir.path()).unwrap();
+    let result = doc_set(
+        Path::new("cfg/app.json"),
+        "v",
+        serde_json::json!(2),
+        ApplyMode::Apply,
+        None,
+    );
+    let _ = env::set_current_dir(prev);
+    let r = result.expect("relative nested doc path should resolve");
+    assert!(r.changed, "{r:?}");
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains('2') || content.contains("2"),
+        "got {content}"
+    );
+}

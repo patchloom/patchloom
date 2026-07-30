@@ -44,8 +44,14 @@ pub fn ast_rewrite_signature(
         )
         .into());
     }
+    let abs = super::absolute_for_engine(path).map_err(|e| {
+        EditError::new(
+            EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
     let op = Operation::AstRewriteSignature {
-        path: path.to_string_lossy().into(),
+        path: abs.to_string_lossy().into(),
         old: name.into(),
         new_signature: new_signature.map(str::to_string),
         visibility: edit.visibility.clone(),
@@ -53,7 +59,7 @@ pub fn ast_rewrite_signature(
         return_type: edit.return_type.clone(),
         lang: None,
     };
-    let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+    let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
     super::execute_as_edit_result(op, mode, cwd, guard, "ast.rewrite_signature", None)
 }
 

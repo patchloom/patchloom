@@ -1474,6 +1474,27 @@ fn run_context_replace(
     // multiple matches in one file; agents branch on match_count honesty.
     let total_matches: usize = files.iter().map(|f| f.match_count).sum();
     let file_count = files.len();
+    // Multi-file soft-miss: report total misses (no write) so agents see
+    // partial-apply honesty (parity with exact multi-path #1792).
+    let matched: Vec<FileReplacement> = result
+        .exec_result
+        .changes
+        .iter()
+        .map(|(abs, original, replaced)| FileReplacement {
+            path: abs.to_string_lossy().into_owned(),
+            display_path: crate::files::relative_display(abs, &cwd)
+                .to_string_lossy()
+                .into_owned(),
+            original: original.clone(),
+            replaced: replaced.clone(),
+            match_count: 1,
+            match_mode: None,
+            match_score: None,
+            matched_text: None,
+        })
+        .collect();
+    let zero_match_refused =
+        exact_zero_match_refused_from_paths(&args, global, &cwd, &file_paths, &matched);
     // Same mode/exit owner as default replace path (no hand-rolled matrix).
     replace_output(
         global,
@@ -1484,8 +1505,7 @@ fn run_context_replace(
             file_count,
             cwd: &cwd,
             skipped,
-            // Exact zero-match refused collected only on precomputed path (#1792).
-            zero_match_refused: None,
+            zero_match_refused,
         },
     )
 }
