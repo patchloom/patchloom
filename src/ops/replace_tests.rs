@@ -227,6 +227,30 @@ mod replace_tests {
         }
 
         #[test]
+        fn anchor_is_whole_line_ci_case_insensitive_matches_on_disk_casing() {
+            assert!(anchor_is_whole_line_ci("Debug\n", "debug", true));
+            assert!(!anchor_is_whole_line_ci("Debug\n", "debug", false));
+            let out = normalize_line_insert_ci("Debug\n", "debug", "note", InsertSide::After, true);
+            assert_eq!(out, "\nnote");
+            let full = replacement_text_ci(
+                "debug",
+                &None,
+                &None,
+                &Some("note".into()),
+                true,
+                false,
+                "Debug\n",
+                true,
+            );
+            // ${0} + \nnote expands later; template must include line-oriented insert
+            assert!(full.contains("note"), "got {full}");
+            assert!(
+                full.starts_with("${0}") || full.contains('\n'),
+                "got {full}"
+            );
+        }
+
+        #[test]
         fn normalize_line_insert_after_midline_stays_byte_exact() {
             let file = "prefix foo suffix\n";
             let out = normalize_line_insert(file, "foo", "X", InsertSide::After);

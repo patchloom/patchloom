@@ -960,6 +960,8 @@ mod prefer_widest_tests {
 /// For cross-file operations (rename, move) pass `dest_path` to report the
 /// destination; single-file operations pass `None`.
 #[cfg(any(feature = "cli", feature = "files"))]
+/// Thin wrapper for tests / callers that do not need a display-path override.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn execute_as_edit_result(
     op: crate::plan::Operation,
     mode: ApplyMode,
@@ -968,13 +970,29 @@ pub(crate) fn execute_as_edit_result(
     action: &'static str,
     dest_path: Option<String>,
 ) -> anyhow::Result<EditResult> {
+    execute_as_edit_result_with_path(op, mode, cwd, guard, action, dest_path, None)
+}
+
+/// Like [`execute_as_edit_result`], but forces [`EditResult::path`] to
+/// `display_path` when set so hosts that join on the caller path do not get a
+/// basename-only result from parent-as-cwd relative_display.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn execute_as_edit_result_with_path(
+    op: crate::plan::Operation,
+    mode: ApplyMode,
+    cwd: &Path,
+    guard: Option<&PathGuard>,
+    action: &'static str,
+    dest_path: Option<String>,
+    display_path: Option<&str>,
+) -> anyhow::Result<EditResult> {
     let global = mode_to_global_flags(mode);
     let options = crate::tx::engine::ExecuteOptions::from_global(cwd, &global, guard);
     let result = crate::tx::engine::stage(crate::tx::engine::WriteRequest {
         source: crate::tx::engine::WriteSource::Operations(vec![op]),
         options,
     })?;
-    execution_result_to_edit_result(result, mode, cwd, action, dest_path)
+    execution_result_to_edit_result(result, mode, cwd, action, dest_path, display_path)
 }
 
 /// Map `ApplyMode` to `GlobalFlags` with the appropriate apply/check settings.
@@ -999,6 +1017,7 @@ fn execution_result_to_edit_result(
     cwd: &Path,
     action: &'static str,
     dest_path: Option<String>,
+    display_path: Option<&str>,
 ) -> anyhow::Result<EditResult> {
     let has_changes = result.has_changes;
     let removed: usize = result
@@ -1043,6 +1062,12 @@ fn execution_result_to_edit_result(
             // No changes at all (e.g., replace with no matches + if_exists).
             (String::new(), String::new(), String::new())
         };
+    // Prefer caller spelling when provided (parent-as-cwd collapses multi-
+    // component relatives to basename via relative_display).
+    let path_str = display_path
+        .map(str::to_string)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(path_str);
 
     // Commit for Apply mode; capture backup session for embedder undo (#1686).
     let (applied, backup_session) = if mode == ApplyMode::Apply && has_changes {

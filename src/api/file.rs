@@ -40,7 +40,16 @@ fn file_write(
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd_from_path(path), guard, action, None)
+    let display = path.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd_from_path(path),
+        guard,
+        action,
+        None,
+        Some(display.as_ref()),
+    )
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]
@@ -174,7 +183,16 @@ fn file_write_cross(
     action: &'static str,
     dest_path: Option<String>,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd_from_path(src), guard, action, dest_path)
+    let display = src.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd_from_path(src),
+        guard,
+        action,
+        dest_path,
+        Some(display.as_ref()),
+    )
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]

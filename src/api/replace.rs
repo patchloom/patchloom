@@ -162,7 +162,16 @@ fn replace_write(
     _fuzzy: bool,
 ) -> anyhow::Result<EditResult> {
     let cwd = path.parent().unwrap_or_else(|| Path::new("."));
-    super::execute_as_edit_result(op, mode, cwd, guard, "replace", None)
+    let display = path.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd,
+        guard,
+        "replace",
+        None,
+        Some(display.as_ref()),
+    )
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]
@@ -221,7 +230,7 @@ fn replace_write(
         } else {
             None
         };
-        let replacement = ops::replace::replacement_text(
+        let replacement = ops::replace::replacement_text_ci(
             &old,
             &direct_to,
             &insert_before,
@@ -229,6 +238,7 @@ fn replace_write(
             compiled_re.is_some(),
             is_regex,
             &original,
+            case_insensitive,
         );
 
         let parsed_range = range.as_deref().map(|r| {
@@ -632,7 +642,7 @@ fn replace_in_content_inner(
     } else {
         None
     };
-    let replacement = ops::replace::replacement_text(
+    let replacement = ops::replace::replacement_text_ci(
         from,
         &direct_to,
         &opts.insert_before,
@@ -640,6 +650,7 @@ fn replace_in_content_inner(
         compiled_re.is_some(),
         is_regex,
         content,
+        opts.case_insensitive,
     );
 
     let parsed_range = opts.range;

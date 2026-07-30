@@ -6,7 +6,6 @@ use crate::diff::render_diffs_colored;
 use crate::exit;
 use crate::ops::replace::{
     compile_replace_regex, count_nth_candidates, replace_content, replace_whole_lines,
-    replacement_text,
 };
 use crate::tx::engine::WriteSource;
 use clap::Args;
@@ -340,12 +339,13 @@ fn collect_replacements_with_list(
     let new_opt = args.new.clone();
     let use_match_anchor = args.regex || args.case_insensitive || args.word_boundary;
     let regex_mode = args.regex;
+    let case_insensitive = args.case_insensitive;
 
     let cwd_ref = &cwd;
     let mut replacements: Vec<FileReplacement> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let content = crate::files::read_text_file_logged(path, "replace", quiet)?;
-            let replacement = replacement_text(
+            let replacement = crate::ops::replace::replacement_text_ci(
                 from,
                 &new_opt,
                 &insert_before,
@@ -353,6 +353,7 @@ fn collect_replacements_with_list(
                 use_match_anchor,
                 regex_mode,
                 &content,
+                case_insensitive,
             );
             let (replaced, count) = if command_position {
                 let (out, n) =

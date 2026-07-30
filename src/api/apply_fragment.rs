@@ -66,5 +66,14 @@ pub fn apply_fragment_to_file(
         unique,
     )?;
     let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
-    super::execute_as_edit_result(op, mode, cwd, guard, "apply.fragment", None)
+    let display = path.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd,
+        guard,
+        "apply.fragment",
+        None,
+        Some(display.as_ref()),
+    )
 }
