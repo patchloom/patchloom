@@ -61,7 +61,7 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 | Validate syntax, find refs, or analyze impact | `ast_validate`, `ast_refs`, `ast_impact`, `ast_search` |
 | Repo map, imports, or structural diff | `ast_map`, `ast_deps`, `ast_diff` |
 | Apply same operation to many files | `execute_plan` with `for_each` glob |
-| Get server version and working directory | `server_info` |
+| Get package version, MCP protocol_version, surface, tool_count, and cwd | `server_info` |
 
 **`replace_text` / plan replace flags (default false):**
 - `require_change`: error when the pattern matches zero times (fail closed).

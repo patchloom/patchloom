@@ -185,7 +185,7 @@ AST tools so `list_tools` stays honest about what is callable.
 | `doc_diff` | Compare two structured files (read-only) |
 | `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |
-| `server_info` | Return the server's working directory so the agent can discover the root path before file operations (read-only) |
+| `server_info` | Return server identity and workspace root: `cwd`, `surface` (`full`\|`core`), `tool_count`, package `version`, and MCP `protocol_version` (read-only). Use `cwd` before relative path ops |
 | `read_file` | Read file contents with optional line range |
 | `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped |
 | `apply_fragment` | Freeform fragment at a required after/before/old anchor; strips Morph-style `// ... existing code ...` markers (no cloud merge). Prefer when the agent has a snippet plus a known placement |
@@ -284,7 +284,7 @@ patchloom mcp-server
 | `core` | Only: `read_file`, `search_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info` |
 | anything else | Server fails to start with a clear error |
 
-`server_info` includes `"surface": "core"|"full"` and `"tool_count"`. Invalid values are rejected (do not silently fall back).
+`server_info` includes `"surface": "core"|"full"`, `"tool_count"`, package `"version"`, and MCP `"protocol_version"` (same as the initialize handshake). Invalid `PATCHLOOM_MCP_SURFACE` values are rejected (do not silently fall back).
 
 Handshake `instructions` match the active surface: core mode lists only the core tools (it does not advertise full-inventory names such as `create_file` or `ast_*`).
 
