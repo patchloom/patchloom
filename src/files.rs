@@ -312,7 +312,23 @@ pub(crate) fn collect_file_paths_opts(
     include_hidden: bool,
     root: Option<&Path>,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    collect_file_paths_opts_with_list(paths, global, include_hidden, root, None)
+    collect_file_paths_opts_with_list(paths, global, include_hidden, root, None, None)
+}
+
+/// Like [`collect_file_paths_opts`], with optional walk-time [`max_depth`].
+///
+/// `max_depth` is passed to [`ignore::WalkBuilder::max_depth`] so deep trees
+/// are not entered (MCP `list_files` #2078). Semantics match component count
+/// under each walk root: `Some(1)` is files directly under each root.
+#[cfg(feature = "cli")]
+pub(crate) fn collect_file_paths_opts_depth(
+    paths: &[String],
+    global: &GlobalFlags,
+    include_hidden: bool,
+    root: Option<&Path>,
+    max_depth: Option<usize>,
+) -> anyhow::Result<Vec<PathBuf>> {
+    collect_file_paths_opts_with_list(paths, global, include_hidden, root, None, max_depth)
 }
 
 /// Like [`collect_file_paths_opts`], but accepts a pre-read `--files-from` list.
@@ -323,6 +339,7 @@ pub(crate) fn collect_file_paths_opts_with_list(
     include_hidden: bool,
     root: Option<&Path>,
     files_from_preload: Option<&[String]>,
+    max_depth: Option<usize>,
 ) -> anyhow::Result<Vec<PathBuf>> {
     let files_owned;
     let files_from: Option<&[String]> = if let Some(pre) = files_from_preload {
@@ -389,6 +406,11 @@ pub(crate) fn collect_file_paths_opts_with_list(
     }
     if include_hidden {
         builder.hidden(false);
+    }
+    // Walk-time prune: ignore crate depth is per root (depth 1 = root +
+    // immediate children). Matches list_files max_depth component count (#2078).
+    if let Some(depth) = max_depth {
+        builder.max_depth(Some(depth));
     }
     // Never enter .git or .patchloom (even when hidden files are included).
     builder.filter_entry(|e| !should_skip_walk_dirname(e.file_name()));
@@ -1472,6 +1494,63 @@ mod tests {
         );
     }
 
+    /// #2078: WalkBuilder max_depth must not enter pruned dirs (only top-level files).
+    #[test]
+    #[cfg(feature = "cli")]
+    fn collect_file_paths_opts_depth_prunes_nested() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("top.txt"), "t\n").unwrap();
+        fs::create_dir_all(root.join("a/b/c")).unwrap();
+        fs::write(root.join("a/mid.txt"), "m\n").unwrap();
+        fs::write(root.join("a/b/c/deep.txt"), "d\n").unwrap();
+
+        let global = GlobalFlags::test_with_cwd(root);
+        let shallow =
+            collect_file_paths_opts_depth(&[".".into()], &global, false, Some(root), Some(1))
+                .unwrap();
+        let shallow_rels: Vec<_> = shallow
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(
+            shallow_rels.iter().any(|r| r == "top.txt"),
+            "depth 1 includes top: {shallow_rels:?}"
+        );
+        assert!(
+            !shallow_rels
+                .iter()
+                .any(|r| r.contains("mid") || r.contains("deep")),
+            "depth 1 must not enter a/: {shallow_rels:?}"
+        );
+
+        let mid = collect_file_paths_opts_depth(&[".".into()], &global, false, Some(root), Some(2))
+            .unwrap();
+        let mid_rels: Vec<_> = mid
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(
+            mid_rels.iter().any(|r| r.ends_with("mid.txt")),
+            "depth 2 includes a/mid: {mid_rels:?}"
+        );
+        assert!(
+            !mid_rels.iter().any(|r| r.contains("deep")),
+            "depth 2 must not reach a/b/c: {mid_rels:?}"
+        );
+    }
+
     #[test]
     #[cfg(feature = "cli")]
     fn collect_file_paths_opts_skips_patchloom_directory() {
@@ -1595,6 +1674,7 @@ mod explicit_exclude_tests {
             false,
             Some(root),
             None,
+            None,
         )
         .unwrap();
         assert!(
@@ -1614,9 +1694,15 @@ mod explicit_exclude_tests {
             exclude: vec!["vendor/**".into()],
             ..GlobalFlags::test_default()
         };
-        let paths =
-            collect_file_paths_opts_with_list(&[".".into()], &global, false, Some(root), None)
-                .unwrap();
+        let paths = collect_file_paths_opts_with_list(
+            &[".".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+            None,
+        )
+        .unwrap();
         assert!(
             paths.iter().any(|p| p.ends_with("app.js")),
             "app.js should remain: {paths:?}"

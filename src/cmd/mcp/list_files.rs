@@ -5,7 +5,7 @@
 
 use crate::cli::global::GlobalFlags;
 use serde::Serialize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Default cap when the caller omits `max_results` (agent context budget).
 pub(crate) const DEFAULT_LIST_MAX_RESULTS: usize = 500;
@@ -41,8 +41,17 @@ pub(crate) fn collect_list_files(
     } else {
         max_results
     };
-    let mut paths =
-        crate::files::collect_file_paths_opts(roots, global, include_hidden, Some(cwd))?;
+    // Walk-time max_depth pruning via WalkBuilder (#2078). Do not full-walk
+    // then filter: deep monorepos stay cheap when agents pass max_depth.
+    // max_results still collects all matches in-depth then caps (total_matched
+    // honesty when truncated).
+    let mut paths = crate::files::collect_file_paths_opts_depth(
+        roots,
+        global,
+        include_hidden,
+        Some(cwd),
+        max_depth,
+    )?;
 
     // Include globs are applied by callers of collect_file_paths_opts (search,
     // replace, tidy), not inside the collector — mirror that here (#2076).
@@ -52,21 +61,6 @@ pub(crate) fn collect_list_files(
         paths.retain(|p| {
             crate::files::matches_glob_with_roots(p, glob_matcher.as_ref(), &glob_roots)
         });
-    }
-
-    // max_depth is relative to each walk root (not always cwd).
-    if let Some(depth) = max_depth {
-        let walk_roots: Vec<PathBuf> = roots
-            .iter()
-            .map(|r| {
-                if r == "." {
-                    cwd.to_path_buf()
-                } else {
-                    cwd.join(r)
-                }
-            })
-            .collect();
-        paths.retain(|p| path_depth_under_any_root(&walk_roots, p) <= depth);
     }
 
     // Stable order for agents.
@@ -88,18 +82,6 @@ pub(crate) fn collect_list_files(
         total_matched: if truncated { Some(total) } else { None },
         roots: roots.to_vec(),
     })
-}
-
-/// Depth of `path` under the first walk root that contains it (file component
-/// count relative to that root). Falls back to the full path component count
-/// when no root prefix matches.
-fn path_depth_under_any_root(walk_roots: &[PathBuf], path: &Path) -> usize {
-    for root in walk_roots {
-        if let Ok(rel) = path.strip_prefix(root) {
-            return rel.components().count();
-        }
-    }
-    path.components().count()
 }
 
 fn display_rel(cwd: &Path, path: &Path) -> String {
@@ -200,6 +182,43 @@ mod tests {
             !report.paths.iter().any(|p| p.contains("nested")),
             "nested must be depth 2 under src: {:?}",
             report.paths
+        );
+    }
+
+    /// #2078: deep trees with max_depth must not surface deep files (walk prune).
+    #[test]
+    fn max_depth_prunes_very_deep_tree() {
+        let dir = TempDir::new().unwrap();
+        let mut deep = dir.path().to_path_buf();
+        for i in 0..12 {
+            deep.push(format!("d{i}"));
+            fs::create_dir_all(&deep).unwrap();
+        }
+        fs::write(deep.join("leaf.txt"), "leaf\n").unwrap();
+        fs::write(dir.path().join("top.txt"), "top\n").unwrap();
+        let global = GlobalFlags::test_default();
+        let report =
+            collect_list_files(&[".".into()], &global, dir.path(), 500, Some(1), false).unwrap();
+        assert!(
+            report
+                .paths
+                .iter()
+                .any(|p| p == "top.txt" || p.ends_with("top.txt")),
+            "top-level file: {:?}",
+            report.paths
+        );
+        assert!(
+            !report.paths.iter().any(|p| p.contains("leaf")),
+            "depth-12 leaf must be pruned: {:?}",
+            report.paths
+        );
+        // Unlimited depth still finds the leaf.
+        let deep_report =
+            collect_list_files(&[".".into()], &global, dir.path(), 500, None, false).unwrap();
+        assert!(
+            deep_report.paths.iter().any(|p| p.contains("leaf")),
+            "unlimited must find leaf: {:?}",
+            deep_report.paths
         );
     }
 
