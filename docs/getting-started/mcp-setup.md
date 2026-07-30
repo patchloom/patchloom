@@ -271,7 +271,9 @@ These semantics are also documented in the tool instructions returned by the MCP
 
 ## Tool surface (full vs core)
 
-By default the server registers the **full** tool inventory (registry + custom handlers, including AST when built with `ast`). Small agents that choke on large tool schemas can request a **minimal pack** at handshake:
+By default the server registers the **full** tool inventory (registry + custom handlers, including AST when built with `ast`). That default stays for compatibility.
+
+**Recommended for coding agents** (Grok, Claude, Cursor, dual native tools + MCP): start with the **core** pack so tool schemas stay small. Upgrade to full when you need AST or advanced standalone tools.
 
 ```bash
 export PATCHLOOM_MCP_SURFACE=core
@@ -284,11 +286,17 @@ patchloom mcp-server
 | `core` | Only: `read_file`, `search_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info` |
 | anything else | Server fails to start with a clear error |
 
-`server_info` includes `"surface": "core"|"full"`, `"tool_count"`, package `"version"`, and MCP `"protocol_version"` (same as the initialize handshake). Invalid `PATCHLOOM_MCP_SURFACE` values are rejected (do not silently fall back).
+`server_info` includes `"surface": "core"|"full"`, `"tool_count"`, package `"version"`, MCP `"protocol_version"` (same as the initialize handshake), and when surface is full a `"recommendation"` string pointing coding agents at core. Invalid `PATCHLOOM_MCP_SURFACE` values are rejected (do not silently fall back).
 
-Handshake `instructions` match the active surface: core mode lists only the core tools (it does not advertise full-inventory names such as `create_file` or `ast_*`).
+Handshake `instructions` match the active surface: core mode lists only the core tools (it does not advertise full-inventory names such as `create_file` or `ast_*`). Instructions also include a short **canonical name map** (CLI / plan / MCP) and an **explore rule** (prefer `search_files` / `read_file` over shell `cat` when MCP is connected).
 
 **Note:** `execute_plan` remains on core, so multi-op plans can still run create/delete/AST-style plan ops (and plan `apply.fragment`) when the host sends a full plan. Standalone tools such as `apply_fragment`, `create_file`, and `ast_*` are full-inventory only. The env flag reduces the *tool schema* surface for small agents; it is not a capability sandbox for the plan catalog.
+
+Short system-prompt rules (not the full ~50KB dump):
+
+```bash
+patchloom agent-rules --surface core
+```
 
 Example client env (Grok `config.toml`):
 

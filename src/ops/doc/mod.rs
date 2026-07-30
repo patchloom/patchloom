@@ -81,6 +81,38 @@ pub fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow
 /// paths that differ between `old_value` and `new_value` are updated.
 ///
 /// JSON falls through to [`serialize_value`] (JSON has no comments).
+/// True when write text changed presentation style (e.g. YAML block-sequence
+/// indent collapsed) while values may still be correct (#2070 honesty).
+///
+/// Agents must not claim a pure surgical text edit when this is true.
+pub fn presentation_style_changed(original: &str, new_text: &str, format: &FileFormat) -> bool {
+    if original == new_text {
+        return false;
+    }
+    match format {
+        FileFormat::Yaml => {
+            yaml_block_sequence_indents(original) != yaml_block_sequence_indents(new_text)
+        }
+        // JSON/TOML pretty-print drift is not flagged here (comment/order
+        // preservation paths already minimize noise).
+        FileFormat::Json | FileFormat::Toml => false,
+    }
+}
+
+/// Indent levels of every block-sequence entry line (`- …`), for style compare.
+fn yaml_block_sequence_indents(text: &str) -> Vec<usize> {
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("- ") || trimmed == "-" {
+                Some(line.len() - trimmed.len())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 pub fn serialize_value_preserving(
     original_content: &str,
     old_value: &serde_json::Value,

@@ -2031,3 +2031,23 @@ mod proptest {
                 }
     }
 }
+
+#[test]
+fn presentation_style_changed_flags_yaml_sequence_indent() {
+    let before = "env:\n  - name: FEATURE_FLAG\n    value: off\n";
+    let after = "env:\n- name: FEATURE_FLAG\n  value: on\n";
+    assert!(
+        presentation_style_changed(before, after, &FileFormat::Yaml),
+        "indented vs collapsed block sequence must set style_changed"
+    );
+    let after_same = "env:\n  - name: FEATURE_FLAG\n    value: on\n";
+    assert!(
+        !presentation_style_changed(before, after_same, &FileFormat::Yaml),
+        "same sequence indent should not flag style"
+    );
+    assert!(!presentation_style_changed(
+        before,
+        before,
+        &FileFormat::Yaml
+    ));
+}

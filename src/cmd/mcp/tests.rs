@@ -1046,6 +1046,12 @@ mod server_info_tests {
                 .is_some_and(|s| !s.is_empty()),
             "server_info must report MCP protocol_version matching handshake"
         );
+        assert!(
+            info["recommendation"]
+                .as_str()
+                .is_some_and(|s| s.contains("PATCHLOOM_MCP_SURFACE=core")),
+            "full surface must recommend core for coding agents (#2070)"
+        );
         client.cancel().await.unwrap();
     }
 
@@ -1130,6 +1136,10 @@ mod surface_core_tests {
             info["tool_count"].as_u64().unwrap() as usize,
             surface::CORE_MCP_TOOL_NAMES.len()
         );
+        assert!(
+            info.get("recommendation").is_none(),
+            "core surface should omit full-inventory recommendation"
+        );
         client.cancel().await.unwrap();
     }
 
@@ -1211,7 +1221,16 @@ mod surface_core_tests {
             text.contains("apply_fragment"),
             "full instructions must list apply_fragment: {text}"
         );
-        assert!(!text.contains("PATCHLOOM_MCP_SURFACE=core"));
+        // Full mode may recommend core for coding agents (#2070); still must
+        // not claim the server is currently in core mode as its only mode.
+        assert!(
+            text.contains("Canonical names") && text.contains("search_files"),
+            "full handshake must include name map (#2070)"
+        );
+        assert!(
+            text.contains("Explore vs shell") || text.contains("search_files/read_file"),
+            "full handshake must include explore guidance (#2070)"
+        );
     }
 
     /// Protocol: peer_info.instructions equals `server_instructions(Core)` (no drift).

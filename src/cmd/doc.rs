@@ -278,6 +278,10 @@ struct DocWriteOutput {
     /// Backup session id after a successful apply (#1802).
     #[serde(skip_serializing_if = "Option::is_none")]
     backup_session: Option<String>,
+    /// YAML presentation style shifted (e.g. indented block sequence collapsed)
+    /// even when values are correct (#2070). Omitted when false.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    style_changed: bool,
 }
 
 /// Convert a write [`DocAction`] into the corresponding [`Operation`] variant.
@@ -844,6 +848,19 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 ),
                 _ => None,
             };
+            // Presentation honesty (#2070): flag YAML sequence indent / style shifts.
+            let style_changed =
+                result
+                    .exec_result
+                    .changes
+                    .iter()
+                    .any(|(path, original, new_text)| {
+                        let display = path.to_string_lossy();
+                        let Ok(fmt) = detect_format(display.as_ref()) else {
+                            return false;
+                        };
+                        crate::ops::doc::presentation_style_changed(original, new_text, &fmt)
+                    });
             crate::cmd::write_mode::finalize_execution_result(
                 global,
                 &cwd,
@@ -856,6 +873,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     diff,
                     applied: phase.applied_flag(),
                     backup_session: _backup,
+                    style_changed,
                 },
                 crate::cmd::write_mode::WriteMessages {
                     check: &check_msg,
