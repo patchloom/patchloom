@@ -165,6 +165,7 @@ pub(super) fn collect_issues_with_list(
         true,
         Some(&cwd),
         files_from_preload,
+        None,
     )?;
     // Empty --files-from must not report ok:true / zero issues (#1796).
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
@@ -311,6 +312,7 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
             true,
             Some(&cwd),
             files_from_list.as_deref(),
+            None,
         )?;
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;

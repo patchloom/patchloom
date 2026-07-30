@@ -312,6 +312,7 @@ fn collect_replacements_with_list(
         false,
         Some(&cwd),
         files_from_preload,
+        None,
     )?;
     // Empty --files-from is an input error, not a pattern miss (#1796).
     // Detected here (single read of stdin) before soft no_matches handling.
@@ -773,6 +774,7 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             false,
             Some(&cwd),
             files_from_list.as_deref(),
+            None,
         )?;
         let range = parse_range_arg(args.range.as_deref())?;
         for path in &file_paths {
@@ -893,6 +895,7 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             true,
             Some(&cwd),
             files_from_list.as_deref(),
+            None,
         )?;
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
@@ -1269,6 +1272,7 @@ fn run_context_replace(
         false,
         Some(cwd),
         files_from_list,
+        None,
     )?;
     // Empty --files-from is input error on fuzzy/context path too (#1796).
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;

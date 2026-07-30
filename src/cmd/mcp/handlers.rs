@@ -837,7 +837,7 @@ impl PatchloomService {
     // are auto-generated from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
     #[tool(
-        description = "List files under the workspace (or given roots) with the same ignore/exclude/glob rules as search. Use this instead of a generic filesystem MCP list_dir/tree. Caps results (default max_results=500) and reports truncated+total_matched when capped. Prefer relative paths. Example: {\"path\": \"src/\", \"exclude_patterns\": [\"target/**\"], \"max_results\": 100, \"max_depth\": 3}"
+        description = "List files under the workspace (or given roots) with the same ignore/exclude/glob rules as search. Use this instead of a generic filesystem MCP list_dir/tree. Caps results (default max_results=500) and reports truncated+total_matched when capped. max_depth prunes the walk at each root (does not enter deeper dirs). max_results still counts all in-depth matches then truncates (total_matched remains honest). Prefer relative paths. Example: {\"path\": \"src/\", \"exclude_patterns\": [\"target/**\"], \"max_results\": 100, \"max_depth\": 3}"
     )]
     async fn list_files(
         &self,

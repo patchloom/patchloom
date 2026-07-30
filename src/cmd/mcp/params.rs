@@ -224,6 +224,7 @@ pub(crate) struct ListFilesParams {
     #[serde(default)]
     pub max_results: usize,
     /// Max path depth under each root (1 = only files directly under the root).
+    /// Applied during the walk: deeper directories are not entered (#2078).
     /// Omit for unlimited depth (still subject to max_results).
     pub max_depth: Option<usize>,
     /// Include hidden files (still never walks `.git` / `.patchloom`).

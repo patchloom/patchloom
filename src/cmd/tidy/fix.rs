@@ -265,6 +265,7 @@ pub(super) fn run_fix(
         true,
         Some(&cwd),
         files_from_list.as_deref(),
+        None,
     )?;
     // Empty --files-from is invalid_input, not a successful no-op (#1796).
     crate::files::ensure_files_from_nonempty(global, &fix_file_paths)?;
