@@ -758,6 +758,89 @@ async fn test_mcp_list_files_missing_root_is_error() {
     client.cancel().await.unwrap();
 }
 
+/// #2076: max_depth=0 is invalid_params (not unlimited).
+#[tokio::test]
+async fn test_mcp_list_files_max_depth_zero_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hi\n").unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "list_files",
+        serde_json::json!({"path": ".", "max_depth": 0}),
+    )
+    .await;
+    assert!(is_error, "max_depth=0 must fail: {val}");
+    let text = val.to_string().to_lowercase();
+    assert!(
+        text.contains("max_depth") || text.contains(">= 1") || text.contains("invalid"),
+        "max_depth=0 message: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// #2076: absolute path under workspace is allowed (AllowIfContained).
+#[tokio::test]
+async fn test_mcp_list_files_allows_absolute_path_inside_workspace() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(dir.path().join("src/a.rs"), "a\n").unwrap();
+    let abs = dir.path().join("src");
+    let abs_s = abs.to_string_lossy().to_string();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "list_files", serde_json::json!({"path": abs_s})).await;
+    assert!(!is_error, "abs path inside workspace must work: {val}");
+    assert_eq!(val["ok"], true, "{val}");
+    let paths = val["paths"].as_array().expect("paths");
+    assert!(
+        paths
+            .iter()
+            .any(|p| p.as_str().unwrap_or("").contains("a.rs")),
+        "expected a.rs under abs src root: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// #2076: multi-root paths array unions roots.
+#[tokio::test]
+async fn test_mcp_list_files_multi_root_paths() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("a")).unwrap();
+    fs::create_dir_all(dir.path().join("b")).unwrap();
+    fs::write(dir.path().join("a/x.txt"), "x\n").unwrap();
+    fs::write(dir.path().join("b/y.txt"), "y\n").unwrap();
+    fs::write(dir.path().join("root.md"), "r\n").unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "list_files",
+        serde_json::json!({"paths": ["a", "b"]}),
+    )
+    .await;
+    assert!(!is_error, "multi-root: {val}");
+    let joined = val["paths"]
+        .as_array()
+        .expect("paths")
+        .iter()
+        .map(|p| p.as_str().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(joined.contains("x.txt"), "{val}");
+    assert!(joined.contains("y.txt"), "{val}");
+    assert!(!joined.contains("root.md"), "outside multi-root: {val}");
+    client.cancel().await.unwrap();
+}
+
 /// #2076: list_files on core surface.
 #[tokio::test]
 async fn test_mcp_list_files_on_core_surface() {
