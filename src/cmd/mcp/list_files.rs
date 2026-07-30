@@ -278,6 +278,19 @@ mod tests {
     }
 
     #[test]
+    fn invalid_glob_pattern_errors() {
+        let dir = TempDir::new().unwrap();
+        write_tree(dir.path());
+        let mut global = GlobalFlags::test_default();
+        // Unclosed bracket is invalid for globset.
+        global.glob = vec!["**/*[".into()];
+        let err = collect_list_files(&[".".into()], &global, dir.path(), 500, None, false)
+            .expect_err("invalid glob must fail");
+        let msg = format!("{err:#}");
+        assert!(!msg.is_empty(), "error should describe invalid glob: {msg}");
+    }
+
+    #[test]
     fn multi_root_union_sorted() {
         let dir = TempDir::new().unwrap();
         write_tree(dir.path());
