@@ -1450,6 +1450,44 @@ async fn test_mcp_doc_update_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// #2070 multi-surface: MCP doc_update must surface style_changed on YAML
+/// block-sequence indent collapse (same honesty as CLI/tx).
+#[tokio::test]
+async fn test_mcp_doc_update_yaml_style_changed() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("app.yaml"),
+        "env:\n  - name: FEATURE_FLAG\n    value: off\nlimits:\n  rate: 1\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_update",
+        serde_json::json!({
+            "path": "app.yaml",
+            "selector": "env[name=FEATURE_FLAG].value",
+            "value": "on"
+        }),
+    )
+    .await;
+    assert!(!is_error, "doc_update YAML should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_update ok: {val}");
+    let changes = val["changes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("changes array: {val}"));
+    let style = changes.iter().any(|c| c["style_changed"] == true);
+    assert!(
+        style,
+        "MCP doc_update changes[] must report style_changed on sequence indent collapse: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_doc_move_round_trip() {
     if !has_mcp_support() {

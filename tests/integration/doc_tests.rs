@@ -3467,3 +3467,47 @@ fn style_changed_true_on_yaml_sequence_collapse() {
         "CLI doc --json must report style_changed when sequence indent collapses: {v}"
     );
 }
+
+/// #2070 multi-surface: plan/tx `changes[]` must also report style_changed
+/// when YAML block-sequence indent collapses (CLI alone is not enough for agents).
+#[test]
+fn style_changed_true_on_tx_plan_yaml_sequence_collapse() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("app.yaml");
+    std::fs::write(
+        &path,
+        "env:\n  - name: FEATURE_FLAG\n    value: off\nlimits:\n  rate: 1\n",
+    )
+    .unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.update",
+            "path": "app.yaml",
+            "selector": "env[name=FEATURE_FLAG].value",
+            "value": "on"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    std::fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+    let out = assert_cmd::Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["ok"], true, "tx apply ok: {v}");
+    let changes = v["changes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("changes array: {v}"));
+    assert!(!changes.is_empty(), "expected at least one change: {v}");
+    let style = changes.iter().any(|c| c["style_changed"] == true);
+    assert!(
+        style,
+        "tx plan changes[] must report style_changed when sequence indent collapses: {v}"
+    );
+}
