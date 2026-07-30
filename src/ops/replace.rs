@@ -219,6 +219,48 @@ pub fn normalize_line_insert(
     }
 }
 
+/// Like [`normalize_line_insert`], but whole-line detection honors case-insensitive
+/// anchors (CLI `-i` / plan `case_insensitive`) so `Debug` + insert after `debug`
+/// becomes a sibling line, not `Debugnote`.
+pub fn normalize_line_insert_ci(
+    file_content: &str,
+    anchor: &str,
+    insert_content: &str,
+    side: InsertSide,
+    case_insensitive: bool,
+) -> String {
+    if !case_insensitive {
+        return normalize_line_insert(file_content, anchor, insert_content, side);
+    }
+    let eol = preferred_line_ending(file_content);
+    match side {
+        InsertSide::After => {
+            if starts_with_line_ending(insert_content) || ends_with_line_ending(anchor) {
+                return insert_content.to_string();
+            }
+            if looks_like_new_line_payload(insert_content)
+                || anchor_is_whole_line_ci(file_content, anchor, true)
+            {
+                format!("{eol}{insert_content}")
+            } else {
+                insert_content.to_string()
+            }
+        }
+        InsertSide::Before => {
+            if ends_with_line_ending(insert_content) || starts_with_line_ending(anchor) {
+                return insert_content.to_string();
+            }
+            if looks_like_new_line_payload(insert_content)
+                || anchor_is_whole_line_ci(file_content, anchor, true)
+            {
+                format!("{insert_content}{eol}")
+            } else {
+                insert_content.to_string()
+            }
+        }
+    }
+}
+
 /// Dominant line ending in `content` for line-oriented insert separators.
 ///
 /// Prefer CRLF when present, else bare CR, else LF. Empty content uses LF.
@@ -256,20 +298,64 @@ fn looks_like_new_line_payload(insert_content: &str) -> bool {
 /// Accepts LF, CRLF, and bare CR as line boundaries so whole-line bare
 /// inserts on Windows-style files still line-orient (#1885 follow-up).
 pub fn anchor_is_whole_line(file_content: &str, anchor: &str) -> bool {
+    anchor_is_whole_line_ci(file_content, anchor, false)
+}
+
+/// Like [`anchor_is_whole_line`]; when `case_insensitive`, compare with
+/// ASCII case folding so `-i debug` matches a whole line `Debug`.
+pub fn anchor_is_whole_line_ci(file_content: &str, anchor: &str, case_insensitive: bool) -> bool {
     if anchor.is_empty() || file_content.is_empty() {
         return false;
     }
-    let bytes = file_content.as_bytes();
-    let mut any = false;
-    for (i, _) in file_content.match_indices(anchor) {
-        any = true;
-        let before_ok = i == 0 || is_line_boundary_byte(bytes[i - 1]);
-        let end = i + anchor.len();
-        let after_ok =
-            end == file_content.len() || bytes.get(end).copied().is_some_and(is_line_boundary_byte);
-        if !(before_ok && after_ok) {
-            return false;
+    if !case_insensitive {
+        let bytes = file_content.as_bytes();
+        let mut any = false;
+        for (i, _) in file_content.match_indices(anchor) {
+            any = true;
+            let before_ok = i == 0 || is_line_boundary_byte(bytes[i - 1]);
+            let end = i + anchor.len();
+            let after_ok = end == file_content.len()
+                || bytes.get(end).copied().is_some_and(is_line_boundary_byte);
+            if !(before_ok && after_ok) {
+                return false;
+            }
         }
+        return any;
+    }
+    // Case-insensitive: scan line contents (ASCII fold). Non-ASCII case
+    // folding is not required for typical agent/CLI patterns.
+    let needle = anchor.to_ascii_lowercase();
+    let mut any = false;
+    let mut start = 0usize;
+    let bytes = file_content.as_bytes();
+    while start <= file_content.len() {
+        let rest = &file_content[start..];
+        let line_end = rest
+            .find(['\n', '\r'])
+            .map(|i| start + i)
+            .unwrap_or(file_content.len());
+        let line = &file_content[start..line_end];
+        if line.to_ascii_lowercase() == needle {
+            any = true;
+            // whole line by construction (line == match span)
+        } else if !line.is_empty() {
+            // Mid-line occurrence of the pattern is not whole-line.
+            let lower = line.to_ascii_lowercase();
+            if lower.contains(&needle) && lower != needle {
+                return false;
+            }
+        }
+        if line_end >= file_content.len() {
+            break;
+        }
+        // Advance past one line ending (CRLF, LF, or bare CR).
+        let mut next = line_end;
+        if file_content[next..].starts_with("\r\n") {
+            next += 2;
+        } else if matches!(bytes.get(next), Some(b'\n' | b'\r')) {
+            next += 1;
+        }
+        start = next;
     }
     any
 }
@@ -293,6 +379,30 @@ pub fn replacement_text(
     regex_mode: bool,
     file_content: &str,
 ) -> String {
+    replacement_text_ci(
+        from,
+        to,
+        insert_before,
+        insert_after,
+        use_match_anchor,
+        regex_mode,
+        file_content,
+        false,
+    )
+}
+
+/// Like [`replacement_text`] with case-insensitive whole-line insert detection.
+#[allow(clippy::too_many_arguments)]
+pub fn replacement_text_ci(
+    from: &str,
+    to: &Option<String>,
+    insert_before: &Option<String>,
+    insert_after: &Option<String>,
+    use_match_anchor: bool,
+    regex_mode: bool,
+    file_content: &str,
+    case_insensitive: bool,
+) -> String {
     let anchor = if use_match_anchor { "${0}" } else { from };
 
     // When a regex is compiled internally (case_insensitive / word_boundary)
@@ -303,7 +413,13 @@ pub fn replacement_text(
     if let Some(text) = insert_before {
         // Normalize against the literal `from` pattern (not ${0}) so whole-line
         // detection sees the real anchor text in the file.
-        let normalized = normalize_line_insert(file_content, from, text, InsertSide::Before);
+        let normalized = normalize_line_insert_ci(
+            file_content,
+            from,
+            text,
+            InsertSide::Before,
+            case_insensitive,
+        );
         let safe = if needs_escape {
             normalized.replace('$', "$$")
         } else {
@@ -313,7 +429,13 @@ pub fn replacement_text(
     }
 
     if let Some(text) = insert_after {
-        let normalized = normalize_line_insert(file_content, from, text, InsertSide::After);
+        let normalized = normalize_line_insert_ci(
+            file_content,
+            from,
+            text,
+            InsertSide::After,
+            case_insensitive,
+        );
         let safe = if needs_escape {
             normalized.replace('$', "$$")
         } else {

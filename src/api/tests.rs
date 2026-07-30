@@ -6190,6 +6190,35 @@ fn replace_text_exact_disk_multi_match_count() {
 }
 
 // ---------------------------------------------------------------------------
+
+/// Engine parent-cwd must not collapse multi-component caller paths to basename.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn edit_result_path_preserves_caller_relative() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("src");
+    fs::create_dir(&nested).unwrap();
+    let file = nested.join("lib.rs");
+    fs::write(&file, "fn old() {}\n").unwrap();
+    // Absolute multi-component path (do not chdir: process-global, races tests).
+    let r = replace_text(
+        &file,
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(
+        r.path.contains("src") && r.path.contains("lib.rs"),
+        "EditResult.path must keep multi-component path, not basename only; got {:?}",
+        r.path
+    );
+    // Without display_path override this collapsed to "lib.rs" via parent cwd.
+    assert_ne!(r.path, "lib.rs");
+}
+
 // Agent-host APIs #1686–#1690
 // ---------------------------------------------------------------------------
 

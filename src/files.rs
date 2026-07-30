@@ -446,8 +446,24 @@ pub(crate) fn collect_file_paths_opts_with_list(
     });
     let mut paths = collected.into_inner().expect("all walkers done");
 
+    // Explicit file path args must not be dropped by exclude. Config like
+    // exclude.globs = ["vendor/**"] is for walks; a targeted
+    // `replace … vendor/pkg/x.js` must still hit that file. Directory roots
+    // keep exclude for their contents. --files-from already skips exclude.
+    let explicit_files: Vec<PathBuf> = effective
+        .iter()
+        .map(|p| resolve(p))
+        .filter(|p| p.is_file())
+        .collect();
+
     // Apply runtime exclude patterns (shared helper for parity with with_ignores).
     apply_exclude_globs(&mut paths, &global.exclude, root)?;
+
+    for f in explicit_files {
+        if !paths.iter().any(|p| p == &f) {
+            paths.push(f);
+        }
+    }
     Ok(paths)
 }
 
@@ -1551,6 +1567,63 @@ mod tests {
             paths,
             vec![PathBuf::from("/project/src/main.rs")],
             "vendor/** with root should exclude vendor files"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "cli"))]
+mod explicit_exclude_tests {
+    use super::*;
+    use crate::cli::global::GlobalFlags;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn explicit_file_arg_not_dropped_by_exclude_glob() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("vendor")).unwrap();
+        let file = root.join("vendor/x.js");
+        fs::write(&file, "foo\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["vendor/**".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths = collect_file_paths_opts_with_list(
+            &["vendor/x.js".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+        )
+        .unwrap();
+        assert!(
+            paths.iter().any(|p| p.ends_with("x.js")),
+            "explicit file must survive exclude: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn directory_root_still_honors_exclude() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("vendor")).unwrap();
+        fs::write(root.join("vendor/x.js"), "foo\n").unwrap();
+        fs::write(root.join("app.js"), "foo\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["vendor/**".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths =
+            collect_file_paths_opts_with_list(&[".".into()], &global, false, Some(root), None)
+                .unwrap();
+        assert!(
+            paths.iter().any(|p| p.ends_with("app.js")),
+            "app.js should remain: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.to_string_lossy().contains("vendor")),
+            "vendor walk contents still excluded: {paths:?}"
         );
     }
 }

@@ -45,7 +45,8 @@ pub fn apply_patch(
             .to_path_buf();
         cwd_owned.as_path()
     };
-    patch_write(op, cwd, mode, guard)
+    let display = path.to_string_lossy();
+    patch_write(op, cwd, mode, guard, Some(display.as_ref()))
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -54,8 +55,9 @@ fn patch_write(
     cwd: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+    display_path: Option<&str>,
 ) -> anyhow::Result<EditResult> {
-    super::execute_as_edit_result(op, mode, cwd, guard, "patch", None)
+    super::execute_as_edit_result_with_path(op, mode, cwd, guard, "patch", None, display_path)
 }
 
 #[cfg(not(any(feature = "cli", feature = "files")))]
@@ -64,6 +66,7 @@ fn patch_write(
     cwd: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+    _display_path: Option<&str>,
 ) -> anyhow::Result<EditResult> {
     use crate::ops;
 

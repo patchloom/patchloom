@@ -60,7 +60,16 @@ pub fn ast_rewrite_signature(
         lang: None,
     };
     let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
-    super::execute_as_edit_result(op, mode, cwd, guard, "ast.rewrite_signature", None)
+    let display = path.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd,
+        guard,
+        "ast.rewrite_signature",
+        None,
+        Some(display.as_ref()),
+    )
 }
 
 /// In-memory function signature rewrite (preview/apply parity with on-disk API).

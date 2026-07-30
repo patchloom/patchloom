@@ -34,7 +34,16 @@ fn md_write(
         )
     })?;
     rewrite_md_op_path(&mut op, abs.to_string_lossy().as_ref());
-    super::execute_as_edit_result(op, mode, cwd_from_path(&abs), guard, action, None)
+    let display = path.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd_from_path(&abs),
+        guard,
+        action,
+        None,
+        Some(display.as_ref()),
+    )
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
