@@ -1551,6 +1551,47 @@ mod tests {
         );
     }
 
+    /// #2078: max_depth is per walk root when multiple roots are collected.
+    #[test]
+    #[cfg(feature = "cli")]
+    fn collect_file_paths_opts_depth_multi_root() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("left/deep")).unwrap();
+        fs::create_dir_all(root.join("right/deep")).unwrap();
+        fs::write(root.join("left/l.txt"), "l\n").unwrap();
+        fs::write(root.join("left/deep/x.txt"), "x\n").unwrap();
+        fs::write(root.join("right/r.txt"), "r\n").unwrap();
+        fs::write(root.join("right/deep/y.txt"), "y\n").unwrap();
+        let global = GlobalFlags::test_with_cwd(root);
+        let paths = collect_file_paths_opts_depth(
+            &["left".into(), "right".into()],
+            &global,
+            false,
+            Some(root),
+            Some(1),
+        )
+        .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(
+            rels.iter().any(|r| r.ends_with("l.txt")) && rels.iter().any(|r| r.ends_with("r.txt")),
+            "top of each root: {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.contains("deep")),
+            "deep under each root pruned: {rels:?}"
+        );
+    }
+
     #[test]
     #[cfg(feature = "cli")]
     fn collect_file_paths_opts_skips_patchloom_directory() {

@@ -841,6 +841,40 @@ async fn test_mcp_list_files_multi_root_paths() {
     client.cancel().await.unwrap();
 }
 
+/// #2078: multi-root + max_depth prunes each root independently.
+#[tokio::test]
+async fn test_mcp_list_files_multi_root_max_depth() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("a/nested")).unwrap();
+    fs::create_dir_all(dir.path().join("b/nested")).unwrap();
+    fs::write(dir.path().join("a/top_a.txt"), "a\n").unwrap();
+    fs::write(dir.path().join("a/nested/deep_a.txt"), "da\n").unwrap();
+    fs::write(dir.path().join("b/top_b.txt"), "b\n").unwrap();
+    fs::write(dir.path().join("b/nested/deep_b.txt"), "db\n").unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "list_files",
+        serde_json::json!({"paths": ["a", "b"], "max_depth": 1}),
+    )
+    .await;
+    assert!(!is_error, "multi-root max_depth: {val}");
+    let joined = val["paths"]
+        .as_array()
+        .expect("paths")
+        .iter()
+        .map(|p| p.as_str().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(joined.contains("top_a"), "{val}");
+    assert!(joined.contains("top_b"), "{val}");
+    assert!(!joined.contains("deep_"), "deep pruned per root: {val}");
+    client.cancel().await.unwrap();
+}
+
 /// #2076: list_files on core surface.
 #[tokio::test]
 async fn test_mcp_list_files_on_core_surface() {
