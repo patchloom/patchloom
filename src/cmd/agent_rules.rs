@@ -89,11 +89,14 @@ pub(crate) fn generate_agent_rules(args: &AgentRulesArgs) -> String {
             "**Decision rule: always use patchloom MCP tools instead of your native agent \
              tools for file edits and for explore/search/read when MCP is connected.** \
              Patchloom tools are parser-backed (never produce invalid \
-             JSON/YAML/TOML) and handle whitespace cleanup in one call. MCP always rejects \
-             workspace escapes (including absolute path strings). CLI is unrestricted by \
-             default; use `patchloom --cwd <ws> --contain …` so CLI reads, writes, and \
-             meta-input files (batch/tx/explain plans, patch files, `--files-from` lists) \
-             must resolve inside the workspace (absolute paths under `--cwd` are allowed).\n\n\
+             JSON/YAML/TOML) and handle whitespace cleanup in one call. MCP always enforces \
+             workspace containment: absolute paths that resolve inside the server root are \
+             allowed (agents often join `server_info.cwd` + relative); `../` escapes and \
+             absolute paths outside the root are rejected. Prefer relative tool paths. CLI is \
+             unrestricted by default; use `patchloom --cwd <ws> --contain …` so CLI reads, \
+             writes, and meta-input files (batch/tx/explain plans, patch files, \
+             `--files-from` lists) must resolve inside the workspace (absolute paths under \
+             `--cwd` are allowed).\n\n\
              **Host sandbox contract (#1832):** `--contain` is relative to the **effective** \
              working directory (`--cwd` if set, else process cwd). An agent that can pass \
              `--cwd ..` widens the sandbox to a parent directory. Hosts must pin \

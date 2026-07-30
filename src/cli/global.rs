@@ -63,7 +63,7 @@ pub struct GlobalFlags {
     /// Default CLI mode is unrestricted. For agent sandboxes: the **host**
     /// must pin `--cwd <project> --contain` and strip model-supplied `--cwd`
     /// (agents can otherwise pass `--cwd ..` and widen the root; #1832).
-    /// MCP always enforces its server root and rejects absolute path strings.
+    /// MCP always enforces its server root (`AllowIfContained`: abs under root ok).
     #[cfg_attr(feature = "cli", arg(long, global = true))]
     pub contain: bool,
 

@@ -628,6 +628,33 @@ async fn test_mcp_search_rejects_absolute_path() {
     client.cancel().await.unwrap();
 }
 
+/// MCP uses AllowIfContained: absolute paths under the server workspace succeed.
+/// Docs previously claimed all absolute path strings were rejected (fixrealloop MCP).
+#[tokio::test]
+async fn test_mcp_read_allows_absolute_path_inside_workspace() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn hello() {}\n").unwrap();
+    let abs = dir.path().join("src.rs");
+    let abs_str = abs.to_string_lossy().to_string();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "read_file", serde_json::json!({"path": abs_str})).await;
+    assert!(
+        !is_error,
+        "absolute path under workspace must be allowed: {val}"
+    );
+    let blob = val.to_string();
+    assert!(
+        blob.contains("hello") || blob.contains("fn hello"),
+        "must return file content for in-workspace absolute path: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_search_rejects_conflicting_modes() {
     if !has_mcp_support() {
