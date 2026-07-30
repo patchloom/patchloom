@@ -196,7 +196,7 @@ score ≥ `min_fuzzy_score`. JSON error explains the best candidate; set `allow_
 resort for typos in non-AST text (prose, comments), not a general rename tool.\n\
              - When you opt into `allow_absent_old`, still check JSON `matched_text` before treating the edit as semantic success (#1736).\n\
              - **No second named recovery constructor:** hosts that always want approximate recovery keep the one-line override above (not a full host policy; still set `unique` / `word_boundary` per call). Closed as not planned (#1980).\n\
-             - **Over-wide fuzzy refuse (#1981 / #2005 / #2006):** `for_agent()` sets \
+             - **Over-wide fuzzy refuse (#1981 / #2005 / #2006 / #2064):** `for_agent()` sets \
 `refuse_suspicious_fuzzy=true` so `replace_in_content` / disk replace auto-refuse over-wide \
 fuzzy (no second host call required). Custom policy or non-agent defaults: still call \
 `api::fuzzy_span_suspicious(old, matched_text.as_deref(), match_score)` (or \
