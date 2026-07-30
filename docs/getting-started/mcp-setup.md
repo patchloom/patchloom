@@ -166,7 +166,7 @@ the registry when that would lose multi-file, batch, or read UX.
 
 Custom tools are inventoried in `CUSTOM_MCP_TOOLS_CORE` (always registered)
 and `CUSTOM_MCP_TOOLS_AST` (only when the `ast` feature is enabled). Default
-builds expose **57** tools (registry + custom). Builds without `ast` omit the
+builds expose **58** tools (registry + custom). Builds without `ast` omit the
 AST tools so `list_tools` stays honest about what is callable.
 
 | Tool | Description |
@@ -184,6 +184,7 @@ AST tools so `list_tools` stays honest about what is callable.
 | `doc_query` | Query a structured file: has, keys, len, select, or flatten (read-only) |
 | `doc_diff` | Compare two structured files (read-only) |
 | `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |
+| `list_files` | Bounded directory inventory with the same ignore/exclude/glob rules as search (read-only). Prefer this over a second generic filesystem MCP for list/tree. Caps with `max_results` (default 500) and optional `max_depth`; reports `truncated` when capped |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |
 | `server_info` | Return server identity and workspace root: `cwd`, `surface` (`full`\|`core`), `tool_count`, package `version`, and MCP `protocol_version` (read-only). Use `cwd` before relative path ops |
 | `read_file` | Read file contents with optional line range |
@@ -283,12 +284,12 @@ patchloom mcp-server
 | Value | Effect |
 |-------|--------|
 | unset or `full` | Full inventory (default; backward compatible) |
-| `core` | Only: `read_file`, `search_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info` |
+| `core` | Only: `read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`, `doc_get`, `doc_set`, `doc_query`, `md_replace_section`, `execute_plan`, `server_info` |
 | anything else | Server fails to start with a clear error |
 
 `server_info` includes `"surface": "core"|"full"`, `"tool_count"`, package `"version"`, MCP `"protocol_version"` (same as the initialize handshake), and when surface is full a `"recommendation"` string pointing coding agents at core. Invalid `PATCHLOOM_MCP_SURFACE` values are rejected (do not silently fall back).
 
-Handshake `instructions` match the active surface: core mode lists only the core tools (it does not advertise full-inventory names such as `create_file` or `ast_*`). Instructions also include a short **canonical name map** (CLI / plan / MCP) and an **explore rule** (prefer `search_files` / `read_file` over shell `cat` when MCP is connected).
+Handshake `instructions` match the active surface: core mode lists only the core tools (it does not advertise full-inventory names such as `create_file` or `ast_*`). Instructions also include a short **canonical name map** (CLI / plan / MCP) and an **explore rule** (prefer `list_files` / `search_files` / `read_file` over shell `cat`/`find`/`ls` and over a second generic filesystem MCP when Patchloom MCP is connected).
 
 **Note:** `execute_plan` remains on core, so multi-op plans can still run create/delete/AST-style plan ops (and plan `apply.fragment`) when the host sends a full plan. Standalone tools such as `apply_fragment`, `create_file`, and `ast_*` are full-inventory only. The env flag reduces the *tool schema* surface for small agents; it is not a capability sandbox for the plan catalog.
 
@@ -298,7 +299,11 @@ Short system-prompt rules (not the full ~50KB dump):
 patchloom agent-rules --surface core
 ```
 
-Example client env (Grok `config.toml`):
+### Coding-agent install recipes (core by default)
+
+**Coding agents should use the core pack** so tool schemas stay small. Full inventory remains the product default when the env is unset (compatibility). Set `PATCHLOOM_MCP_SURFACE=core` in the client config for Grok, Claude, Cursor, and Codex-style hosts.
+
+#### Grok / config.toml
 
 ```toml
 [mcp_servers.patchloom]
@@ -306,6 +311,55 @@ command = "patchloom"
 args = ["mcp-server"]
 env = { PATCHLOOM_MCP_SURFACE = "core" }
 ```
+
+#### Cursor (`~/.cursor/mcp.json` or project `.cursor/mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "patchloom": {
+      "command": "patchloom",
+      "args": ["mcp-server"],
+      "env": {
+        "PATCHLOOM_MCP_SURFACE": "core"
+      }
+    }
+  }
+}
+```
+
+#### Claude Desktop / Claude Code style MCP config
+
+```json
+{
+  "mcpServers": {
+    "patchloom": {
+      "command": "patchloom",
+      "args": ["mcp-server"],
+      "env": {
+        "PATCHLOOM_MCP_SURFACE": "core"
+      }
+    }
+  }
+}
+```
+
+#### Codex / generic stdio MCP
+
+```json
+{
+  "name": "patchloom",
+  "command": "patchloom",
+  "args": ["mcp-server"],
+  "env": {
+    "PATCHLOOM_MCP_SURFACE": "core"
+  }
+}
+```
+
+Do **not** also install a generic filesystem MCP only for list/read when Patchloom MCP is connected: use `list_files`, `search_files`, and `read_file` instead. Use full surface (unset env or `full`) when you need standalone AST tools or advanced md/doc tools as first-class MCP tools (`execute_plan` on core can still run plan ops).
+
+Example fragment for copy-paste: [mcp-core.example.json](../examples/mcp-core.example.json).
 
 Design notes: [mcp-surface-tiers.md](../plans/mcp-surface-tiers.md).
 

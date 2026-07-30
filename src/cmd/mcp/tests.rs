@@ -84,6 +84,10 @@ mod basic {
         assert!(names.contains(&"doc_diff"), "missing doc_diff tool");
         assert!(names.contains(&"read_file"), "missing read_file tool");
         assert!(names.contains(&"search_files"), "missing search_files tool");
+        assert!(
+            names.contains(&"list_files"),
+            "missing list_files tool (#2076)"
+        );
         assert_eq!(
             descriptions.get("search_files"),
             Some(

@@ -38,6 +38,7 @@ use crate::plan::{Operation, Plan};
 // ---------------------------------------------------------------------------
 
 mod handlers;
+mod list_files;
 mod params;
 mod registry;
 mod surface;

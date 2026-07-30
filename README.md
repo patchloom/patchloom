@@ -283,11 +283,15 @@ patchloom mcp-server
 
 MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.
 
-Small agents that choke on large tool schemas can set `PATCHLOOM_MCP_SURFACE=core` for a 10-tool pack at handshake (default remains full inventory). See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for per-agent configuration, surface options, and the full security model.
+**Coding agents:** set `PATCHLOOM_MCP_SURFACE=core` for an 11-tool pack (`list_files`, search/read/replace, doc/md, `execute_plan`, `server_info`) so schemas stay small. Product default remains full inventory when the env is unset. Prefer Patchloom MCP alone for list+edit (no second filesystem MCP). See the [MCP setup guide](./docs/getting-started/mcp-setup.md) for Cursor / Claude / Codex paste configs and the full security model.
 
 > **Using VS Code, Cursor, or Windsurf?** The [Patchloom extension](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) handles setup automatically: it installs the binary, runs init, and configures your editor's MCP settings.
 
 ### As a Rust library
+
+Host teams embedding Patchloom instead of a private edit stack: see the
+[embedder host case study](./docs/blog/embedder-host-case-study.md)
+(`for_agent`, peels, fuzzy refuse, apply_fragment, path-only ops).
 
 Add patchloom as a dependency (omit CLI/MCP/AST with `default-features = false`):
 

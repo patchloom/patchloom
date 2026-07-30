@@ -10,6 +10,7 @@
 pub(crate) const CORE_MCP_TOOL_NAMES: &[&str] = &[
     "read_file",
     "search_files",
+    "list_files",
     "replace_text",
     "batch_replace",
     "doc_get",
@@ -43,6 +44,7 @@ fn canonical_name_map_markdown_for_surface(full_ast_tools: bool) -> &'static str
 | identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |\n\
 | structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |\n\
 | search | `search` | n/a | `search_files` |\n\
+| list files | n/a (MCP) | n/a | `list_files` |\n\
 | read | `read` | n/a | `read_file` |\n\
 \n\
 Host meta-tools (for example a host `search_tool` catalog lookup) are **not** \
@@ -58,6 +60,7 @@ patchloom usage.\n\n"
 | identifier rename | `ast rename` | `ast.rename` | plan via `execute_plan` only (no standalone `ast_*` on core) |\n\
 | structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |\n\
 | search | `search` | n/a | `search_files` |\n\
+| list files | n/a (MCP) | n/a | `list_files` |\n\
 | read | `read` | n/a | `read_file` |\n\
 \n\
 Host meta-tools (for example a host `search_tool` catalog lookup) are **not** \
@@ -72,8 +75,9 @@ pub(crate) fn explore_guidance_markdown() -> &'static str {
 \n\
 When patchloom MCP is connected:\n\
 \n\
-- Prefer `search_files` and `read_file` with paths **relative** to MCP cwd over \
-shell `cat` / `head` / `find` / `sed` / `rg` for exploring and reading source.\n\
+- Prefer `list_files`, `search_files`, and `read_file` with paths **relative** to \
+MCP cwd over shell `cat` / `head` / `find` / `ls` / `sed` / `rg` (and over a \
+second generic filesystem MCP) for explore and inventory.\n\
 - Use shell only for build/test/run (`make`, `cargo test`, language runners) \
 unless the user explicitly overrides.\n\
 - MCP path containment: relative paths and absolute paths that resolve **inside** \
@@ -212,7 +216,7 @@ mod tests {
                 "core body missing tool {name} from CORE_MCP_TOOL_NAMES"
             );
         }
-        assert_eq!(CORE_MCP_TOOL_NAMES.len(), 10);
+        assert_eq!(CORE_MCP_TOOL_NAMES.len(), 11);
     }
 
     #[test]

@@ -605,6 +605,186 @@ async fn test_mcp_search_no_match_returns_descriptive_message() {
     client.cancel().await.unwrap();
 }
 
+/// #2076: list_files inventory with exclude + truncation honesty.
+#[tokio::test]
+async fn test_mcp_list_files_inventory_and_truncate() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(dir.path().join("src/a.rs"), "a\n").unwrap();
+    fs::write(dir.path().join("README.md"), "r\n").unwrap();
+    fs::create_dir_all(dir.path().join("vendor")).unwrap();
+    fs::write(dir.path().join("vendor/x.js"), "x\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "list_files",
+        serde_json::json!({
+            "path": ".",
+            "exclude_patterns": ["vendor/**"],
+            "max_results": 1
+        }),
+    )
+    .await;
+    assert!(!is_error, "list_files should succeed: {val}");
+    assert_eq!(val["ok"], true, "{val}");
+    assert_eq!(val["truncated"], true, "max_results=1 must truncate: {val}");
+    assert!(
+        val["total_matched"].as_u64().unwrap_or(0) >= 2,
+        "truncated must report total_matched: {val}"
+    );
+    let paths = val["paths"].as_array().expect("paths array");
+    assert_eq!(paths.len(), 1, "{val}");
+    let joined = paths
+        .iter()
+        .map(|p| p.as_str().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(!joined.contains("vendor"), "exclude vendor/**: {val}");
+    client.cancel().await.unwrap();
+}
+
+/// #2076: list_files include globs filter results (not a no-op).
+#[tokio::test]
+async fn test_mcp_list_files_globs_filter() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("src")).unwrap();
+    fs::write(dir.path().join("src/a.rs"), "a\n").unwrap();
+    fs::write(dir.path().join("src/b.ts"), "b\n").unwrap();
+    fs::write(dir.path().join("README.md"), "r\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "list_files",
+        serde_json::json!({
+            "path": ".",
+            "globs": ["**/*.rs"]
+        }),
+    )
+    .await;
+    assert!(!is_error, "list_files globs: {val}");
+    assert_eq!(val["ok"], true, "{val}");
+    let paths = val["paths"].as_array().expect("paths");
+    assert!(!paths.is_empty(), "expected .rs matches: {val}");
+    for p in paths {
+        let s = p.as_str().unwrap_or("");
+        assert!(s.ends_with(".rs"), "only .rs paths, got {s} in {val}");
+    }
+    client.cancel().await.unwrap();
+}
+
+/// #2076: list_files max_depth is relative to each root (not only cwd).
+#[tokio::test]
+async fn test_mcp_list_files_max_depth_under_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("src/nested")).unwrap();
+    fs::write(dir.path().join("src/a.rs"), "a\n").unwrap();
+    fs::write(dir.path().join("src/nested/b.rs"), "b\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "list_files",
+        serde_json::json!({
+            "path": "src",
+            "max_depth": 1
+        }),
+    )
+    .await;
+    assert!(!is_error, "list_files max_depth: {val}");
+    let paths = val["paths"].as_array().expect("paths");
+    let joined = paths
+        .iter()
+        .map(|p| p.as_str().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        joined.contains("a.rs"),
+        "depth 1 under src must include a.rs: {val}"
+    );
+    assert!(
+        !joined.contains("nested"),
+        "depth 1 under src must exclude nested/b.rs: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// #2076: list_files rejects path escape like other tools.
+#[tokio::test]
+async fn test_mcp_list_files_rejects_escape() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hi\n").unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "list_files", serde_json::json!({"path": ".."})).await;
+    assert!(is_error, "list_files must reject .. escape: {val}");
+    client.cancel().await.unwrap();
+}
+
+/// #2076: all-missing roots hard-fail (typo honesty, parity with search).
+#[tokio::test]
+async fn test_mcp_list_files_missing_root_is_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hi\n").unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "list_files",
+        serde_json::json!({"path": "does-not-exist"}),
+    )
+    .await;
+    assert!(is_error, "missing root must hard-fail: {val}");
+    let text = val.to_string().to_lowercase();
+    assert!(
+        text.contains("no such") || text.contains("not found") || text.contains("does-not-exist"),
+        "missing-root message: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// #2076: list_files on core surface.
+#[tokio::test]
+async fn test_mcp_list_files_on_core_surface() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hi\n").unwrap();
+    let client = spawn_mcp_client_with_env(dir.path(), &[("PATCHLOOM_MCP_SURFACE", "core")]).await;
+    let tools = client.peer().list_all_tools().await.unwrap();
+    let names: Vec<_> = tools.iter().map(|t| t.name.as_ref().to_string()).collect();
+    assert!(
+        names.iter().any(|n| n == "list_files"),
+        "core must include list_files: {names:?}"
+    );
+    assert_eq!(
+        names.len(),
+        11,
+        "core pack is 11 tools including list_files: {names:?}"
+    );
+    let (is_error, val) =
+        call_tool_value(&client, "list_files", serde_json::json!({"path": "."})).await;
+    assert!(!is_error, "core list_files: {val}");
+    assert_eq!(val["ok"], true);
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_search_rejects_absolute_path() {
     if !has_mcp_support() {

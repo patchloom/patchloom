@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "patchloom": {
+      "command": "patchloom",
+      "args": ["mcp-server"],
+      "env": {
+        "PATCHLOOM_MCP_SURFACE": "core"
+      }
+    }
+  }
+}

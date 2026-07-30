@@ -837,6 +837,74 @@ impl PatchloomService {
     // are auto-generated from MCP_TOOL_REGISTRY (registered in PatchloomService::new).
 
     #[tool(
+        description = "List files under the workspace (or given roots) with the same ignore/exclude/glob rules as search. Use this instead of a generic filesystem MCP list_dir/tree. Caps results (default max_results=500) and reports truncated+total_matched when capped. Prefer relative paths. Example: {\"path\": \"src/\", \"exclude_patterns\": [\"target/**\"], \"max_results\": 100, \"max_depth\": 3}"
+    )]
+    async fn list_files(
+        &self,
+        Parameters(p): Parameters<ListFilesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| {
+            if p.path.as_ref().is_some_and(|s| s.trim().is_empty()) {
+                return Err(McpError::invalid_params(
+                    "path must not be empty or whitespace-only (use paths for multi-root, or omit for workspace root)",
+                    None,
+                ));
+            }
+            if p.max_depth == Some(0) {
+                return Err(McpError::invalid_params(
+                    "max_depth must be >= 1 when set (1 = files directly under each root)",
+                    None,
+                ));
+            }
+            let roots = p.effective_paths();
+            for path in &roots {
+                svc.check_path(path)?;
+            }
+            for f in &p.custom_ignore_filenames {
+                svc.check_path(f)?;
+            }
+            // Same honesty as search: all-missing roots are typos, not empty inventory.
+            if crate::files::all_explicit_paths_missing(&roots, Some(svc.cwd())) {
+                return Err(McpError::invalid_params(
+                    format!(
+                        "no such file or directory: {}",
+                        roots.join(", ")
+                    ),
+                    None,
+                ));
+            }
+            let mut global = GlobalFlags::with_cwd_and_json(svc.cwd());
+            global.glob = p.globs;
+            global.exclude = p.exclude_patterns;
+            global.ignore_file = p.custom_ignore_filenames;
+            let report = super::list_files::collect_list_files(
+                &roots,
+                &global,
+                svc.cwd(),
+                p.max_results,
+                p.max_depth,
+                p.include_hidden,
+            )
+            .map_err(|e| {
+                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&e);
+                if matches!(
+                    kind,
+                    "invalid_input" | "guard_rejected" | "not_found" | "binary" | "invalid_encoding"
+                ) {
+                    McpError::invalid_params(msg, None)
+                } else {
+                    McpError::internal_error(msg, None)
+                }
+            })?;
+            let json = serde_json::to_string_pretty(&report)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        })
+        .await
+    }
+
+    #[tool(
         description = "Show uncommitted file changes vs git HEAD. Returns lists of modified, created, and deleted files. Omits .patchloom/ backup paths from --apply undo sessions. No parameters required."
     )]
     async fn git_status(

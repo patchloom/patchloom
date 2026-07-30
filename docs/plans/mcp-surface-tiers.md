@@ -2,7 +2,7 @@
 
 ## Problem
 
-Full default inventory (~57 tools with AST) can overwhelm small agents (context tax on tool schemas). Competitors often ship tiny FS MCP servers.
+Full default inventory (~58 tools with AST) can overwhelm small agents (context tax on tool schemas). Competitors often ship tiny FS MCP servers.
 
 ## Decision
 
@@ -15,7 +15,7 @@ Full default inventory (~57 tools with AST) can overwhelm small agents (context 
 
 Exactly these tools (AST off):
 
-- `read_file`, `search_files`, `replace_text`, `batch_replace`
+- `read_file`, `search_files`, `list_files`, `replace_text`, `batch_replace`
 - `doc_get`, `doc_set`, `doc_query`
 - `md_replace_section`, `execute_plan`, `server_info`
 

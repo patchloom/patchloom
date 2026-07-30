@@ -79,6 +79,11 @@ pub(super) const CUSTOM_MCP_TOOLS_CORE: &[CustomMcpTool] = &[
         kind: CustomKind::MultiFileOrScan,
     },
     CustomMcpTool {
+        name: "list_files",
+        why: "bounded directory inventory so agents need no second filesystem MCP (#2076)",
+        kind: CustomKind::MultiFileOrScan,
+    },
+    CustomMcpTool {
         name: "replace_text",
         why: "parallel multi-file scan + precomputed engine handoff",
         kind: CustomKind::MultiFileOrScan,
@@ -363,13 +368,13 @@ mod tests {
         // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
         let custom_n = custom_mcp_tools().count();
-        let expected_total = if cfg!(feature = "ast") { 57 } else { 37 };
+        let expected_total = if cfg!(feature = "ast") { 58 } else { 38 };
         assert_eq!(
             registry_n + custom_n,
             expected_total,
             "registry ({registry_n}) + custom ({custom_n}) must equal total MCP tools ({expected_total})"
         );
-        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 13, "core custom tool count");
+        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 14, "core custom tool count");
         #[cfg(feature = "ast")]
         assert_eq!(CUSTOM_MCP_TOOLS_AST.len(), 20, "ast custom tool count");
         #[cfg(not(feature = "ast"))]

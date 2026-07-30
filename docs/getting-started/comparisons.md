@@ -14,11 +14,11 @@ Patchloom is **not** a generic filesystem MCP and **not** a drop-in replacement 
 | Multi-file atomic plan + undo | No | `tx` / `batch` + `undo` |
 | Agent-branchable `error_kind` | Weak | `binary`, `invalid_encoding`, `already_exists`, `format_failed`, … |
 
-**Use a generic filesystem MCP** for simple read/write outside structured agent workflows.
+**Use a generic filesystem MCP** only when you need pure FS ops and Patchloom is not installed.
 
-**Use Patchloom** when the agent must mutate configs, markdown structure, or multi-file plans with preview and peels.
+**Use Patchloom alone** for list + search + structured edit: MCP `list_files` covers inventory (ignore-aware, capped), so coding agents should not pair Patchloom with a second filesystem MCP for list/read/edit. Prefer `PATCHLOOM_MCP_SURFACE=core` (11 tools including `list_files`).
 
-Install notes: [MCP setup](mcp-setup.md). Registry name: `io.github.patchloom/patchloom`.
+Install notes: [MCP setup](mcp-setup.md) (Cursor / Claude / Codex paste configs with core). Registry name: `io.github.patchloom/patchloom`.
 
 ## vs yq / dasel / jq
 
@@ -34,6 +34,18 @@ Install notes: [MCP setup](mcp-setup.md). Registry name: `io.github.patchloom/pa
 
 **Use Patchloom** inside agent loops (CLI, MCP, or embedder library).
 
+### yq one-liners → Patchloom (agent cheat sheet)
+
+| Shell habit | Patchloom |
+|-------------|-----------|
+| `yq '.version' package.json` | `patchloom doc get package.json version` or MCP `doc_get` |
+| `yq -i '.version = "2.0.0"' package.json` | `patchloom doc set package.json version '"2.0.0"' --apply` (or MCP `doc_set`) |
+| `yq 'select(document_index == 0) \| .a' multi.yaml` | `patchloom doc get multi.yaml 0.a` |
+| `yq -i '.[0].image = "x"' multi.yaml` | `patchloom doc set multi.yaml 0.image x --apply` |
+| `yq '.items[] \| select(.name == "a")' f.yaml` | `patchloom doc select f.yaml items --predicate name=a` (or MCP `doc_query` / plan) |
+
+Prefer parser-backed `doc` over inventing `yq` in agent shells so peels, dry-run exit 2, and multi-doc honesty stay consistent.
+
 ## vs ast-grep (complement)
 
 [ast-grep](https://github.com/ast-grep/ast-grep) owns **structural code search and pattern rewrite** (syntax-tree patterns, codemods). Patchloom owns **host-safe apply** for configs, markdown, multi-file transactions, and agent honesty.
@@ -46,7 +58,16 @@ Install notes: [MCP setup](mcp-setup.md). Registry name: `io.github.patchloom/pa
 | Atomic multi-file apply with undo | Patchloom `tx` / `batch` |
 | After fuzzy text replace, refuse over-wide spans (library host) | Patchloom `fuzzy_span_suspicious` / batch `refuse_batch_if_suspicious_fuzzy` |
 
-Typical pipeline: discover with ast-grep → apply policy-safe writes with Patchloom.
+### Typical pipeline (ast-grep + Patchloom)
+
+1. **Discover** code shapes with ast-grep (or `patchloom ast search` when a simple structural query is enough).
+2. **Apply** with Patchloom so peels and undo stay host-safe:
+   - identifier rename: `ast rename PATH --old X --new Y --apply` or plan `ast.rename`
+   - multi-file atomic apply: `tx` / MCP `execute_plan`
+   - config/docs alongside code: `doc set` / `md replace-section` in the same plan
+3. **Do not** re-apply the same edit with raw `sed` after Patchloom already wrote.
+
+Example: ast-grep finds call sites; Patchloom `ast rename` + `tx` with `require_change` applies and fails closed if a path misses.
 
 ## vs Morph Fast Apply (and similar merge APIs)
 
@@ -79,7 +100,12 @@ Use this table when someone asks "can patchloom replace Morph for X?" Full PASS/
 | Lazy markers with **no** anchors | Not supported | Non-goal: supply after/before/old or use Morph |
 | Freeform "put method in the right place" with known anchor | `apply-fragment` or `ast` + insert | **PASS** with anchors; no free placement guess |
 
-**Host routing (Morph MCP says "prefer edit_file"):** prefer `doc` / `md` / `ast` / `batch` when structure is known; use `replace` (+ fuzzy only when needed); never whole-file rewrite for a one-line change.
+**Host routing (Morph MCP says "prefer edit_file"):** prefer `doc` / `md` / `ast` / `batch` when structure is known; use `replace` (+ fuzzy only when needed); use `apply-fragment` only with a known after/before/old anchor; never whole-file rewrite for a one-line change.
+
+**Non-goals (do not expect Patchloom to replace Morph here):**
+
+- Anchor-less lazy snippet merge (`// ... existing code ...` with no placement)
+- Competing on cloud apply tok/s or network Fast Apply latency
 
 ## vs full coding agents (Claude Code, Codex, Cursor, Aider)
 
