@@ -274,7 +274,15 @@ pub(super) fn handle_ast_rename(
                 None,
             ));
         }
-        return no_results("No matches found.");
+        // Write tool: miss is not a successful soft query (contrast ast_list/refs).
+        // Agents must see isError + no_matches, not a green tool result.
+        let body = serde_json::json!({
+            "ok": false,
+            "error_kind": "no_matches",
+            "error": "No matches found.",
+            "applied": false,
+        });
+        return exit_code_to_result(exit::NO_MATCHES, &body.to_string(), "No matches found.");
     }
 
     svc.run_ops(operations, None)
@@ -1214,5 +1222,35 @@ impl Point {
 
         let result = handle_ast_rename(&svc, params).unwrap();
         assert!(result.is_error.unwrap_or(false));
+    }
+
+    #[test]
+    fn ast_rename_missing_symbol_is_error_not_soft_success() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstRenameParams {
+            path: "sample.rs".into(),
+            old: "does_not_exist_symbol".into(),
+            new: "other".into(),
+            lang: Some("rs".into()),
+        };
+
+        let result = handle_ast_rename(&svc, params).unwrap();
+        assert!(
+            result.is_error.unwrap_or(false),
+            "write miss must set isError so agents do not treat rename as applied"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("no_matches") || text.contains("No matches"),
+            "got: {text}"
+        );
+        let content = std::fs::read_to_string(dir.path().join("sample.rs")).unwrap();
+        assert!(
+            content.contains("greet"),
+            "file must stay unchanged on rename miss"
+        );
     }
 }

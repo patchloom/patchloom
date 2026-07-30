@@ -637,7 +637,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Replace the same text across multiple files in one call. Atomic: all files succeed or none change. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; when exact old is absent, refuse by default unless allow_absent_old=true (#1758). JSON reports match_mode (exact/fuzzy/anchored), optional match_score, optional matched_text, match_count per change and aggregate (#1674). IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
+        description = "Replace the same text across multiple files in one call. Engine staging is atomic for applied writes (all written files succeed or none change). Pattern misses are soft by default: matching files still apply and total misses appear in refused[]; set require_change=true to fail the whole batch if any file has no match. Canonical field is files (array); singular file is accepted as an alias for one path. Optional fuzzy enables similarity fallback; when exact old is absent, refuse by default unless allow_absent_old=true (#1758). JSON reports match_mode (exact/fuzzy/anchored), optional match_score, optional matched_text, match_count per change and aggregate (#1674). IMPORTANT: do NOT issue concurrent write calls targeting the same files; use execute_plan for multi-op atomicity. Example: {\"files\": [\"Cargo.toml\", \"README.md\"], \"old\": \"0.1.0\", \"new\": \"0.2.0\"}"
     )]
     async fn batch_replace(
         &self,
@@ -845,8 +845,14 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             let global = GlobalFlags::with_cwd(svc.cwd());
-            let status = crate::cmd::status::collect_status(&[], &global)
-                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let status = crate::cmd::status::collect_status(&[], &global).map_err(|e| {
+                // Non-git workspace / invalid_input is agent input, not a server bug.
+                if crate::exit::is_invalid_input(&e) {
+                    McpError::invalid_params(format!("{e}"), None)
+                } else {
+                    McpError::internal_error(format!("{e}"), None)
+                }
+            })?;
             let json = serde_json::to_string_pretty(&status)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
             // Always tool success (isError=false); agents branch on ok /

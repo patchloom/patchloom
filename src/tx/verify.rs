@@ -322,12 +322,14 @@ fn symbol_has_attr(source: &str, sym: &symbols::SymbolDef, attr: &str) -> bool {
         return false;
     }
     // Walk backward from the line above the definition (start_line is 1-based).
+    // Skip blank lines: hand-edited / some formatters leave a blank between
+    // `#[test]` and `fn` without attaching a prior item's attrs.
     let mut idx = sym.start_line; // 1-based cursor; first decrement lands on line above
     while idx > 1 {
         idx -= 1;
         let trimmed = lines[idx - 1].trim();
         if trimmed.is_empty() {
-            break;
+            continue;
         }
         let is_rust_attr = trimmed.starts_with("#[") || trimmed.ends_with(']');
         let is_doc = trimmed.starts_with("///") || trimmed.starts_with("//!");
@@ -750,6 +752,28 @@ fn not_a_test() {}
         assert!(
             !symbol_has_attr(source, not_a_test, "test"),
             "neighbor must not inherit #[test] from my_test"
+        );
+    }
+
+    /// Blank line between attr and item is common in hand-edited sources.
+    #[test]
+    #[cfg(feature = "ast")]
+    fn symbol_has_attr_skips_blank_between_attr_and_item() {
+        let source = r#"
+#[test]
+
+fn spaced_test() {
+    assert!(true);
+}
+"#;
+        let syms = symbols::extract_symbols(source, Language::Rust);
+        let spaced = syms
+            .iter()
+            .find(|s| s.name == "spaced_test")
+            .expect("spaced_test");
+        assert!(
+            symbol_has_attr(source, spaced, "test"),
+            "blank line must not drop #[test] for attr= filter"
         );
     }
 

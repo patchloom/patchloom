@@ -1618,37 +1618,64 @@ fn multi_file_match_mode_worst_case_rollup() {
 
 #[test]
 fn multi_fuzzy_total_miss_in_refused() {
-    let dir = tempfile::TempDir::new().unwrap();
+    // Unit tests cannot use cargo_bin (CARGO_BIN_EXE unset under cargo test --lib).
+    // In-process: apply fuzzy multi-file, assert partial write + exact-miss refused.
+    let dir = TempDir::new().unwrap();
     let a = dir.path().join("a.txt");
     let b = dir.path().join("b.txt");
-    std::fs::write(&a, "hello world\n").unwrap();
-    std::fs::write(&b, "unrelated content\n").unwrap();
-    let out = assert_cmd::Command::cargo_bin("patchloom")
-        .unwrap()
-        .current_dir(dir.path())
-        .args([
-            "--json",
-            "replace",
-            "hello world",
-            "--new",
-            "hi",
-            "--fuzzy",
-            "--apply",
-            "a.txt",
-            "b.txt",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
-    assert_eq!(v["ok"], true);
-    let refused = v["refused"].as_array().expect("refused array");
+    fs::write(&a, "hello world\n").unwrap();
+    fs::write(&b, "unrelated content\n").unwrap();
+
+    let paths = vec![
+        a.to_string_lossy().into_owned(),
+        b.to_string_lossy().into_owned(),
+    ];
+    let mut args = make_args("hello world", "hi", paths);
+    args.fuzzy = true;
+    let global = GlobalFlags {
+        apply: true,
+        json: true,
+        quiet: true,
+        cwd: Some(dir.path().to_string_lossy().into_owned()),
+        ..GlobalFlags::test_default()
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(fs::read_to_string(&a).unwrap(), "hi\n");
+    assert_eq!(fs::read_to_string(&b).unwrap(), "unrelated content\n");
+
+    // Explicit multi-path total miss lands in refused with reason no_matches.
+    let mut args_for_refused = make_args(
+        "hello world",
+        "hi",
+        vec![
+            a.to_string_lossy().into_owned(),
+            b.to_string_lossy().into_owned(),
+        ],
+    );
+    args_for_refused.fuzzy = true;
+    let matched_only_a = [FileReplacement {
+        path: a.to_string_lossy().into_owned(),
+        display_path: "a.txt".into(),
+        original: "hello world\n".into(),
+        replaced: "hi\n".into(),
+        match_count: 1,
+        match_mode: Some("exact"),
+        match_score: None,
+        matched_text: None,
+    }];
+    let refused = exact_zero_match_refused_from_paths(
+        &args_for_refused,
+        &global,
+        dir.path(),
+        &[a, b],
+        &matched_only_a,
+    )
+    .expect("refused for co-listed miss");
     assert!(
         refused
             .iter()
-            .any(|r| r["path"] == "b.txt" && r["reason"] == "no_matches"),
+            .any(|r| r.path == "b.txt" && r.reason == "no_matches"),
         "got {refused:?}"
     );
 }
