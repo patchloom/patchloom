@@ -44,7 +44,7 @@ Install notes: [MCP setup](mcp-setup.md). Registry name: `io.github.patchloom/pa
 | Rename a symbol with project-aware AST | Patchloom `ast rename` / `ast_rename_project` |
 | Set `database.port` in YAML without losing comments | Patchloom `doc set` |
 | Atomic multi-file apply with undo | Patchloom `tx` / `batch` |
-| After fuzzy text replace, refuse over-wide spans (library host) | Patchloom `fuzzy_span_suspicious` |
+| After fuzzy text replace, refuse over-wide spans (library host) | Patchloom `fuzzy_span_suspicious` / batch `refuse_batch_if_suspicious_fuzzy` |
 
 Typical pipeline: discover with ast-grep → apply policy-safe writes with Patchloom.
 
@@ -69,7 +69,7 @@ Use this table when someone asks "can patchloom replace Morph for X?" Full PASS/
 | Morph job | Prefer Patchloom | Notes |
 |-----------|------------------|-------|
 | Small exact edit | `replace OLD path --new NEW` | Exact; dry-run then `--apply` |
-| Whitespace / near-miss | `replace … --fuzzy` | Default **fail-closed** (reports `matched_text`, no write). Hosts: `for_agent` + `fuzzy_span_suspicious`; optional `--allow-absent-old` only when you accept a nearby span |
+| Whitespace / near-miss | `replace … --fuzzy` | Default **fail-closed** (reports `matched_text`, no write). Hosts: `for_agent` + `fuzzy_span_suspicious` / buffer multi-op `refuse_batch_if_suspicious_fuzzy`; optional `--allow-absent-old` only when you accept a nearby span |
 | Large file, known line/symbol | `replace` or `ast replace PATH SYMBOL --old --new` | Scope to a symbol when possible |
 | Scattered multi-hunk / multi-file | `batch` / `tx` / library `apply_content_edits*` | One plan, atomic undo |
 | Config / comments | `doc set` | Not text replace |

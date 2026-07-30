@@ -152,6 +152,11 @@ run_lib_filter replace_in_content_fuzzy_host_refuses
 run_lib_filter replace_in_content_fuzzy_near_collision_reports_matched_text
 pass "library fuzzy_span_suspicious host contracts (#1981)"
 
+# --- #2064: public refuse_batch_if_suspicious_fuzzy (buffer multi-op hosts) ---
+run_lib_filter refuse_batch_if_suspicious_fuzzy_rejects_wide_honesty
+run_lib_filter refuse_batch_if_suspicious_fuzzy_after_live_content_edits
+pass "library refuse_batch_if_suspicious_fuzzy host contracts (#2064)"
+
 # --- #2031-#2033: path-only non-text + apply_fragment_to_file + honesty ctors ---
 run_lib_filter file_rename_binary_path_only
 run_lib_filter file_rename_invalid_utf8_path_only
