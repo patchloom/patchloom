@@ -73,6 +73,14 @@ cargo install patchloom                    # crates.io
 brew install patchloom/tap/patchloom       # macOS / Linux (Homebrew)
 ```
 
+```powershell
+# Windows
+winget install Patchloom.Patchloom
+scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
+scoop install patchloom/patchloom
+choco install patchloom
+```
+
 Or download a prebuilt binary from [GitHub Releases](https://github.com/patchloom/patchloom/releases).
 
 Set up your project in one command:
