@@ -34,8 +34,9 @@ fn core_server_instructions() -> String {
          Prefer 'execute_plan' for multi-op or multi-file work (atomicity). \
          Per-call success does not guarantee combined success if you issue \
          conflicting parallel writes.\n\n\
-         Explore with search_files/read_file (relative paths); shell cat/find/sed \
-         only for build/test unless the user overrides. MCP rejects absolute paths.\n\n\
+         Explore with search_files/read_file (prefer relative paths); shell cat/find/sed \
+         only for build/test unless the user overrides. MCP allows absolute paths only \
+         when they resolve inside the workspace; `../` and outside paths are rejected.\n\n\
          Core tools:\n\
          - read_file, search_files: inspect and find content\n\
          - replace_text, batch_replace: literal/regex text edits\n\

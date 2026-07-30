@@ -389,7 +389,13 @@ Or pass the env var (Claude Desktop supports `env` in server config):
 
 ## Security model
 
-The MCP server enforces path containment: all file paths must resolve within the working directory where `patchloom mcp-server` was started. Absolute paths, `../` traversal, and symlinks escaping the working directory are rejected. This prevents an agent from accidentally (or maliciously) editing files outside the project.
+The MCP server enforces path containment: every path must resolve inside the
+working directory where `patchloom mcp-server` was started. Relative paths are
+preferred. Absolute paths that resolve **inside** that workspace are allowed
+(agents often concatenate `server_info.cwd` with a relative path). `../`
+traversal, absolute paths outside the workspace, and symlinks that escape the
+workspace are rejected. This prevents an agent from editing files outside the
+project.
 
 Each individual tool validates every path before execution.
 
