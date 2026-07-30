@@ -254,23 +254,19 @@ pub fn md_move_section(
             })?;
 
     let policy = crate::write::WritePolicy::default();
-    // Write the destination file for cross-file moves.
-    if let Some(dest_path) = to {
-        if mode == ApplyMode::Apply {
-            super::ensure_contained(guard, dest_path)?;
-        }
-        let _ = super::write_if_apply(dest_path, &new_dest, mode, &policy, guard)?;
-    }
-    // Use generalized cross helper for source (centralized per #839).
-    let (applied, backup_session) = super::apply_cross_file_mutation(
-        path,
-        None,
-        mode,
-        guard,
-        |backup| backup.save_before_write(path),
-        || crate::write::atomic_write(path, &new_source, &policy),
-    )?;
     let dest = to.map(|p| p.to_string_lossy().to_string());
+
+    // Cross-file: one backup session covering source + dest (all-or-nothing).
+    // Same-file: single write path.
+    let (applied, backup_session) = if let Some(dest_path) = to {
+        let backup_root = path.parent().unwrap_or_else(|| Path::new("."));
+        let files: [(&Path, &str); 2] =
+            [(dest_path, new_dest.as_str()), (path, new_source.as_str())];
+        super::write_if_apply_many(&files, mode, &policy, guard, backup_root)?
+    } else {
+        super::write_if_apply(path, &new_source, mode, &policy, guard)?
+    };
+
     let mut edit =
         super::build_edit_result(&path_str, original, new_source, applied, "md.move", dest);
     edit.backup_session = backup_session;
