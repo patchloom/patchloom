@@ -11,6 +11,28 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.24.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.23.0...patchloom-v0.24.0) (2026-07-30)
+
+
+### Features
+
+* agent packaging for dual-host MCP ([#2070](https://github.com/patchloom/patchloom/issues/2070)) ([#2073](https://github.com/patchloom/patchloom/issues/2073)) ([0f8be18](https://github.com/patchloom/patchloom/commit/0f8be1816b9b6a0cffb0acf78254da7cedf98681))
+* **api:** export refuse_batch_if_suspicious_fuzzy for hosts ([#2065](https://github.com/patchloom/patchloom/issues/2065)) ([1ac0a3a](https://github.com/patchloom/patchloom/commit/1ac0a3a3d1ffe24d70672cfa3a2fda8b354b323c))
+* **mcp:** list_files inventory and competitive gap docs ([#2077](https://github.com/patchloom/patchloom/issues/2077)) ([6a3d16f](https://github.com/patchloom/patchloom/commit/6a3d16fc87dc67dc4b6c65524d65c6d689bf453d)), closes [#2076](https://github.com/patchloom/patchloom/issues/2076)
+
+
+### Bug Fixes
+
+* **api:** finalize-before-write and atomic multi-file apply ([#2071](https://github.com/patchloom/patchloom/issues/2071)) ([b442e82](https://github.com/patchloom/patchloom/commit/b442e8258da26e97cd782a2bd5efb86ab7688054))
+* **mcp:** document AllowIfContained absolute path honesty ([#2075](https://github.com/patchloom/patchloom/issues/2075)) ([f43a90e](https://github.com/patchloom/patchloom/commit/f43a90ecbd354d0278fa042b78e43e5ba33cfed9))
+* path absolutize, fuzzy refused, MCP honesty, search nth ([#2069](https://github.com/patchloom/patchloom/issues/2069)) ([d4ec3c0](https://github.com/patchloom/patchloom/commit/d4ec3c0f19421f34b87aace9924d27a5ff43f135))
+* real findings wrongly rejected as architecture noise ([#2072](https://github.com/patchloom/patchloom/issues/2072)) ([1ba28d7](https://github.com/patchloom/patchloom/commit/1ba28d7e86544c2b8c0b400f05463d01c18be3f9))
+
+
+### Performance Improvements
+
+* **mcp:** prune list_files walks at max_depth ([#2080](https://github.com/patchloom/patchloom/issues/2080)) ([d16cac2](https://github.com/patchloom/patchloom/commit/d16cac2ce7b02df40f05c809dc8754e0db8fe120)), closes [#2078](https://github.com/patchloom/patchloom/issues/2078)
+
 ## [0.23.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.22.0...patchloom-v0.23.0) (2026-07-30)
 
 
