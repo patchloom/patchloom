@@ -4440,6 +4440,95 @@ async fn test_mcp_ast_imports_list_only() {
     client.cancel().await.unwrap();
 }
 
+/// Multi-surface (#2054): MCP insert miss peels error_kind no_matches.
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_insert_missing_symbol_error_kind() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn existing() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_insert",
+        serde_json::json!({
+            "path": "lib.rs",
+            "content": "fn added() {}",
+            "after": "missing_symbol"
+        }),
+    )
+    .await;
+    assert!(is_error, "ast_insert miss must be error: {val}");
+    assert_eq!(val["error_kind"], "no_matches", "{val}");
+    assert_eq!(val["ok"], false, "{val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("lib.rs")).unwrap(),
+        "fn existing() {}\n",
+        "file unchanged on MCP insert miss"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Multi-surface (#2054): MCP wrap miss peels error_kind no_matches.
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_wrap_missing_symbol_error_kind() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn keep() {}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_wrap",
+        serde_json::json!({
+            "path": "lib.rs",
+            "symbols": ["gone"],
+            "wrapper": "mod m"
+        }),
+    )
+    .await;
+    assert!(is_error, "ast_wrap miss must be error: {val}");
+    assert_eq!(val["error_kind"], "no_matches", "{val}");
+    assert_eq!(val["ok"], false, "{val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("lib.rs")).unwrap(),
+        "fn keep() {}\n",
+        "file unchanged on MCP wrap miss"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Multi-surface (#2054): MCP imports missing path peels not_found.
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_imports_missing_file_error_kind() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_imports",
+        serde_json::json!({
+            "path": "gone.rs",
+            "add": ["use std::io;"]
+        }),
+    )
+    .await;
+    assert!(is_error, "ast_imports missing file must be error: {val}");
+    assert_eq!(val["error_kind"], "not_found", "{val}");
+    assert_eq!(val["ok"], false, "{val}");
+    client.cancel().await.unwrap();
+}
+
 // --- fixrealloop / MCP dogfood (agent-shaped replace insert + multi-doc) ---
 
 /// MCP `replace_text` insert_after is line-oriented by default (#1885).

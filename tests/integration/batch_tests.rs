@@ -335,6 +335,27 @@ fn test_batch_ast_insert_hints_tx_plan() {
         .stderr(predicates::str::contains("tx plan"));
 }
 
+/// #2054: wrap/imports batch lines also hint at tx/MCP (same unsupported class).
+#[test]
+fn test_batch_ast_wrap_and_imports_hint_tx_plan() {
+    let dir = TempDir::new().unwrap();
+    for line in [
+        "ast.wrap lib.rs symbols=test_a wrapper=\"mod m\"\n",
+        "ast.imports lib.rs add=use std::io;\n",
+    ] {
+        let ops = dir.path().join("ops.txt");
+        fs::write(&ops, line).unwrap();
+        patchloom_in(dir.path())
+            .arg("batch")
+            .arg(&ops)
+            .arg("--apply")
+            .assert()
+            .code(4)
+            .stderr(predicates::str::contains("not supported in batch"))
+            .stderr(predicate::str::contains("tx plan").or(predicate::str::contains("MCP")));
+    }
+}
+
 /// Nested JSON quotes keep batch doc.set values as strings (not float 2.0).
 #[test]
 fn test_batch_doc_set_version_string_not_float() {

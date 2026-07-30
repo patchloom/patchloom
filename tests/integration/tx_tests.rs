@@ -6558,6 +6558,299 @@ fn test_tx_ast_replace_in_plan() {
     );
 }
 
+/// Multi-surface (#2054): plan `ast.insert` apply path (cargo-bin).
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_insert_in_plan() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn existing() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.insert",
+            "path": "lib.rs",
+            "content": "fn added() { 1 }",
+            "after": "existing"
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json", "--apply"])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("fn added()"),
+        "insert should land after existing: {content}"
+    );
+    assert!(
+        content.find("fn existing").unwrap() < content.find("fn added").unwrap(),
+        "added after existing: {content}"
+    );
+}
+
+/// Multi-surface (#2054): missing after-symbol is no_matches (exit 3).
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_insert_missing_after_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn existing() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.insert",
+            "path": "lib.rs",
+            "content": "fn added() {}",
+            "after": "missing_symbol"
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("missing_symbol") || err.contains("not found"),
+        "error should name missing symbol: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("lib.rs")).unwrap(),
+        "fn existing() {}\n",
+        "file must be unchanged on fail-closed insert"
+    );
+}
+
+/// Multi-surface (#2054): bad insert position is invalid_input (exit 1).
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_insert_bad_position_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn existing() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.insert",
+            "path": "lib.rs",
+            "content": "fn x() {}",
+            "after": "existing",
+            "position": "middle"
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("position") || err.contains("start") || err.contains("end"),
+        "error should mention valid positions: {err}"
+    );
+}
+
+/// Multi-surface (#2054): plan `ast.wrap` apply path.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_wrap_in_plan() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn test_a() {}\nfn test_b() {}\n",
+    )
+    .unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.wrap",
+            "path": "lib.rs",
+            "symbols": ["test_a", "test_b"],
+            "wrapper": "mod tests"
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json", "--apply"])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("mod tests"),
+        "wrapper should appear: {content}"
+    );
+    assert!(
+        content.contains("fn test_a"),
+        "wrapped symbol should remain: {content}"
+    );
+}
+
+/// Multi-surface (#2054): wrap missing symbol is no_matches.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_wrap_missing_symbol_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn keep() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.wrap",
+            "path": "lib.rs",
+            "symbols": ["gone"],
+            "wrapper": "mod m"
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(3)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("gone") || err.contains("not found"),
+        "error should name missing symbol: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("lib.rs")).unwrap(),
+        "fn keep() {}\n",
+        "file must be unchanged on fail-closed wrap"
+    );
+}
+
+/// Multi-surface (#2054): plan `ast.imports` add apply path.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_imports_add_in_plan() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("main.rs"), "use std::io;\n\nfn main() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.imports",
+            "path": "main.rs",
+            "add": ["use std::collections::HashMap;"]
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json", "--apply"])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(dir.path().join("main.rs")).unwrap();
+    assert!(
+        content.contains("use std::collections::HashMap"),
+        "import should be added: {content}"
+    );
+    assert!(
+        content.contains("use std::io"),
+        "existing import should remain: {content}"
+    );
+}
+
+/// Multi-surface (#2054): imports on missing path peels not_found (fail-closed).
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_imports_missing_file_not_found() {
+    let dir = TempDir::new().unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.imports",
+            "path": "gone.rs",
+            "add": ["use std::io;"]
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+}
+
 #[test]
 fn test_tx_replace_word_boundary_in_plan() {
     let dir = TempDir::new().unwrap();
