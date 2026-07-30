@@ -11,6 +11,32 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.23.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.22.0...patchloom-v0.23.0) (2026-07-30)
+
+
+### Features
+
+* **api:** path-only non-text rename, apply_fragment_to_file, honesty constructors ([#2035](https://github.com/patchloom/patchloom/issues/2035)) ([f51705c](https://github.com/patchloom/patchloom/commit/f51705c7a291e69f404104a29ffe5e9d121155f9))
+* **mcp:** server_info reports version and protocol_version ([#2060](https://github.com/patchloom/patchloom/issues/2060)) ([41209d1](https://github.com/patchloom/patchloom/commit/41209d1147310b429dea5ca07e33a93b41e63851))
+
+
+### Bug Fixes
+
+* agent honesty for context insert, applied, verify, MCP paths ([#2045](https://github.com/patchloom/patchloom/issues/2045)) ([4349126](https://github.com/patchloom/patchloom/commit/434912654c0a2d05143ed3416030f3d374da706e))
+* agent honesty for format_failed, lint exit, kind filter, undo ([#2044](https://github.com/patchloom/patchloom/issues/2044)) ([bcb6f47](https://github.com/patchloom/patchloom/commit/bcb6f47a14a1605928867e4030b6edb54201ef35))
+* agent honesty for patch, search, md, AST, tx (R11) ([#2051](https://github.com/patchloom/patchloom/issues/2051)) ([8192e08](https://github.com/patchloom/patchloom/commit/8192e08e925d3763b07c45d97f4a1bf7be63182f))
+* docs honesty and batch/MCP agent recovery (MPI) ([#2055](https://github.com/patchloom/patchloom/issues/2055)) ([d1ee673](https://github.com/patchloom/patchloom/commit/d1ee673cf96961d0b4ee82fbecbe61254d023ac7))
+* EXDEV rename force-dest safe rollback ([#2048](https://github.com/patchloom/patchloom/issues/2048)) ([a19f066](https://github.com/patchloom/patchloom/commit/a19f0667b911d66bde89f49c0951bc267c1a3065))
+* fail-closed positions, for_each empty, patch merge exit, MCP honesty ([#2046](https://github.com/patchloom/patchloom/issues/2046)) ([bbd4337](https://github.com/patchloom/patchloom/commit/bbd43375674d7226093798453c92dddf7fd01f9c))
+* jsonl honesty for read/schema/tidy; MCP search; AST empty-scan ([#2049](https://github.com/patchloom/patchloom/issues/2049)) ([f1660dc](https://github.com/patchloom/patchloom/commit/f1660dc8d7817c7194e1bb8c35d62fd1b6bd6ce4))
+* lint/search jsonl trailers; AST validate/search/impact honesty ([#2050](https://github.com/patchloom/patchloom/issues/2050)) ([ee01ca4](https://github.com/patchloom/patchloom/commit/ee01ca47677cc837d94b59b4fdba703a34c350b9))
+* multi-doc delete, stale delete patches, force rename backup ([#2042](https://github.com/patchloom/patchloom/issues/2042)) ([e9fc0c1](https://github.com/patchloom/patchloom/commit/e9fc0c1935269700c9f0565f6d516773c27c0c6c))
+* patch EOF newline, files-from stdin, NotFound peel, ast aliases ([#2043](https://github.com/patchloom/patchloom/issues/2043)) ([833dd0f](https://github.com/patchloom/patchloom/commit/833dd0f76043d2241ddcf2b9fa5ec618d0a3eb0c))
+* real-world agent path bugs (case rename, MCP op, YAML CRLF, files-from) ([#2040](https://github.com/patchloom/patchloom/issues/2040)) ([9533392](https://github.com/patchloom/patchloom/commit/9533392bd092afebfd6f5c22ad01d14edfc53861))
+* rename empty rewrite only for soft path-only sources ([#2037](https://github.com/patchloom/patchloom/issues/2037)) ([1595c49](https://github.com/patchloom/patchloom/commit/1595c4955131ee7bf2a24f4a76dc57db79da3288))
+* strict binary rollback, fuzzy match_count, MCP apply_fragment ([#2041](https://github.com/patchloom/patchloom/issues/2041)) ([fdd49ff](https://github.com/patchloom/patchloom/commit/fdd49ff490411cadec60366105c735b5364d2041))
+* undo/status/init honesty, EXDEV rename, MCP search, batch force ([#2047](https://github.com/patchloom/patchloom/issues/2047)) ([cfeb828](https://github.com/patchloom/patchloom/commit/cfeb82855ee71997b82a66fad3886d4cadc6e7a1))
+
 ## [0.22.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.21.0...patchloom-v0.22.0) (2026-07-28)
 
 
