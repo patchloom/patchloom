@@ -191,7 +191,7 @@ tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n
              | Create, append, prepend, rename, or delete a file | `create_file`, `append_file`, `prepend_file`, `move_file`, `delete_file` |\n\
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
              | Search across files | `search_files` |\n\
-             | List/inventory files (ignore-aware, capped; prefer over FS MCP) | `list_files` |\n\
+             | List/inventory files (ignore-aware; max_depth prunes walk; prefer over FS MCP) | `list_files` |\n\
              | Apply a unified diff patch | `apply_patch` |\n\
              | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |\n\
              | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |\n\
