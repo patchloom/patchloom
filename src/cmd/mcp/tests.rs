@@ -331,7 +331,12 @@ mod basic {
         let dir = tempfile::TempDir::new().unwrap();
         let client = spawn_test_client(dir.path().to_path_buf()).await;
         let info = client.peer_info().expect("peer info should be set");
-        assert_eq!(info.server_info.name, "patchloom");
+        // rmcp 3: peer_info.server_info is Option (discovery may omit identity).
+        let server = info
+            .server_info
+            .as_ref()
+            .expect("initialize handshake must provide server_info");
+        assert_eq!(server.name, "patchloom");
         client.cancel().await.unwrap();
     }
 
