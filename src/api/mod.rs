@@ -311,7 +311,7 @@ pub struct EditResult {
     pub diff: String,
     /// Whether the file was actually written to disk.
     pub applied: bool,
-    /// Whether the content changed.
+    /// Whether apply would mutate the tree (content and/or path rename).
     pub changed: bool,
     /// Action/kind of the edit (e.g. "append", "create", "replace", "rename", "doc.set").
     /// Helps agent hosts distinguish cross-file or op type without parsing path.

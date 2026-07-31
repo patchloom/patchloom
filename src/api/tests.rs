@@ -1091,6 +1091,68 @@ fn apply_patch_file_applies_multi_file_patch() {
     assert_eq!(sessions[0], sessions[1], "both files share one session");
 }
 
+/// Pure rename Preview: content may be unchanged, but path moves so `changed`
+/// must be true and path/dest_path must report old → new for host branching.
+#[test]
+fn apply_patch_file_pure_rename_preview_sets_changed_and_paths() {
+    let dir = TempDir::new().unwrap();
+    let old = dir.path().join("old.rs");
+    fs::write(&old, "fn main() {}\n").unwrap();
+
+    let patch = "\
+diff --git a/old.rs b/new.rs\n\
+similarity index 100%\n\
+rename from old.rs\n\
+rename to new.rs\n";
+
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Preview, None).unwrap();
+    assert_eq!(results.len(), 1);
+    let r = &results[0];
+    assert!(
+        r.changed,
+        "pure rename Preview must set changed=true even when content equals original"
+    );
+    assert!(!r.applied);
+    assert_eq!(r.path, "old.rs");
+    assert_eq!(r.dest_path.as_deref(), Some("new.rs"));
+    assert_eq!(r.new_content, "fn main() {}\n");
+    // Preview must not mutate the tree.
+    assert!(old.exists(), "source still present in Preview");
+    assert!(!dir.path().join("new.rs").exists());
+}
+
+/// C-quoted pure rename through the library API (spaces in paths).
+#[test]
+fn apply_patch_file_pure_rename_c_quoted_preview() {
+    let dir = TempDir::new().unwrap();
+    let old = dir.path().join("old name.rs");
+    fs::write(&old, "body\n").unwrap();
+
+    let patch = "\
+diff --git \"a/old name.rs\" \"b/new name.rs\"\n\
+similarity index 100%\n\
+rename from \"old name.rs\"\n\
+rename to \"new name.rs\"\n";
+
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Preview, None).unwrap();
+    assert_eq!(results.len(), 1);
+    let r = &results[0];
+    assert!(r.changed);
+    assert_eq!(r.path, "old name.rs");
+    assert_eq!(r.dest_path.as_deref(), Some("new name.rs"));
+
+    let applied = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(applied.len(), 1);
+    assert!(applied[0].changed && applied[0].applied);
+    assert_eq!(applied[0].path, "old name.rs");
+    assert_eq!(applied[0].dest_path.as_deref(), Some("new name.rs"));
+    assert!(!old.exists(), "source removed on Apply");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new name.rs")).unwrap(),
+        "body\n"
+    );
+}
+
 /// Multi-file Apply must not leave a half-applied tree when a later file fails
 /// hunk preflight (stale context). Previously wrote earlier files then Err.
 #[test]

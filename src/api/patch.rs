@@ -243,9 +243,27 @@ pub fn apply_patch_file(
     };
 
     let mut results = Vec::with_capacity(staged.len());
-    for (_abs, display, original, new_content, _) in staged {
+    for (_abs, display, original, new_content, delete_after) in staged {
         let mut edit =
             super::build_edit_result(&display, original, new_content, applied, "patch", None);
+        // Path rename (any rename_from with a distinct write target): content may
+        // equal original (pure rename), but the tree still changes. Hosts branch
+        // on `changed` for Preview; report path=old, dest_path=new like file_rename.
+        if delete_after
+            .as_ref()
+            .is_some_and(|old| old.as_path() != _abs.as_path())
+        {
+            edit.changed = true;
+            if let Some(old) = delete_after.as_ref() {
+                let old_display = old
+                    .strip_prefix(cwd)
+                    .unwrap_or(old.as_path())
+                    .to_string_lossy()
+                    .into_owned();
+                edit.dest_path = Some(display.clone());
+                edit.path = old_display;
+            }
+        }
         // Same session id on every file result so hosts can undo once.
         edit.backup_session = backup_session.clone();
         results.push(edit);
