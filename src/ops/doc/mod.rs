@@ -99,6 +99,17 @@ pub fn presentation_style_changed(original: &str, new_text: &str, format: &FileF
     }
 }
 
+/// Path-based presentation honesty for library, plan/tx, and CLI doc writes.
+///
+/// Single entry for surfaces that know a path string but not a pre-parsed
+/// [`FileFormat`]. Unknown/unsupported formats return false (no false alarms).
+pub fn style_changed_for_path(path: &str, original: &str, new_text: &str) -> bool {
+    let Ok(fmt) = detect_format(path) else {
+        return false;
+    };
+    presentation_style_changed(original, new_text, &fmt)
+}
+
 /// Indent levels of every block-sequence entry line (`- …`), for style compare.
 fn yaml_block_sequence_indents(text: &str) -> Vec<usize> {
     text.lines()

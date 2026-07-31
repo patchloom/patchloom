@@ -881,7 +881,7 @@ pub(crate) fn build_edit_result(
     let changed = original != new_content;
     // Doc writers: same presentation honesty as CLI/MCP/plan (#2088).
     let style_changed = if action.starts_with("doc.") {
-        doc_style_changed(path_str, &original, &new_content)
+        crate::ops::doc::style_changed_for_path(path_str, &original, &new_content)
     } else {
         false
     };
@@ -902,14 +902,6 @@ pub(crate) fn build_edit_result(
         backup_session: None,
         style_changed,
     }
-}
-
-/// Presentation honesty for library doc writes (#2088).
-fn doc_style_changed(path_str: &str, original: &str, new_content: &str) -> bool {
-    let Ok(fmt) = crate::ops::doc::detect_format(path_str) else {
-        return false;
-    };
-    crate::ops::doc::presentation_style_changed(original, new_content, &fmt)
 }
 
 /// True when [`EditResult::style_changed`] is set (#2088).

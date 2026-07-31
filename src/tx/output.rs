@@ -144,13 +144,9 @@ pub struct TxChange {
     pub style_changed: bool,
 }
 
-/// Presentation honesty for a path write (#2070).
+/// Presentation honesty for a path write (#2070 / single helper in ops::doc).
 fn path_style_changed(path: &Path, original: &str, new_text: &str) -> bool {
-    let display = path.to_string_lossy();
-    let Ok(fmt) = crate::ops::doc::detect_format(display.as_ref()) else {
-        return false;
-    };
-    crate::ops::doc::presentation_style_changed(original, new_text, &fmt)
+    crate::ops::doc::style_changed_for_path(&path.to_string_lossy(), original, new_text)
 }
 
 /// A search match in the tx output.
