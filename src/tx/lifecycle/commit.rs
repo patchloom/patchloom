@@ -190,7 +190,7 @@ pub(crate) fn commit_changes(
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("creating directory {}", parent.display()))?;
             }
-            rename_or_copy(from, to)?;
+            crate::ops::file::rename_or_copy(from, to)?;
         }
 
         for (path, _, new_content) in changes {
@@ -351,52 +351,6 @@ fn detect_pure_renames(
         }
     }
     pairs
-}
-
-/// Rename a file, falling back to copy+delete across devices.
-fn rename_or_copy(src: &Path, dst: &Path) -> anyhow::Result<()> {
-    match std::fs::rename(src, dst) {
-        Ok(()) => Ok(()),
-        Err(e) if is_cross_device(&e) => {
-            // Only remove dest on rollback if we created it; force overwrite
-            // must not delete the pre-existing dest (backup holds prior bytes).
-            let dest_existed = dst.exists();
-            std::fs::copy(src, dst).with_context(|| {
-                format!("cross-device copy {} -> {}", src.display(), dst.display())
-            })?;
-            if let Err(remove_err) = std::fs::remove_file(src) {
-                if !dest_existed {
-                    let _ = std::fs::remove_file(dst);
-                }
-                return Err(remove_err).with_context(|| {
-                    format!(
-                        "removing source after cross-device copy: {} -> {}",
-                        src.display(),
-                        dst.display()
-                    )
-                });
-            }
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
-    }
-}
-
-fn is_cross_device(e: &std::io::Error) -> bool {
-    #[cfg(unix)]
-    {
-        e.raw_os_error() == Some(libc::EXDEV)
-    }
-    #[cfg(windows)]
-    {
-        // ERROR_NOT_SAME_DEVICE
-        e.raw_os_error() == Some(17)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = e;
-        false
-    }
 }
 
 #[cfg(test)]

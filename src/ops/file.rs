@@ -34,26 +34,72 @@ fn ends_with_line_ending(s: &str) -> bool {
     s.ends_with("\r\n") || s.ends_with('\n') || s.ends_with('\r')
 }
 
+/// Directory-entry classification from one `symlink_metadata` call (#2087 / #2091).
+///
+/// Prefer this when a call site needs existence **and** kind (rename/delete
+/// prechecks) so it does not re-stat the same path three times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathEntryKind {
+    /// No directory entry (or unreadable metadata).
+    Missing,
+    /// Regular file (`FileType::is_file`, not a symlink).
+    RegularFile,
+    /// Real directory (not a symlink to a directory).
+    RealDirectory,
+    /// Symlink, FIFO, socket, device, or other non-regular entry.
+    Special,
+}
+
+impl PathEntryKind {
+    #[inline]
+    pub fn exists(self) -> bool {
+        !matches!(self, Self::Missing)
+    }
+
+    #[inline]
+    pub fn is_regular_file(self) -> bool {
+        matches!(self, Self::RegularFile)
+    }
+
+    #[inline]
+    pub fn is_real_directory(self) -> bool {
+        matches!(self, Self::RealDirectory)
+    }
+}
+
+/// Classify a path with a single `symlink_metadata` (does not follow links).
+pub fn classify_path_entry(path: &Path) -> PathEntryKind {
+    match std::fs::symlink_metadata(path) {
+        Err(_) => PathEntryKind::Missing,
+        Ok(meta) => {
+            let ft = meta.file_type();
+            // Symlinks report is_dir/is_file false for the link itself on Unix;
+            // real directories are never symlinks.
+            if ft.is_dir() && !ft.is_symlink() {
+                PathEntryKind::RealDirectory
+            } else if ft.is_file() {
+                PathEntryKind::RegularFile
+            } else {
+                PathEntryKind::Special
+            }
+        }
+    }
+}
+
 /// True when the path exists as a directory entry (including dangling symlinks).
 ///
 /// Prefer this over `Path::exists()` for delete/unlink: `exists()` follows
 /// links and reports false for broken symlinks that `remove_file` can still
-/// unlink (#2087).
+/// unlink (#2087). When you also need kind, use [`classify_path_entry`] once.
 pub fn path_entry_exists(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok()
+    classify_path_entry(path).exists()
 }
 
 /// True when `path` is a real directory (not a symlink to a directory).
 ///
 /// Symlinks are unlinkable even when their target is a directory (#2087).
 pub fn is_real_directory(path: &Path) -> bool {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) => {
-            let ft = meta.file_type();
-            ft.is_dir() && !ft.is_symlink()
-        }
-        Err(_) => false,
-    }
+    classify_path_entry(path).is_real_directory()
 }
 
 /// Refuse delete/rename targets that are real directories.
@@ -65,7 +111,7 @@ pub fn ensure_unlinkable_not_directory(
     path: &Path,
     display: &str,
 ) -> Result<(), crate::exit::InvalidInputError> {
-    if is_real_directory(path) {
+    if classify_path_entry(path).is_real_directory() {
         return Err(crate::exit::InvalidInputError {
             msg: format!("target is not a file: {display}"),
         });
@@ -78,9 +124,56 @@ pub fn ensure_unlinkable_not_directory(
 /// Symlinks, FIFOs, sockets, and devices return false so callers write an empty
 /// backup marker instead of blocking on FIFO open or copying through a link (#2087).
 pub fn is_regular_file_for_backup(path: &Path) -> bool {
-    match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta.file_type().is_file(),
-        Err(_) => false,
+    classify_path_entry(path).is_regular_file()
+}
+
+/// Rename a path, falling back to copy+delete across devices.
+///
+/// Shared by CLI direct-rename and tx commit (#2091 dedup). Force overwrite
+/// must not delete a pre-existing dest on partial failure (backup holds bytes).
+/// Uses [`path_entry_exists`] so dangling dest entries count as present.
+pub fn rename_or_copy(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    use anyhow::Context;
+
+    match std::fs::rename(src, dst) {
+        Ok(()) => Ok(()),
+        Err(e) if is_cross_device_rename_error(&e) => {
+            let dest_existed = path_entry_exists(dst);
+            std::fs::copy(src, dst).with_context(|| {
+                format!("cross-device copy {} -> {}", src.display(), dst.display())
+            })?;
+            if let Err(remove_err) = std::fs::remove_file(src) {
+                if !dest_existed {
+                    let _ = std::fs::remove_file(dst);
+                }
+                return Err(remove_err).with_context(|| {
+                    format!(
+                        "removing source after cross-device copy: {} -> {}",
+                        src.display(),
+                        dst.display()
+                    )
+                });
+            }
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn is_cross_device_rename_error(e: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        e.raw_os_error() == Some(libc::EXDEV)
+    }
+    #[cfg(windows)]
+    {
+        // ERROR_NOT_SAME_DEVICE
+        e.raw_os_error() == Some(17)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = e;
+        false
     }
 }
 
@@ -393,10 +486,19 @@ mod tests {
     fn real_directory_detected_not_file() {
         let dir = TempDir::new().unwrap();
         assert!(is_real_directory(dir.path()));
+        assert_eq!(
+            classify_path_entry(dir.path()),
+            PathEntryKind::RealDirectory
+        );
         let f = dir.path().join("f.txt");
         fs::write(&f, "x").unwrap();
         assert!(!is_real_directory(&f));
         assert!(is_regular_file_for_backup(&f));
+        assert_eq!(classify_path_entry(&f), PathEntryKind::RegularFile);
+        assert_eq!(
+            classify_path_entry(&dir.path().join("missing")),
+            PathEntryKind::Missing
+        );
     }
 
     #[cfg(unix)]
@@ -409,7 +511,19 @@ mod tests {
         std::os::unix::fs::symlink(&target, &link).unwrap();
         assert!(!is_real_directory(&link));
         assert!(!is_regular_file_for_backup(&link));
+        assert_eq!(classify_path_entry(&link), PathEntryKind::Special);
         ensure_unlinkable_not_directory(&link, "l").unwrap();
+    }
+
+    #[test]
+    fn rename_or_copy_moves_regular_file() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("a.txt");
+        let dst = dir.path().join("b.txt");
+        fs::write(&src, "payload\n").unwrap();
+        rename_or_copy(&src, &dst).unwrap();
+        assert!(!src.exists());
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "payload\n");
     }
 
     #[test]

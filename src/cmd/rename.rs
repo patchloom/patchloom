@@ -3,7 +3,6 @@ use crate::cmd::output::execute_via_engine;
 use crate::cmd::write_dispatch::{WriteMessages, execute_write};
 use crate::exit;
 use crate::plan::Operation;
-use anyhow::Context;
 use clap::Args;
 use serde::Serialize;
 use std::fs;
@@ -54,15 +53,15 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 
-    // Pre-validation for CLI-specific checks.
-    // path_entry_exists includes dangling symlinks; is_file() would refuse
-    // special nodes and FIFO open can hang (#2087 / #2091).
-    if !crate::ops::file::path_entry_exists(&src) {
+    // Pre-validation: one classify per path (dangling ok; no FIFO open) (#2087 / #2091).
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+    let src_kind = classify_path_entry(&src);
+    if src_kind == PathEntryKind::Missing {
         let msg = format!("source file not found: {}", args.from);
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if crate::ops::file::is_real_directory(&src) {
+    if src_kind == PathEntryKind::RealDirectory {
         let msg = format!("source is not a file: {}", args.from);
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
@@ -71,7 +70,8 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if crate::ops::file::path_entry_exists(&dst) && crate::ops::file::is_real_directory(&dst) {
+    let dst_kind = classify_path_entry(&dst);
+    if dst_kind == PathEntryKind::RealDirectory {
         let msg = format!("destination is not a file: {}", args.to);
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
@@ -109,7 +109,7 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    if !args.force && !is_case_only_change && crate::ops::file::path_entry_exists(&dst) {
+    if !args.force && !is_case_only_change && dst_kind.exists() {
         let msg = format!(
             "destination already exists: {} (use --force to overwrite)",
             args.to
@@ -121,7 +121,7 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Special nodes (symlink / FIFO / socket / device): never open for binary
     // probe (FIFO hang) or text load (symlink target rewrite via atomic_write).
     // Path-only rename via fs::rename or engine empty soft-load (#2091).
-    let is_special = !crate::ops::file::is_regular_file_for_backup(&src);
+    let is_special = !src_kind.is_regular_file();
     if is_special {
         if is_case_only_change {
             return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::CaseOnly);
@@ -309,7 +309,7 @@ fn run_direct_rename(
                 fs::create_dir_all(parent)?;
             }
             let session = backup.finalize()?;
-            rename_or_copy(src, dst)?;
+            crate::ops::file::rename_or_copy(src, dst)?;
             Ok(session)
         },
         WriteMessages {
@@ -318,53 +318,6 @@ fn run_direct_rename(
             post_confirm: Some(&post_msg),
         },
     )
-}
-
-/// Rename a file, falling back to copy+delete when the source and destination
-/// are on different filesystems (where `fs::rename` would fail).
-fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
-    match fs::rename(src, dst) {
-        Ok(()) => Ok(()),
-        Err(e) if is_cross_device(&e) => {
-            // Only remove dest on rollback if we created it; force overwrite
-            // must not delete the pre-existing dest (backup holds prior bytes).
-            let dest_existed = crate::ops::file::path_entry_exists(dst);
-            fs::copy(src, dst).with_context(|| {
-                format!("cross-device copy {} -> {}", src.display(), dst.display())
-            })?;
-            if let Err(remove_err) = fs::remove_file(src) {
-                if !dest_existed {
-                    let _ = fs::remove_file(dst);
-                }
-                return Err(remove_err).with_context(|| {
-                    format!(
-                        "removing source after cross-device copy: {} -> {}",
-                        src.display(),
-                        dst.display()
-                    )
-                });
-            }
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// Check if an I/O error is a cross-device link error.
-fn is_cross_device(e: &std::io::Error) -> bool {
-    #[cfg(unix)]
-    {
-        e.raw_os_error() == Some(libc::EXDEV)
-    }
-    #[cfg(windows)]
-    {
-        e.raw_os_error() == Some(17)
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = e;
-        false
-    }
 }
 
 #[cfg(test)]
