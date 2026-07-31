@@ -524,7 +524,6 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
 mod tests {
     use super::collect_ast_source_files;
     use std::fs;
-    use std::os::unix::fs::symlink;
     use tempfile::TempDir;
 
     #[test]
@@ -551,8 +550,10 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn collect_does_not_follow_symlink_dirs() {
+        use std::os::unix::fs::symlink;
         let dir = TempDir::new().unwrap();
         // Target lives *outside* the walk root so only a symlink would expose it.
         let outside = TempDir::new().unwrap();
