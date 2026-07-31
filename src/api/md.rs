@@ -256,12 +256,7 @@ pub fn md_move_section(
 
     let (new_source, new_dest) =
         ops::md::move_section_in(&original, heading, &dest_content, position, to.is_none())
-            .map_err(|e| match e {
-                ops::md::SectionError::NotFound => anyhow::Error::new(crate::exit::NoMatchError {
-                    msg: format!("heading '{heading}' not found"),
-                }),
-                other => other.into_anyhow(heading),
-            })?;
+            .map_err(|e| e.into_anyhow(heading, position.1))?;
 
     let policy = crate::write::WritePolicy::default();
     let dest = to.map(|p| p.to_string_lossy().to_string());

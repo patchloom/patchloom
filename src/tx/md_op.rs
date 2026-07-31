@@ -151,13 +151,7 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
             };
             let (new_source, new_dest) =
                 move_section_in(&source_content, heading, &dest_content, position, same_file)
-                    .map_err(|e| match e {
-                        crate::ops::md::SectionError::NotFound => crate::exit::NoMatchError {
-                            msg: "md.move_section: heading or target not found".to_string(),
-                        }
-                        .into(),
-                        other => other.into_anyhow(heading),
-                    })?;
+                    .map_err(|e| e.into_anyhow(heading, position.1))?;
             tx.write_file(&source_path, new_source);
             if !same_file {
                 tx.write_file(&dest_path, new_dest);

@@ -1270,4 +1270,83 @@ mod regression {
         assert_eq!(results[0].rename_from.as_deref(), Some("old_name.rs"));
         assert_eq!(results[0].content, "new\n");
     }
+
+    #[test]
+    fn parse_pure_git_rename_without_hunks() {
+        // 100% similarity rename: no ---/+++ and no @@ hunks.
+        let diff = "\
+diff --git a/old_name.rs b/new_name.rs
+similarity index 100%
+rename from old_name.rs
+rename to new_name.rs
+";
+        let files = parse_patch(diff).expect("pure rename should parse");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new_name.rs");
+        assert_eq!(files[0].rename_from.as_deref(), Some("old_name.rs"));
+        assert!(files[0].hunks.is_empty());
+        assert!(!files[0].is_creation);
+        assert!(!files[0].is_deletion);
+    }
+
+    #[test]
+    fn parse_rename_with_headers_but_no_hunks() {
+        let diff = "\
+diff --git a/old.rs b/new.rs
+similarity index 100%
+rename from old.rs
+rename to new.rs
+--- a/old.rs
++++ b/new.rs
+";
+        let files = parse_patch(diff).expect("rename headers without hunks");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new.rs");
+        assert_eq!(files[0].rename_from.as_deref(), Some("old.rs"));
+        assert!(files[0].hunks.is_empty());
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn apply_pure_rename_keeps_content() {
+        use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
+        let mut files = std::collections::HashMap::new();
+        files.insert("old.rs".to_string(), "unchanged body\n".to_string());
+        let results = apply_patch_with_loader(
+            "\
+diff --git a/old.rs b/new.rs
+similarity index 100%
+rename from old.rs
+rename to new.rs
+",
+            |path| {
+                files
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("missing {path}"))
+            },
+            ApplyHunksOptions::default(),
+        )
+        .expect("apply pure rename");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "new.rs");
+        assert_eq!(results[0].rename_from.as_deref(), Some("old.rs"));
+        assert_eq!(results[0].content, "unchanged body\n");
+    }
+
+    #[test]
+    fn copy_from_to_is_not_parsed_as_rename() {
+        // Must not treat copy as rename (would delete source on apply).
+        let diff = "\
+diff --git a/foo.rs b/bar.rs
+similarity index 100%
+copy from foo.rs
+copy to bar.rs
+";
+        let err = parse_patch(diff).unwrap_err();
+        assert!(
+            err.contains("no files") || err.contains("no hunks"),
+            "copy must not become a rename file entry, got: {err}"
+        );
+    }
 }

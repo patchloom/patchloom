@@ -795,9 +795,10 @@ fn apply_exclude_globs(
 /// Directory basenames we never descend into when walking the tree.
 ///
 /// Applied even with `include_hidden=true` (tidy needs dotfiles but not VCS
-/// object stores or Patchloom backup sessions).
+/// object stores or Patchloom backup sessions). Shared by CLI/library collectors
+/// and plan/tx `ast.rename` directory walks.
 #[cfg(any(feature = "cli", feature = "files"))]
-fn should_skip_walk_dirname(name: &std::ffi::OsStr) -> bool {
+pub(crate) fn should_skip_walk_dirname(name: &std::ffi::OsStr) -> bool {
     name == ".git" || name == ".patchloom"
 }
 

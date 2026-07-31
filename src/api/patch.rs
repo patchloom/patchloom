@@ -170,17 +170,22 @@ pub fn apply_patch_file(
             crate::files::load_text_strict(&load_path, load_rel)?
         };
 
-        let new_content = crate::ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
-            if e.contains("stale context") {
-                anyhow::Error::new(crate::exit::AmbiguousError {
-                    msg: format!("patch apply error for {}: {e}", pf.path),
-                })
-            } else {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("patch apply error for {}: {e}", pf.path),
-                })
-            }
-        })?;
+        // Pure rename (empty hunks): keep content as-is.
+        let new_content = if pf.rename_from.is_some() && pf.hunks.is_empty() {
+            original.clone()
+        } else {
+            crate::ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
+                if e.contains("stale context") {
+                    anyhow::Error::new(crate::exit::AmbiguousError {
+                        msg: format!("patch apply error for {}: {e}", pf.path),
+                    })
+                } else {
+                    anyhow::Error::new(crate::exit::InvalidInputError {
+                        msg: format!("patch apply error for {}: {e}", pf.path),
+                    })
+                }
+            })?
+        };
         let delete_after = pf.rename_from.as_ref().map(|f| cwd.join(f));
         staged.push((
             write_path,
