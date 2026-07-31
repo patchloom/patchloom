@@ -252,6 +252,10 @@ fn execute_md_op(
             if exit::is_no_match(&e) {
                 global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
                 Ok(exit::NO_MATCHES)
+            } else if exit::is_ambiguous(&e) {
+                // Duplicate headings: fail closed exit 5 even without --json (#2100).
+                global.emit_error_json_kind(Some("ambiguous"), &e.to_string())?;
+                Ok(exit::AMBIGUOUS)
             } else {
                 Err(e)
             }
@@ -633,12 +637,18 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Err(e) => return Err(e).with_context(|| format!("reading {file}")),
             };
             match find_section(&content, &heading) {
-                None => {
+                Err(crate::ops::md::SectionError::NotFound) => {
                     let msg = format!("heading {:?} not found in {file}", heading);
                     global.emit_error_json_kind(Some("no_matches"), &msg)?;
                     Ok(exit::NO_MATCHES)
                 }
-                Some((body_start, body_end)) => {
+                Err(e @ crate::ops::md::SectionError::Ambiguous { .. }) => {
+                    let err = e.into_anyhow(&heading);
+                    let msg = err.to_string();
+                    global.emit_error_json_kind(Some("ambiguous"), &msg)?;
+                    Ok(exit::AMBIGUOUS)
+                }
+                Ok((body_start, body_end)) => {
                     // Verify the table exists and the row is valid.
                     if let Err(e) =
                         crate::ops::md::table_append_in(&content, body_start, body_end, &row)

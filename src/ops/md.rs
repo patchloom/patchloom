@@ -269,13 +269,57 @@ fn heading_matches(h: &HeadingInfo, level: Option<usize>, query: &str) -> bool {
     h.text.trim() == query && level.is_none_or(|lvl| h.level == lvl)
 }
 
-pub fn find_section(content: &str, heading: &str) -> Option<(usize, usize)> {
+/// Section lookup failure for mutators and unique heading resolution (#2100).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SectionError {
+    /// No heading matched the query.
+    NotFound,
+    /// More than one heading matched (fail-closed for mutators).
+    Ambiguous { count: usize },
+}
+
+impl SectionError {
+    /// Map to typed exit errors for CLI/tx/MCP agent branching.
+    pub fn into_anyhow(self, heading: &str) -> anyhow::Error {
+        match self {
+            SectionError::NotFound => crate::exit::NoMatchError {
+                msg: format!("heading not found: {heading}"),
+            }
+            .into(),
+            SectionError::Ambiguous { count } => crate::exit::AmbiguousError {
+                msg: format!(
+                    "ambiguous heading: {heading:?} matches {count} times; make the heading unique or use a level-qualified query (e.g. \"## Rules\")"
+                ),
+            }
+            .into(),
+        }
+    }
+}
+
+fn matching_heading_indices<'a>(
+    headings: &'a [HeadingInfo],
+    level: Option<usize>,
+    query: &str,
+) -> Vec<&'a HeadingInfo> {
+    headings
+        .iter()
+        .filter(|h| heading_matches(h, level, query))
+        .collect()
+}
+
+/// Body byte range `(start, end)` for a heading, fail-closed on duplicates (#2100).
+///
+/// Zero matches → [`SectionError::NotFound`]. Two or more →
+/// [`SectionError::Ambiguous`]. Parity with replace/apply-fragment unique anchors.
+pub fn find_section(content: &str, heading: &str) -> Result<(usize, usize), SectionError> {
     let headings = parse_headings(content);
     let offsets = line_byte_starts(content);
     let (level, query) = normalize_heading_query(heading);
-
-    for h in &headings {
-        if heading_matches(h, level, query) {
+    let matches = matching_heading_indices(&headings, level, query);
+    match matches.len() {
+        0 => Err(SectionError::NotFound),
+        1 => {
+            let h = matches[0];
             let body_start = if h.body_line < offsets.len() {
                 offsets[h.body_line]
             } else {
@@ -286,34 +330,36 @@ pub fn find_section(content: &str, heading: &str) -> Option<(usize, usize)> {
             } else {
                 content.len()
             };
-            return Some((body_start, body_end));
+            Ok((body_start, body_end))
         }
+        count => Err(SectionError::Ambiguous { count }),
     }
-    None
 }
 
-/// Return the full byte range of a section INCLUDING its heading line.
+/// Full byte range of a section INCLUDING its heading line (unique only, #2100).
 ///
 /// Unlike `find_section` which returns only the body range (after the
 /// heading), this returns `(section_start, section_end)` where
 /// `section_start` is the first byte of the heading line itself.
-pub fn section_range(content: &str, heading: &str) -> Option<(usize, usize)> {
+pub fn section_range(content: &str, heading: &str) -> Result<(usize, usize), SectionError> {
     let headings = parse_headings(content);
     let offsets = line_byte_starts(content);
     let (level, query) = normalize_heading_query(heading);
-
-    for h in &headings {
-        if heading_matches(h, level, query) {
+    let matches = matching_heading_indices(&headings, level, query);
+    match matches.len() {
+        0 => Err(SectionError::NotFound),
+        1 => {
+            let h = matches[0];
             let section_start = offsets[h.line_start];
             let section_end = if h.line_end < offsets.len() {
                 offsets[h.line_end]
             } else {
                 content.len()
             };
-            return Some((section_start, section_end));
+            Ok((section_start, section_end))
         }
+        count => Err(SectionError::Ambiguous { count }),
     }
-    None
 }
 
 /// Move a heading section to a new location, either within the same file
@@ -329,7 +375,7 @@ pub fn move_section_in(
     dest_content: &str,
     position: (&str, &str),
     same_file: bool,
-) -> Option<(String, String)> {
+) -> Result<(String, String), SectionError> {
     let (section_start, section_end) = section_range(source_content, heading)?;
     let section_text = &source_content[section_start..section_end];
 
@@ -347,26 +393,22 @@ pub fn move_section_in(
             "after" => {
                 // Insert after the *full* destination section body (so that the
                 // destination's table/list/etc stays under its heading).
-                if let Some((_, dest_body_end)) = find_section(&without_section, position.1) {
-                    let mut out =
-                        String::with_capacity(without_section.len() + section_text.len() + 2);
-                    out.push_str(&without_section[..dest_body_end]);
-                    if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
-                        out.push_str(eol);
-                    }
-                    out.push_str(section_text);
-                    if !section_text.ends_with('\n') {
-                        out.push_str(eol);
-                    }
-                    out.push_str(&without_section[dest_body_end..]);
-                    out
-                } else {
-                    return None;
+                let (_, dest_body_end) = find_section(&without_section, position.1)?;
+                let mut out = String::with_capacity(without_section.len() + section_text.len() + 2);
+                out.push_str(&without_section[..dest_body_end]);
+                if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
+                    out.push_str(eol);
                 }
+                out.push_str(section_text);
+                if !section_text.ends_with('\n') {
+                    out.push_str(eol);
+                }
+                out.push_str(&without_section[dest_body_end..]);
+                out
             }
-            _ => return None,
+            _ => return Err(SectionError::NotFound),
         };
-        Some((result.clone(), result))
+        Ok((result.clone(), result))
     } else {
         // Cross-file move: remove from source, insert into dest.
         let eol = crate::write::detect_eol(dest_content);
@@ -378,30 +420,30 @@ pub fn move_section_in(
         let new_dest = match position.0 {
             "before" => insert_before_heading_in(dest_content, position.1, section_text)?,
             "after" => {
-                if let Some((_, dest_body_end)) = find_section(dest_content, position.1) {
-                    let mut out =
-                        String::with_capacity(dest_content.len() + section_text.len() + 2);
-                    out.push_str(&dest_content[..dest_body_end]);
-                    if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
-                        out.push_str(eol);
-                    }
-                    out.push_str(section_text);
-                    if !section_text.ends_with('\n') {
-                        out.push_str(eol);
-                    }
-                    out.push_str(&dest_content[dest_body_end..]);
-                    out
-                } else {
-                    return None;
+                let (_, dest_body_end) = find_section(dest_content, position.1)?;
+                let mut out = String::with_capacity(dest_content.len() + section_text.len() + 2);
+                out.push_str(&dest_content[..dest_body_end]);
+                if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
+                    out.push_str(eol);
                 }
+                out.push_str(section_text);
+                if !section_text.ends_with('\n') {
+                    out.push_str(eol);
+                }
+                out.push_str(&dest_content[dest_body_end..]);
+                out
             }
-            _ => return None,
+            _ => return Err(SectionError::NotFound),
         };
-        Some((new_source, new_dest))
+        Ok((new_source, new_dest))
     }
 }
 
-pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Option<String> {
+pub fn replace_section_in(
+    content: &str,
+    heading: &str,
+    replacement: &str,
+) -> Result<String, SectionError> {
     let eol = crate::write::detect_eol(content);
     let (body_start, body_end) = find_section(content, heading)?;
 
@@ -434,7 +476,7 @@ pub fn replace_section_in(content: &str, heading: &str, replacement: &str) -> Op
         }
     }
     out.push_str(&content[body_end..]);
-    Some(out)
+    Ok(out)
 }
 
 /// Strip a leading heading line from `text` if it matches `heading`.
@@ -454,7 +496,11 @@ fn strip_leading_heading<'a>(text: &'a str, heading: &str) -> &'a str {
     }
 }
 
-pub fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
+pub fn insert_after_heading_in(
+    content: &str,
+    heading: &str,
+    insertion: &str,
+) -> Result<String, SectionError> {
     let eol = crate::write::detect_eol(content);
     let (body_start, _) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len() + insertion.len());
@@ -464,14 +510,18 @@ pub fn insert_after_heading_in(content: &str, heading: &str, insertion: &str) ->
         out.push_str(eol);
     }
     out.push_str(&content[body_start..]);
-    Some(out)
+    Ok(out)
 }
 
 /// Insert content after the **full section body** (after the last line of the
 /// section, before the next same-or-higher heading). Use this to add a sibling
 /// section; prefer [`insert_after_heading_in`] to insert under the heading line
 /// (e.g. intro text before an existing table). See #1726.
-pub fn insert_after_section_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
+pub fn insert_after_section_in(
+    content: &str,
+    heading: &str,
+    insertion: &str,
+) -> Result<String, SectionError> {
     let eol = crate::write::detect_eol(content);
     let (_, body_end) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len() + insertion.len() + 4);
@@ -491,34 +541,30 @@ pub fn insert_after_section_in(content: &str, heading: &str, insertion: &str) ->
         }
     }
     out.push_str(&content[body_end..]);
-    Some(out)
+    Ok(out)
 }
 
-pub fn insert_before_heading_in(content: &str, heading: &str, insertion: &str) -> Option<String> {
+pub fn insert_before_heading_in(
+    content: &str,
+    heading: &str,
+    insertion: &str,
+) -> Result<String, SectionError> {
     let eol = crate::write::detect_eol(content);
-    let headings = parse_headings(content);
-    let offsets = line_byte_starts(content);
-    let (level, query) = normalize_heading_query(heading);
-
-    for h in &headings {
-        if heading_matches(h, level, query) {
-            let heading_start = offsets[h.line_start];
-            let mut out = String::with_capacity(content.len() + insertion.len());
-            out.push_str(&content[..heading_start]);
-            if !insertion.is_empty() {
-                out.push_str(insertion);
-                if !insertion.ends_with('\n') {
-                    out.push_str(eol);
-                }
-                if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
-                    out.push_str(eol);
-                }
-            }
-            out.push_str(&content[heading_start..]);
-            return Some(out);
+    // Reuse unique resolution via section_range (heading start = section start).
+    let (heading_start, _) = section_range(content, heading)?;
+    let mut out = String::with_capacity(content.len() + insertion.len());
+    out.push_str(&content[..heading_start]);
+    if !insertion.is_empty() {
+        out.push_str(insertion);
+        if !insertion.ends_with('\n') {
+            out.push_str(eol);
+        }
+        if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
+            out.push_str(eol);
         }
     }
-    None
+    out.push_str(&content[heading_start..]);
+    Ok(out)
 }
 
 /// Strip a bullet prefix (`- `, `* `, `+ `) from a trimmed line,
@@ -531,7 +577,11 @@ fn strip_bullet_prefix(s: &str) -> &str {
     }
 }
 
-pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<String> {
+pub fn upsert_bullet_in(
+    content: &str,
+    heading: &str,
+    bullet: &str,
+) -> Result<String, SectionError> {
     let eol = crate::write::detect_eol(content);
     let (body_start, body_end) = find_section(content, heading)?;
     let body = &content[body_start..body_end];
@@ -558,7 +608,7 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
         {
             let existing_text = strip_bullet_prefix(trimmed);
             if existing_text == new_text {
-                return Some(content.to_string());
+                return Ok(content.to_string());
             }
         }
     }
@@ -599,7 +649,7 @@ pub fn upsert_bullet_in(content: &str, heading: &str, bullet: &str) -> Option<St
         out.push_str(eol);
     }
     out.push_str(remainder);
-    Some(out)
+    Ok(out)
 }
 
 pub fn dedupe_headings_in(content: &str) -> (String, Vec<String>) {
@@ -786,15 +836,17 @@ pub fn table_append_in(
     Ok(out)
 }
 
+/// Append a table row under a unique heading. Section miss/ambiguous map to
+/// [`TableAppendError::NoTable`] for this helper; CLI/tx call `find_section`
+/// first so agents get typed `no_matches` / `ambiguous`.
 pub fn table_append_for_tx(
     content: &str,
     heading: &str,
     row: &str,
-) -> Result<Option<String>, TableAppendError> {
-    let Some((body_start, body_end)) = find_section(content, heading) else {
-        return Ok(None);
-    };
-    table_append_in(content, body_start, body_end, row).map(Some)
+) -> Result<String, TableAppendError> {
+    let (body_start, body_end) =
+        find_section(content, heading).map_err(|_| TableAppendError::NoTable)?;
+    table_append_in(content, body_start, body_end, row)
 }
 
 /// Strip inline code spans (between backticks) from a line so that

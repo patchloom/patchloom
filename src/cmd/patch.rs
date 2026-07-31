@@ -521,9 +521,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut any_problem = false;
         let mut results = Vec::new();
         for pf in &patch_files {
-            let file_path = cwd.join(&pf.path);
+            // Git rename: check loads old path content (#2101).
+            let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+            let file_path = cwd.join(load_rel);
             // Strict target load (#1896); creation allows missing → empty.
-            let original = match load_patch_target(&file_path, &pf.path, pf.is_creation) {
+            let original = match load_patch_target(&file_path, load_rel, pf.is_creation) {
                 Ok(s) => s,
                 Err(PatchTargetError::NotFound) => {
                     let msg = format!("file not found: {}", file_path.display());
@@ -620,9 +622,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut all_ok = true;
         let mut any_would_change = false;
         for pf in &patch_files {
-            let file_path = cwd.join(&pf.path);
+            // Git rename: load old path (parity with non-merge check) (#2101).
+            let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+            let file_path = cwd.join(load_rel);
             // Merge check: missing target → empty; binary/utf8 → typed kinds.
-            let original = match load_patch_target(&file_path, &pf.path, true) {
+            let original = match load_patch_target(&file_path, load_rel, true) {
                 Ok(s) => s,
                 Err(PatchTargetError::Binary(msg)) => {
                     global.emit_error_json_kind(Some("binary"), &msg)?;

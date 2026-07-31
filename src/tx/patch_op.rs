@@ -26,12 +26,41 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 options,
             )?;
             for result in patched_files {
-                let file_path = tx.cwd.join(&result.path);
                 if result.is_deletion {
+                    let file_path = tx.cwd.join(&result.path);
                     // File deletion via patch: mark for deletion.
                     tx.deletions.insert(file_path.clone());
                     tx.write_targets.insert(file_path);
+                } else if let Some(ref from) = result.rename_from {
+                    // Git rename: load was from `from`; stage rename + new content (#2101).
+                    let from_path = tx.cwd.join(from);
+                    let to_path = tx.cwd.join(&result.path);
+                    // Ensure source is in pending (loader already did); record rename
+                    // so commit uses fs::rename then write dest content.
+                    if !tx.existed_before.contains(&from_path)
+                        && crate::ops::file::path_entry_exists(&from_path)
+                    {
+                        tx.existed_before.insert(from_path.clone());
+                    }
+                    if crate::ops::file::path_entry_exists(&to_path)
+                        && !tx.existed_before.contains(&to_path)
+                    {
+                        // Dest exists: soft-load so commit overwrites rather than create_new.
+                        let _ = read_file_content(tx.pending, tx.existed_before, &to_path)?;
+                    }
+                    tx.renames.push((from_path.clone(), to_path.clone()));
+                    tx.write_file(&to_path, result.content);
+                    // Stage source delete (same as file.rename).
+                    if let Some((original, _)) = tx.pending.get(&from_path) {
+                        let orig = original.clone();
+                        tx.pending.insert(from_path.clone(), (orig, String::new()));
+                    } else {
+                        tx.pending
+                            .insert(from_path.clone(), (String::new(), String::new()));
+                    }
+                    tx.deletions.insert(from_path);
                 } else {
+                    let file_path = tx.cwd.join(&result.path);
                     tx.write_file(&file_path, result.content);
                 }
             }
