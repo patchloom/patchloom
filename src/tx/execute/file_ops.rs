@@ -113,16 +113,18 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
 
         Operation::FileDelete { path } => {
             let file_path = tx.cwd.join(path);
-            if file_path.exists() && !file_path.is_file() {
-                return Err(crate::exit::InvalidInputError {
-                    msg: format!("target is not a file: {path}"),
-                }
-                .into());
+            // Allow regular files, symlinks (unlink only), FIFO/socket/device.
+            // Refuse real directories only (#2087). Use path_entry_exists so
+            // dangling symlinks are still unlinkable (Path::exists follows).
+            if crate::ops::file::path_entry_exists(&file_path) {
+                crate::ops::file::ensure_unlinkable_not_directory(&file_path, path)?;
             }
             let created_in_tx = match tx.pending.get(&file_path) {
-                Some((original, _)) => original.is_empty() && !file_path.exists(),
+                Some((original, _)) => {
+                    original.is_empty() && !crate::ops::file::path_entry_exists(&file_path)
+                }
                 None => {
-                    if !file_path.exists() {
+                    if !crate::ops::file::path_entry_exists(&file_path) {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::NotFound,
                             format!("file not found: {path}"),
@@ -131,8 +133,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     }
                     tx.existed_before.insert(file_path.clone());
                     // Soft text load for rollback snapshot: binary / invalid
-                    // UTF-8 / unreadable → empty pair (#1163 / #1894 SoftSkip).
-                    if let Some(content) = crate::files::read_text_file(&file_path) {
+                    // UTF-8 / unreadable / special node → empty pair
+                    // (#1163 / #1894 SoftSkip / #2087).
+                    if crate::ops::file::is_regular_file_for_backup(&file_path)
+                        && let Some(content) = crate::files::read_text_file(&file_path)
+                    {
                         tx.pending
                             .insert(file_path.clone(), (content.clone(), content));
                     } else {

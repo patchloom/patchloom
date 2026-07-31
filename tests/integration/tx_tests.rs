@@ -4328,12 +4328,14 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
     let file = dir.path().join("test.txt");
     fs::write(&file, "original\n").unwrap();
 
+    // Relative path + --cwd (avoids __external__ absolute-path restore races
+    // on macOS CI where /var vs /private/var can leave the wrong entry).
     let plan = serde_json::json!({
             "version": 1,
         "strict": true,
         "operations": [{
             "op": "replace",
-            "path": file.to_str().unwrap(),
+            "path": "test.txt",
             "old": "original",
             "new": "changed"
         }],
@@ -4346,8 +4348,10 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
 
     Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
         .arg("tx")
-        .arg(plan_file.to_str().unwrap())
+        .arg(&plan_file)
         .arg("--apply")
         .assert()
         .code(7); // ROLLBACK

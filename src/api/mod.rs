@@ -330,6 +330,13 @@ pub struct EditResult {
     /// `None` for Preview/Check, no-ops, or when nothing was backed up.
     /// Use with [`crate::backup::restore_path_from_session`] for surgical undo (#1686).
     pub backup_session: Option<String>,
+    /// Presentation/layout shifted while values may still be correct (#2088).
+    ///
+    /// True for doc writers when YAML block-sequence indent (or similar)
+    /// collapses relative to the original text. Same meaning as CLI/MCP/plan
+    /// `style_changed`. Default `false` for non-doc ops. **Not a failure:**
+    /// hosts should warn, not refuse, when this is true.
+    pub style_changed: bool,
 }
 
 /// Result of an in-memory content edit (no file path, no applied flag).
@@ -872,6 +879,12 @@ pub(crate) fn build_edit_result(
 ) -> EditResult {
     let diff = make_diff(path_str, &original, &new_content);
     let changed = original != new_content;
+    // Doc writers: same presentation honesty as CLI/MCP/plan (#2088).
+    let style_changed = if action.starts_with("doc.") {
+        doc_style_changed(path_str, &original, &new_content)
+    } else {
+        false
+    };
     EditResult {
         path: path_str.to_string(),
         original_content: original,
@@ -887,7 +900,21 @@ pub(crate) fn build_edit_result(
         match_score: None,
         matched_text: None,
         backup_session: None,
+        style_changed,
     }
+}
+
+/// Presentation honesty for library doc writes (#2088).
+fn doc_style_changed(path_str: &str, original: &str, new_content: &str) -> bool {
+    let Ok(fmt) = crate::ops::doc::detect_format(path_str) else {
+        return false;
+    };
+    crate::ops::doc::presentation_style_changed(original, new_content, &fmt)
+}
+
+/// True when [`EditResult::style_changed`] is set (#2088).
+pub fn is_style_changed(result: &EditResult) -> bool {
+    result.style_changed
 }
 
 /// Map fallback match strategy to public [`MatchMode`] (#1662).
@@ -1096,6 +1123,7 @@ fn execution_result_to_edit_result(
     let mut edit = build_edit_result(&path_str, original, new_content, applied, action, dest_path);
     edit.removed = removed;
     edit.backup_session = backup_session;
+    // build_edit_result already sets style_changed for doc.* actions (#2088).
     // Thread replace honesty from the engine (#1674 / #1662 / #1736).
     if let Some(meta) = replace_meta {
         edit.match_mode = Some(meta.mode);

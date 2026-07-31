@@ -7290,6 +7290,146 @@ fn file_delete_binary_path_only_succeeds() {
     assert!(r.backup_session.is_some());
 }
 
+/// FIFO delete under PathGuard (#2087).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_fifo_under_guard_succeeds() {
+    use std::process::Command as StdCommand;
+
+    let dir = TempDir::new().unwrap();
+    let fifo = dir.path().join("pipe.fifo");
+    // mkfifo via shell — std has no portable mkfifo helper.
+    let status = StdCommand::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo available on unix CI");
+    assert!(status.success(), "mkfifo must create {fifo:?}");
+    assert!(fifo.exists());
+
+    let guard = crate::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let r = file_delete(&fifo, ApplyMode::Apply, Some(&guard)).expect("FIFO delete (#2087)");
+    assert!(r.applied);
+    assert!(!fifo.exists(), "FIFO must be unlinked");
+    assert!(
+        r.backup_session.is_some(),
+        "special-node delete still creates a backup session"
+    );
+
+    // DryRun must not remove a FIFO.
+    let fifo2 = dir.path().join("pipe2.fifo");
+    assert!(
+        StdCommand::new("mkfifo")
+            .arg(&fifo2)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let preview = file_delete(&fifo2, ApplyMode::Preview, Some(&guard)).expect("preview");
+    assert!(!preview.applied);
+    assert!(fifo2.exists(), "preview must not unlink FIFO");
+}
+
+/// Symlink delete unlinks the link only, never the target (#2087).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_symlink_unlinks_link_not_target() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.txt");
+    let link = dir.path().join("link.txt");
+    fs::write(&target, "keep me\n").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    let r = file_delete(&link, ApplyMode::Apply, None).expect("symlink delete");
+    assert!(r.applied);
+    assert!(!link.exists(), "symlink must be gone");
+    assert!(target.exists(), "target must remain");
+    assert_eq!(fs::read_to_string(&target).unwrap(), "keep me\n");
+}
+
+/// Dangling symlink is still unlinkable (#2087 path_entry_exists).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_dangling_symlink_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let link = dir.path().join("dangling");
+    std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+    assert!(
+        crate::ops::file::path_entry_exists(&link),
+        "dangling link must count as an entry"
+    );
+    assert!(!link.exists(), "Path::exists follows and reports false");
+    let r = file_delete(&link, ApplyMode::Apply, None).expect("dangling symlink delete");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+}
+
+/// Symlink to a directory: unlink the link, leave the real dir (#2087).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_symlink_to_directory() {
+    let dir = TempDir::new().unwrap();
+    let real_dir = dir.path().join("realdir");
+    fs::create_dir(&real_dir).unwrap();
+    fs::write(real_dir.join("inside.txt"), "x\n").unwrap();
+    let link = dir.path().join("linkdir");
+    std::os::unix::fs::symlink(&real_dir, &link).unwrap();
+    let r = file_delete(&link, ApplyMode::Apply, None).expect("symlink-to-dir delete");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(real_dir.is_dir());
+    assert_eq!(
+        fs::read_to_string(real_dir.join("inside.txt")).unwrap(),
+        "x\n"
+    );
+}
+
+/// Library doc_set surfaces style_changed when YAML sequence indent collapses (#2088).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn doc_set_style_changed_on_yaml_sequence_indent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cfg.yaml");
+    // Indented block sequence; emitter often collapses indent on rewrite.
+    fs::write(&file, "env:\n  - name: FEATURE_FLAG\n    value: off\n").unwrap();
+    let r = doc_set(
+        &file,
+        "env.0.value",
+        serde_json::json!("on"),
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("doc_set");
+    assert!(r.applied);
+    assert!(r.changed);
+    assert!(
+        r.style_changed,
+        "expected style_changed when YAML sequence presentation drifts; new=\n{}",
+        r.new_content
+    );
+    assert!(crate::api::is_style_changed(&r));
+
+    // Same presentation after second apply of same structure → typically false
+    // when re-serializing already-collapsed form.
+    let r2 = doc_set(
+        &file,
+        "env.0.value",
+        serde_json::json!("on2"),
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("second doc_set");
+    assert!(r2.applied);
+    // Non-doc op leaves style_changed false.
+    let txt = dir.path().join("n.txt");
+    fs::write(&txt, "a\n").unwrap();
+    let cr = file_create(&txt, "b\n", true, ApplyMode::Apply, None).expect("create");
+    assert!(!cr.style_changed);
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn file_rename_force_binary_over_existing() {

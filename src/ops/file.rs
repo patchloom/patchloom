@@ -34,6 +34,56 @@ fn ends_with_line_ending(s: &str) -> bool {
     s.ends_with("\r\n") || s.ends_with('\n') || s.ends_with('\r')
 }
 
+/// True when the path exists as a directory entry (including dangling symlinks).
+///
+/// Prefer this over `Path::exists()` for delete/unlink: `exists()` follows
+/// links and reports false for broken symlinks that `remove_file` can still
+/// unlink (#2087).
+pub fn path_entry_exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+/// True when `path` is a real directory (not a symlink to a directory).
+///
+/// Symlinks are unlinkable even when their target is a directory (#2087).
+pub fn is_real_directory(path: &Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            let ft = meta.file_type();
+            ft.is_dir() && !ft.is_symlink()
+        }
+        Err(_) => false,
+    }
+}
+
+/// Refuse delete/rename targets that are real directories.
+///
+/// Allows regular files, symlinks (unlink the link only), FIFOs, sockets,
+/// and device nodes. Hosts use this so `file_delete` does not dual-path
+/// through `std::fs::remove_file` for special nodes (#2087).
+pub fn ensure_unlinkable_not_directory(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    if is_real_directory(path) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("target is not a file: {display}"),
+        });
+    }
+    Ok(())
+}
+
+/// True when the path is a regular file suitable for byte backup via `fs::copy`.
+///
+/// Symlinks, FIFOs, sockets, and devices return false so callers write an empty
+/// backup marker instead of blocking on FIFO open or copying through a link (#2087).
+pub fn is_regular_file_for_backup(path: &Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta.file_type().is_file(),
+        Err(_) => false,
+    }
+}
+
 /// Walk ancestors of `path` and ensure every existing component is a directory.
 ///
 /// Missing parents are fine (`create_dir_all` creates them on apply). An
@@ -337,6 +387,29 @@ mod tests {
         assert!(a.contains('\n'));
         let p = prepend_content("base", "added");
         assert!(p.contains('\n'));
+    }
+
+    #[test]
+    fn real_directory_detected_not_file() {
+        let dir = TempDir::new().unwrap();
+        assert!(is_real_directory(dir.path()));
+        let f = dir.path().join("f.txt");
+        fs::write(&f, "x").unwrap();
+        assert!(!is_real_directory(&f));
+        assert!(is_regular_file_for_backup(&f));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_is_unlinkable_not_real_directory() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("t");
+        let link = dir.path().join("l");
+        fs::write(&target, "x").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(!is_real_directory(&link));
+        assert!(!is_regular_file_for_backup(&link));
+        ensure_unlinkable_not_directory(&link, "l").unwrap();
     }
 
     #[test]

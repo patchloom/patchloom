@@ -198,6 +198,8 @@
 //! | Map invalid UTF-8 content | [`EditErrorKind::InvalidEncoding`] / [`api::is_invalid_encoding`] |
 //! | Force create over binary/unreadable prior | [`api::file_create`](..., `force: true`) (#1962) |
 //! | Path-only rename/delete non-text (byte backup, no OS dual-path) | [`api::file_rename`] / [`api::file_delete`] (#2031) |
+//! | Delete FIFO/socket/device/symlink under PathGuard | [`api::file_delete`] (dirs still refused; #2087) |
+//! | YAML presentation drift on library writes | [`EditResult::style_changed`] / [`api::is_style_changed`] (#2088) |
 //! | Morph-class freeform on disk | [`api::apply_fragment_to_file`] + [`FragmentPlacement`] (#2032) |
 //! | Host unit-test honesty rows (`#[non_exhaustive]`) | [`ContentEditHonesty::exact`] / [`ContentEditHonesty::fuzzy`] (#2033) |
 //! | Map create/rename dest-exists to force/overwrite recovery | [`EditErrorKind::AlreadyExists`] / [`api::is_already_exists`] |
@@ -324,8 +326,8 @@ pub use api::{
     fuzzy_span_suspicious_with_policy, is_already_exists, is_ambiguous, is_binary, is_binary_file,
     is_changes_detected, is_conflicts, is_format_failed, is_fuzzy_span_suspicious,
     is_guard_rejected, is_invalid_encoding, is_invalid_input, is_lazy_marker_line,
-    is_load_text_strict_fail, is_no_match, is_not_found, is_type_error, load_text,
-    load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
+    is_load_text_strict_fail, is_no_match, is_not_found, is_style_changed, is_type_error,
+    load_text, load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
     plan_apply_fragment_to_replace, prefer_widest_matched_text, refuse_batch_if_suspicious_fuzzy,
     run_post_write_validation, search_file, strip_lazy_markers, text_diff,
 };
