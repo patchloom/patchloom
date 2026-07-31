@@ -32,17 +32,20 @@ pub fn run(mut args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     args.file = global.rewrite_user_path_arg(&cwd, &args.file)?;
     let path = cwd.join(&args.file);
 
-    // path_entry_exists includes dangling symlinks (Path::exists does not).
-    if !crate::ops::file::path_entry_exists(&path) {
-        let msg = format!("file not found: {}", args.file);
-        global.emit_error_json_kind(Some("not_found"), &msg)?;
-        return Ok(crate::exit::FAILURE);
-    }
-    // Allow regular files, symlinks (unlink only), FIFO/socket/device;
-    // refuse real directories only (#2087).
-    if let Err(e) = crate::ops::file::ensure_unlinkable_not_directory(&path, &args.file) {
-        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
-        return Ok(crate::exit::FAILURE);
+    // One classify: dangling ok; real directories refuse; no follow (#2087).
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+    match classify_path_entry(&path) {
+        PathEntryKind::Missing => {
+            let msg = format!("file not found: {}", args.file);
+            global.emit_error_json_kind(Some("not_found"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
+        PathEntryKind::RealDirectory => {
+            let msg = format!("target is not a file: {}", args.file);
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
+        PathEntryKind::RegularFile | PathEntryKind::Special => {}
     }
 
     let op = Operation::FileDelete {
