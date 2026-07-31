@@ -402,66 +402,33 @@ fn test_create_rejects_parent_that_is_a_file() {
 // output format
 // ---------------------------------------------------------------------------
 
+/// Force create onto a directory fails in preview / check / apply (table-driven).
 #[test]
-fn test_create_force_directory_target_fails_in_dry_run() {
-    let dir = TempDir::new().unwrap();
-    let target = dir.path().join("folder");
-    fs::create_dir(&target).unwrap();
+fn test_create_force_directory_target_fails_in_all_modes() {
+    let modes: &[&[&str]] = &[&[], &["--check"], &["--apply"]];
+    for flags in modes {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("folder");
+        fs::create_dir(&target).unwrap();
 
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("create")
-        .arg(&target)
-        .arg("--content")
-        .arg("hello\n")
-        .arg("--force")
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("target is not a file"));
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        cmd.arg("create")
+            .arg(&target)
+            .arg("--content")
+            .arg("hello\n")
+            .arg("--force");
+        for f in *flags {
+            cmd.arg(f);
+        }
+        cmd.assert()
+            .code(1)
+            .stderr(predicate::str::contains("target is not a file"));
 
-    assert!(target.is_dir(), "directory should remain in place");
-}
-
-#[test]
-fn test_create_force_directory_target_fails_in_check_mode() {
-    let dir = TempDir::new().unwrap();
-    let target = dir.path().join("folder");
-    fs::create_dir(&target).unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("create")
-        .arg(&target)
-        .arg("--content")
-        .arg("hello\n")
-        .arg("--force")
-        .arg("--check")
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("target is not a file"));
-
-    assert!(target.is_dir(), "directory should remain in place");
-}
-
-#[test]
-fn test_create_force_directory_target_fails_in_apply_mode() {
-    let dir = TempDir::new().unwrap();
-    let target = dir.path().join("folder");
-    fs::create_dir(&target).unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("create")
-        .arg(&target)
-        .arg("--content")
-        .arg("hello\n")
-        .arg("--force")
-        .arg("--apply")
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("target is not a file"));
-
-    assert!(target.is_dir(), "directory should remain in place");
+        assert!(
+            target.is_dir(),
+            "directory remains for mode {flags:?}: {target:?}"
+        );
+    }
 }
 
 #[test]

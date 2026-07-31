@@ -7933,8 +7933,7 @@ fn doc_set_relative_nested_path_does_not_double_join() {
     let r = result.expect("relative nested doc path should resolve");
     assert!(r.changed, "{r:?}");
     let content = fs::read_to_string(&file).unwrap();
-    assert!(
-        content.contains('2') || content.contains("2"),
-        "got {content}"
-    );
+    let val: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or_else(|e| panic!("valid JSON: {e}; got {content}"));
+    assert_eq!(val["v"], serde_json::json!(2), "got {content}");
 }

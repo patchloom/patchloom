@@ -139,22 +139,8 @@ mod basic {
         assert_eq!(root, json!({"items": [10, 99, 30]}));
     }
 
-    #[test]
-    fn delete_where_removes_matching_items() {
-        let mut root = json!({"items": [{"name": "a"}, {"name": "b"}, {"name": "c"}]});
-        let sel = crate::selector::parse("items").unwrap();
-        let removed = delete_where(&mut root, &sel, "name=b").unwrap();
-        assert_eq!(removed, 1);
-        assert_eq!(root["items"].as_array().unwrap().len(), 2);
-    }
-
-    #[test]
-    fn delete_at_selector_removes_key() {
-        let mut root = json!({"a": 1, "b": 2});
-        let sel = crate::selector::parse("b").unwrap();
-        assert!(delete_at_selector(&mut root, &sel).unwrap());
-        assert_eq!(root, json!({"a": 1}));
-    }
+    // Happy-path delete_where / delete_at_selector / update_matching wildcard
+    // live in navigate.rs co-located tests (single home; avoid dual names).
 
     #[test]
     fn delete_at_selector_array_index() {
@@ -191,14 +177,7 @@ mod basic {
         assert_eq!(val, json!({"a": {"b": "new"}}));
     }
 
-    #[test]
-    fn update_matching_wildcard() {
-        let mut val = json!({"items": [{"v": 1}, {"v": 2}]});
-        let seg = crate::selector::parse("items[*].v").unwrap();
-        let count = update_matching(&mut val, &seg, &json!(99));
-        assert_eq!(count, 2);
-        assert_eq!(val, json!({"items": [{"v": 99}, {"v": 99}]}));
-    }
+    // update_matching_wildcard: see navigate.rs co-located tests.
 
     #[test]
     fn update_matching_predicate() {
@@ -630,12 +609,7 @@ mod edge_cases {
         assert_eq!(root["items"][0]["name"], "b");
     }
 
-    #[test]
-    fn delete_at_selector_missing_returns_false() {
-        let mut root = json!({"a": 1});
-        let sel = crate::selector::parse("nonexistent").unwrap();
-        assert!(!delete_at_selector(&mut root, &sel).unwrap());
-    }
+    // delete_at_selector_missing_returns_false: see navigate.rs co-located tests.
 
     #[test]
     fn move_at_path_to_array_index() {

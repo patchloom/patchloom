@@ -252,7 +252,10 @@ mod basic {
         let code = run_doc(action, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         let on_disk = fs::read_to_string(&path).unwrap();
-        assert!(on_disk.contains("on"), "value must update: {on_disk}");
+        assert!(
+            on_disk.contains("value: on") || on_disk.contains("value: \"on\""),
+            "FEATURE_FLAG value must be on, got: {on_disk}"
+        );
         let style = crate::ops::doc::presentation_style_changed(
             original,
             &on_disk,

@@ -166,39 +166,29 @@ fn test_delete_check_mode_does_not_remove() {
     assert!(file.exists());
 }
 
+/// Delete of a directory fails in preview / check / apply (table-driven).
 #[test]
-fn test_delete_directory_target_fails_in_dry_run() {
-    let dir = TempDir::new().unwrap();
-    let target = dir.path().join("folder");
-    fs::create_dir(&target).unwrap();
+fn test_delete_directory_target_fails_in_all_modes() {
+    let modes: &[&[&str]] = &[&[], &["--check"], &["--apply"]];
+    for flags in modes {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("folder");
+        fs::create_dir(&target).unwrap();
 
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("delete")
-        .arg(target.to_str().unwrap())
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("target is not a file"));
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        cmd.arg("delete").arg(target.to_str().unwrap());
+        for f in *flags {
+            cmd.arg(f);
+        }
+        cmd.assert()
+            .code(1)
+            .stderr(predicate::str::contains("target is not a file"));
 
-    assert!(target.is_dir(), "directory should remain in place");
-}
-
-#[test]
-fn test_delete_directory_target_fails_in_check_mode() {
-    let dir = TempDir::new().unwrap();
-    let target = dir.path().join("folder");
-    fs::create_dir(&target).unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("delete")
-        .arg(target.to_str().unwrap())
-        .arg("--check")
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("target is not a file"));
-
-    assert!(target.is_dir(), "directory should remain in place");
+        assert!(
+            target.is_dir(),
+            "directory remains for mode {flags:?}: {target:?}"
+        );
+    }
 }
 
 #[test]
