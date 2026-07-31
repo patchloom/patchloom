@@ -2825,6 +2825,85 @@ fn file_append_write_modes_matrix() {
     }
 }
 
+/// Same Preview/Check/Apply contract as append (prepend only mutates on Apply).
+#[test]
+fn file_prepend_write_modes_matrix() {
+    for (mode, expect_applied) in [
+        (ApplyMode::Preview, false),
+        (ApplyMode::Check, false),
+        (ApplyMode::Apply, true),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("pre_modes.txt");
+        fs::write(&file, "base").unwrap();
+        let res = file_prepend(&file, "HEAD\n", mode, None).unwrap();
+        assert!(res.changed, "{mode:?}");
+        assert_eq!(res.applied, expect_applied, "{mode:?}");
+        let on_disk = fs::read_to_string(&file).unwrap();
+        if expect_applied {
+            assert!(
+                on_disk.starts_with("HEAD\n"),
+                "{mode:?} expected prepend, got {on_disk}"
+            );
+            assert!(on_disk.contains("base"), "{mode:?} base content retained");
+        } else {
+            assert_eq!(on_disk, "base", "{mode:?} must not write");
+            assert!(
+                res.new_content.starts_with("HEAD\n"),
+                "{mode:?} new_content should preview prepend"
+            );
+        }
+    }
+}
+
+/// New path: Preview/Check report change without creating; Apply creates.
+#[test]
+fn file_create_write_modes_matrix() {
+    for (mode, expect_applied) in [
+        (ApplyMode::Preview, false),
+        (ApplyMode::Check, false),
+        (ApplyMode::Apply, true),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("new_modes.txt");
+        assert!(!file.exists(), "fixture must start missing");
+        let res = file_create(&file, "body\n", false, mode, None).unwrap();
+        assert!(res.changed, "{mode:?}");
+        assert_eq!(res.applied, expect_applied, "{mode:?}");
+        if expect_applied {
+            assert!(file.exists(), "{mode:?} should create");
+            assert_eq!(fs::read_to_string(&file).unwrap(), "body\n");
+        } else {
+            assert!(!file.exists(), "{mode:?} must not create on disk");
+            assert!(
+                res.new_content.contains("body"),
+                "{mode:?} new_content should preview create"
+            );
+        }
+    }
+}
+
+/// Existing path without force: all modes refuse with already_exists (engine + no-files parity).
+#[test]
+fn file_create_existing_without_force_fails_all_modes() {
+    for mode in [ApplyMode::Preview, ApplyMode::Check, ApplyMode::Apply] {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("exists.txt");
+        fs::write(&file, "prior\n").unwrap();
+        let err = file_create(&file, "new\n", false, mode, None).unwrap_err();
+        assert!(
+            crate::api::is_already_exists(&err),
+            "{mode:?} expected already_exists, got kind={:?} err={err}",
+            crate::fallback::edit_error_kind(&err)
+        );
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            "prior\n",
+            "{mode:?} must not overwrite without force"
+        );
+    }
+}
+
 #[test]
 fn file_append_respects_guard_and_relaxed() {
     let dir = TempDir::new().unwrap();

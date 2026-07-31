@@ -71,7 +71,9 @@ fn file_write(
             }
             crate::ops::file::ensure_parent_components_are_directories(path)?;
             let force = force.unwrap_or(false);
-            if !force && path.exists() && mode != ApplyMode::Preview {
+            // Match engine path: refuse existing without force in all modes
+            // (Preview/Check/Apply). Preview must not soft-succeed (#MPI dual-path).
+            if !force && path.exists() {
                 return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                     msg: format!(
                         "file already exists: {} (use force to overwrite)",
