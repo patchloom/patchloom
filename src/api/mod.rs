@@ -707,12 +707,30 @@ pub(crate) fn apply_mutation(
     // Finalize before mutation so undo can recover mid-write failure.
     let session = backup.finalize()?;
     if let Err(e) = perform_mutation() {
-        if let Some(ref ts) = session {
-            let _ = crate::backup::restore_session(cwd, ts);
-        }
-        return Err(e);
+        return Err(mutation_err_after_backup(cwd, session.as_deref(), e));
     }
     Ok((true, session))
+}
+
+/// On mutation failure after finalize: restore the session, and always
+/// surface restore outcome + session id so hosts can undo or report
+/// half-applied state (do not swallow restore errors with `let _ =`).
+fn mutation_err_after_backup(
+    backup_root: &Path,
+    session: Option<&str>,
+    mutation_err: anyhow::Error,
+) -> anyhow::Error {
+    let Some(ts) = session else {
+        return mutation_err;
+    };
+    match crate::backup::restore_session(backup_root, ts) {
+        Ok(_) => mutation_err.context(format!(
+            "mutation failed after backup finalize; restored session {ts} (undo still available)"
+        )),
+        Err(re) => mutation_err.context(format!(
+            "mutation failed after backup finalize; restore of session {ts} also failed: {re}"
+        )),
+    }
 }
 
 /// Generalized cross-file mutation helper (for rename without tx engine).
@@ -743,10 +761,7 @@ fn apply_cross_file_mutation(
     prepare_backup(&mut backup)?;
     let session = backup.finalize()?;
     if let Err(e) = perform_mutation() {
-        if let Some(ref ts) = session {
-            let _ = crate::backup::restore_session(cwd, ts);
-        }
-        return Err(e);
+        return Err(mutation_err_after_backup(cwd, session.as_deref(), e));
     }
     Ok((true, session))
 }
@@ -805,10 +820,11 @@ pub(crate) fn write_if_apply_many(
         Ok(())
     })();
     if let Err(e) = write_result {
-        if let Some(ref ts) = session {
-            let _ = crate::backup::restore_session(backup_root, ts);
-        }
-        return Err(e);
+        return Err(mutation_err_after_backup(
+            backup_root,
+            session.as_deref(),
+            e,
+        ));
     }
     Ok((true, session))
 }

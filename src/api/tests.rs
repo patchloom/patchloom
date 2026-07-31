@@ -1131,7 +1131,15 @@ fn apply_mutation_restores_on_perform_failure() {
         || anyhow::bail!("simulated write failure after backup finalize"),
     )
     .unwrap_err();
-    assert!(err.to_string().contains("simulated write failure"));
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("simulated write failure"),
+        "mutation error must remain visible: {msg}"
+    );
+    assert!(
+        msg.contains("restored session") || msg.contains("backup finalize"),
+        "hosts must see restore outcome + session, got: {msg}"
+    );
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
     let sessions = crate::backup::list_sessions(dir.path()).unwrap();
     assert!(

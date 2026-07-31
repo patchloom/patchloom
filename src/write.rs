@@ -754,7 +754,7 @@ fn write_preserving_hardlinks(
         .parent()
         .context("cannot determine parent directory of target path")?;
 
-    // Stage complete payload first so we do not begin truncating the shared
+    // Stage complete payload first so we do not begin mutating the shared
     // inode until the full content exists on disk (best-effort durability).
     let mut tmp = NamedTempFile::new_in(parent)
         .with_context(|| format!("failed to create tempfile in {}", parent.display()))?;
@@ -763,9 +763,11 @@ fn write_preserving_hardlinks(
     // Best-effort; some filesystems/OS combinations do not support sync_all.
     let _ = tmp.as_file().sync_all();
 
+    // Prefer write + set_len over truncate-first so a failed mid-write can
+    // still recover the shared inode from the staged temp (hosts with
+    // package layouts / multi-hardlinked configs).
     let mut file = std::fs::OpenOptions::new()
         .write(true)
-        .truncate(true)
         .open(path)
         .with_context(|| {
             format!(
@@ -773,10 +775,21 @@ fn write_preserving_hardlinks(
                 path.display()
             )
         })?;
-    file.write_all(bytes)
-        .with_context(|| format!("failed to write hardlinked path {}", path.display()))?;
-    let _ = file.sync_all();
+    let write_result = (|| -> anyhow::Result<()> {
+        file.write_all(bytes)
+            .with_context(|| format!("failed to write hardlinked path {}", path.display()))?;
+        file.set_len(bytes.len() as u64).with_context(|| {
+            format!("failed to set length on hardlinked path {}", path.display())
+        })?;
+        let _ = file.sync_all();
+        Ok(())
+    })();
     drop(file);
+    if let Err(e) = write_result {
+        // Best-effort restore shared inode from the staged full payload.
+        let _ = std::fs::copy(tmp.path(), path);
+        return Err(e);
+    }
 
     if let Some(perms) = original_perms {
         std::fs::set_permissions(path, perms)
