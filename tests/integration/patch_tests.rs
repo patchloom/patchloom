@@ -338,6 +338,50 @@ fn test_patch_check_pure_rename_exits_2() {
 }
 
 #[test]
+fn test_patch_check_pure_rename_c_quoted_paths() {
+    // Git C-quotes paths with spaces; check/apply must unquote and move.
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old name.rs"), "fn main() {}\n").unwrap();
+
+    let patch_file = dir.path().join("rename.patch");
+    fs::write(
+        &patch_file,
+        "diff --git \"a/old name.rs\" \"b/new name.rs\"\n\
+         similarity index 100%\n\
+         rename from \"old name.rs\"\n\
+         rename to \"new name.rs\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg(&patch_file)
+        .assert()
+        .code(2);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert!(!dir.path().join("old name.rs").exists(), "source removed");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new name.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+}
+
+#[test]
 fn test_patch_apply_check_counts_only_changed_files() {
     let dir = TempDir::new().unwrap();
     // File with a real change.

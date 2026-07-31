@@ -1349,4 +1349,63 @@ copy to bar.rs
             "copy must not become a rename file entry, got: {err}"
         );
     }
+
+    #[test]
+    fn parse_pure_git_rename_c_quoted_paths_with_spaces() {
+        // Git C-quotes paths with spaces on pure renames (no hunks).
+        let diff = "\
+diff --git \"a/old name.rs\" \"b/new name.rs\"
+similarity index 100%
+rename from \"old name.rs\"
+rename to \"new name.rs\"
+";
+        let files = parse_patch(diff).expect("C-quoted pure rename should parse");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new name.rs");
+        assert_eq!(files[0].rename_from.as_deref(), Some("old name.rs"));
+        assert!(files[0].hunks.is_empty());
+    }
+
+    #[test]
+    fn parse_diff_git_c_quoted_paths_with_escape() {
+        // Nested quote in path: git uses \" inside C-quoted tokens.
+        let diff = "\
+diff --git \"a/say\\\"hi.rs\" \"b/say\\\"bye.rs\"
+similarity index 100%
+rename from \"say\\\"hi.rs\"
+rename to \"say\\\"bye.rs\"
+";
+        let files = parse_patch(diff).expect("escaped quotes in C-quoted rename");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "say\"bye.rs");
+        assert_eq!(files[0].rename_from.as_deref(), Some("say\"hi.rs"));
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn apply_pure_rename_c_quoted_paths() {
+        use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
+        let mut files = std::collections::HashMap::new();
+        files.insert("old name.rs".to_string(), "body\n".to_string());
+        let results = apply_patch_with_loader(
+            "\
+diff --git \"a/old name.rs\" \"b/new name.rs\"
+similarity index 100%
+rename from \"old name.rs\"
+rename to \"new name.rs\"
+",
+            |path| {
+                files
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("missing {path}"))
+            },
+            ApplyHunksOptions::default(),
+        )
+        .expect("apply C-quoted pure rename");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "new name.rs");
+        assert_eq!(results[0].rename_from.as_deref(), Some("old name.rs"));
+        assert_eq!(results[0].content, "body\n");
+    }
 }

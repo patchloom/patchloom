@@ -78,17 +78,69 @@ fn is_file_header(lines: &[&str], idx: usize) -> bool {
     idx == 0
 }
 
+/// Strip optional Git C-quotes from a path token (`"my file.rs"` → `my file.rs`).
+fn unquote_git_path_meta(s: &str) -> String {
+    let s = s.trim();
+    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
+        unquote_git_c_string(&s[1..s.len() - 1])
+    } else {
+        s.to_string()
+    }
+}
+
 /// Parse `diff --git a/old b/new` into (old, new) relative paths.
+/// Handles C-quoted paths with spaces: `diff --git "a/my f.rs" "b/other f.rs"`.
 fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
     let rest = line.strip_prefix("diff --git ")?;
-    // Format: a/path b/path (paths may contain spaces only when C-quoted).
+    // Prefer quoted form first.
+    if rest.starts_with('"') {
+        // "a/..." "b/..."
+        let mut chars = rest.chars().peekable();
+        let mut parts = Vec::new();
+        while chars.peek().is_some() {
+            while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
+                chars.next();
+            }
+            if chars.peek() != Some(&'"') {
+                break;
+            }
+            chars.next(); // opening "
+            // Keep escapes intact; unquote_git_c_string handles \n, \", \\, etc.
+            let mut raw = String::new();
+            while let Some(c) = chars.next() {
+                if c == '\\' {
+                    raw.push('\\');
+                    if let Some(n) = chars.next() {
+                        raw.push(n);
+                    }
+                } else if c == '"' {
+                    break;
+                } else {
+                    raw.push(c);
+                }
+            }
+            parts.push(unquote_git_c_string(&raw));
+            if parts.len() == 2 {
+                break;
+            }
+        }
+        if parts.len() == 2 {
+            let a = parts[0].strip_prefix("a/").unwrap_or(&parts[0]);
+            let b = parts[1].strip_prefix("b/").unwrap_or(&parts[1]);
+            if !a.is_empty() && !b.is_empty() {
+                return Some((a.to_string(), b.to_string()));
+            }
+        }
+        return None;
+    }
+    // Unquoted: a/path b/path (split on " b/").
     let mut parts = rest.splitn(2, " b/");
     let a = parts.next()?.strip_prefix("a/")?;
     let b = parts.next()?;
     if a.is_empty() || b.is_empty() {
         return None;
     }
-    Some((a.to_string(), b.to_string()))
+    Some((unquote_git_path_meta(a), unquote_git_path_meta(b)))
 }
 
 pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
@@ -111,9 +163,10 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             let mut j = i + 1;
             while j < lines.len() && !lines[j].starts_with("diff ") && !is_file_header(&lines, j) {
                 if let Some(rest) = lines[j].strip_prefix("rename from ") {
-                    rename_from_meta = Some(rest.to_string());
+                    // C-quoted paths with spaces: rename from "my file.rs"
+                    rename_from_meta = Some(unquote_git_path_meta(rest));
                 } else if let Some(rest) = lines[j].strip_prefix("rename to ") {
-                    rename_to_meta = Some(rest.to_string());
+                    rename_to_meta = Some(unquote_git_path_meta(rest));
                 } else if lines[j].starts_with("@@ ") {
                     // Has hunks under this diff without ---/+++; fall through
                     // to normal scan (should not happen in git format).
