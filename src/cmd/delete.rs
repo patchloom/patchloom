@@ -32,14 +32,16 @@ pub fn run(mut args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     args.file = global.rewrite_user_path_arg(&cwd, &args.file)?;
     let path = cwd.join(&args.file);
 
-    if !path.exists() {
+    // path_entry_exists includes dangling symlinks (Path::exists does not).
+    if !crate::ops::file::path_entry_exists(&path) {
         let msg = format!("file not found: {}", args.file);
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if !path.is_file() {
-        let msg = format!("target is not a file: {}", args.file);
-        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+    // Allow regular files, symlinks (unlink only), FIFO/socket/device;
+    // refuse real directories only (#2087).
+    if let Err(e) = crate::ops::file::ensure_unlinkable_not_directory(&path, &args.file) {
+        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
         return Ok(crate::exit::FAILURE);
     }
 

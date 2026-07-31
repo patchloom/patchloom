@@ -101,15 +101,25 @@ fn file_write(
         }
         Operation::FileDelete { .. } => {
             let path_str = path.to_string_lossy();
-            if !path.exists() {
+            // path_entry_exists includes dangling symlinks (#2087).
+            if !crate::ops::file::path_entry_exists(path) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     format!("file not found: {}", path.display()),
                 )
                 .into());
             }
-            // Delete may remove non-UTF-8; only require text when we need a snapshot.
-            let original = crate::files::load_text_strict(path, &path_str).unwrap_or_default();
+            // Regular files, symlinks (unlink only), FIFO/socket/device ok;
+            // real directories refuse (#2087).
+            crate::ops::file::ensure_unlinkable_not_directory(path, path_str.as_ref())?;
+            // Delete may remove non-UTF-8 / special nodes; soft snapshot only
+            // for regular text files.
+            let original = if crate::ops::file::is_regular_file_for_backup(path) {
+                crate::files::load_text_strict(path, &path_str).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            // Preview/Check: report would-delete without unlinking (#2087 DryRun).
             let (applied, backup_session) = if mode == ApplyMode::Apply {
                 super::apply_mutation(
                     path,
@@ -122,6 +132,7 @@ fn file_write(
                     },
                 )?
             } else {
+                super::ensure_contained(guard, path)?;
                 (false, None)
             };
             {
@@ -281,7 +292,14 @@ pub fn file_create(
     file_write(op, path, mode, guard, "create")
 }
 
-/// Delete a file.
+/// Delete a file, symlink, FIFO, socket, or device node under PathGuard (#2087).
+///
+/// **Directories are refused** (use a host-side recursive delete if needed).
+/// **Symlinks** are unlinked without following the target. Regular-file content
+/// is backed up for undo; special nodes get an empty backup marker (restore
+/// recreates an empty regular file, not the original node type).
+///
+/// DryRun / Preview / Check report would-delete without unlinking.
 pub fn file_delete(
     path: &Path,
     mode: ApplyMode,

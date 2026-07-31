@@ -237,7 +237,8 @@ pub(crate) fn commit_changes(
             if renamed_from.contains(path.as_path()) {
                 continue;
             }
-            if path.exists() {
+            // path_entry_exists includes dangling symlinks (#2087).
+            if crate::ops::file::path_entry_exists(path) {
                 std::fs::remove_file(path)
                     .with_context(|| format!("deleting {}", path.display()))?;
             }

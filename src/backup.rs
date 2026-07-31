@@ -178,8 +178,18 @@ impl BackupSession {
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("creating backup dir for {rel_str}"))?;
             }
-            std::fs::copy(file_path, &backup_path)
-                .with_context(|| format!("backing up {rel_str} before delete"))?;
+            // Regular files: full byte backup. Symlinks / FIFO / socket / device:
+            // empty marker only (fs::copy on FIFO blocks; symlink copy follows
+            // target). Restore recreates an empty regular file — hosts that
+            // need the special node type recreated must re-create it themselves
+            // (#2087).
+            if crate::ops::file::is_regular_file_for_backup(file_path) {
+                std::fs::copy(file_path, &backup_path)
+                    .with_context(|| format!("backing up {rel_str} before delete"))?;
+            } else {
+                std::fs::write(&backup_path, b"")
+                    .with_context(|| format!("writing empty backup marker for {rel_str}"))?;
+            }
         }
 
         self.entries.push(ManifestEntry {

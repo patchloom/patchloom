@@ -43,11 +43,17 @@ Bline is a real embedder that dogfooded these steps; the checklist is host-gener
      refuses over-wide fuzzy **before** write/backup (#2008).
 8. **Path-only file ops on non-text:** `file_rename` / `file_delete` succeed on
    binary and invalid UTF-8 with byte backup and PathGuard (no OS dual-path)
-   (#2031). Append/prepend/replace still refuse non-text loads.
-9. **Morph-class freeform on disk:** `apply_fragment_to_file(path, fragment,
+   (#2031). `file_delete` also unlinks FIFO/socket/device and symlinks (link
+   only; never follows); directories stay refused (#2087). Append/prepend/replace
+   still refuse non-text loads.
+9. **Doc presentation honesty:** library `EditResult.style_changed` (and
+   `is_style_changed`) mirrors CLI/MCP when YAML block-sequence layout
+   collapses; values can still be correct (#2088). Warn hosts/agents; do not
+   treat as failure.
+10. **Morph-class freeform on disk:** `apply_fragment_to_file(path, fragment,
    FragmentPlacement::After|Before|Replace(...), unique, mode, guard)` strips
    lazy markers and applies via the replace path (#2032).
-10. **Host unit tests for `op_honesty`:** `ContentEditHonesty` is
+11. **Host unit tests for `op_honesty`:** `ContentEditHonesty` is
     `#[non_exhaustive]`; use `ContentEditHonesty::exact` / `::fuzzy` instead of
     struct literals (#2033). Prefer live `apply_content_edits` for integration tests.
 
