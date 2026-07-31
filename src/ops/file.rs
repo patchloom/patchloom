@@ -1,15 +1,20 @@
 use std::path::{Path, PathBuf};
 
+use crate::ops::replace::preferred_line_ending;
+
 /// Pure helpers for file append/prepend content computation.
 /// Used by api::file_* , plan execution (tx), and cmd/append for consistency.
-/// Centralizes the "ensure nl between existing and new" logic.
+/// Centralizes the "ensure line ending between existing and new" logic.
+///
+/// When a separator is needed, uses the file's dominant EOL (CRLF / CR / LF)
+/// so Windows CRLF files without a final newline do not gain a bare LF.
 pub fn append_content(existing: &str, append: &str) -> String {
     if append.is_empty() {
         return existing.to_string();
     }
     let mut combined = existing.to_string();
-    if !combined.is_empty() && !combined.ends_with('\n') {
-        combined.push('\n');
+    if !combined.is_empty() && !ends_with_line_ending(&combined) {
+        combined.push_str(preferred_line_ending(existing));
     }
     combined.push_str(append);
     combined
@@ -17,11 +22,16 @@ pub fn append_content(existing: &str, append: &str) -> String {
 
 pub fn prepend_content(existing: &str, prepend: &str) -> String {
     let mut combined = prepend.to_string();
-    if !combined.is_empty() && !combined.ends_with('\n') && !existing.is_empty() {
-        combined.push('\n');
+    if !combined.is_empty() && !ends_with_line_ending(&combined) && !existing.is_empty() {
+        combined.push_str(preferred_line_ending(existing));
     }
     combined.push_str(existing);
     combined
+}
+
+#[inline]
+fn ends_with_line_ending(s: &str) -> bool {
+    s.ends_with("\r\n") || s.ends_with('\n') || s.ends_with('\r')
 }
 
 /// Walk ancestors of `path` and ensure every existing component is a directory.
@@ -327,6 +337,25 @@ mod tests {
         assert!(a.contains('\n'));
         let p = prepend_content("base", "added");
         assert!(p.contains('\n'));
+    }
+
+    #[test]
+    fn append_crlf_file_without_final_newline_uses_crlf_separator() {
+        // Windows file missing final newline must not gain a bare LF.
+        let out = append_content("line1\r\nline2", "line3");
+        assert_eq!(out, "line1\r\nline2\r\nline3");
+    }
+
+    #[test]
+    fn append_crlf_file_with_final_newline_no_extra_separator() {
+        let out = append_content("line1\r\nline2\r\n", "line3");
+        assert_eq!(out, "line1\r\nline2\r\nline3");
+    }
+
+    #[test]
+    fn prepend_crlf_payload_uses_file_eol_when_payload_lacks_eol() {
+        let out = prepend_content("body\r\n", "head");
+        assert_eq!(out, "head\r\nbody\r\n");
     }
 
     #[test]

@@ -7978,6 +7978,94 @@ fn test_tx_for_each_no_matches_produces_empty_plan() {
 }
 
 #[test]
+fn test_tx_for_each_rejects_plan_cwd() {
+    // CLI parity with MCP: cwd + for_each double-prefixes {path}.
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("svc/src")).unwrap();
+    fs::write(dir.path().join("svc/src/lib.rs"), "Foo\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "cwd": "svc",
+        "for_each": { "glob": "src/**/*.rs" },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "old": "Foo",
+            "new": "Bar"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "cwd+for_each must fail; stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("plan.cwd cannot be combined with for_each")
+            || combined.contains("invalid_input"),
+        "expected invalid_input / cwd+for_each message, got: {combined}"
+    );
+    // File must remain unchanged (no partial apply).
+    assert_eq!(
+        fs::read_to_string(dir.path().join("svc/src/lib.rs")).unwrap(),
+        "Foo\n"
+    );
+}
+
+#[test]
+fn test_tx_for_each_rejects_fixed_path_multi_match() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();
+    fs::write(dir.path().join("b.rs"), "fn b() {}\n").unwrap();
+    fs::write(dir.path().join("CHANGELOG.md"), "# log\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "for_each": { "glob": "*.rs" },
+        "operations": [{
+            "op": "file.append",
+            "path": "CHANGELOG.md",
+            "content": "- touch\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("file template") || stdout.contains("invalid_input"),
+        "expected fixed-path multi-match reject: {stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("CHANGELOG.md")).unwrap(),
+        "# log\n",
+        "CHANGELOG must not be appended once per .rs match"
+    );
+}
+
+#[test]
 fn test_tx_for_each_escaped_braces_produce_literal() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.txt"), "old value\n").unwrap();
