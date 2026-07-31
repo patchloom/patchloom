@@ -846,8 +846,13 @@ pub(crate) fn execute_and_collect(
         // A file creation with empty content still has original == final == "",
         // but must be treated as an effective change because the file does not
         // exist on disk yet (#create-empty-file).
+        // A file *deletion* of an empty file likewise has original == final ==
+        // "" and must stay in `changes` so commit/backup/strict restore use
+        // the same path as non-empty deletes (macOS CI flake on
+        // deletions-only empty restore).
         let is_new_file = !existed_before.contains(path);
-        if *original != *final_content || is_new_file {
+        let is_deleted = deletions.contains(path);
+        if *original != *final_content || is_new_file || is_deleted {
             changes.push((path.clone(), original.clone(), final_content.into_owned()));
         }
     }

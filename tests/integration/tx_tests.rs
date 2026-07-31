@@ -5295,6 +5295,46 @@ fn test_tx_strict_mode_restores_deleted_empty_file_on_failure() {
     let file = dir.path().join("empty.txt");
     fs::write(&file, "").unwrap();
 
+    // Relative path + --cwd (same shape as test_tx_file_delete_empty_file).
+    // Absolute paths under the host temp dir use __external__ backup keys;
+    // empty deletes must still restore under strict validate failure.
+    let plan = serde_json::json!({
+            "version": 1,
+        "strict": true,
+        "operations": [{
+            "op": "file.delete",
+            "path": "empty.txt"
+        }],
+        "validate": [{
+            "cmd": shell_exit_1(),
+            "required": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(7); // ROLLBACK
+
+    assert!(file.exists(), "deleted empty file should be restored");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "");
+}
+
+/// Absolute-path empty delete (backup under `__external__/…`) must also
+/// restore on strict validate failure — the shape that failed on macOS CI.
+#[test]
+fn test_tx_strict_mode_restores_deleted_empty_file_absolute_path() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("empty.txt");
+    fs::write(&file, "").unwrap();
+
     let plan = serde_json::json!({
             "version": 1,
         "strict": true,
@@ -5318,7 +5358,10 @@ fn test_tx_strict_mode_restores_deleted_empty_file_on_failure() {
         .assert()
         .code(7); // ROLLBACK
 
-    assert!(file.exists(), "deleted empty file should be restored");
+    assert!(
+        file.exists(),
+        "deleted empty file (absolute path) should be restored"
+    );
     assert_eq!(fs::read_to_string(&file).unwrap(), "");
 }
 
