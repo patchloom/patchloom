@@ -43,9 +43,12 @@ Bline is a real embedder that dogfooded these steps; the checklist is host-gener
      refuses over-wide fuzzy **before** write/backup (#2008).
 8. **Path-only file ops on non-text:** `file_rename` / `file_delete` succeed on
    binary and invalid UTF-8 with byte backup and PathGuard (no OS dual-path)
-   (#2031). `file_delete` also unlinks FIFO/socket/device and symlinks (link
-   only; never follows); directories stay refused (#2087). Append/prepend/replace
-   still refuse non-text loads.
+   (#2031). Both also handle FIFO/socket/device and symlinks (including
+   dangling and symlink-to-dir) as directory-entry moves/unlinks without
+   following the target; directories stay refused (#2087, #2091). Soft-loading a
+   symlink as text then writing would rewrite the **target**; rename uses an
+   empty path-only snapshot so write policies never mutate the link target.
+   Append/prepend/replace still refuse non-text loads.
 9. **Doc presentation honesty:** library `EditResult.style_changed` (and
    `is_style_changed`) mirrors CLI/MCP when YAML block-sequence layout
    collapses; values can still be correct (#2088). Warn hosts/agents; do not

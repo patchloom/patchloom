@@ -150,7 +150,8 @@ pub(crate) fn commit_changes(
     // `changes` (original == final == ""), so it would not be backed up above.
     // `rename_or_copy` still overwrites dest; keep prior dest bytes for undo.
     for (_, to) in renames {
-        if to.exists() {
+        // path_entry_exists: dangling dest / special nodes still need backup.
+        if crate::ops::file::path_entry_exists(to) {
             backup.save_before_write(to).map_err(|e| {
                 commit_error(format!("backing up rename dest {}: {e}", to.display()))
             })?;
