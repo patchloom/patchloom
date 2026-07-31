@@ -2792,9 +2792,14 @@ fn test_doc_set_format_failure_json_error_kind() {
             .is_some_and(|s| !s.is_empty()),
         "format_failed after write must expose backup_session for undo: {json}"
     );
-    assert!(
-        fs::read_to_string(&file).unwrap().contains('2'),
-        "doc set must still write before format failure"
+    let on_disk = fs::read_to_string(&file).unwrap();
+    let val: serde_json::Value = serde_json::from_str(&on_disk).unwrap_or_else(|e| {
+        panic!("doc set must write valid JSON before format failure: {e}; {on_disk}")
+    });
+    assert_eq!(
+        val["a"],
+        serde_json::json!(2),
+        "doc set must still write before format failure: {on_disk}"
     );
 }
 

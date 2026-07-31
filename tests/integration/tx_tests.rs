@@ -1410,93 +1410,42 @@ fn test_tx_file_rename_force_overwrites() {
     );
 }
 
+/// Plan file.rename onto a directory fails in preview / check / apply (table-driven).
 #[test]
-fn test_tx_file_rename_force_directory_destination_fails_in_dry_run() {
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
-    fs::create_dir(dir.path().join("folder")).unwrap();
+fn test_tx_file_rename_force_directory_destination_fails_in_all_modes() {
+    let modes: &[&[&str]] = &[&[], &["--check"], &["--apply"]];
+    for flags in modes {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
+        fs::create_dir(dir.path().join("folder")).unwrap();
 
-    let plan = serde_json::json!({
+        let plan = serde_json::json!({
             "version": 1,
-        "operations": [
-            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
-        ]
-    });
-    let plan_file = dir.path().join("plan.json");
-    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+            "operations": [
+                {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
+            ]
+        });
+        let plan_file = dir.path().join("plan.json");
+        fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("tx")
-        .arg(&plan_file)
-        .assert()
-        .code(1) // invalid_input
-        .stderr(predicate::str::contains("destination is not a file"));
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        cmd.arg("--cwd").arg(dir.path()).arg("tx").arg(&plan_file);
+        for f in *flags {
+            cmd.arg(f);
+        }
+        cmd.assert()
+            .code(1) // invalid_input
+            .stderr(predicate::str::contains("destination is not a file"));
 
-    assert!(dir.path().join("old.txt").is_file());
-    assert!(dir.path().join("folder").is_dir());
-}
-
-#[test]
-fn test_tx_file_rename_force_directory_destination_fails_in_check_mode() {
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
-    fs::create_dir(dir.path().join("folder")).unwrap();
-
-    let plan = serde_json::json!({
-            "version": 1,
-        "operations": [
-            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
-        ]
-    });
-    let plan_file = dir.path().join("plan.json");
-    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("tx")
-        .arg(&plan_file)
-        .arg("--check")
-        .assert()
-        .code(1) // invalid_input
-        .stderr(predicate::str::contains("destination is not a file"));
-
-    assert!(dir.path().join("old.txt").is_file());
-    assert!(dir.path().join("folder").is_dir());
-}
-
-#[test]
-fn test_tx_file_rename_force_directory_destination_fails_in_apply_mode() {
-    let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("old.txt"), "hello\n").unwrap();
-    fs::create_dir(dir.path().join("folder")).unwrap();
-
-    let plan = serde_json::json!({
-            "version": 1,
-        "operations": [
-            {"op": "file.rename", "from": "old.txt", "to": "folder", "force": true}
-        ]
-    });
-    let plan_file = dir.path().join("plan.json");
-    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("tx")
-        .arg(&plan_file)
-        .arg("--apply")
-        .assert()
-        .code(1) // invalid_input
-        .stderr(predicate::str::contains("destination is not a file"));
-
-    assert!(dir.path().join("old.txt").is_file());
-    assert!(dir.path().join("folder").is_dir());
+        assert!(
+            dir.path().join("old.txt").is_file(),
+            "source remains for mode {flags:?}"
+        );
+        assert!(
+            dir.path().join("folder").is_dir(),
+            "directory dest remains for mode {flags:?}"
+        );
+    }
 }
 
 #[test]

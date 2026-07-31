@@ -112,14 +112,32 @@ fn contain_doc_get_absolute_inside_workspace() {
         .to_string_lossy()
         .into_owned();
 
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
         .args(["--json", "--cwd"])
         .arg(dir.path())
         .args(["--contain", "doc", "get", &abs, "port"])
-        .assert()
-        .code(0)
-        .stdout(predicate::str::contains('9'));
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+        panic!(
+            "JSON get envelope: {e}; stdout={}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    // Envelope puts the document value under "value" (doc get --json).
+    let port = json.get("value").unwrap_or(&json);
+    assert_eq!(
+        port.as_u64().or_else(|| port.as_i64().map(|i| i as u64)),
+        Some(9),
+        "port must be 9, got {json}"
+    );
 }
 
 /// Replace with absolute path under `--contain` (write path + PathGuard).

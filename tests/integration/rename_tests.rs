@@ -241,74 +241,36 @@ fn test_rename_check_directory_source_fails() {
     assert!(!dst.exists(), "destination should not be created");
 }
 
+/// Directory dest refuses rename in preview / check / apply (table-driven).
 #[test]
-fn test_rename_force_directory_destination_fails_in_dry_run() {
-    let dir = TempDir::new().unwrap();
-    let src = dir.path().join("old.txt");
-    let dst = dir.path().join("folder");
-    fs::write(&src, "hello\n").unwrap();
-    fs::create_dir(&dst).unwrap();
+fn test_rename_force_directory_destination_fails_in_all_modes() {
+    // (mode_flags, use_cwd) — apply needs --cwd so absolute paths stay tidy.
+    let modes: &[(&[&str], bool)] = &[(&[], false), (&["--check"], false), (&["--apply"], true)];
+    for (flags, use_cwd) in modes {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("old.txt");
+        let dst = dir.path().join("folder");
+        fs::write(&src, "hello\n").unwrap();
+        fs::create_dir(&dst).unwrap();
 
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("rename")
-        .arg(&src)
-        .arg(&dst)
-        .arg("--force")
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("destination is not a file"));
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        if *use_cwd {
+            cmd.arg("--cwd").arg(dir.path());
+        }
+        cmd.arg("rename").arg(&src).arg(&dst).arg("--force");
+        for f in *flags {
+            cmd.arg(f);
+        }
+        cmd.assert()
+            .code(1)
+            .stderr(predicate::str::contains("destination is not a file"));
 
-    assert!(src.is_file(), "source file should remain in place");
-    assert!(dst.is_dir(), "destination directory should remain in place");
-}
-
-#[test]
-fn test_rename_force_directory_destination_fails_in_check_mode() {
-    let dir = TempDir::new().unwrap();
-    let src = dir.path().join("old.txt");
-    let dst = dir.path().join("folder");
-    fs::write(&src, "hello\n").unwrap();
-    fs::create_dir(&dst).unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("rename")
-        .arg(&src)
-        .arg(&dst)
-        .arg("--force")
-        .arg("--check")
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("destination is not a file"));
-
-    assert!(src.is_file(), "source file should remain in place");
-    assert!(dst.is_dir(), "destination directory should remain in place");
-}
-
-#[test]
-fn test_rename_force_directory_destination_fails_in_apply_mode() {
-    let dir = TempDir::new().unwrap();
-    let src = dir.path().join("old.txt");
-    let dst = dir.path().join("folder");
-    fs::write(&src, "hello\n").unwrap();
-    fs::create_dir(&dst).unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("rename")
-        .arg(&src)
-        .arg(&dst)
-        .arg("--force")
-        .arg("--apply")
-        .arg("--cwd")
-        .arg(dir.path())
-        .assert()
-        .code(1)
-        .stderr(predicate::str::contains("destination is not a file"));
-
-    assert!(src.is_file(), "source file should remain in place");
-    assert!(dst.is_dir(), "destination directory should remain in place");
+        assert!(src.is_file(), "source remains for mode {flags:?}: {src:?}");
+        assert!(
+            dst.is_dir(),
+            "directory dest remains for mode {flags:?}: {dst:?}"
+        );
+    }
 }
 
 #[test]

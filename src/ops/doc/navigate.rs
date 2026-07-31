@@ -817,7 +817,7 @@ mod tests {
         let mut root = json!({"a": 1, "b": 2});
         let removed = delete_at_selector(&mut root, &segs("b")).unwrap();
         assert!(removed);
-        assert!(root.get("b").is_none());
+        assert_eq!(root, json!({"a": 1}));
     }
 
     #[test]
@@ -825,6 +825,7 @@ mod tests {
         let mut root = json!({"a": 1});
         let removed = delete_at_selector(&mut root, &segs("z")).unwrap();
         assert!(!removed);
+        assert_eq!(root, json!({"a": 1}), "missing delete must not mutate");
     }
 
     #[test]
@@ -839,7 +840,82 @@ mod tests {
         let mut root = json!({"items": [{"name": "a"}, {"name": "b"}, {"name": "a"}]});
         let count = delete_where(&mut root, &segs("items"), "name=a").unwrap();
         assert_eq!(count, 2);
-        assert_eq!(root["items"].as_array().unwrap().len(), 1);
+        assert_eq!(root["items"], json!([{"name": "b"}]));
+    }
+
+    /// Table-driven delete_where / delete_at_selector / update_matching cases.
+    #[test]
+    fn delete_ops_table_driven_cases() {
+        enum Op {
+            DeleteWhere {
+                selector: &'static str,
+                pred: &'static str,
+                expect_n: usize,
+            },
+            DeleteKey {
+                selector: &'static str,
+            },
+            UpdateWildcard {
+                selector: &'static str,
+                value: serde_json::Value,
+                expect_n: usize,
+            },
+        }
+        let cases = [
+            (
+                "delete_where single match",
+                json!({"items": [{"name": "a"}, {"name": "b"}, {"name": "c"}]}),
+                Op::DeleteWhere {
+                    selector: "items",
+                    pred: "name=b",
+                    expect_n: 1,
+                },
+                json!({"items": [{"name": "a"}, {"name": "c"}]}),
+            ),
+            (
+                "delete_at_selector key",
+                json!({"a": 1, "b": 2}),
+                Op::DeleteKey { selector: "b" },
+                json!({"a": 1}),
+            ),
+            (
+                "update_matching wildcard values",
+                json!({"items": [{"v": 1}, {"v": 2}]}),
+                Op::UpdateWildcard {
+                    selector: "items[*].v",
+                    value: json!(99),
+                    expect_n: 2,
+                },
+                json!({"items": [{"v": 99}, {"v": 99}]}),
+            ),
+        ];
+        for (label, mut root, op, expected) in cases {
+            match op {
+                Op::DeleteWhere {
+                    selector,
+                    pred,
+                    expect_n,
+                } => {
+                    let n = delete_where(&mut root, &segs(selector), pred).unwrap();
+                    assert_eq!(n, expect_n, "{label}");
+                }
+                Op::DeleteKey { selector } => {
+                    assert!(
+                        delete_at_selector(&mut root, &segs(selector)).unwrap(),
+                        "{label}"
+                    );
+                }
+                Op::UpdateWildcard {
+                    selector,
+                    value,
+                    expect_n,
+                } => {
+                    let n = update_matching(&mut root, &segs(selector), &value);
+                    assert_eq!(n, expect_n, "{label}");
+                }
+            }
+            assert_eq!(root, expected, "case {label}");
+        }
     }
 
     #[test]
@@ -986,8 +1062,7 @@ mod tests {
         let mut root = json!({"items": [{"v": 1}, {"v": 2}]});
         let count = update_matching(&mut root, &segs("items[*].v"), &json!(0));
         assert_eq!(count, 2);
-        assert_eq!(root["items"][0]["v"], json!(0));
-        assert_eq!(root["items"][1]["v"], json!(0));
+        assert_eq!(root, json!({"items": [{"v": 0}, {"v": 0}]}));
     }
 
     // Regression: navigate_mut with create=true should produce a clear error
