@@ -359,6 +359,46 @@ mod tests {
         assert!(!file.exists());
     }
 
+    /// Empty-file delete must be an effective change and restore from the
+    /// backup session (same path as non-empty deletes). Regression for the
+    /// macOS CI failure where original == final == "" omitted the path from
+    /// `changes` and strict validate rollback left the file missing.
+    #[test]
+    fn execute_empty_file_delete_is_effective_and_restorable() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("empty.txt");
+        fs::write(&file, "").unwrap();
+
+        let global = GlobalFlags::test_default();
+        let op = Operation::FileDelete {
+            path: "empty.txt".to_string(),
+        };
+
+        let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
+        assert!(
+            result.has_changes,
+            "deleting an empty file is still a change"
+        );
+        assert!(
+            result
+                .exec_result
+                .changes
+                .iter()
+                .any(|(p, _, _)| p == &file),
+            "empty delete must appear in changes (not deletions-only)"
+        );
+        assert!(result.exec_result.deletions.contains(&file));
+
+        let session = result.commit().unwrap();
+        let ts = session.expect("empty delete must create a backup session");
+        assert!(!file.exists(), "empty file deleted after commit");
+
+        let restored = crate::backup::restore_session(dir.path(), &ts).unwrap();
+        assert!(restored >= 1);
+        assert!(file.exists(), "empty file restored from backup");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "");
+    }
+
     #[test]
     fn execute_single_file_append() {
         let dir = TempDir::new().unwrap();

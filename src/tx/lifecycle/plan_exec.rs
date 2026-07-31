@@ -217,9 +217,18 @@ pub fn execute_plan_direct(
 
     // Snapshot non-tx files before format/validate steps so we can restore
     // collateral changes on strict rollback (#1111.7).
+    // Include deletions and renames, not only `changes`: empty-file deletes
+    // used to omit from `changes` (original == final == "") and must still
+    // be treated as tx paths so collateral walk does not re-touch them.
     #[cfg(any(feature = "cli", feature = "files"))]
     let collateral_snapshot = if strict && plan.has_lifecycle_steps() {
-        let tx_paths: HashSet<PathBuf> = result.changes.iter().map(|(p, _, _)| p.clone()).collect();
+        let mut tx_paths: HashSet<PathBuf> =
+            result.changes.iter().map(|(p, _, _)| p.clone()).collect();
+        tx_paths.extend(result.deletions.iter().cloned());
+        for (from, to) in &result.renames {
+            tx_paths.insert(from.clone());
+            tx_paths.insert(to.clone());
+        }
         snapshot_non_tx_files(&effective_cwd, &tx_paths)
     } else {
         HashMap::new()
