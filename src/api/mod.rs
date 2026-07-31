@@ -84,6 +84,26 @@
 //! monotonic counter), so concurrent `ApplyMode::Apply` calls never collide
 //! on backup directories.
 //!
+//! # Feature matrix: `cli` / `files` vs pure-library fallbacks
+//!
+//! Default crates enable `cli` (and usually `files`). Embedders that build with
+//! `--no-default-features` (optionally `+ast`) still get the public write APIs,
+//! but several modules compile a **direct ops** path instead of the tx engine:
+//!
+//! | Module | With `cli` or `files` | Without either feature |
+//! |--------|------------------------|-------------------------|
+//! | [`file`] | `execute_as_edit_result` / engine | `ops::file` + `write_if_apply` |
+//! | [`replace`] | plan `Operation::Replace` + engine | `ops::replace` content path |
+//! | [`doc`] / [`md`] / [`tidy`] / [`patch`] | engine or shared ops via files | cfg'd no-files fallbacks |
+//! | [`search`] | ignore-aware walk | sequential fallback |
+//!
+//! These dual paths are intentional host contracts, not dead code. Keep both
+//! arms in lockstep when changing create/delete/rename/replace/doc/md/tidy/patch
+//! semantics. CI exercises them via `make test-no-default` and
+//! `make test-library-hygiene` (`--features "ast,files"` for the files arm).
+//! Do not delete `#[cfg(not(any(feature = "cli", feature = "files")))]` blocks
+//! without a proven embedder migration.
+//!
 //! # Text I/O and multi-doc for embedders (#1894 / #1909 / #1910)
 //!
 //! Prefer these entry points instead of reimplementing binary / UTF-8 probes:

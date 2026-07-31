@@ -4,6 +4,41 @@ use std::fs;
 use crate::containment::{AbsolutePathPolicy, PathGuard};
 use tempfile::TempDir;
 
+/// Process-global cwd is shared across parallel lib tests. Serialize any test
+/// that calls `env::set_current_dir` and restore on drop (including panic).
+/// Only used by relative-path tests that need `cli`/`files` absolutize.
+#[cfg(any(feature = "cli", feature = "files"))]
+mod cwd_guard {
+    use std::sync::{Mutex, MutexGuard};
+
+    static CWD_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    pub(super) struct CwdGuard {
+        prev: std::path::PathBuf,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl CwdGuard {
+        pub(super) fn enter(dir: &std::path::Path) -> Self {
+            let lock = CWD_TEST_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let prev = std::env::current_dir().expect("current_dir");
+            std::env::set_current_dir(dir).expect("set_current_dir for test");
+            Self { prev, _lock: lock }
+        }
+    }
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.prev);
+        }
+    }
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+use cwd_guard::CwdGuard;
+
 #[test]
 fn doc_set_preview_does_not_write() {
     let dir = TempDir::new().unwrap();
@@ -2760,29 +2795,34 @@ fn file_append_prepend_empty_file() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "zero\nfirst");
 }
 
+/// Preview / Check leave disk unchanged; Apply writes. One table covers all three.
 #[test]
-fn file_append_preview_does_not_write() {
-    let dir = TempDir::new().unwrap();
-    let file = dir.path().join("b.txt");
-    std::fs::write(&file, "x").unwrap();
-
-    let res = file_append(&file, "y", ApplyMode::Preview, None).unwrap();
-    assert!(res.changed);
-    assert!(!res.applied);
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "x");
-}
-
-#[test]
-fn file_append_check_reports_without_writing() {
-    let dir = TempDir::new().unwrap();
-    let file = dir.path().join("c.txt");
-    std::fs::write(&file, "base").unwrap();
-
-    let res = file_append(&file, " +more", ApplyMode::Check, None).unwrap();
-    assert!(res.changed);
-    assert!(!res.applied);
-    assert_eq!(std::fs::read_to_string(&file).unwrap(), "base"); // no write
-    assert!(res.new_content.contains("+more"));
+fn file_append_write_modes_matrix() {
+    for (mode, expect_applied) in [
+        (ApplyMode::Preview, false),
+        (ApplyMode::Check, false),
+        (ApplyMode::Apply, true),
+    ] {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("modes.txt");
+        fs::write(&file, "base").unwrap();
+        let res = file_append(&file, " +more", mode, None).unwrap();
+        assert!(res.changed, "{mode:?}");
+        assert_eq!(res.applied, expect_applied, "{mode:?}");
+        let on_disk = fs::read_to_string(&file).unwrap();
+        if expect_applied {
+            assert!(
+                on_disk.contains("+more"),
+                "{mode:?} expected write, got {on_disk}"
+            );
+        } else {
+            assert_eq!(on_disk, "base", "{mode:?} must not write");
+            assert!(
+                res.new_content.contains("+more"),
+                "{mode:?} new_content should preview append"
+            );
+        }
+    }
 }
 
 #[test]
@@ -7850,24 +7890,21 @@ fn content_edit_honesty_constructors_for_hosts() {
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn replace_text_relative_nested_path_does_not_double_join() {
-    use std::env;
     let dir = TempDir::new().unwrap();
     let nested = dir.path().join("src");
     fs::create_dir_all(&nested).unwrap();
     let file = nested.join("lib.rs");
     fs::write(&file, "fn old() {}\n").unwrap();
-    let prev = env::current_dir().unwrap();
-    env::set_current_dir(dir.path()).unwrap();
-    let result = replace_text(
+    let _cwd = CwdGuard::enter(dir.path());
+    let r = replace_text(
         Path::new("src/lib.rs"),
         "old",
         "new",
         &ReplaceOptions::default(),
         ApplyMode::Apply,
         None,
-    );
-    let _ = env::set_current_dir(prev);
-    let r = result.expect("relative nested path should resolve");
+    )
+    .expect("relative nested path should resolve");
     assert!(r.changed, "expected change: {:?}", r);
     let content = fs::read_to_string(&file).unwrap();
     assert!(content.contains("fn new"), "got {content}");
@@ -7914,23 +7951,20 @@ fn ast_rename_batch_binary_peels_binary() {
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn doc_set_relative_nested_path_does_not_double_join() {
-    use std::env;
     let dir = TempDir::new().unwrap();
     let nested = dir.path().join("cfg");
     fs::create_dir_all(&nested).unwrap();
     let file = nested.join("app.json");
     fs::write(&file, r#"{"v":1}"#).unwrap();
-    let prev = env::current_dir().unwrap();
-    env::set_current_dir(dir.path()).unwrap();
-    let result = doc_set(
+    let _cwd = CwdGuard::enter(dir.path());
+    let r = doc_set(
         Path::new("cfg/app.json"),
         "v",
         serde_json::json!(2),
         ApplyMode::Apply,
         None,
-    );
-    let _ = env::set_current_dir(prev);
-    let r = result.expect("relative nested doc path should resolve");
+    )
+    .expect("relative nested doc path should resolve");
     assert!(r.changed, "{r:?}");
     let content = fs::read_to_string(&file).unwrap();
     let val: serde_json::Value =
