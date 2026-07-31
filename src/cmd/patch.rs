@@ -565,8 +565,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     continue;
                 }
             };
+            // Pure rename: content may match original, but apply still moves
+            // the path — report would_change so agents do not skip apply.
+            let is_path_rename = pf.rename_from.as_ref().is_some_and(|from| from != &pf.path);
             match apply_hunks(&original, &pf.hunks) {
-                Ok(new_content) if new_content == original => {
+                Ok(new_content) if new_content == original && !is_path_rename => {
                     results.push(PatchFileResult {
                         path: pf.path.clone(),
                         status: "unchanged",
@@ -658,8 +661,10 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         all_ok = false;
                     }
                     // Clean means apply without fuzz, not "no content change".
-                    // Compare content for identity (new-file create is Clean).
-                    if applied.content != original {
+                    // Pure rename: content may equal original but path still moves.
+                    let is_path_rename =
+                        pf.rename_from.as_ref().is_some_and(|from| from != &pf.path);
+                    if applied.content != original || is_path_rename {
                         any_would_change = true;
                     }
                     results.push(patch_file_result(&pf.path, &applied));

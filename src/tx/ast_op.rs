@@ -14,10 +14,13 @@ fn collect_ast_source_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     {
         use ignore::WalkBuilder;
         let mut files = Vec::new();
+        // Match CLI/library walks: never enter .git / .patchloom (even with
+        // hidden=false so other dotfiles can still be considered).
         let walker = WalkBuilder::new(dir)
             .follow_links(false)
             .standard_filters(true)
             .hidden(false)
+            .filter_entry(|e| !crate::files::should_skip_walk_dirname(e.file_name()))
             .build();
         for entry in walker {
             let entry = entry.map_err(|e| {
@@ -46,6 +49,10 @@ fn collect_ast_source_files_simple(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
+        let name = entry.file_name();
+        if name == ".git" || name == ".patchloom" {
+            continue;
+        }
         let ft = entry.file_type()?;
         if ft.is_symlink() {
             continue;
@@ -572,5 +579,25 @@ mod tests {
             !names.contains(&"inside.rs".to_string()),
             "must not follow symlink dir: {names:?}"
         );
+    }
+
+    #[test]
+    fn collect_skips_git_and_patchloom_dirs() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join(".git/objects")).unwrap();
+        fs::write(dir.path().join(".git/objects/fake.rs"), "fn fake() {}\n").unwrap();
+        fs::create_dir_all(dir.path().join(".patchloom/backups")).unwrap();
+        fs::write(
+            dir.path().join(".patchloom/backups/also.rs"),
+            "fn also() {}\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("root.rs"), "fn root() {}\n").unwrap();
+        let files = collect_ast_source_files(dir.path()).unwrap();
+        let names: Vec<_> = files
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        assert_eq!(names, vec!["root.rs".to_string()], "got {names:?}");
     }
 }

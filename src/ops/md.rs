@@ -1,3 +1,8 @@
+//! Markdown section parse, mutators, and unique-heading resolution.
+//!
+//! size-waiver: single-domain md heading/section ops + unique-heading fail-closed (#2100).
+//! Co-located tests push line count. Policy #1408 — do not split for LOC alone.
+
 use std::borrow::Cow;
 use std::collections::HashSet;
 
@@ -296,6 +301,41 @@ impl SectionError {
     }
 }
 
+/// Failure from [`move_section_in`], naming whether source or dest heading failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MoveSectionError {
+    /// The section being moved (`heading`) was not found or ambiguous.
+    Source(SectionError),
+    /// The before/after target heading was not found or ambiguous.
+    Dest(SectionError),
+    /// Position was neither `before` nor `after`.
+    InvalidPosition,
+}
+
+impl MoveSectionError {
+    pub fn into_anyhow(self, source_heading: &str, dest_heading: &str) -> anyhow::Error {
+        match self {
+            MoveSectionError::Source(e) => e.into_anyhow(source_heading),
+            MoveSectionError::Dest(e) => match e {
+                SectionError::NotFound => crate::exit::NoMatchError {
+                    msg: format!("md.move_section: target heading not found: {dest_heading}"),
+                }
+                .into(),
+                SectionError::Ambiguous { count } => crate::exit::AmbiguousError {
+                    msg: format!(
+                        "ambiguous target heading: {dest_heading:?} matches {count} times; make the before/after heading unique or use a level-qualified query"
+                    ),
+                }
+                .into(),
+            },
+            MoveSectionError::InvalidPosition => crate::exit::InvalidInputError {
+                msg: "md.move_section requires exactly one of 'before' or 'after'".into(),
+            }
+            .into(),
+        }
+    }
+}
+
 fn matching_heading_indices<'a>(
     headings: &'a [HeadingInfo],
     level: Option<usize>,
@@ -369,14 +409,17 @@ pub fn section_range(content: &str, heading: &str) -> Result<(usize, usize), Sec
 /// should use only `new_source` (both values are identical).
 ///
 /// `position` is `("before", heading)` or `("after", heading)`.
+/// Source vs dest failures are distinguished in [`MoveSectionError`] so agents
+/// see the correct heading in ambiguous/not-found messages.
 pub fn move_section_in(
     source_content: &str,
     heading: &str,
     dest_content: &str,
     position: (&str, &str),
     same_file: bool,
-) -> Result<(String, String), SectionError> {
-    let (section_start, section_end) = section_range(source_content, heading)?;
+) -> Result<(String, String), MoveSectionError> {
+    let (section_start, section_end) =
+        section_range(source_content, heading).map_err(MoveSectionError::Source)?;
     let section_text = &source_content[section_start..section_end];
 
     if same_file {
@@ -389,11 +432,13 @@ pub fn move_section_in(
             &source_content[section_end..]
         );
         let result = match position.0 {
-            "before" => insert_before_heading_in(&without_section, position.1, section_text)?,
+            "before" => insert_before_heading_in(&without_section, position.1, section_text)
+                .map_err(MoveSectionError::Dest)?,
             "after" => {
                 // Insert after the *full* destination section body (so that the
                 // destination's table/list/etc stays under its heading).
-                let (_, dest_body_end) = find_section(&without_section, position.1)?;
+                let (_, dest_body_end) =
+                    find_section(&without_section, position.1).map_err(MoveSectionError::Dest)?;
                 let mut out = String::with_capacity(without_section.len() + section_text.len() + 2);
                 out.push_str(&without_section[..dest_body_end]);
                 if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
@@ -406,7 +451,7 @@ pub fn move_section_in(
                 out.push_str(&without_section[dest_body_end..]);
                 out
             }
-            _ => return Err(SectionError::NotFound),
+            _ => return Err(MoveSectionError::InvalidPosition),
         };
         Ok((result.clone(), result))
     } else {
@@ -418,9 +463,11 @@ pub fn move_section_in(
             &source_content[section_end..]
         );
         let new_dest = match position.0 {
-            "before" => insert_before_heading_in(dest_content, position.1, section_text)?,
+            "before" => insert_before_heading_in(dest_content, position.1, section_text)
+                .map_err(MoveSectionError::Dest)?,
             "after" => {
-                let (_, dest_body_end) = find_section(dest_content, position.1)?;
+                let (_, dest_body_end) =
+                    find_section(dest_content, position.1).map_err(MoveSectionError::Dest)?;
                 let mut out = String::with_capacity(dest_content.len() + section_text.len() + 2);
                 out.push_str(&dest_content[..dest_body_end]);
                 if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
@@ -433,7 +480,7 @@ pub fn move_section_in(
                 out.push_str(&dest_content[dest_body_end..]);
                 out
             }
-            _ => return Err(SectionError::NotFound),
+            _ => return Err(MoveSectionError::InvalidPosition),
         };
         Ok((new_source, new_dest))
     }

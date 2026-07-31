@@ -293,6 +293,51 @@ fn test_patch_check_exits_2_when_would_change() {
 }
 
 #[test]
+fn test_patch_check_pure_rename_exits_2() {
+    // 100% similarity rename: content unchanged but path moves.
+    // Check must report would_change (exit 2), not success 0.
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "fn main() {}\n").unwrap();
+
+    let patch_file = dir.path().join("rename.patch");
+    fs::write(
+        &patch_file,
+        "diff --git a/old.rs b/new.rs\n\
+         similarity index 100%\n\
+         rename from old.rs\n\
+         rename to new.rs\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("check")
+        .arg(&patch_file)
+        .assert()
+        .code(2);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert!(!dir.path().join("old.rs").exists(), "source removed");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+}
+
+#[test]
 fn test_patch_apply_check_counts_only_changed_files() {
     let dir = TempDir::new().unwrap();
     // File with a real change.

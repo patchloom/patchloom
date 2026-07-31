@@ -1,3 +1,8 @@
+//! Unified-diff parse and apply (git renames, pure renames, hunk fuzz).
+//!
+//! size-waiver: single-domain patch parse + apply + pure renames (#2101).
+//! Co-located tests push line count. Policy #1408 — do not split for LOC alone.
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,12 +78,76 @@ fn is_file_header(lines: &[&str], idx: usize) -> bool {
     idx == 0
 }
 
+/// Parse `diff --git a/old b/new` into (old, new) relative paths.
+fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix("diff --git ")?;
+    // Format: a/path b/path (paths may contain spaces only when C-quoted).
+    let mut parts = rest.splitn(2, " b/");
+    let a = parts.next()?.strip_prefix("a/")?;
+    let b = parts.next()?;
+    if a.is_empty() || b.is_empty() {
+        return None;
+    }
+    Some((a.to_string(), b.to_string()))
+}
+
 pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
     let lines: Vec<&str> = input.lines().collect();
     let mut files: Vec<PatchFile> = Vec::new();
     let mut i = 0;
 
     while i < lines.len() {
+        // Pure git rename (100% similarity) often has no ---/+++ headers:
+        //   diff --git a/old b/new
+        //   similarity index 100%
+        //   rename from old
+        //   rename to new
+        if lines[i].starts_with("diff --git ")
+            && (i + 1 >= lines.len() || !is_file_header(&lines, i + 1))
+        {
+            // Look ahead for rename from/to before next file/diff.
+            let mut rename_from_meta: Option<String> = None;
+            let mut rename_to_meta: Option<String> = None;
+            let mut j = i + 1;
+            while j < lines.len() && !lines[j].starts_with("diff ") && !is_file_header(&lines, j) {
+                if let Some(rest) = lines[j].strip_prefix("rename from ") {
+                    rename_from_meta = Some(rest.to_string());
+                } else if let Some(rest) = lines[j].strip_prefix("rename to ") {
+                    rename_to_meta = Some(rest.to_string());
+                } else if lines[j].starts_with("@@ ") {
+                    // Has hunks under this diff without ---/+++; fall through
+                    // to normal scan (should not happen in git format).
+                    break;
+                }
+                j += 1;
+            }
+            // If the next real header is ---/+++ for this same rename, let the
+            // normal path consume it (may include content hunks).
+            if j < lines.len() && is_file_header(&lines, j) {
+                i = j;
+                // fall through to ---/+++ handler below (no continue)
+            } else if let (Some(from), Some(to)) = (rename_from_meta, rename_to_meta) {
+                // Pure rename: require explicit rename from/to (never infer from
+                // path inequality alone — that mis-classifies copy as rename
+                // and would delete the source on apply).
+                files.push(PatchFile {
+                    path: to,
+                    hunks: Vec::new(),
+                    is_creation: false,
+                    is_deletion: false,
+                    rename_from: Some(from),
+                });
+                i = j;
+                continue;
+            } else {
+                // copy from/to or incomplete meta: skip this diff line; do not
+                // treat as rename (avoids deleting the source of a copy).
+                let _ = parse_diff_git_paths(lines[i]);
+                i += 1;
+                continue;
+            }
+        }
+
         if !is_file_header(&lines, i) {
             i += 1;
             continue;
@@ -143,14 +212,22 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                     old_no_final_newline,
                     new_no_final_newline,
                 });
+            } else if lines[i].starts_with("diff ") {
+                break;
             } else {
                 i += 1;
             }
         }
 
-        if hunks.is_empty() {
+        // Empty hunks are valid for pure renames (100% similarity, no content
+        // change). Other empty-hunk files remain a parse error.
+        if hunks.is_empty() && rename_from.is_none() && !is_creation && !is_deletion {
             return Err(format!("no hunks found for file {path}"));
         }
+        if hunks.is_empty() && is_creation {
+            return Err(format!("no hunks found for file {path}"));
+        }
+        // Deletion without hunks is already allowed by apply path.
 
         files.push(PatchFile {
             path,
@@ -819,6 +896,19 @@ where
         } else {
             load_original(load_path)?
         };
+        // Pure rename (empty hunks): keep content, stage rename only.
+        if pf.rename_from.is_some() && pf.hunks.is_empty() && !pf.is_deletion && !pf.is_creation {
+            results.push(PatchApplyFileResult {
+                path: pf.path.clone(),
+                content: original,
+                status: ApplyHunksStatus::Clean,
+                conflicts: Vec::new(),
+                is_creation: false,
+                is_deletion: false,
+                rename_from: pf.rename_from.clone(),
+            });
+            continue;
+        }
         // File deletion: still run hunk application so stale context fails
         // closed (check and apply must agree). Skipping hunks always deleted
         // even when the file was edited after the patch was made.

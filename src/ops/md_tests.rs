@@ -1144,13 +1144,19 @@ mod error_handling {
     #[test]
     fn move_section_missing_source_heading() {
         let content = "# A\nbody\n";
-        assert!(move_section_in(content, "Missing", content, ("before", "A"), true).is_err());
+        assert!(matches!(
+            move_section_in(content, "Missing", content, ("before", "A"), true),
+            Err(MoveSectionError::Source(SectionError::NotFound))
+        ));
     }
 
     #[test]
     fn move_section_missing_target_heading() {
         let content = "# A\nbody\n# B\nbody\n";
-        assert!(move_section_in(content, "A", content, ("before", "Missing"), true).is_err());
+        assert!(matches!(
+            move_section_in(content, "A", content, ("before", "Missing"), true),
+            Err(MoveSectionError::Dest(SectionError::NotFound))
+        ));
     }
 }
 
@@ -1663,5 +1669,51 @@ body text
         // level-qualified is unique
         let (start, end) = find_section(content, "## Rules").unwrap();
         assert_eq!(&content[start..end], "nested\n");
+    }
+
+    #[test]
+    fn move_section_dest_ambiguous_names_target() {
+        let content = "# Move
+body
+# Dest
+one
+# Dest
+two
+";
+        let err = move_section_in(content, "Move", content, ("before", "Dest"), true).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                MoveSectionError::Dest(SectionError::Ambiguous { count: 2 })
+            ),
+            "got {err:?}"
+        );
+        let msg = err.into_anyhow("Move", "Dest").to_string();
+        assert!(
+            msg.contains("target") || msg.contains("Dest"),
+            "message should name dest heading, got: {msg}"
+        );
+        assert!(
+            !msg.contains("ambiguous heading: \"Move\""),
+            "must not blame source: {msg}"
+        );
+    }
+
+    #[test]
+    fn move_section_source_ambiguous_names_source() {
+        let content = "# Move
+one
+# Move
+two
+# Dest
+body
+";
+        let err = move_section_in(content, "Move", content, ("before", "Dest"), true).unwrap_err();
+        assert!(matches!(
+            err,
+            MoveSectionError::Source(SectionError::Ambiguous { count: 2 })
+        ));
+        let msg = err.into_anyhow("Move", "Dest").to_string();
+        assert!(msg.contains("Move"), "got {msg}");
     }
 }
