@@ -171,11 +171,23 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // Special nodes (symlinks, FIFO, …) are renameable; only real
             // directories are refused. path_entry_exists includes dangling
             // symlinks that Path::exists() misses (#2087 / #2091).
-            if crate::ops::file::path_entry_exists(&src_path) {
-                crate::ops::file::ensure_unlinkable_not_directory(&src_path, from)?;
+            // Keep "source"/"destination" wording (not generic "target") for
+            // agent/CLI error matching.
+            if crate::ops::file::path_entry_exists(&src_path)
+                && crate::ops::file::is_real_directory(&src_path)
+            {
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("source is not a file: {from}"),
+                }
+                .into());
             }
-            if crate::ops::file::path_entry_exists(&dst_path) {
-                crate::ops::file::ensure_unlinkable_not_directory(&dst_path, to)?;
+            if crate::ops::file::path_entry_exists(&dst_path)
+                && crate::ops::file::is_real_directory(&dst_path)
+            {
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("destination is not a file: {to}"),
+                }
+                .into());
             }
             crate::ops::file::ensure_parent_components_are_directories(&dst_path)?;
 

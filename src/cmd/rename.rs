@@ -62,18 +62,18 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if let Err(e) = crate::ops::file::ensure_unlinkable_not_directory(&src, &args.from) {
-        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
+    if crate::ops::file::is_real_directory(&src) {
+        let msg = format!("source is not a file: {}", args.from);
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
     if let Err(e) = crate::ops::file::ensure_parent_components_are_directories(&dst) {
         global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if crate::ops::file::path_entry_exists(&dst)
-        && let Err(e) = crate::ops::file::ensure_unlinkable_not_directory(&dst, &args.to)
-    {
-        global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
+    if crate::ops::file::path_entry_exists(&dst) && crate::ops::file::is_real_directory(&dst) {
+        let msg = format!("destination is not a file: {}", args.to);
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
 
