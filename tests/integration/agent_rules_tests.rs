@@ -130,9 +130,15 @@ fn test_agents_doc_project_inventory_matches_repo_state() {
 
     assert!(
         agents.contains(
-            "cmd/mod.rs           Command enum (clap Subcommand), dispatch(), built-in agent-rules"
+            "cmd/agent_rules/     agent-rules generator (inventory vs policy: see module docs)"
         ),
         "AGENTS.md should describe the current agent-rules implementation location"
+    );
+    assert!(
+        agents.contains(
+            "cmd/mod.rs           Command enum (clap Subcommand), dispatch(), and inline Completions"
+        ),
+        "AGENTS.md should keep cmd/mod as dispatch (agent-rules moved out)"
     );
     assert!(
         agents.contains("40 operation types (doc/md/replace/tidy/file/patch/read/search/ast/…)."),
