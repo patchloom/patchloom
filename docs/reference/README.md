@@ -298,7 +298,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:delete -->
 ## `delete`
 
-- **What it does:** Removes a file. Directory targets are rejected in all modes. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
+- **What it does:** Removes a file, symlink, FIFO, socket, or device node. Directory targets are rejected in all modes. Symlinks are unlinked without following the target (including dangling links and symlink-to-dir). When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** A file should disappear outright and no other atomic edits are needed. For AI agents deleting a single file, native delete tools are typically faster; use `file.delete` inside `tx` plans when bundling with other edits.
 - **Failure behavior:** Missing file exits `1` with `error_kind: "not_found"`; directory targets use `invalid_input`. Pre-write failures under `--json`/`--jsonl` set `applied: false`.
 - **Prefer instead:** Use `tx file.delete` when the removal must be bundled atomically with other changes.
@@ -307,9 +307,9 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:rename -->
 ## `rename`
 
-- **What it does:** Moves (renames) a file from one path to another. Source and destination must both be file paths, not directories. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
+- **What it does:** Moves (renames) a file, symlink, FIFO, socket, or device node from one path to another. Real directories are refused. Symlinks (including dangling and symlink-to-dir) are moved as directory entries without following the target, so write policies never rewrite the link target. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** A file needs to be relocated and no other atomic edits are needed. Use `file.rename` inside `tx` plans when bundling with other edits.
-- **Failure behavior:** Missing source exits `1` with `error_kind: "not_found"`; destination exists without `--force` uses `already_exists`; non-file paths use `invalid_input`. Pre-write failures under `--json`/`--jsonl` set `applied: false`.
+- **Failure behavior:** Missing source exits `1` with `error_kind: "not_found"`; destination exists without `--force` uses `already_exists`; real directories use `invalid_input`. Pre-write failures under `--json`/`--jsonl` set `applied: false`.
 - **Prefer instead:** Use `tx file.rename` when the rename must be bundled atomically with other changes.
 - **Related:** `create`, `delete`, `tx file.rename`
 
@@ -1237,7 +1237,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:file.rename -->
 ### `file.rename`
 
-- **What it does:** Renames (moves) a file inside a transaction.
+- **What it does:** Renames (moves) a file, symlink, or special node inside a transaction. Path-only for non-regular files so symlink targets are never rewritten by write policy.
 - **Use when:** File renames should roll back if later format or validation steps fail. More efficient than `read` + `file.create` + `file.delete` as a single operation.
 - **Related:** top level `rename`
 

@@ -168,13 +168,22 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 )
                 .into());
             }
-            if src_path.exists() && !src_path.is_file() {
+            // Special nodes (symlinks, FIFO, …) are renameable; only real
+            // directories are refused. path_entry_exists includes dangling
+            // symlinks that Path::exists() misses (#2087 / #2091).
+            // Keep "source"/"destination" wording (not generic "target") for
+            // agent/CLI error matching.
+            if crate::ops::file::path_entry_exists(&src_path)
+                && crate::ops::file::is_real_directory(&src_path)
+            {
                 return Err(crate::exit::InvalidInputError {
                     msg: format!("source is not a file: {from}"),
                 }
                 .into());
             }
-            if dst_path.exists() && !dst_path.is_file() {
+            if crate::ops::file::path_entry_exists(&dst_path)
+                && crate::ops::file::is_real_directory(&dst_path)
+            {
                 return Err(crate::exit::InvalidInputError {
                     msg: format!("destination is not a file: {to}"),
                 }
@@ -214,7 +223,8 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             if !force && !case_only {
                 let dst_exists = (tx.pending.contains_key(&dst_path)
                     && !tx.deletions.contains(&dst_path))
-                    || (!tx.deletions.contains(&dst_path) && dst_path.exists());
+                    || (!tx.deletions.contains(&dst_path)
+                        && crate::ops::file::path_entry_exists(&dst_path));
                 if dst_exists {
                     return Err(crate::exit::AlreadyExistsError {
                         msg: format!("destination already exists: {to} (use force to overwrite)"),
@@ -226,8 +236,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // If destination exists on disk, load it into pending first so
             // existed_before is populated and commit uses atomic_write (not
             // atomic_create_new which would fail on existing files). Soft-load
-            // non-text dest the same way as source (#2031 force overwrite).
-            if (*force || case_only) && !tx.pending.contains_key(&dst_path) && dst_path.exists() {
+            // non-text / special-node dest the same way as source (#2031 / #2091).
+            if (*force || case_only)
+                && !tx.pending.contains_key(&dst_path)
+                && crate::ops::file::path_entry_exists(&dst_path)
+            {
                 let _ = read_file_content_for_path_op(tx.pending, tx.existed_before, &dst_path)?;
             }
 
@@ -246,13 +259,16 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // Case-only renames (readme.md → README.md) must also record the
             // pair. On case-insensitive FS, write-dest + delete-src removes the
             // only inode. CLI bypasses the engine (#1167); plan/MCP must not.
-            let src_on_disk = src_path.exists() && src_path.is_file();
+            // path_entry_exists: dangling symlinks / special nodes need the
+            // fs::rename record so commit does not materialize empty files.
+            let src_on_disk = crate::ops::file::path_entry_exists(&src_path);
             let src_is_rename_dest = tx.renames.iter().any(|(_, to)| to == &src_path);
+            let dst_on_disk = crate::ops::file::path_entry_exists(&dst_path);
             if case_only {
                 if src_on_disk || src_is_rename_dest {
                     tx.renames.push((src_path.clone(), dst_path.clone()));
                 }
-            } else if (src_on_disk || src_is_rename_dest) && (*force || !dst_path.exists()) {
+            } else if (src_on_disk || src_is_rename_dest) && (*force || !dst_on_disk) {
                 // Non-force with an on-disk dest is rejected earlier. Force may
                 // overwrite; non-force only records when dest is not on disk.
                 tx.renames.push((src_path.clone(), dst_path.clone()));
@@ -263,7 +279,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
 
             // Delete source (same logic as file.delete for tx-created files).
             let created_in_tx = match tx.pending.get(&src_path) {
-                Some((original, _)) => original.is_empty() && !src_path.exists(),
+                Some((original, _)) => {
+                    original.is_empty() && !crate::ops::file::path_entry_exists(&src_path)
+                }
                 None => false,
             };
             if created_in_tx {

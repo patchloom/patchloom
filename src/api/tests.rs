@@ -7387,6 +7387,81 @@ fn file_delete_symlink_to_directory() {
     );
 }
 
+/// Rename moves the symlink entry only; never rewrites the target (#2091).
+///
+/// Regression: soft-loading symlink text then atomic_write resolved the link
+/// and mutated the target when write policy (or engine rewrite) applied.
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_rename_symlink_does_not_mutate_target() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.txt");
+    let link = dir.path().join("link.txt");
+    let moved = dir.path().join("moved-link.txt");
+    // No final newline: a write-policy rewrite would add one if it followed the link.
+    fs::write(&target, "hello").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    let r = file_rename(&link, &moved, false, ApplyMode::Apply, None).expect("symlink rename");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(
+        moved.is_symlink(),
+        "dest must remain a symlink, not a regular file"
+    );
+    assert_eq!(
+        fs::read_link(&moved).unwrap(),
+        target,
+        "symlink target path must be unchanged"
+    );
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        "hello",
+        "target content must not gain a trailing newline or other rewrite"
+    );
+}
+
+/// Dangling symlink rename succeeds via path_entry_exists (#2091).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_rename_dangling_symlink_succeeds() {
+    let dir = TempDir::new().unwrap();
+    let link = dir.path().join("dangling");
+    let dest = dir.path().join("renamed-dangle");
+    std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+    assert!(!link.exists(), "Path::exists follows and reports false");
+    let r = file_rename(&link, &dest, false, ApplyMode::Apply, None).expect("dangling rename");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(
+        crate::ops::file::path_entry_exists(&dest),
+        "dangling link must move to dest"
+    );
+    assert!(dest.is_symlink());
+}
+
+/// Symlink-to-directory is renameable (move the link, leave the real dir) (#2091).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_rename_symlink_to_directory() {
+    let dir = TempDir::new().unwrap();
+    let real_dir = dir.path().join("realdir");
+    fs::create_dir(&real_dir).unwrap();
+    fs::write(real_dir.join("inside.txt"), "x\n").unwrap();
+    let link = dir.path().join("linkdir");
+    let dest = dir.path().join("linkdir2");
+    std::os::unix::fs::symlink(&real_dir, &link).unwrap();
+    let r = file_rename(&link, &dest, false, ApplyMode::Apply, None).expect("symlink-dir rename");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(dest.is_symlink());
+    assert!(real_dir.is_dir());
+    assert_eq!(
+        fs::read_to_string(real_dir.join("inside.txt")).unwrap(),
+        "x\n"
+    );
+}
+
 /// Library doc_set surfaces style_changed when YAML sequence indent collapses (#2088).
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]

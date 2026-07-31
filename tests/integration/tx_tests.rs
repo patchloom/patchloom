@@ -1198,6 +1198,53 @@ fn test_tx_file_rename_moves_file() {
     );
 }
 
+/// Symlink rename must not rewrite the target even when CLI write policy is set (#2091).
+#[cfg(unix)]
+#[test]
+fn test_tx_file_rename_symlink_does_not_mutate_target_with_write_policy() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.txt");
+    let link = dir.path().join("link.txt");
+    // No trailing newline: a target rewrite via atomic_write would add one.
+    fs::write(&target, "hello").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.rename", "from": "link.txt", "to": "moved-link.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .arg("--ensure-final-newline")
+        .assert()
+        .code(0);
+
+    let moved = dir.path().join("moved-link.txt");
+    assert!(
+        std::fs::symlink_metadata(&link).is_err(),
+        "source symlink entry must be gone"
+    );
+    assert!(
+        moved.is_symlink(),
+        "dest must stay a symlink after rename with write policy"
+    );
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        "hello",
+        "target must not gain a trailing newline from rename write policy"
+    );
+}
+
 /// file.rename JSON must report one `renamed` change (not create+delete).
 #[test]
 fn test_tx_file_rename_json_action_renamed() {

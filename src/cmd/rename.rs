@@ -55,12 +55,14 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let dst = cwd.join(&args.to);
 
     // Pre-validation for CLI-specific checks.
-    if !src.exists() {
+    // path_entry_exists includes dangling symlinks; is_file() would refuse
+    // special nodes and FIFO open can hang (#2087 / #2091).
+    if !crate::ops::file::path_entry_exists(&src) {
         let msg = format!("source file not found: {}", args.from);
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if !src.is_file() {
+    if crate::ops::file::is_real_directory(&src) {
         let msg = format!("source is not a file: {}", args.from);
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
@@ -69,7 +71,7 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if dst.exists() && !dst.is_file() {
+    if crate::ops::file::path_entry_exists(&dst) && crate::ops::file::is_real_directory(&dst) {
         let msg = format!("destination is not a file: {}", args.to);
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
@@ -107,7 +109,7 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::SUCCESS);
     }
 
-    if !args.force && !is_case_only_change && dst.exists() {
+    if !args.force && !is_case_only_change && crate::ops::file::path_entry_exists(&dst) {
         let msg = format!(
             "destination already exists: {} (use --force to overwrite)",
             args.to
@@ -116,19 +118,35 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(crate::exit::FAILURE);
     }
 
-    // Binary files can't go through the tx engine (it reads as UTF-8 text).
-    // Use a direct fs::rename (or copy+delete) for binary renames.
-    // Only read the first 8 KiB instead of the entire file to avoid
-    // unnecessary memory allocation on large binaries.
-    let is_binary = {
-        use std::io::Read;
-        let mut file = fs::File::open(&src)?;
-        let mut buf = [0u8; 8192];
-        let n = file.read(&mut buf)?;
-        crate::files::is_binary(&buf[..n])
-    };
-    if is_binary {
-        return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Binary);
+    // Special nodes (symlink / FIFO / socket / device): never open for binary
+    // probe (FIFO hang) or text load (symlink target rewrite via atomic_write).
+    // Path-only rename via fs::rename or engine empty soft-load (#2091).
+    let is_special = !crate::ops::file::is_regular_file_for_backup(&src);
+    if is_special {
+        if is_case_only_change {
+            return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::CaseOnly);
+        }
+        let policy = crate::write::policy_from_flags(global, None);
+        if (global.apply || global.confirm) && policy.is_noop() && !global.respect_editorconfig {
+            return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Plain);
+        }
+        // Preview / --check / write-policy: engine stages empty content +
+        // records tx.renames so commit only renames the directory entry.
+    } else {
+        // Binary files can't go through the tx engine (it reads as UTF-8 text).
+        // Use a direct fs::rename (or copy+delete) for binary renames.
+        // Only read the first 8 KiB instead of the entire file to avoid
+        // unnecessary memory allocation on large binaries.
+        let is_binary = {
+            use std::io::Read;
+            let mut file = fs::File::open(&src)?;
+            let mut buf = [0u8; 8192];
+            let n = file.read(&mut buf)?;
+            crate::files::is_binary(&buf[..n])
+        };
+        if is_binary {
+            return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Binary);
+        }
     }
 
     // Case-only renames on case-insensitive filesystems (e.g. macOS APFS)
@@ -310,7 +328,7 @@ fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Resul
         Err(e) if is_cross_device(&e) => {
             // Only remove dest on rollback if we created it; force overwrite
             // must not delete the pre-existing dest (backup holds prior bytes).
-            let dest_existed = dst.exists();
+            let dest_existed = crate::ops::file::path_entry_exists(dst);
             fs::copy(src, dst).with_context(|| {
                 format!("cross-device copy {} -> {}", src.display(), dst.display())
             })?;

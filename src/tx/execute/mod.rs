@@ -85,11 +85,15 @@ pub(crate) fn read_file_content_for_force_create<'a>(
     }
 }
 
-/// Soft-load for path-only ops (rename source / force dest) (#2031).
+/// Soft-load for path-only ops (rename source / force dest) (#2031 / #2091).
 ///
 /// Binary / invalid UTF-8 become an empty text snapshot so staging does not
 /// fail; commit still uses `fs::rename` when `tx.renames` records the pair
-/// (bytes on disk are never rewritten as empty). Missing paths and other
+/// (bytes on disk are never rewritten as empty).
+///
+/// **Special nodes** (symlinks, FIFOs, sockets, devices) also soft-load as
+/// empty: never open/follow them (FIFO hang; symlink rewrite would mutate the
+/// target via [`crate::write::atomic_write`] resolve). Missing paths and other
 /// load failures still hard-fail.
 pub(crate) fn read_file_content_for_path_op<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
@@ -100,16 +104,30 @@ pub(crate) fn read_file_content_for_path_op<'a>(
         Entry::Occupied(entry) => Ok(&entry.into_mut().1),
         Entry::Vacant(entry) => {
             let display = path.display().to_string();
-            let content = match crate::files::load_text_strict(path, &display) {
-                Ok(s) => s,
-                Err(e) if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) => {
-                    String::new()
-                }
-                Err(e) => return Err(e),
-            };
-            if path.exists() {
-                existed_before.insert(path.to_path_buf());
+            // path_entry_exists includes dangling symlinks (#2087 / #2091).
+            if !crate::ops::file::path_entry_exists(path) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file not found: {display}"),
+                )
+                .into());
             }
+            crate::ops::file::ensure_unlinkable_not_directory(path, &display)?;
+            let content = if !crate::ops::file::is_regular_file_for_backup(path) {
+                // Symlink / FIFO / socket / device: empty path-only snapshot.
+                String::new()
+            } else {
+                match crate::files::load_text_strict(path, &display) {
+                    Ok(s) => s,
+                    Err(e)
+                        if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) =>
+                    {
+                        String::new()
+                    }
+                    Err(e) => return Err(e),
+                }
+            };
+            existed_before.insert(path.to_path_buf());
             Ok(&entry.insert((content.clone(), content)).1)
         }
     }

@@ -315,7 +315,14 @@ pub fn file_delete(
     file_write(op, path, mode, guard, "delete")
 }
 
-/// Rename (move) a file.
+/// Rename (move) a file, symlink, FIFO, socket, or device node (#2091).
+///
+/// **Directories are refused.** Symlinks (including dangling and symlink-to-dir)
+/// are moved as directory entries without following the target. Soft-loading
+/// symlink text and rewriting would mutate the target via `atomic_write`;
+/// special nodes use an empty path-only snapshot so write policies never
+/// rewrite the link target. Regular-file content is soft-loaded for
+/// preview/diff; binary / invalid UTF-8 still path-rename (#2031).
 pub fn file_rename(
     src: &Path,
     dst: &Path,
