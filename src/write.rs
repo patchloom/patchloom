@@ -1,4 +1,7 @@
 //! Atomic write, final newline, EOL normalization, trailing-whitespace trimming.
+//!
+//! size-waiver: atomic write + hardlink + symlink write-through domain (#1230 / #1733);
+//! dangling-link replace co-located with live-link resolve. Policy #1408.
 
 use std::path::Path;
 
@@ -681,15 +684,29 @@ pub(crate) fn atomic_create_new(
 pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
     let final_content = apply_policy(content, policy);
 
-    // Resolve symlinks: write to the target file, not the symlink entry (#1230).
-    // Without this, persist() (rename) replaces the symlink directory entry
-    // with a regular file, destroying the symlink and leaving the target unchanged.
+    // Resolve live symlinks: write to the target file, not the symlink entry
+    // (#1230). Without this, persist() (rename) replaces the symlink directory
+    // entry with a regular file, destroying the symlink and leaving the target
+    // unchanged.
+    //
+    // Dangling symlinks cannot be resolved. Force-create / overwrite must still
+    // materialize a regular file at `path` (agent recreate after bad rename).
+    // Unlink the broken link entry, then write to `path` itself.
     let resolved;
     let write_path = if path.is_symlink() {
-        // dunce: strip Windows \\?\ so display and multi-link checks stay clean.
-        resolved = crate::containment::safe_canonicalize(path)
-            .with_context(|| format!("failed to resolve symlink {}", path.display()))?;
-        resolved.as_path()
+        match crate::containment::safe_canonicalize(path) {
+            Ok(p) => {
+                // dunce: strip Windows \\?\ so display and multi-link checks stay clean.
+                resolved = p;
+                resolved.as_path()
+            }
+            Err(_) => {
+                std::fs::remove_file(path).with_context(|| {
+                    format!("failed to replace dangling symlink {}", path.display())
+                })?;
+                path
+            }
+        }
     } else {
         path
     };

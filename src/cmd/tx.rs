@@ -618,6 +618,19 @@ pub(crate) fn run_parsed_plan(
     };
 
     if global.apply {
+        // Soft replace miss with no writes: report before commit + lifecycle.
+        // Avoids format/validate rewriting collateral files when nothing was
+        // staged (CLI was ordering lifecycle before the soft-miss return).
+        // Lifecycle-only plans (empty ops + validate) still reach commit.
+        if result.replace_no_matches {
+            if structured {
+                let output = build_full_tx_output("no_matches", &mut result, &cwd);
+                let ok = emit_output_json(&output, compact);
+                return Ok(exit_after_emit(ok, exit::NO_MATCHES));
+            }
+            print_human_replace_honesty(&result, &cwd, global.quiet);
+            return Ok(exit::NO_MATCHES);
+        }
         return commit_and_finalize(&ctx, &mut result, global, global.diff);
     }
 

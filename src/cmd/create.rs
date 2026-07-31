@@ -61,7 +61,12 @@ pub fn run(mut args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     args.file = global.rewrite_user_path_arg(&cwd, &args.file)?;
     let path = cwd.join(&args.file);
-    if path.exists() && !path.is_file() {
+    // path_entry_exists / classify: dangling symlinks are present directory
+    // entries (Path::exists follows and returns false). Match delete/rename
+    // honesty so preview and apply agree on already_exists (#fixloop).
+    use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+    let entry = classify_path_entry(&path);
+    if entry == PathEntryKind::RealDirectory {
         let msg = format!("target is not a file: {}", args.file);
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
@@ -74,7 +79,7 @@ pub fn run(mut args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     }
     // Catch exists before the engine so --json gets error_kind (apply and
     // preview). --force continues into FileCreate overwrite.
-    if !args.force && path.exists() {
+    if !args.force && path_entry_exists(&path) {
         let msg = format!(
             "file already exists: {} (use --force to overwrite)",
             args.file
@@ -538,5 +543,48 @@ mod tests {
         assert_eq!(code, exit::SUCCESS);
         // applied_flag() must surface Apply as applied:true (parity with delete).
         assert!(file.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_dangling_symlink_preview_already_exists() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("dangle.txt");
+        std::os::unix::fs::symlink("missing-target", &link).unwrap();
+
+        let args = CreateArgs {
+            file: link.to_string_lossy().into_owned(),
+            content: Some("hi\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE, "dangling entry must be already_exists");
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_force_replaces_dangling_symlink() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("dangle.txt");
+        std::os::unix::fs::symlink("missing-target", &link).unwrap();
+
+        let args = CreateArgs {
+            file: link.to_string_lossy().into_owned(),
+            content: Some("hi\n".into()),
+            stdin: false,
+            force: true,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(link.is_file());
+        assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(&link).unwrap(), "hi\n");
     }
 }

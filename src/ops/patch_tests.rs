@@ -1205,4 +1205,23 @@ mod regression {
             files[0].hunks[0].lines
         );
     }
+
+    #[test]
+    fn parse_git_c_quoted_path_with_space() {
+        // `git diff` quotes paths with spaces as C strings.
+        let diff = "\
+--- \"a/my file.txt\"
++++ \"b/my file.txt\"
+@@ -1 +1 @@
+-old
++new
+";
+        let files = parse_patch(diff).expect("c-quoted path should parse");
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].path, "my file.txt",
+            "must strip quotes and a/b prefix, got {:?}",
+            files[0].path
+        );
+    }
 }

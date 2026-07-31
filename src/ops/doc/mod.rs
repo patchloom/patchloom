@@ -752,6 +752,10 @@ fn serialize_multi_document_yaml(
 ///
 /// Recognition order: JSON-quoted string, JSON object/array, boolean, null,
 /// i64, f64, then fallback to bare string.
+///
+/// Bare floats (`2.0`, `1.5`) become JSON numbers by design (batch/CLI
+/// contract). For a string version field, quote the value:
+/// `doc set package.json version '"2.0"'` or plan/MCP typed string.
 pub fn parse_value(s: &str) -> serde_json::Value {
     // JSON-quoted string
     if s.starts_with('"')

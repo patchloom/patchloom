@@ -453,12 +453,17 @@ impl PatchloomService {
             // which is case-sensitive and exact-only. Fuzzy typo recovery and
             // context anchors would get false "pattern not found" warnings while
             // the engine still applies successfully (#1751).
+            // Also skip insert_before/insert_after: validate_edit_nth treats a
+            // missing `new` as delete (`to=""`), which false-flags structured
+            // files (package.json anchors) while the real insert succeeds.
             let validation_warnings = if !p.regex
                 && !p.case_insensitive
                 && !p.word_boundary
                 && !p.fuzzy
                 && p.before_context.is_none()
                 && p.after_context.is_none()
+                && p.insert_before.is_none()
+                && p.insert_after.is_none()
             {
                 let abs = svc.cwd().join(&p.path);
                 // Soft-or-preflight (#1894): skip non-text; engine still Strict.

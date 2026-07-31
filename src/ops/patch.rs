@@ -164,12 +164,48 @@ fn parse_file_path(line: &str) -> String {
         .or_else(|| line.strip_prefix("--- "))
         .unwrap_or(line);
 
-    let path = raw
+    // Strip tab-separated timestamp from `diff -u` output first so C-quoted
+    // paths with spaces are not split mid-name.
+    let mut path = raw.split('\t').next().unwrap_or(raw);
+
+    // Git C-quotes special paths: `+++ "b/my file.rs"`. Unquote before a/b
+    // strip so agents replaying `git diff` resolve the real path.
+    let owned_unquoted;
+    if path.len() >= 2 && path.starts_with('"') && path.ends_with('"') {
+        owned_unquoted = unquote_git_c_string(&path[1..path.len() - 1]);
+        path = owned_unquoted.as_str();
+    }
+
+    let path = path
         .strip_prefix("b/")
-        .or_else(|| raw.strip_prefix("a/"))
-        .unwrap_or(raw);
-    // Strip tab-separated timestamp from `diff -u` output (e.g. "file.txt\t2024-01-01 ...")
-    path.split('\t').next().unwrap_or(path).to_string()
+        .or_else(|| path.strip_prefix("a/"))
+        .unwrap_or(path);
+    path.to_string()
+}
+
+/// Minimal Git C-string unescape for paths inside double quotes.
+fn unquote_git_c_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some('r') => out.push('\r'),
+                Some('"') => out.push('"'),
+                Some('\\') => out.push('\\'),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 fn parse_hunk_header(line: &str) -> Result<Hunk, String> {

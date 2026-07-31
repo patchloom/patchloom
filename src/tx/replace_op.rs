@@ -721,8 +721,21 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             continue;
                         }
                         let to_text = if let Some(ib) = insert_before {
+                            // Parity with path arm: normalize line insert EOL.
+                            let ib = normalize_line_insert(
+                                &content,
+                                &anchor.matched_text,
+                                ib,
+                                InsertSide::Before,
+                            );
                             format!("{}{}", ib, anchor.matched_text)
                         } else if let Some(ia) = insert_after {
+                            let ia = normalize_line_insert(
+                                &content,
+                                &anchor.matched_text,
+                                ia,
+                                InsertSide::After,
+                            );
                             format!("{}{}", anchor.matched_text, ia)
                         } else {
                             new_text.as_deref().unwrap_or("").to_string()
@@ -754,11 +767,14 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         // Parity with single-path arm: keep diagnostics for
                         // require_change / replace_no_matches surfaces.
                         tx.replace_hint = Some(edit_error.message.clone());
+                        // Soft refuse this candidate after fuzzy/context miss.
+                        record_soft_no_match(tx, &file_path);
                     }
                 }
             } else if !regex_mode {
-                // Exact miss, no fuzzy/context: did-you-mean for this file
-                // (last non-empty similar list wins; used if no file matched).
+                // Exact miss, no fuzzy/context: soft refuse + did-you-mean so
+                // multi-file glob partial apply is visible in refused[].
+                record_soft_no_match(tx, &file_path);
                 let similar = crate::fallback::find_similar_targets(&content, old, 3);
                 if !similar.is_empty() {
                     let rel = crate::files::relative_display(&file_path, tx.cwd).to_string_lossy();
