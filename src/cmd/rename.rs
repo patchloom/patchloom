@@ -328,7 +328,7 @@ fn rename_or_copy(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Resul
         Err(e) if is_cross_device(&e) => {
             // Only remove dest on rollback if we created it; force overwrite
             // must not delete the pre-existing dest (backup holds prior bytes).
-            let dest_existed = dst.exists();
+            let dest_existed = crate::ops::file::path_entry_exists(dst);
             fs::copy(src, dst).with_context(|| {
                 format!("cross-device copy {} -> {}", src.display(), dst.display())
             })?;
