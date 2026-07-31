@@ -855,11 +855,11 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     .changes
                     .iter()
                     .any(|(path, original, new_text)| {
-                        let display = path.to_string_lossy();
-                        let Ok(fmt) = detect_format(display.as_ref()) else {
-                            return false;
-                        };
-                        crate::ops::doc::presentation_style_changed(original, new_text, &fmt)
+                        crate::ops::doc::style_changed_for_path(
+                            &path.to_string_lossy(),
+                            original,
+                            new_text,
+                        )
                     });
             crate::cmd::write_mode::finalize_execution_result(
                 global,

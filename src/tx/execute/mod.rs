@@ -95,28 +95,38 @@ pub(crate) fn read_file_content_for_force_create<'a>(
 /// empty: never open/follow them (FIFO hang; symlink rewrite would mutate the
 /// target via [`crate::write::atomic_write`] resolve). Missing paths and other
 /// load failures still hard-fail.
+///
+/// Uses one [`classify_path_entry`](crate::ops::file::classify_path_entry) so
+/// existence, directory refuse, and regular-vs-special do not re-stat thrice.
 pub(crate) fn read_file_content_for_path_op<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
     path: &Path,
 ) -> anyhow::Result<&'a str> {
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+
     match pending.entry(path.to_path_buf()) {
         Entry::Occupied(entry) => Ok(&entry.into_mut().1),
         Entry::Vacant(entry) => {
             let display = path.display().to_string();
-            // path_entry_exists includes dangling symlinks (#2087 / #2091).
-            if !crate::ops::file::path_entry_exists(path) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("file not found: {display}"),
-                )
-                .into());
+            let kind = classify_path_entry(path);
+            match kind {
+                PathEntryKind::Missing => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file not found: {display}"),
+                    )
+                    .into());
+                }
+                PathEntryKind::RealDirectory => {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("target is not a file: {display}"),
+                    }
+                    .into());
+                }
+                PathEntryKind::RegularFile | PathEntryKind::Special => {}
             }
-            crate::ops::file::ensure_unlinkable_not_directory(path, &display)?;
-            let content = if !crate::ops::file::is_regular_file_for_backup(path) {
-                // Symlink / FIFO / socket / device: empty path-only snapshot.
-                String::new()
-            } else {
+            let content = if kind.is_regular_file() {
                 match crate::files::load_text_strict(path, &display) {
                     Ok(s) => s,
                     Err(e)
@@ -126,6 +136,9 @@ pub(crate) fn read_file_content_for_path_op<'a>(
                     }
                     Err(e) => return Err(e),
                 }
+            } else {
+                // Symlink / FIFO / socket / device: empty path-only snapshot.
+                String::new()
             };
             existed_before.insert(path.to_path_buf());
             Ok(&entry.insert((content.clone(), content)).1)
