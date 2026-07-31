@@ -32,6 +32,10 @@ grep LIVE_NAME f.rs
 
 echo "=== agent-rules snippet ==="
 "$BIN" agent-rules --mode mcp | head -40
+
+echo "=== MCP explore (list_files in core pack since 0.24) ==="
+# stdio MCP: use your host; CLI has no list_files subcommand
+# Prefer MCP list_files / search_files over a second filesystem MCP
 ```
 
 ## Post draft (Show HN / r/mcp)
@@ -52,6 +56,7 @@ Why not generic filesystem MCP / sed / yq alone?
 - Markdown section ops and tree-sitter AST renames
 - batch/tx with undo; stable error_kind for hosts (binary, already_exists, …)
 - Library hosts: ReplaceOptions::for_agent and fuzzy_span_suspicious
+- MCP core pack includes list_files (ignore-aware inventory)
 
 Install: https://patchloom.github.io/patchloom/
 MCP Registry: io.github.patchloom/patchloom
