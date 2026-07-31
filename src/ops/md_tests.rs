@@ -264,9 +264,7 @@ mod basic {
     #[test]
     fn table_append_for_tx_basic() {
         let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
-        let result = table_append_for_tx(content, "API", "| b | 2 |")
-            .unwrap()
-            .expect("heading exists");
+        let result = table_append_for_tx(content, "API", "| b | 2 |").unwrap();
         assert!(result.contains("| a | 1 |\n| b | 2 |\n"));
     }
 
@@ -776,7 +774,7 @@ mod edge_cases {
 
     #[test]
     fn insert_after_section_missing_heading_returns_none() {
-        assert!(insert_after_section_in("# Title\n\nBody\n", "## Missing", "x\n").is_none());
+        assert!(insert_after_section_in("# Title\n\nBody\n", "## Missing", "x\n").is_err());
     }
 
     #[test]
@@ -805,7 +803,7 @@ mod edge_cases {
         let content = "# A\na body\n# B\nb body\n";
         let result = move_section_in(content, "A", content, ("before", "A"), true);
         assert!(
-            result.is_none(),
+            result.is_err(),
             "self-move (before self) should return None: {:?}",
             result
         );
@@ -817,7 +815,7 @@ mod edge_cases {
         let content = "# A\na body\n# B\nb body\n";
         let result = move_section_in(content, "A", content, ("after", "A"), true);
         assert!(
-            result.is_none(),
+            result.is_err(),
             "self-move (after self) should return None: {:?}",
             result
         );
@@ -997,11 +995,13 @@ mod edge_cases {
     }
 
     #[test]
-    fn find_section_duplicate_headings_returns_first() {
+    fn find_section_duplicate_headings_is_ambiguous() {
+        // Fail closed when the same heading text appears twice (#2100).
         let content = "# A\nfirst body\n# B\nmiddle\n# A\nsecond body\n";
-        let (start, end) = find_section(content, "A").unwrap();
-        let body = &content[start..end];
-        assert_eq!(body, "first body\n");
+        assert!(matches!(
+            find_section(content, "A"),
+            Err(SectionError::Ambiguous { count: 2 })
+        ));
     }
 
     #[test]
@@ -1088,13 +1088,13 @@ mod error_handling {
     #[test]
     fn find_section_missing() {
         let content = "# Title\nBody\n";
-        assert!(find_section(content, "Nonexistent").is_none());
+        assert!(find_section(content, "Nonexistent").is_err());
     }
 
     #[test]
     fn replace_section_missing_heading() {
         let content = "# Title\nBody\n";
-        assert!(replace_section_in(content, "Missing", "x").is_none());
+        assert!(replace_section_in(content, "Missing", "x").is_err());
     }
 
     #[test]
@@ -1138,19 +1138,19 @@ mod error_handling {
     #[test]
     fn section_range_missing() {
         let content = "# A\nbody\n";
-        assert!(section_range(content, "Missing").is_none());
+        assert!(section_range(content, "Missing").is_err());
     }
 
     #[test]
     fn move_section_missing_source_heading() {
         let content = "# A\nbody\n";
-        assert!(move_section_in(content, "Missing", content, ("before", "A"), true).is_none());
+        assert!(move_section_in(content, "Missing", content, ("before", "A"), true).is_err());
     }
 
     #[test]
     fn move_section_missing_target_heading() {
         let content = "# A\nbody\n# B\nbody\n";
-        assert!(move_section_in(content, "A", content, ("before", "Missing"), true).is_none());
+        assert!(move_section_in(content, "A", content, ("before", "Missing"), true).is_err());
     }
 }
 
@@ -1557,14 +1557,18 @@ body text
         assert_eq!(body, "Detailed reference\n");
     }
 
-    /// A plain text query (no `#` prefix) should match any heading level.
+    /// A plain text query (no `#` prefix) matches any level; duplicates fail closed.
     #[test]
     fn find_section_plain_text_matches_any_level() {
-        let content = "## Intro\nSome text\n# Intro\nOther text\n";
-        // Plain "Intro" matches the first occurrence regardless of level.
-        let (start, end) = find_section(content, "Intro").unwrap();
-        let body = &content[start..end];
-        assert_eq!(body, "Some text\n");
+        let unique = "## Intro\nSome text\n# Other\nOther text\n";
+        let (start, end) = find_section(unique, "Intro").unwrap();
+        assert_eq!(&unique[start..end], "Some text\n");
+        // Same text at two levels is ambiguous (#2100).
+        let dup = "## Intro\nSome text\n# Intro\nOther text\n";
+        assert!(matches!(
+            find_section(dup, "Intro"),
+            Err(SectionError::Ambiguous { count: 2 })
+        ));
     }
 
     #[test]
@@ -1630,8 +1634,34 @@ body text
     fn upsert_bullet_still_dedups_against_actual_bullet() {
         let content = "# Rules\n- Run make check\n";
         let out = upsert_bullet_in(content, "Rules", "- Run make check")
-            .expect("upsert_bullet_in should return Some for dedup case");
+            .expect("upsert_bullet_in should return Ok for dedup case");
         // Should return unchanged content (dedup).
         assert_eq!(out, content);
+    }
+
+    #[test]
+    fn find_section_duplicate_heading_is_ambiguous() {
+        let content = "# Rules\none\n# Rules\ntwo\n";
+        match find_section(content, "Rules") {
+            Err(SectionError::Ambiguous { count }) => assert_eq!(count, 2),
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+        assert!(matches!(
+            upsert_bullet_in(content, "Rules", "- x"),
+            Err(SectionError::Ambiguous { count: 2 })
+        ));
+    }
+
+    #[test]
+    fn find_section_level_disambiguates_duplicate_text() {
+        let content = "# Rules\ntop\n## Rules\nnested\n";
+        // bare "Rules" matches both levels
+        assert!(matches!(
+            find_section(content, "Rules"),
+            Err(SectionError::Ambiguous { count: 2 })
+        ));
+        // level-qualified is unique
+        let (start, end) = find_section(content, "## Rules").unwrap();
+        assert_eq!(&content[start..end], "nested\n");
     }
 }

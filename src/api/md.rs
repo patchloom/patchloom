@@ -84,26 +84,27 @@ fn md_write(
     let new_content = match _op {
         Operation::MdReplaceSection {
             heading, content, ..
-        } => ops::md::replace_section_in(&original, &heading, &content),
+        } => ops::md::replace_section_in(&original, &heading, &content)
+            .map_err(|e| e.into_anyhow(&heading))?,
         Operation::MdInsertAfterHeading {
             heading, content, ..
-        } => ops::md::insert_after_heading_in(&original, &heading, &content),
+        } => ops::md::insert_after_heading_in(&original, &heading, &content)
+            .map_err(|e| e.into_anyhow(&heading))?,
         Operation::MdInsertAfterSection {
             heading, content, ..
-        } => ops::md::insert_after_section_in(&original, &heading, &content),
+        } => ops::md::insert_after_section_in(&original, &heading, &content)
+            .map_err(|e| e.into_anyhow(&heading))?,
         Operation::MdInsertBeforeHeading {
             heading, content, ..
-        } => ops::md::insert_before_heading_in(&original, &heading, &content),
+        } => ops::md::insert_before_heading_in(&original, &heading, &content)
+            .map_err(|e| e.into_anyhow(&heading))?,
         Operation::MdUpsertBullet {
             heading, bullet, ..
-        } => ops::md::upsert_bullet_in(&original, &heading, &bullet),
+        } => ops::md::upsert_bullet_in(&original, &heading, &bullet)
+            .map_err(|e| e.into_anyhow(&heading))?,
         Operation::MdTableAppend { heading, row, .. } => {
             let (body_start, body_end) =
-                ops::md::find_section(&original, &heading).ok_or_else(|| {
-                    anyhow::Error::new(crate::exit::NoMatchError {
-                        msg: format!("heading not found in {path_str}"),
-                    })
-                })?;
+                ops::md::find_section(&original, &heading).map_err(|e| e.into_anyhow(&heading))?;
             return match ops::md::table_append_in(&original, body_start, body_end, &row) {
                 Ok(new_content) => {
                     let policy = WritePolicy::default();
@@ -125,13 +126,12 @@ fn md_write(
                 })),
             };
         }
-        _ => None,
-    }
-    .ok_or_else(|| {
-        anyhow::Error::new(crate::exit::NoMatchError {
-            msg: format!("heading not found in {path_str}"),
-        })
-    })?;
+        _ => {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("unsupported md operation in no-cli path for {path_str}"),
+            }));
+        }
+    };
 
     let policy = WritePolicy::default();
     let (applied, backup_session) =
@@ -256,10 +256,11 @@ pub fn md_move_section(
 
     let (new_source, new_dest) =
         ops::md::move_section_in(&original, heading, &dest_content, position, to.is_none())
-            .ok_or_else(|| {
-                anyhow::Error::new(crate::exit::NoMatchError {
+            .map_err(|e| match e {
+                ops::md::SectionError::NotFound => anyhow::Error::new(crate::exit::NoMatchError {
                     msg: format!("heading '{heading}' not found"),
-                })
+                }),
+                other => other.into_anyhow(heading),
             })?;
 
     let policy = crate::write::WritePolicy::default();

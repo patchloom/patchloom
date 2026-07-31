@@ -596,7 +596,7 @@ mod error_handling {
 
     #[test]
     fn find_section_none_for_missing() {
-        assert!(find_section("# X\n", "Y").is_none());
+        assert!(find_section("# X\n", "Y").is_err());
     }
 
     #[test]

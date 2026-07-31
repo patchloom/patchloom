@@ -9,24 +9,21 @@ use crate::plan::Operation;
 /// Apply a markdown heading operation (read file, transform, write back).
 ///
 /// Five of the six md operations follow an identical pattern: resolve path,
-/// read content, call a `(&str, &str, &str) -> Option<String>` transform,
-/// error on `None`, and update pending state. This helper captures that pattern.
+/// read content, call a `(&str, &str, &str) -> Result<String, SectionError>`
+/// transform, map section errors to typed exit kinds, and update pending.
 fn apply_md_heading_op(
     tx: &mut TxState<'_>,
     path: &str,
     heading: &str,
     extra: &str,
-    op: impl FnOnce(&str, &str, &str) -> Option<String>,
-    err_label: &str,
+    op: impl FnOnce(&str, &str, &str) -> Result<String, crate::ops::md::SectionError>,
+    _err_label: &str,
 ) -> anyhow::Result<()> {
     let file_path = tx.cwd.join(path);
     // Sole binary must not surface as heading no_matches (NUL is valid UTF-8).
     crate::ops::file::ensure_not_binary_file(&file_path, path)?;
     let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
-    let new_content =
-        op(file_content, heading, extra).ok_or_else(|| crate::exit::NoMatchError {
-            msg: format!("{err_label} not found: {heading}"),
-        })?;
+    let new_content = op(file_content, heading, extra).map_err(|e| e.into_anyhow(heading))?;
     tx.write_file(&file_path, new_content);
     Ok(())
 }
@@ -100,9 +97,7 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
             crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             let file_content = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let (body_start, body_end) = crate::ops::md::find_section(file_content, heading)
-                .ok_or_else(|| crate::exit::NoMatchError {
-                    msg: format!("heading not found: {heading}"),
-                })?;
+                .map_err(|e| e.into_anyhow(heading))?;
             let new_content =
                 crate::ops::md::table_append_in(file_content, body_start, body_end, row).map_err(
                     |e| {
@@ -156,8 +151,12 @@ pub(crate) fn execute_md_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Res
             };
             let (new_source, new_dest) =
                 move_section_in(&source_content, heading, &dest_content, position, same_file)
-                    .ok_or_else(|| crate::exit::NoMatchError {
-                        msg: "md.move_section: heading or target not found".to_string(),
+                    .map_err(|e| match e {
+                        crate::ops::md::SectionError::NotFound => crate::exit::NoMatchError {
+                            msg: "md.move_section: heading or target not found".to_string(),
+                        }
+                        .into(),
+                        other => other.into_anyhow(heading),
                     })?;
             tx.write_file(&source_path, new_source);
             if !same_file {

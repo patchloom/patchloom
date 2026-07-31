@@ -5,20 +5,54 @@ use std::path::{Path, PathBuf};
 
 /// Walk a directory and collect files that have a tree-sitter grammar.
 /// Used by ast.rename/ast.replace in execute_plan when the path is a directory.
+///
+/// Honors `.gitignore` / standard ignore filters and does **not** follow
+/// symlinks (avoids vendor trees and symlink cycles; #2102). Parity with CLI
+/// `ast rename` / MCP collection via WalkBuilder.
 fn collect_ast_source_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    collect_ast_source_files_recursive(dir, &mut files)?;
-    files.sort();
-    Ok(files)
+    #[cfg(any(feature = "cli", feature = "files"))]
+    {
+        use ignore::WalkBuilder;
+        let mut files = Vec::new();
+        let walker = WalkBuilder::new(dir)
+            .follow_links(false)
+            .standard_filters(true)
+            .hidden(false)
+            .build();
+        for entry in walker {
+            let entry = entry.map_err(|e| {
+                anyhow::anyhow!("ast directory walk failed under {}: {e}", dir.display())
+            })?;
+            let path = entry.path();
+            if path.is_file() && crate::ast::Language::from_path(path).has_grammar() {
+                files.push(path.to_path_buf());
+            }
+        }
+        files.sort();
+        Ok(files)
+    }
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    {
+        // ast-only builds: no ignore crate. Still refuse symlink dirs.
+        let mut files = Vec::new();
+        collect_ast_source_files_simple(dir, &mut files)?;
+        files.sort();
+        Ok(files)
+    }
 }
 
-fn collect_ast_source_files_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+#[cfg(not(any(feature = "cli", feature = "files")))]
+fn collect_ast_source_files_simple(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir() {
-            collect_ast_source_files_recursive(&path, out)?;
-        } else if path.is_file() && crate::ast::Language::from_path(&path).has_grammar() {
+        let ft = entry.file_type()?;
+        if ft.is_symlink() {
+            continue;
+        }
+        if ft.is_dir() {
+            collect_ast_source_files_simple(&path, out)?;
+        } else if ft.is_file() && crate::ast::Language::from_path(&path).has_grammar() {
             out.push(path);
         }
     }
@@ -483,5 +517,59 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         }
 
         _ => unreachable!("execute_ast_op called with non-AST operation"),
+    }
+}
+
+#[cfg(all(test, any(feature = "cli", feature = "files")))]
+mod tests {
+    use super::collect_ast_source_files;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+    use tempfile::TempDir;
+
+    #[test]
+    fn collect_respects_gitignore() {
+        let dir = TempDir::new().unwrap();
+        // ignore::WalkBuilder applies .gitignore when a git work tree exists.
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir.path())
+            .status()
+            .expect("git init");
+        fs::write(dir.path().join(".gitignore"), "ignored.rs\n").unwrap();
+        fs::write(dir.path().join("kept.rs"), "fn kept() {}\n").unwrap();
+        fs::write(dir.path().join("ignored.rs"), "fn ignored() {}\n").unwrap();
+        let files = collect_ast_source_files(dir.path()).unwrap();
+        let names: Vec<_> = files
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        assert!(names.contains(&"kept.rs".to_string()), "got {names:?}");
+        assert!(
+            !names.contains(&"ignored.rs".to_string()),
+            "gitignore must exclude ignored.rs: {names:?}"
+        );
+    }
+
+    #[test]
+    fn collect_does_not_follow_symlink_dirs() {
+        let dir = TempDir::new().unwrap();
+        // Target lives *outside* the walk root so only a symlink would expose it.
+        let outside = TempDir::new().unwrap();
+        fs::write(outside.path().join("inside.rs"), "fn inside() {}\n").unwrap();
+        let link = dir.path().join("linkdir");
+        symlink(outside.path(), &link).unwrap();
+        fs::write(dir.path().join("root.rs"), "fn root() {}\n").unwrap();
+        let files = collect_ast_source_files(dir.path()).unwrap();
+        let names: Vec<_> = files
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        assert!(names.contains(&"root.rs".to_string()), "got {names:?}");
+        // WalkBuilder follow_links(false): symlink dir not entered
+        assert!(
+            !names.contains(&"inside.rs".to_string()),
+            "must not follow symlink dir: {names:?}"
+        );
     }
 }

@@ -28,6 +28,9 @@ pub struct PatchFile {
     pub is_creation: bool,
     /// `true` when the `+++` line is `/dev/null` (file deletion).
     pub is_deletion: bool,
+    /// When `--- a/old` and `+++ b/new` differ (git rename), the pre-rename path.
+    /// Content is loaded from this path; result is written to [`path`] (#2101).
+    pub rename_from: Option<String>,
 }
 
 /// Check whether line `idx` is a real file header ("--- " followed by "+++"),
@@ -82,10 +85,16 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
         }
 
         // For deletions the `+++` line is `/dev/null`; take path from `---`.
+        // Git renames use different minus/plus paths (neither `/dev/null`).
         let minus_path = parse_file_path(lines[i]);
         let plus_path = parse_file_path(lines[i + 1]);
         let is_creation = minus_path == "/dev/null";
         let is_deletion = plus_path == "/dev/null";
+        let rename_from = if !is_creation && !is_deletion && minus_path != plus_path {
+            Some(minus_path.clone())
+        } else {
+            None
+        };
         let path = if is_deletion { minus_path } else { plus_path };
         i += 2;
 
@@ -148,6 +157,7 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             hunks,
             is_creation,
             is_deletion,
+            rename_from,
         });
     }
 
@@ -334,6 +344,8 @@ pub struct PatchApplyFileResult {
     pub is_creation: bool,
     /// `true` when the patch deletes a file (`+++ /dev/null`).
     pub is_deletion: bool,
+    /// Pre-rename path when applying a git rename patch (#2101).
+    pub rename_from: Option<String>,
 }
 
 pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
@@ -800,10 +812,12 @@ where
     let mut results = Vec::new();
     for pf in &patch_files {
         // New file creation: original is empty, don't try to load from disk.
+        // Git rename: load from rename_from (old path), write to path (new).
+        let load_path = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
         let original = if pf.is_creation {
             String::new()
         } else {
-            load_original(&pf.path)?
+            load_original(load_path)?
         };
         // File deletion: still run hunk application so stale context fails
         // closed (check and apply must agree). Skipping hunks always deleted
@@ -818,6 +832,7 @@ where
                     conflicts: Vec::new(),
                     is_creation: false,
                     is_deletion: true,
+                    rename_from: None,
                 });
                 continue;
             }
@@ -852,6 +867,7 @@ where
                 conflicts: applied.conflicts,
                 is_creation: false,
                 is_deletion: is_clean_delete,
+                rename_from: None,
             });
             continue;
         }
@@ -884,6 +900,7 @@ where
             conflicts: applied.conflicts,
             is_creation: pf.is_creation,
             is_deletion: false,
+            rename_from: pf.rename_from.clone(),
         });
     }
     Ok(results)

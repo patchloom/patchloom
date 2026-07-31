@@ -1224,4 +1224,50 @@ mod regression {
             files[0].path
         );
     }
+
+    #[test]
+    fn parse_git_rename_paths() {
+        let diff = "\
+--- a/old_name.rs
++++ b/new_name.rs
+@@ -1 +1 @@
+-old
++new
+";
+        let files = parse_patch(diff).expect("rename patch parses");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "new_name.rs");
+        assert_eq!(files[0].rename_from.as_deref(), Some("old_name.rs"));
+        assert!(!files[0].is_creation);
+        assert!(!files[0].is_deletion);
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn apply_git_rename_loads_old_writes_new() {
+        use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
+        let mut files = std::collections::HashMap::new();
+        files.insert("old_name.rs".to_string(), "old\n".to_string());
+        let results = apply_patch_with_loader(
+            "\
+--- a/old_name.rs
++++ b/new_name.rs
+@@ -1 +1 @@
+-old
++new
+",
+            |path| {
+                files
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("missing {path}"))
+            },
+            ApplyHunksOptions::default(),
+        )
+        .expect("apply rename");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "new_name.rs");
+        assert_eq!(results[0].rename_from.as_deref(), Some("old_name.rs"));
+        assert_eq!(results[0].content, "new\n");
+    }
 }
