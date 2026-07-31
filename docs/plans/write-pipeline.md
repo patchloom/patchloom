@@ -76,7 +76,44 @@ Binary / case-only renames cannot use the UTF-8 tx engine. They use
 | tidy fix | `stage_for_write(Operations)` | `finalize_report` via `tidy_fix_output` hooks |
 | patch apply | `stage_for_write(Operations)` | `finalize_report` hooks |
 | md dedupe-headings | `stage_for_write` | `finalize_report` (`--json` object with `removed`+`applied`; JSONL one string per heading) |
-| rename binary/case-only | n/a | `execute_write` / `finalize_callback_write` |
+| rename binary/case-only / special-node plain apply | n/a | `execute_write` / `finalize_callback_write` (path-only; no UTF-8 engine) |
+
+## Layer map (why the tree is not a hodgepodge)
+
+Patchloom looks multi-entry on purpose. Agents hit three surfaces; the
+shared core is what keeps them honest:
+
+```
+ops/*          pure content + path helpers (no CLI, no plan)
+  ↑
+tx/execute     Operation → staged pending / renames / deletions
+  ↑
+tx/engine      stage + commit (backup, rename_or_copy, restore)
+  ↑
+api/*          library EditResult + PathGuard (uses engine when `files`)
+cmd/*          clap + write_mode finalize (uses engine or direct rename)
+cmd/mcp        tools → same Operation / engine path
+```
+
+**Rules of thumb when adding code:**
+
+1. **Content math** (append EOL, YAML style, selector eval) → `ops/`.
+2. **Path entry kind** (file vs dir vs symlink vs FIFO) →
+   `ops::file::classify_path_entry` / `rename_or_copy`, not ad hoc
+   `exists()` + `is_file()` for unlink/rename.
+3. **Presentation honesty** (YAML sequence indent) →
+   `ops::doc::style_changed_for_path` / `presentation_style_changed` once;
+   do not re-open `detect_format` in CLI/tx/api separately.
+4. **Mode / exit codes** → only `write_mode.rs` (never a third matrix).
+5. **CLI direct rename** (binary, case-only, plain special-node) is not a
+   second product; it is the non-UTF-8 path of the same rename contract.
+6. **No-default-features** stubs under `api/*` are intentional thin
+   fallbacks for library builds without the `files` engine; prefer
+   extending the engine path when both exist.
+
+Large modules with `size-waiver` (fallback, yaml_splice, shell_token) stay
+large **when they are one domain**. Split only on a real second subsystem
+(AGENTS.md module-size policy / closed #1408).
 
 ## Adding a write command
 
