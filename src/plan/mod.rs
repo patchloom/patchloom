@@ -42,10 +42,11 @@ pub struct Plan {
     ///
     /// On MCP, use a **relative** path that stays inside the server workspace;
     /// absolute path strings and `../` escapes are rejected. Do not combine
-    /// with `for_each` (glob expansion is relative to the server root; use
-    /// workspace-relative `{path}` templates without `cwd` instead).
+    /// with `for_each` on any surface (glob expansion uses the invocation cwd;
+    /// combining with `plan.cwd` double-prefixes `{path}`). Use
+    /// workspace-relative `{path}` templates without `cwd` instead.
     /// CLI and library callers may use absolute paths when PathGuard policy
-    /// allows them.
+    /// allows them (still without `for_each`).
     pub cwd: Option<String>,
     pub write_policy: Option<crate::write::WritePolicyOverride>,
     /// When omitted from the plan, defaults to strict mode at execution time.
@@ -480,6 +481,18 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         None => return Ok(()),
     };
 
+    // for_each globs against the invocation cwd; plan.cwd re-roots op paths
+    // after expansion, which double-prefixes workspace-relative `{path}` values
+    // (CLI/library parity with MCP which already rejected this combo).
+    if plan.cwd.as_ref().is_some_and(|c| !c.trim().is_empty()) {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "plan.cwd cannot be combined with for_each; \
+                 omit cwd and use workspace-relative paths in for_each templates \
+                 (e.g. path \"{path}\"), or omit for_each and set cwd for a nested re-root"
+                .into(),
+        }));
+    }
+
     // 1. Collect matching files.
     let glob_set =
         crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob))?.ok_or_else(|| {
@@ -558,6 +571,21 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         .replace("{{", "\x00LBRACE\x00")
         .replace("}}", "\x00RBRACE\x00");
 
+    // Multi-match without any file placeholder multiplies fixed-path ops
+    // (e.g. append the same CHANGELOG.md once per .rs file). Fail closed when
+    // more than one file matches and the template never references a match var.
+    if matched.len() > 1 && !template_uses_match_var(&protected) {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!(
+                "for_each matched {} files but no operation uses a file template \
+                 ({{path}}, {{item}}, {{dir}}, {{stem}}, {{ext}}, or {{name}}); \
+                 fixed-path ops would run once per match. Add a path template or \
+                 narrow the glob to a single file",
+                matched.len()
+            ),
+        }));
+    }
+
     let mut expanded = Vec::with_capacity(matched.len() * plan.operations.len());
     for file_path in &matched {
         let rel = file_path
@@ -628,6 +656,14 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
 
     plan.operations = expanded;
     Ok(())
+}
+
+/// True when the protected for_each template JSON still contains a match
+/// variable (not escaped as `{{…}}`).
+#[cfg(feature = "cli")]
+fn template_uses_match_var(protected_template: &str) -> bool {
+    const VARS: &[&str] = &["{path}", "{item}", "{dir}", "{stem}", "{ext}", "{name}"];
+    VARS.iter().any(|v| protected_template.contains(v))
 }
 
 /// Detect `"path":"{placeholder}"` (and `from`/`to`) after for_each expansion.

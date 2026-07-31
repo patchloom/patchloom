@@ -443,6 +443,55 @@ fn parse_plan_without_for_each_is_none() {
 
 #[cfg(feature = "cli")]
 #[test]
+fn for_each_rejects_plan_cwd_combination() {
+    // Glob is relative to invocation cwd; plan.cwd re-roots after expand and
+    // double-prefixes {path}. MCP already rejected this; CLI/library must too.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("nested")).unwrap();
+    std::fs::write(dir.path().join("nested/a.txt"), "x").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "cwd": "nested",
+            "for_each": { "glob": "**/*.txt" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("plan.cwd cannot be combined with for_each"),
+        "expected cwd+for_each reject, got: {msg}"
+    );
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn for_each_rejects_multi_match_without_file_template() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.rs"), "fn a() {}").unwrap();
+    std::fs::write(dir.path().join("b.rs"), "fn b() {}").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.rs" },
+            "operations": [
+                {"op": "file.append", "path": "CHANGELOG.md", "content": "- touch\n"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no operation uses a file template") && msg.contains("2 files"),
+        "expected multi-match fixed-path reject, got: {msg}"
+    );
+}
+
+#[cfg(feature = "cli")]
+#[test]
 fn for_each_escape_preserves_literal_braces() {
     // When a template value contains `{{path}}`, the doubled braces should
     // produce a literal `{path}` in the output, not get substituted.
