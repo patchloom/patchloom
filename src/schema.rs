@@ -813,9 +813,12 @@ fn mcp_example_without_op(example: &str) -> String {
     }
 }
 
-/// Build a compact agent-facing operations catalogue from the registry.
+/// Build a compact agent-facing **inventory** from the registry.
 ///
 /// Used by `agent-rules` so the op list cannot drift from schema export.
+/// This is inventory only (name + short description). Host honesty, peels,
+/// fuzzy policy, and workflows stay hand-written under `cmd::agent_rules`
+/// and `cmd::agent_packaging` (see those modules' inventory-vs-policy docs).
 pub fn agent_operations_catalogue() -> String {
     let mut out = String::from("## Operations (from schema registry)\n\n");
     for meta in OPERATION_REGISTRY.iter().chain(ast_registry_iter()) {

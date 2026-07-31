@@ -88,8 +88,9 @@ src/
                        --files-from) and WriteFlags (--diff, --apply, --check,
                        --ensure-final-newline, --normalize-eol, --trim-trailing-whitespace,
                        --respect-editorconfig, --confirm). Write flags are only available on write commands.
-  cmd/mod.rs           Command enum (clap Subcommand), dispatch(), built-in agent-rules
-                       generator, and inline Completions command
+  cmd/mod.rs           Command enum (clap Subcommand), dispatch(), and inline Completions
+  cmd/agent_rules/     agent-rules generator (inventory vs policy: see module docs)
+  cmd/agent_packaging.rs  Shared MCP/agent-rules packaging (name map, core tools, explore)
   cmd/append.rs        Append content to an existing file
   cmd/batch.rs         Line-oriented batch operations, parses positional args, delegates to tx engine
   cmd/mcp/             MCP server (feature-gated): registry (1:1 Operation tools) + hand-written
@@ -390,7 +391,7 @@ The tool description is built by `schema::mcp_tool_description(op_name, extra)`.
 3. **Remove integration tests** for the tool from `tests/integration.rs`.
 
 4. **Remove references** from all documentation that lists MCP tools:
-   - `src/cmd/mod.rs` (agent-rules generator)
+   - `src/cmd/agent_rules/` (hand-written policy; inventory from schema)
    - `docs/getting-started/mcp-setup.md`
    - `examples/README.md` (example descriptions)
    - `benches/README.md` (MCP benchmark table)
