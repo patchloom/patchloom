@@ -2,6 +2,18 @@
 //!
 //! Keep strings in one place so handshake instructions and `agent-rules` cannot
 //! drift on the name map, explore rule, or surface recommendations.
+//!
+//! # Inventory vs policy
+//!
+//! | Kind | Owner |
+//! |------|--------|
+//! | Operation list (plan op names + short descriptions) | [`crate::schema`] registry / `agent_operations_catalogue` |
+//! | Core MCP tool names, name map, explore rule, YAML honesty, core pack body | **this module** (hand-written packaging) |
+//! | Host peels, fuzzy refuse, exit/`error_kind` narrative, workflows | [`crate::cmd::agent_rules`] policy modules (hand-written) |
+//!
+//! Do not push long honesty essays into schema `OpMeta` just to shrink
+//! agent-rules. Packaging here is the bridge between MCP handshake and
+//! agent-rules openers; policy lives under `agent_rules::`.
 
 /// Tools registered when `PATCHLOOM_MCP_SURFACE=core` (single source of truth).
 ///
