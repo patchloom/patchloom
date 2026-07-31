@@ -270,9 +270,9 @@ pub fn search_directory(
                 .collect();
             Ok(results)
         } else {
-            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: "search_directory requires the 'files' feature to be enabled (for pure-library recursive search with ignores/parallelism)".into(),
-            }));
+            }))
         }
     }
 }
