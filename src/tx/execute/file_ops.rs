@@ -76,7 +76,12 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             force,
         } => {
             let file_path = tx.cwd.join(path);
-            if file_path.exists() && !file_path.is_file() {
+            // Dangling symlinks are present entries (Path::exists is false).
+            // Use classify/path_entry_exists so create matches delete/rename
+            // and preview/apply already_exists stay dual-path honest.
+            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+            let entry = classify_path_entry(&file_path);
+            if entry == PathEntryKind::RealDirectory {
                 return Err(crate::exit::InvalidInputError {
                     msg: format!("target is not a file: {path}"),
                 }
@@ -90,7 +95,8 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 // invalid UTF-8, or unreadable prior → empty original so hosts
                 // need no remove+recreate loop (#1962). PathGuard still applies
                 // at plan entry; hardlink-preserving write stays on commit path.
-                if tx.pending.contains_key(&file_path) || file_path.exists() {
+                // path_entry_exists covers dangling symlink entries.
+                if tx.pending.contains_key(&file_path) || path_entry_exists(&file_path) {
                     let _ = read_file_content_for_force_create(
                         tx.pending,
                         tx.existed_before,
@@ -101,7 +107,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             } else {
                 let exists_in_tx =
                     tx.pending.contains_key(&file_path) && !tx.deletions.contains(&file_path);
-                if exists_in_tx || (!tx.deletions.contains(&file_path) && file_path.exists()) {
+                if exists_in_tx
+                    || (!tx.deletions.contains(&file_path) && path_entry_exists(&file_path))
+                {
                     return Err(crate::exit::AlreadyExistsError {
                         msg: format!("file already exists: {path} (use force to overwrite)"),
                     }

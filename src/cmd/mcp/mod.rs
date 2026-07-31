@@ -393,8 +393,21 @@ fn exit_code_to_result(code: u8, output: &str, fallback: &str) -> Result<CallToo
 /// Execute a read-only doc operation directly (no subprocess).
 fn doc_readonly(action: &crate::cmd::doc::DocAction) -> Result<CallToolResult, McpError> {
     let (output, code) =
-        crate::cmd::doc::execute_with_mode(action, crate::cmd::doc::OutputMode::Json)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        match crate::cmd::doc::execute_with_mode(action, crate::cmd::doc::OutputMode::Json) {
+            Ok(v) => v,
+            // Typed agent errors (type_error on multi-doc bare key, not_found,
+            // …) must be tool errors with error_kind, not protocol
+            // internal_error (CLI --json parity).
+            Err(e) => {
+                if crate::exit::classify_typed_error(&e).is_some() {
+                    let (payload, _code) = crate::exit::structured_error_payload(&e);
+                    let text =
+                        serde_json::to_string_pretty(&payload).unwrap_or_else(|_| e.to_string());
+                    return Ok(CallToolResult::error(vec![ContentBlock::text(text)]));
+                }
+                return Err(McpError::internal_error(format!("{e}"), None));
+            }
+        };
     // CHANGES_DETECTED (2) is a valid success for doc diff (differences found).
     // After #1843, doc has always exits 0 for true/false, so do not promote
     // NO_MATCHES (real get/keys/len misses) to success.

@@ -846,19 +846,19 @@ mod symlink_handling {
     }
 
     #[test]
-    fn atomic_write_through_dangling_symlink_fails() {
-        // A dangling symlink (target does not exist) should produce
-        // a clear error, not silently create a file at the symlink path.
+    fn atomic_write_replaces_dangling_symlink_with_regular_file() {
+        // Dangling symlink cannot write-through. Force-create / overwrite must
+        // replace the broken link entry with a regular file (agent recreate
+        // after bad rename). Live symlinks still write through (#1230).
         let dir = tempfile::tempdir().unwrap();
         let link = dir.path().join("dangling.txt");
         std::os::unix::fs::symlink(dir.path().join("nonexistent.txt"), &link).unwrap();
 
         let policy = WritePolicy::default();
-        let err = atomic_write(&link, "content\n", &policy).unwrap_err();
-        assert!(
-            err.to_string().contains("resolve symlink") || err.to_string().contains("No such file"),
-            "expected symlink resolution error, got: {err}"
-        );
+        atomic_write(&link, "content\n", &policy).unwrap();
+        assert!(link.is_file());
+        assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_to_string(&link).unwrap(), "content\n");
     }
 
     #[test]

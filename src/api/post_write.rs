@@ -100,7 +100,16 @@ pub fn run_post_write_validation_with_session(
                     }
                 }
             }
-            return Err(e);
+            // KeepWithError: write already landed. Attach session + path so
+            // library hosts can branch on applied and undo (CLI/tx parity).
+            let msg = e
+                .downcast_ref::<FormatFailedError>()
+                .map(|f| f.msg.clone())
+                .unwrap_or_else(|| e.to_string());
+            return Err(FormatFailedError::new(msg)
+                .with_backup_session(backup_session.map(str::to_owned))
+                .with_written_files(vec![path.display().to_string()])
+                .into());
         }
     }
     Ok(())

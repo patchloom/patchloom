@@ -68,16 +68,32 @@ pub(crate) fn read_file_content_for_force_create<'a>(
     existed_before: &mut HashSet<PathBuf>,
     path: &Path,
 ) -> anyhow::Result<&'a str> {
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+
     match pending.entry(path.to_path_buf()) {
         Entry::Occupied(entry) => Ok(&entry.into_mut().1),
         Entry::Vacant(entry) => {
             let display = path.display().to_string();
-            let content = match crate::files::load_text_strict(path, &display) {
-                Ok(s) => s,
-                Err(e) if crate::exit::is_load_text_strict_fail(&e) => String::new(),
-                Err(e) => return Err(e),
+            let kind = classify_path_entry(path);
+            // Special (including dangling symlink): empty snapshot; do not
+            // follow/open. Regular text soft-loads; binary/encoding → empty.
+            let content = match kind {
+                PathEntryKind::Special => String::new(),
+                PathEntryKind::RegularFile => {
+                    match crate::files::load_text_strict(path, &display) {
+                        Ok(s) => s,
+                        Err(e) if crate::exit::is_load_text_strict_fail(&e) => String::new(),
+                        Err(e) => return Err(e),
+                    }
+                }
+                PathEntryKind::Missing | PathEntryKind::RealDirectory => {
+                    // Caller only invokes when path_entry_exists; treat as empty.
+                    String::new()
+                }
             };
-            if path.exists() {
+            // Mark present entries so commit uses atomic_write (replaces
+            // dangling links) instead of atomic_create_new.
+            if kind != PathEntryKind::Missing {
                 existed_before.insert(path.to_path_buf());
             }
             Ok(&entry.insert((content.clone(), content)).1)

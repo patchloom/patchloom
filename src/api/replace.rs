@@ -60,8 +60,13 @@ pub fn replace_text(
         let original = crate::files::load_text_strict(path, &display)?;
         let content_result = replace_in_content(&original, from, to, opts)?;
         let policy = crate::write::WritePolicy::default();
-        let (applied, backup_session) =
-            super::write_if_apply(path, &content_result.new_content, mode, &policy, guard)?;
+        // Soft no-op (if_exists miss, identity): do not write or create a
+        // backup. Parity with the engine path that gates on has_changes.
+        let (applied, backup_session) = if content_result.changed {
+            super::write_if_apply(path, &content_result.new_content, mode, &policy, guard)?
+        } else {
+            (false, None)
+        };
         let path_str = path.to_string_lossy();
         let mut result = super::build_edit_result(
             &path_str,
