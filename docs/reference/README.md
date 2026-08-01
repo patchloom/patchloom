@@ -926,7 +926,7 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:check -->
 ### `patch check`
 
-- **What it does:** Dry-run a unified diff without writing. Per-file status is `would_change` (exit 2) when the patch applies and content would change, `unchanged` when the result equals the current file, or `stale`/`missing`/`error` (exit 5) when the patch cannot apply.
+- **What it does:** Dry-run a unified diff without writing. Per-file status is `would_change` (exit 2) when the patch applies and content would change (including pure git renames where content is identical but the path moves), `unchanged` when the result equals the current file, or fail-closed statuses for problems (`missing` → `not_found`, rename dest exists → `already_exists`, `stale` → `ambiguous` / exit 5).
 - **Use when:** CI or agents need the same “would change” signal as `patch apply` preview before committing to `--apply`.
 - **Prefer instead:** Use `patch apply` when the patch should be written, or `replace` and `doc` when you do not actually need to carry a diff file.
 - **JSON:** Includes `applied: false`. Do not treat historical status `clean` as “nothing to do”; that name meant “applies without fuzz” and confused agents.
@@ -934,8 +934,9 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:apply -->
 ### `patch apply`
 
-- **What it does:** Applies a unified diff. Use `--on-stale merge` to retry with three-way merge when context is stale.
+- **What it does:** Applies a unified diff, including git renames with hunks and pure renames (`similarity index 100%` with `rename from` / `rename to`, optional C-quoted paths with spaces). Use `--on-stale merge` to retry with three-way merge when context is stale.
 - **Use when:** The desired change is already available as patch text and should be replayed directly.
+- **Failure behavior:** Missing rename/source target → `not_found`. Git rename destination already present → `already_exists` (same policy as `rename` without `--force`; remove the dest or use `file.rename --force`).
 - **Prefer instead:** Use `replace`, `md`, or `doc` when you would rather describe the desired mutation at a higher level.
 
 <!-- ref:patch-action:merge -->
