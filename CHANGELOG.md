@@ -11,6 +11,30 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.25.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.24.0...patchloom-v0.25.0) (2026-08-01)
+
+
+### Features
+
+* **api:** EditResult.style_changed and special-node file_delete ([#2090](https://github.com/patchloom/patchloom/issues/2090)) ([1063a1b](https://github.com/patchloom/patchloom/commit/1063a1b60b49cc0e67c93e3e55d06dc91eb82295))
+
+
+### Bug Fixes
+
+* **api:** surface backup restore on mutation failure; hardlink write recovery ([#2089](https://github.com/patchloom/patchloom/issues/2089)) ([8be557e](https://github.com/patchloom/patchloom/commit/8be557eef1d717f767c566635959ea11f082c360))
+* C-quoted pure renames and Preview changed for path renames ([#2105](https://github.com/patchloom/patchloom/issues/2105)) ([95b7291](https://github.com/patchloom/patchloom/commit/95b7291542f766592fe7e4c105139ee5e8367d7c))
+* create already_exists dual-path parity and write mode matrices ([#2098](https://github.com/patchloom/patchloom/issues/2098)) ([0245da7](https://github.com/patchloom/patchloom/commit/0245da7ee9518ec537a4aef6ff608fd264af48be))
+* md ambiguous headings, git rename patches, ast dir walk ([#2103](https://github.com/patchloom/patchloom/issues/2103)) ([1a5076a](https://github.com/patchloom/patchloom/commit/1a5076a922b5fb25dde5ed47b5c0d34204b770b3))
+* path honesty for git octal, dangling, sole special ([#2110](https://github.com/patchloom/patchloom/issues/2110)) ([f617791](https://github.com/patchloom/patchloom/commit/f617791748e0c526b4605cc87da71f16db4db071))
+* path-only rename for symlinks and special nodes ([#2092](https://github.com/patchloom/patchloom/issues/2092)) ([534774e](https://github.com/patchloom/patchloom/commit/534774e1ccb2e73783f87b4b37adee301de9e7b5))
+* pure git renames, move_section dest messages, ast .git skip ([#2104](https://github.com/patchloom/patchloom/issues/2104)) ([9bf44a8](https://github.com/patchloom/patchloom/commit/9bf44a81ca91790fa7621e0b56a900b2b5c3a569))
+* pure rename patch JSON one row with from/to ([#2108](https://github.com/patchloom/patchloom/issues/2108)) ([34692ff](https://github.com/patchloom/patchloom/commit/34692ff3b2169f5ca5747a09eaca95230d1ae05d)), closes [#2106](https://github.com/patchloom/patchloom/issues/2106)
+* real-world create/tx/mcp/patch honesty gaps ([#2099](https://github.com/patchloom/patchloom/issues/2099)) ([ded02cf](https://github.com/patchloom/patchloom/commit/ded02cfa911f53a672706cf8fe213b6ff3dd3fb2))
+* real-world for_each guards and CRLF append separators ([#2086](https://github.com/patchloom/patchloom/issues/2086)) ([25084de](https://github.com/patchloom/patchloom/commit/25084de698c6c2d384b98d6417b94101dae2d5f3))
+* real-world rename/tx/patch honesty and containment ([#2109](https://github.com/patchloom/patchloom/issues/2109)) ([233d8bb](https://github.com/patchloom/patchloom/commit/233d8bb4b0c11f1d744f33e3c3433cf4db1fdbce))
+* refuse patch rename overwrite; multi-surface pure rename locks ([#2107](https://github.com/patchloom/patchloom/issues/2107)) ([44aa789](https://github.com/patchloom/patchloom/commit/44aa789b02cc3986ff57b38b5d19844b981fa756))
+* **tx:** restore empty-file deletes on strict validate failure ([#2084](https://github.com/patchloom/patchloom/issues/2084)) ([6b21156](https://github.com/patchloom/patchloom/commit/6b2115670b52fddc89b7ace11ec80935692426d8))
+
 ## [0.24.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.23.0...patchloom-v0.24.0) (2026-07-30)
 
 
