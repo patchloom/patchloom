@@ -309,26 +309,57 @@ fn test_patch_check_pure_rename_exits_2() {
     )
     .unwrap();
 
-    Command::cargo_bin("patchloom")
+    // Check JSON: one would_change rename row with from/to (#2106).
+    let check_out = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--cwd")
         .arg(dir.path())
+        .arg("--json")
         .arg("patch")
         .arg("check")
         .arg(&patch_file)
-        .assert()
-        .code(2);
+        .output()
+        .unwrap();
+    assert_eq!(check_out.status.code(), Some(2));
+    let check_json: serde_json::Value = serde_json::from_slice(&check_out.stdout).unwrap();
+    let check_files = check_json["files"].as_array().expect("check files");
+    assert_eq!(
+        check_files.len(),
+        1,
+        "check pure rename one row: {check_json}"
+    );
+    assert_eq!(check_files[0]["status"], "would_change");
+    assert_eq!(check_files[0]["from"], "old.rs");
+    assert_eq!(check_files[0]["to"], "new.rs");
+    assert_eq!(check_files[0]["action"], "renamed");
 
-    Command::cargo_bin("patchloom")
+    // Apply JSON: one renamed row with from/to (not two applied files) (#2106).
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
         .arg("--cwd")
         .arg(dir.path())
+        .arg("--json")
         .arg("patch")
         .arg("apply")
         .arg(&patch_file)
         .arg("--apply")
-        .assert()
-        .code(0);
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["applied"], true, "{json}");
+    let files = json["files"].as_array().expect("files array");
+    assert_eq!(
+        files.len(),
+        1,
+        "pure rename must be one JSON row, got: {json}"
+    );
+    assert_eq!(files[0]["path"], "new.rs");
+    assert_eq!(files[0]["from"], "old.rs");
+    assert_eq!(files[0]["to"], "new.rs");
+    assert_eq!(files[0]["action"], "renamed");
+    assert_eq!(files[0]["status"], "applied");
 
     assert!(!dir.path().join("old.rs").exists(), "source removed");
     assert_eq!(

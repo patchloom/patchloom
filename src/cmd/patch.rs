@@ -216,6 +216,15 @@ struct PatchFileResult {
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     conflicts: Option<usize>,
+    /// Git rename source path (one row per rename; #2106).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    from: Option<String>,
+    /// Git rename destination path (same as `path` when set).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    to: Option<String>,
+    /// `"renamed"` when this row is a path rename (#2106 / tx parity).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -246,24 +255,50 @@ fn patch_file_result(path: &str, applied: &ApplyHunksResult) -> PatchFileResult 
         } else {
             Some(applied.conflicts.len())
         },
+        from: None,
+        to: None,
+        action: None,
     }
 }
 
-/// Build `PatchFileResult` list from diffs, filtering for changed files.
+/// Build `PatchFileResult` list from diffs, folding git renames into one row
+/// with `from`/`to`/`action: "renamed"` (#2106).
 fn build_file_results(
     diffs: &[crate::diff::FileDiff],
     status: &'static str,
+    renames: &[(String, String)],
 ) -> Vec<PatchFileResult> {
-    diffs
-        .iter()
-        .filter(|d| d.has_changes)
-        .map(|d| PatchFileResult {
+    use std::collections::HashSet;
+    let rename_from: HashSet<&str> = renames.iter().map(|(f, _)| f.as_str()).collect();
+    let rename_to: HashSet<&str> = renames.iter().map(|(_, t)| t.as_str()).collect();
+
+    let mut files = Vec::with_capacity(diffs.len().saturating_add(renames.len()));
+    for (from, to) in renames {
+        files.push(PatchFileResult {
+            path: to.clone(),
+            status,
+            error: None,
+            conflicts: None,
+            from: Some(from.clone()),
+            to: Some(to.clone()),
+            action: Some("renamed"),
+        });
+    }
+    for d in diffs.iter().filter(|d| d.has_changes) {
+        if rename_from.contains(d.path.as_str()) || rename_to.contains(d.path.as_str()) {
+            continue;
+        }
+        files.push(PatchFileResult {
             path: d.path.clone(),
             status,
             error: None,
             conflicts: None,
-        })
-        .collect()
+            from: None,
+            to: None,
+            action: None,
+        });
+    }
+    files
 }
 
 fn apply_patch_file(
@@ -546,6 +581,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         status: "missing",
                         error: Some(msg.clone()),
                         conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
                     });
                     any_problem = true;
                     continue;
@@ -569,6 +607,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         status: "error",
                         error: Some(msg.clone()),
                         conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
                     });
                     if !global.json && !global.jsonl && !global.quiet {
                         eprintln!("patch check: {} -- READ ERROR: {}", pf.path, msg);
@@ -593,6 +634,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         status: "already_exists",
                         error: Some(msg),
                         conflicts: None,
+                        from: Some(from.to_string()),
+                        to: Some(pf.path.clone()),
+                        action: Some("renamed"),
                     });
                     any_problem = true;
                     continue;
@@ -605,15 +649,30 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         status: "unchanged",
                         error: None,
                         conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
                     });
                 }
                 Ok(_) => {
                     any_would_change = true;
+                    let (from, to, action) = if is_path_rename {
+                        (
+                            pf.rename_from.clone(),
+                            Some(pf.path.clone()),
+                            Some("renamed"),
+                        )
+                    } else {
+                        (None, None, None)
+                    };
                     results.push(PatchFileResult {
                         path: pf.path.clone(),
                         status: "would_change",
                         error: None,
                         conflicts: None,
+                        from,
+                        to,
+                        action,
                     });
                 }
                 Err(_) => {
@@ -623,6 +682,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         status: "stale",
                         error: None,
                         conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
                     });
                 }
             }
@@ -706,6 +768,9 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         status: "error",
                         error: Some(msg),
                         conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
                     });
                 }
             }
@@ -779,6 +844,22 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
 
+    // Relative rename pairs for JSON honesty (one row with from/to; #2106).
+    let rename_pairs: Vec<(String, String)> = result
+        .exec_result
+        .renames
+        .iter()
+        .map(|(from, to)| {
+            let from_s = crate::files::relative_display(from, &cwd)
+                .to_string_lossy()
+                .into_owned();
+            let to_s = crate::files::relative_display(to, &cwd)
+                .to_string_lossy()
+                .into_owned();
+            (from_s, to_s)
+        })
+        .collect();
+
     finalize_report(
         global,
         &cwd,
@@ -786,7 +867,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         true,
         FinalizeCallbacks {
             on_check: |g: &GlobalFlags, _has: bool, diffs: &[crate::diff::FileDiff]| {
-                let files = build_file_results(diffs, "would_change");
+                let files = build_file_results(diffs, "would_change", &rename_pairs);
                 let changed = files.len();
                 // Always emit JSON on --check (even empty) so agents parse stdout.
                 if g.json || g.jsonl || changed > 0 {
@@ -803,7 +884,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                        _plain: Option<String>,
                        backup: Option<String>| {
                 let status = if has { "applied" } else { "unchanged" };
-                let files = build_file_results(diffs, status);
+                let files = build_file_results(diffs, status, &rename_pairs);
                 emit_patch_files_output(g, true, &files, Some(has), backup)?;
                 Ok(())
             },
@@ -812,7 +893,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                          diffs: &[crate::diff::FileDiff],
                          _plain: Option<String>| {
                 if g.json || g.jsonl {
-                    let files = build_file_results(diffs, "would_change");
+                    let files = build_file_results(diffs, "would_change", &rename_pairs);
                     emit_patch_files_output(g, true, &files, Some(false), None)?;
                 } else {
                     print!(
