@@ -355,29 +355,47 @@ fn parse_file_path(line: &str) -> String {
     path.to_string()
 }
 
-/// Minimal Git C-string unescape for paths inside double quotes.
+/// Git C-string unescape for paths inside double quotes.
+///
+/// Handles `\"`, `\\`, `\n`/`\t`/`\r`, and up to three-digit octal byte escapes
+/// (`\303\251` → UTF-8 `é`) used by `core.quotePath` for non-ASCII names.
 fn unquote_git_c_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
+    let mut bytes = Vec::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some('n') => out.push('\n'),
-                Some('t') => out.push('\t'),
-                Some('r') => out.push('\r'),
-                Some('"') => out.push('"'),
-                Some('\\') => out.push('\\'),
-                Some(other) => {
-                    out.push('\\');
-                    out.push(other);
+                Some('n') => bytes.push(b'\n'),
+                Some('t') => bytes.push(b'\t'),
+                Some('r') => bytes.push(b'\r'),
+                Some('"') => bytes.push(b'"'),
+                Some('\\') => bytes.push(b'\\'),
+                Some(d) if d.is_digit(8) => {
+                    // Up to three octal digits (git C-quoted path bytes).
+                    let mut val = d.to_digit(8).unwrap_or(0);
+                    for _ in 0..2 {
+                        match chars.peek().and_then(|n| n.to_digit(8)) {
+                            Some(nd) => {
+                                chars.next();
+                                val = val * 8 + nd;
+                            }
+                            None => break,
+                        }
+                    }
+                    bytes.push(val as u8);
                 }
-                None => out.push('\\'),
+                Some(other) => {
+                    let mut buf = [0u8; 4];
+                    bytes.extend(other.encode_utf8(&mut buf).as_bytes());
+                }
+                None => bytes.push(b'\\'),
             }
         } else {
-            out.push(c);
+            let mut buf = [0u8; 4];
+            bytes.extend(c.encode_utf8(&mut buf).as_bytes());
         }
     }
-    out
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn parse_hunk_header(line: &str) -> Result<Hunk, String> {

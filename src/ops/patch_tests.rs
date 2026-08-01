@@ -1375,6 +1375,21 @@ copy to dst.rs
     }
 
     #[test]
+    fn parse_git_c_quoted_octal_utf8_path() {
+        // core.quotePath: café.rs → "caf\303\251.rs"
+        let diff = "\
+diff --git \"a/caf\\303\\251.rs\" \"b/caf\\303\\251-new.rs\"
+similarity index 100%
+rename from \"caf\\303\\251.rs\"
+rename to \"caf\\303\\251-new.rs\"
+";
+        let files = parse_patch(diff).expect("octal C-quoted pure rename");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "café-new.rs");
+        assert_eq!(files[0].rename_from.as_deref(), Some("café.rs"));
+    }
+
+    #[test]
     fn rename_would_clobber_dest_true_when_dest_exists() {
         assert!(rename_would_clobber_dest("old.rs", "new.rs", true));
         assert!(!rename_would_clobber_dest("old.rs", "new.rs", false));

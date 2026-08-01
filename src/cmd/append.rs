@@ -88,15 +88,27 @@ pub(crate) fn run_content_inject(
     let file = global.rewrite_user_path_arg(&cwd, file)?;
     let file = file.as_str();
     let path = cwd.join(file);
-    if !path.exists() {
+    // Entry presence (not Path::exists follow): dangling symlink is present
+    // like create/delete/rename (#2087 dual-path), not not_found.
+    use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+    if !path_entry_exists(&path) {
         let msg = format!("file does not exist: {file}");
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if !path.is_file() {
-        let msg = format!("target is not a file: {file}");
-        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
-        return Ok(crate::exit::FAILURE);
+    match classify_path_entry(&path) {
+        PathEntryKind::RegularFile => {}
+        PathEntryKind::Missing => {
+            let msg = format!("file does not exist: {file}");
+            global.emit_error_json_kind(Some("not_found"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
+        _ => {
+            // Dangling/symlink-to-dir/FIFO/dir: content ops need a regular file.
+            let msg = format!("target is not a file: {file}");
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
     }
     // Fail before the engine so --json gets error_kind and binaries are not
     // rewritten as text (NUL is valid UTF-8).
