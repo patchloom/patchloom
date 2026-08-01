@@ -154,17 +154,20 @@ fn file_write(
             let is_append = matches!(op, Operation::FileAppend { .. });
             let content = content.clone();
             let path_str = path.to_string_lossy();
-            if path.exists() && !path.is_file() {
-                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("target is not a file: {}", path.display()),
-                }));
-            }
-            if !path.exists() {
+            // Match CLI/tx: entry presence (dangling symlink is present) and
+            // require a regular file for content inject (#2087 dual-path).
+            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+            if !path_entry_exists(path) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     format!("file does not exist: {}", path.display()),
                 )
                 .into());
+            }
+            if classify_path_entry(path) != PathEntryKind::RegularFile {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {}", path.display()),
+                }));
             }
             let original = crate::files::load_text_strict(path, &path_str)?;
             let combined = if is_append {

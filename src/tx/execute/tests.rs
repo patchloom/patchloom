@@ -816,3 +816,22 @@ fn append_dangling_symlink_is_invalid_input() {
         "dangling symlink append must be invalid_input not not_found, got: {err}"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn prepend_dangling_symlink_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let link = dir.path().join("dangling.txt");
+    std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let op = Operation::FilePrepend {
+        path: "dangling.txt".into(),
+        content: "x\n".into(),
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "dangling symlink prepend must be invalid_input not not_found, got: {err}"
+    );
+}

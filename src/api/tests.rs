@@ -7372,6 +7372,26 @@ fn file_append_missing_is_not_found() {
     );
 }
 
+/// Dangling symlink is present but not a regular file → invalid_input, not not_found.
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_append_dangling_symlink_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let link = dir.path().join("dangling.txt");
+    std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+    let err = file_append(&link, "x\n", ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "dangling append must be invalid_input: {err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&err),
+        "is_invalid_input peel: {err}"
+    );
+    assert!(crate::ops::file::path_entry_exists(&link));
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn execute_plan_patch_merge_conflict_is_conflicts() {

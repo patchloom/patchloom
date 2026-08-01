@@ -285,6 +285,28 @@ mod tests {
         assert_eq!(code, exit::FAILURE);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn append_rejects_dangling_symlink_as_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+
+        let args = AppendArgs {
+            file: link.to_string_lossy().into_owned(),
+            content: Some("content\n".to_string()),
+            stdin: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.json = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        // Dangling is present: invalid_input, not not_found (matches create/delete).
+        assert!(crate::ops::file::path_entry_exists(&link));
+    }
+
     #[test]
     fn append_rejects_binary_file() {
         let dir = TempDir::new().unwrap();
