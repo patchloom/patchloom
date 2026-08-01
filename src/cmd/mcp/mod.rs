@@ -334,6 +334,9 @@ impl PatchloomService {
             })?;
             for pf in &patch_files {
                 self.check_path(&pf.path)?;
+                if let Some(from) = &pf.rename_from {
+                    self.check_path(from)?;
+                }
             }
         }
         Ok(())

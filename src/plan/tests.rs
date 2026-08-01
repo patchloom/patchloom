@@ -898,3 +898,23 @@ fn needs_doc_flush_includes_file_create_delete_rename() {
         "FileRename must trigger doc flush"
     );
 }
+
+#[test]
+fn replace_accepts_file_alias() {
+    let json =
+        r#"{"version":1,"operations":[{"op":"replace","file":"README.md","old":"a","new":"b"}]}"#;
+    let plan: Plan = serde_json::from_str(json).expect("deserialize");
+    match &plan.operations[0] {
+        Operation::Replace {
+            path,
+            old,
+            new_text,
+            ..
+        } => {
+            assert_eq!(path.as_deref(), Some("README.md"));
+            assert_eq!(old, "a");
+            assert_eq!(new_text.as_deref(), Some("b"));
+        }
+        other => panic!("expected Replace, got {other:?}"),
+    }
+}

@@ -170,6 +170,9 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
     let lines: Vec<&str> = input.lines().collect();
     let mut files: Vec<PatchFile> = Vec::new();
     let mut i = 0;
+    // When `diff --git` has copy from/to then ---/+++, do not treat path
+    // inequality as rename (would delete the copy source on apply).
+    let mut suppress_path_rename = false;
 
     while i < lines.len() {
         // Pure git rename (100% similarity) often has no ---/+++ headers:
@@ -183,6 +186,7 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             // Look ahead for rename from/to before next file/diff.
             let mut rename_from_meta: Option<String> = None;
             let mut rename_to_meta: Option<String> = None;
+            let mut saw_copy = false;
             let mut j = i + 1;
             while j < lines.len() && !lines[j].starts_with("diff ") && !is_file_header(&lines, j) {
                 if let Some(rest) = lines[j].strip_prefix("rename from ") {
@@ -190,6 +194,8 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                     rename_from_meta = Some(unquote_git_path_meta(rest));
                 } else if let Some(rest) = lines[j].strip_prefix("rename to ") {
                     rename_to_meta = Some(unquote_git_path_meta(rest));
+                } else if lines[j].starts_with("copy from ") || lines[j].starts_with("copy to ") {
+                    saw_copy = true;
                 } else if lines[j].starts_with("@@ ") {
                     // Has hunks under this diff without ---/+++; fall through
                     // to normal scan (should not happen in git format).
@@ -200,6 +206,7 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             // If the next real header is ---/+++ for this same rename, let the
             // normal path consume it (may include content hunks).
             if j < lines.len() && is_file_header(&lines, j) {
+                suppress_path_rename = saw_copy;
                 i = j;
                 // fall through to ---/+++ handler below (no continue)
             } else if let (Some(from), Some(to)) = (rename_from_meta, rename_to_meta) {
@@ -235,11 +242,13 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
         let plus_path = parse_file_path(lines[i + 1]);
         let is_creation = minus_path == "/dev/null";
         let is_deletion = plus_path == "/dev/null";
-        let rename_from = if !is_creation && !is_deletion && minus_path != plus_path {
-            Some(minus_path.clone())
-        } else {
-            None
-        };
+        let rename_from =
+            if !is_creation && !is_deletion && minus_path != plus_path && !suppress_path_rename {
+                Some(minus_path.clone())
+            } else {
+                None
+            };
+        suppress_path_rename = false;
         let path = if is_deletion { minus_path } else { plus_path };
         i += 2;
 
@@ -967,13 +976,26 @@ where
         // New file creation: original is empty, don't try to load from disk.
         // Git rename: load from rename_from (old path), write to path (new).
         let load_path = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+        let pure_rename =
+            pf.rename_from.is_some() && pf.hunks.is_empty() && !pf.is_deletion && !pf.is_creation;
         let original = if pf.is_creation {
             String::new()
         } else {
-            load_original(load_path)?
+            match load_original(load_path) {
+                Ok(s) => s,
+                // Pure path rename of binary / invalid UTF-8: soft empty snapshot
+                // (commit uses fs::rename so bytes stay intact; #2031 parity).
+                Err(e)
+                    if pure_rename
+                        && (crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e)) =>
+                {
+                    String::new()
+                }
+                Err(e) => return Err(e),
+            }
         };
         // Pure rename (empty hunks): keep content, stage rename only.
-        if pf.rename_from.is_some() && pf.hunks.is_empty() && !pf.is_deletion && !pf.is_creation {
+        if pure_rename {
             results.push(PatchApplyFileResult {
                 path: pf.path.clone(),
                 content: original,

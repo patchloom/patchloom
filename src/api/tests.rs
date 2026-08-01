@@ -8140,3 +8140,57 @@ fn doc_set_relative_nested_path_does_not_double_join() {
         serde_json::from_str(&content).unwrap_or_else(|e| panic!("valid JSON: {e}; got {content}"));
     assert_eq!(val["v"], serde_json::json!(2), "got {content}");
 }
+
+#[test]
+fn apply_patch_file_deletion_unlinks() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("gone.txt");
+    fs::write(&f, "bye\n").unwrap();
+    let patch = "--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-bye\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    assert!(
+        !f.exists(),
+        "deletion patch must unlink, not leave empty file"
+    );
+}
+
+#[test]
+fn apply_patch_file_case_only_rename_preserves_inode_content() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("readme.md");
+    fs::write(&src, "hello content\n").unwrap();
+    let patch = "\
+diff --git a/readme.md b/README.md\n\
+similarity index 100%\n\
+rename from readme.md\n\
+rename to README.md\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    // Content must survive on case-insensitive FS (write+delete would wipe it).
+    let content = fs::read_to_string(dir.path().join("README.md"))
+        .or_else(|_| fs::read_to_string(dir.path().join("readme.md")))
+        .expect("content must exist after case-only rename");
+    assert_eq!(content, "hello content\n");
+}
+
+#[test]
+fn apply_patch_file_pure_rename_binary() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("logo.png");
+    fs::write(&src, b"\x89PNG\r\n\x1a\n\x00\x00").unwrap();
+    let patch = "\
+diff --git a/logo.png b/assets/logo.png\n\
+similarity index 100%\n\
+rename from logo.png\n\
+rename to assets/logo.png\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    assert!(!src.exists());
+    let dest = dir.path().join("assets/logo.png");
+    assert!(dest.exists(), "binary pure rename must move bytes");
+    assert_eq!(fs::read(&dest).unwrap(), b"\x89PNG\r\n\x1a\n\x00\x00");
+}

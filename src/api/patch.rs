@@ -162,14 +162,31 @@ pub fn apply_patch_file(
     })?;
 
     // Phase 1: preflight load + hunk apply for every file (no disk writes).
-    // Git rename: load from rename_from, write to path, delete old after apply (#2101).
-    let mut staged: Vec<(
-        std::path::PathBuf,
-        String,
-        String,
-        String,
-        Option<std::path::PathBuf>,
-    )> = Vec::new();
+    // Kinds: content write, deletion (unlink), path rename (fs::rename then optional rewrite).
+    #[derive(Clone)]
+    enum StageOp {
+        Write {
+            write_path: std::path::PathBuf,
+            display: String,
+            original: String,
+            new_content: String,
+        },
+        Delete {
+            path: std::path::PathBuf,
+            display: String,
+            original: String,
+        },
+        Rename {
+            from: std::path::PathBuf,
+            to: std::path::PathBuf,
+            from_display: String,
+            to_display: String,
+            original: String,
+            new_content: String,
+        },
+    }
+
+    let mut staged: Vec<StageOp> = Vec::new();
     for pf in &patch_files {
         let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
@@ -185,15 +202,39 @@ pub fn apply_patch_file(
                 msg: crate::ops::patch::rename_dest_exists_msg(&pf.path),
             }));
         }
-        // Strict sole-path (#1894). Creation: empty original.
+
+        if pf.is_deletion {
+            // Real unlink, not empty rewrite (tx/CLI parity).
+            let original = if crate::ops::file::path_entry_exists(&load_path) {
+                crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            staged.push(StageOp::Delete {
+                path: load_path,
+                display: pf.path.clone(),
+                original,
+            });
+            continue;
+        }
+
+        // Pure path rename of non-text: soft empty snapshot (file_rename #2031).
+        let pure_rename = pf.rename_from.is_some() && pf.hunks.is_empty();
         let original = if pf.is_creation {
             String::new()
+        } else if pure_rename {
+            match crate::files::load_text_strict(&load_path, load_rel) {
+                Ok(s) => s,
+                Err(e) if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) => {
+                    String::new()
+                }
+                Err(e) => return Err(e),
+            }
         } else {
             crate::files::load_text_strict(&load_path, load_rel)?
         };
 
-        // Pure rename (empty hunks): keep content as-is.
-        let new_content = if pf.rename_from.is_some() && pf.hunks.is_empty() {
+        let new_content = if pure_rename {
             original.clone()
         } else {
             crate::ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
@@ -208,50 +249,110 @@ pub fn apply_patch_file(
                 }
             })?
         };
-        let delete_after = pf.rename_from.as_ref().map(|f| cwd.join(f));
-        staged.push((
-            write_path,
-            pf.path.clone(),
-            original,
-            new_content,
-            delete_after,
-        ));
+
+        if let Some(from) = pf.rename_from.as_ref() {
+            let from_path = cwd.join(from);
+            staged.push(StageOp::Rename {
+                from: from_path,
+                to: write_path,
+                from_display: from.clone(),
+                to_display: pf.path.clone(),
+                original,
+                new_content,
+            });
+        } else {
+            staged.push(StageOp::Write {
+                write_path,
+                display: pf.path.clone(),
+                original,
+                new_content,
+            });
+        }
     }
 
-    // Phase 2: one backup session covering write targets + rename sources,
-    // then all-or-nothing write; on success remove rename sources.
+    // Phase 2: one backup session, then all-or-nothing mutate.
     let policy = crate::write::WritePolicy::default();
     let (applied, backup_session) = if mode == ApplyMode::Apply {
-        for (write_path, _, _, _, delete_after) in &staged {
-            super::ensure_contained(guard, write_path)?;
-            if let Some(old) = delete_after {
-                super::ensure_contained(guard, old)?;
+        for op in &staged {
+            match op {
+                StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
+                StageOp::Delete { path, .. } => super::ensure_contained(guard, path)?,
+                StageOp::Rename { from, to, .. } => {
+                    super::ensure_contained(guard, from)?;
+                    super::ensure_contained(guard, to)?;
+                }
             }
         }
         let mut backup = crate::backup::BackupSession::new(cwd)?;
-        for (write_path, _, _, _, delete_after) in &staged {
-            if crate::ops::file::path_entry_exists(write_path) {
-                backup.save_before_write(write_path)?;
-            }
-            if let Some(old) = delete_after
-                && old != write_path
-                && crate::ops::file::path_entry_exists(old)
-            {
-                backup.save_before_write(old)?;
+        for op in &staged {
+            match op {
+                StageOp::Write { write_path, .. } => {
+                    if crate::ops::file::path_entry_exists(write_path) {
+                        backup.save_before_write(write_path)?;
+                    }
+                }
+                StageOp::Delete { path, .. } => {
+                    if crate::ops::file::path_entry_exists(path) {
+                        backup.save_before_write(path)?;
+                    }
+                }
+                StageOp::Rename { from, to, .. } => {
+                    if crate::ops::file::path_entry_exists(from) {
+                        backup.save_before_write(from)?;
+                    }
+                    if crate::ops::file::path_entry_exists(to) && to != from {
+                        backup.save_before_write(to)?;
+                    }
+                }
             }
         }
         let session = backup.finalize()?;
         let write_result = (|| -> anyhow::Result<()> {
-            for (write_path, _, _, new_content, _) in &staged {
-                crate::write::atomic_write(write_path, new_content, &policy)?;
-            }
-            for (_, _, _, _, delete_after) in &staged {
-                if let Some(old) = delete_after
-                    && crate::ops::file::path_entry_exists(old)
-                {
-                    std::fs::remove_file(old).map_err(|e| {
-                        anyhow::anyhow!("patch rename: failed to remove {}: {e}", old.display())
-                    })?;
+            for op in &staged {
+                match op {
+                    StageOp::Write {
+                        write_path,
+                        new_content,
+                        ..
+                    } => {
+                        if let Some(parent) = write_path.parent()
+                            && !parent.as_os_str().is_empty()
+                            && !parent.exists()
+                        {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        crate::write::atomic_write(write_path, new_content, &policy)?;
+                    }
+                    StageOp::Delete { path, .. } => {
+                        if crate::ops::file::path_entry_exists(path) {
+                            std::fs::remove_file(path).map_err(|e| {
+                                anyhow::anyhow!(
+                                    "patch delete: failed to remove {}: {e}",
+                                    path.display()
+                                )
+                            })?;
+                        }
+                    }
+                    StageOp::Rename {
+                        from,
+                        to,
+                        original,
+                        new_content,
+                        ..
+                    } => {
+                        // fs::rename preserves case-only renames and binary bytes
+                        // (write-dest+delete-src would delete the only inode).
+                        if let Some(parent) = to.parent()
+                            && !parent.as_os_str().is_empty()
+                            && !parent.exists()
+                        {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        crate::ops::file::rename_or_copy(from, to)?;
+                        if new_content != original {
+                            crate::write::atomic_write(to, new_content, &policy)?;
+                        }
+                    }
                 }
             }
             Ok(())
@@ -265,28 +366,49 @@ pub fn apply_patch_file(
     };
 
     let mut results = Vec::with_capacity(staged.len());
-    for (_abs, display, original, new_content, delete_after) in staged {
-        let mut edit =
-            super::build_edit_result(&display, original, new_content, applied, "patch", None);
-        // Path rename (any rename_from with a distinct write target): content may
-        // equal original (pure rename), but the tree still changes. Hosts branch
-        // on `changed` for Preview; report path=old, dest_path=new like file_rename.
-        if delete_after
-            .as_ref()
-            .is_some_and(|old| old.as_path() != _abs.as_path())
-        {
-            edit.changed = true;
-            if let Some(old) = delete_after.as_ref() {
-                let old_display = old
-                    .strip_prefix(cwd)
-                    .unwrap_or(old.as_path())
-                    .to_string_lossy()
-                    .into_owned();
-                edit.dest_path = Some(display.clone());
-                edit.path = old_display;
+    for op in staged {
+        let mut edit = match op {
+            StageOp::Write {
+                display,
+                original,
+                new_content,
+                ..
+            } => super::build_edit_result(&display, original, new_content, applied, "patch", None),
+            StageOp::Delete {
+                display, original, ..
+            } => {
+                let mut e = super::build_edit_result(
+                    &display,
+                    original,
+                    String::new(),
+                    applied,
+                    "patch",
+                    None,
+                );
+                e.changed = true;
+                e
             }
-        }
-        // Same session id on every file result so hosts can undo once.
+            StageOp::Rename {
+                from_display,
+                to_display,
+                original,
+                new_content,
+                ..
+            } => {
+                let mut e = super::build_edit_result(
+                    &to_display,
+                    original,
+                    new_content,
+                    applied,
+                    "patch",
+                    Some(to_display.clone()),
+                );
+                e.changed = true;
+                e.path = from_display;
+                e.dest_path = Some(to_display);
+                e
+            }
+        };
         edit.backup_session = backup_session.clone();
         results.push(edit);
     }

@@ -234,6 +234,10 @@ impl TxState<'_> {
     /// so commit-time write_policy can re-apply after non-tidy writers (#1847).
     pub(crate) fn write_file(&mut self, path: &Path, new_content: String) {
         self.policy_finalized.remove(path);
+        // Only when clearing a prior deletion (resurrect) drop rename pairs
+        // that still name this path as source. Staging a rename source as
+        // empty+delete must not wipe the pair we just recorded.
+        let resurrecting = self.deletions.contains(path);
         update_file_content(
             self.pending,
             self.deletions,
@@ -241,6 +245,9 @@ impl TxState<'_> {
             path,
             new_content,
         );
+        if resurrecting {
+            self.renames.retain(|(from, _)| from != path);
+        }
     }
 }
 
