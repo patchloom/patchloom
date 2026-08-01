@@ -35,6 +35,19 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                     // Git rename: load was from `from`; stage rename + new content (#2101).
                     let from_path = tx.cwd.join(from);
                     let to_path = tx.cwd.join(&result.path);
+                    // Refuse overwrite of an existing dest (parity with file.rename
+                    // without force). Case-only renames still allowed.
+                    let dest_exists = (tx.pending.contains_key(&to_path)
+                        && !tx.deletions.contains(&to_path))
+                        || (!tx.deletions.contains(&to_path)
+                            && crate::ops::file::path_entry_exists(&to_path));
+                    if crate::ops::patch::rename_would_clobber_dest(from, &result.path, dest_exists)
+                    {
+                        return Err(crate::exit::AlreadyExistsError {
+                            msg: crate::ops::patch::rename_dest_exists_msg(&result.path),
+                        }
+                        .into());
+                    }
                     // Ensure source is in pending (loader already did); record rename
                     // so commit uses fs::rename then write dest content.
                     if !tx.existed_before.contains(&from_path)
@@ -45,7 +58,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                     if crate::ops::file::path_entry_exists(&to_path)
                         && !tx.existed_before.contains(&to_path)
                     {
-                        // Dest exists: soft-load so commit overwrites rather than create_new.
+                        // Dest exists only for case-only renames after the check above.
                         let _ = read_file_content(tx.pending, tx.existed_before, &to_path)?;
                     }
                     tx.renames.push((from_path.clone(), to_path.clone()));

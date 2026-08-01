@@ -352,6 +352,10 @@ pub(crate) fn build_tx_output_with_meta(
         renamed_count += 1;
     }
 
+    // O(1) membership for deletion/refuse loops (AI finding + large-tx scale).
+    let change_paths: HashSet<&std::path::Path> =
+        changes.iter().map(|(c, _, _)| c.as_path()).collect();
+
     for (path, original, new_content) in changes {
         // Covered by a renamed entry (source deleted / dest created).
         if rename_from.contains(path) || rename_to.contains(path) {
@@ -420,7 +424,7 @@ pub(crate) fn build_tx_output_with_meta(
         if rename_from.contains(path) {
             continue;
         }
-        if !changes.iter().any(|(c, _, _)| c == path) {
+        if !change_paths.contains(path.as_path()) {
             let (match_mode, match_score, match_count, matched_text) =
                 match_meta_for_path(path, replace_match_meta);
             if let Some(m) = replace_match_meta.get(path) {
@@ -476,7 +480,7 @@ pub(crate) fn build_tx_output_with_meta(
     // do not treat overall ok as "every replace applied".
     let mut refused = Vec::new();
     for (path, m) in replace_match_meta {
-        if changes.iter().any(|(c, _, _)| c == path) || deletions.contains(path) {
+        if change_paths.contains(path.as_path()) || deletions.contains(path) {
             continue;
         }
         // Only surface zero-match soft skips (writes already listed in changes).

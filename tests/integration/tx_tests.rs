@@ -3499,6 +3499,83 @@ fn test_tx_patch_apply_in_plan() {
     );
 }
 
+/// Pure git rename must refuse when dest already exists (parity with file.rename).
+#[test]
+fn test_tx_patch_apply_pure_rename_refuses_existing_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "source\n").unwrap();
+    fs::write(dir.path().join("new.rs"), "dest-existing\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "diff --git a/old.rs b/new.rs\nsimilarity index 100%\nrename from old.rs\nrename to new.rs\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("already_exists") || stdout.contains("destination already exists"),
+        "expected already_exists honesty, got: {stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.rs")).unwrap(),
+        "source\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "dest-existing\n"
+    );
+}
+
+/// Pure git rename (no hunks) through plan `patch.apply` (#2104 multi-surface).
+#[test]
+fn test_tx_patch_apply_pure_rename() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "fn main() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "cwd": dir.path().to_str().unwrap(),
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "diff --git a/old.rs b/new.rs\nsimilarity index 100%\nrename from old.rs\nrename to new.rs\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert!(
+        !dir.path().join("old.rs").exists(),
+        "source removed after pure rename via tx"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+}
+
 #[test]
 fn test_tx_patch_apply_uses_pending_file_state() {
     let dir = TempDir::new().unwrap();

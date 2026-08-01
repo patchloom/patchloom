@@ -1351,6 +1351,18 @@ copy to bar.rs
     }
 
     #[test]
+    fn rename_would_clobber_dest_true_when_dest_exists() {
+        assert!(rename_would_clobber_dest("old.rs", "new.rs", true));
+        assert!(!rename_would_clobber_dest("old.rs", "new.rs", false));
+        assert!(!rename_would_clobber_dest("same.rs", "same.rs", true));
+        // Case-only rename must not clobber (case-insensitive FS dest "exists").
+        assert!(!rename_would_clobber_dest("old.rs", "OLD.rs", true));
+        assert!(!rename_would_clobber_dest("dir/a.rs", "dir/A.rs", true));
+        // Different basenames still clobber.
+        assert!(rename_would_clobber_dest("dir/a.rs", "dir/b.rs", true));
+    }
+
+    #[test]
     fn parse_pure_git_rename_c_quoted_paths_with_spaces() {
         // Git C-quotes paths with spaces on pure renames (no hunks).
         let diff = "\

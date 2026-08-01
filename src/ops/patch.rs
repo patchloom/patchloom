@@ -38,6 +38,29 @@ pub struct PatchFile {
     pub rename_from: Option<String>,
 }
 
+/// True when a git rename would overwrite an existing destination that is not
+/// a case-only rename of the source (parity with `file.rename` without force).
+///
+/// Callers supply `dest_exists` from disk or tx pending state.
+pub fn rename_would_clobber_dest(from: &str, to: &str, dest_exists: bool) -> bool {
+    if !dest_exists || from == to {
+        return false;
+    }
+    let from_path = std::path::Path::new(from);
+    let to_path = std::path::Path::new(to);
+    let case_only = from_path.parent() == to_path.parent()
+        && from_path.file_name().map(|n| n.to_ascii_lowercase())
+            == to_path.file_name().map(|n| n.to_ascii_lowercase());
+    !case_only
+}
+
+/// Error message when [`rename_would_clobber_dest`] is true.
+pub fn rename_dest_exists_msg(to: &str) -> String {
+    format!(
+        "destination already exists: {to} (patch rename refuses overwrite; remove dest or use file.rename --force)"
+    )
+}
+
 /// Check whether line `idx` is a real file header ("--- " followed by "+++"),
 /// not a removed line whose content happens to start with "-- " (e.g. SQL
 /// comments produce `--- comment text` in the diff).

@@ -1213,6 +1213,38 @@ async fn test_mcp_patch_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// Pure git rename (100% similarity, no hunks) via MCP apply_patch.
+/// Multi-surface lock: unit/CLI already cover; agents use MCP (#2104 follow-up).
+#[tokio::test]
+async fn test_mcp_apply_patch_pure_rename() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "fn main() {}\n").unwrap();
+
+    let diff = "\
+diff --git a/old.rs b/new.rs\n\
+similarity index 100%\n\
+rename from old.rs\n\
+rename to new.rs\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(!is_error, "pure rename via MCP should succeed: {val}");
+    assert_eq!(val["ok"], true, "pure rename ok: {val}");
+    assert!(
+        !dir.path().join("old.rs").exists(),
+        "source removed after pure rename"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_apply_patch_on_stale_merge() {
     if !has_mcp_support() {

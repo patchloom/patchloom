@@ -1091,6 +1091,34 @@ fn apply_patch_file_applies_multi_file_patch() {
     assert_eq!(sessions[0], sessions[1], "both files share one session");
 }
 
+/// Patch rename must not overwrite an existing destination (file.rename parity).
+#[test]
+fn apply_patch_file_rename_refuses_existing_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "source\n").unwrap();
+    fs::write(dir.path().join("new.rs"), "dest-existing\n").unwrap();
+
+    let patch = "\
+diff --git a/old.rs b/new.rs\n\
+similarity index 100%\n\
+rename from old.rs\n\
+rename to new.rs\n";
+
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_already_exists(&err),
+        "expected already_exists, got: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.rs")).unwrap(),
+        "source\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "dest-existing\n"
+    );
+}
+
 /// Pure rename Preview: content may be unchanged, but path moves so `changed`
 /// must be true and path/dest_path must report old → new for host branching.
 #[test]

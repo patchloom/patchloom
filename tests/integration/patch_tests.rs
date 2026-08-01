@@ -338,6 +338,59 @@ fn test_patch_check_pure_rename_exits_2() {
 }
 
 #[test]
+fn test_patch_rename_refuses_existing_dest() {
+    // file.rename refuses without --force; patch rename must match (not clobber).
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "source\n").unwrap();
+    fs::write(dir.path().join("new.rs"), "dest-existing\n").unwrap();
+
+    let patch_file = dir.path().join("rename.patch");
+    fs::write(
+        &patch_file,
+        "diff --git a/old.rs b/new.rs\n\
+         similarity index 100%\n\
+         rename from old.rs\n\
+         rename to new.rs\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&patch_file)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("already_exists"));
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("already_exists"));
+
+    // Tree unchanged.
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.rs")).unwrap(),
+        "source\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "dest-existing\n"
+    );
+}
+
+#[test]
 fn test_patch_check_pure_rename_c_quoted_paths() {
     // Git C-quotes paths with spaces; check/apply must unquote and move.
     let dir = TempDir::new().unwrap();
