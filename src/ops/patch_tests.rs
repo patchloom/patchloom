@@ -1389,6 +1389,7 @@ rename to \"caf\\303\\251-new.rs\"
         assert_eq!(files[0].rename_from.as_deref(), Some("café.rs"));
     }
 
+    #[cfg(any(feature = "cli", feature = "files"))]
     #[test]
     fn apply_pure_rename_octal_c_quoted_paths() {
         use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
