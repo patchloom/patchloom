@@ -265,8 +265,23 @@ pub fn sole_explicit_non_text(paths: &[String], cwd: &Path) -> Option<anyhow::Er
             cwd.join(p)
         }
     };
-    if !path.is_file() {
-        return None;
+    // Classify without following: dangling symlink / FIFO is present but not
+    // text. Path::is_file() follows and reports false → used to fall through
+    // as not_found after soft scan (#2087 dual-path vs append/create).
+    match classify_path_entry(&path) {
+        PathEntryKind::Missing | PathEntryKind::RealDirectory => {
+            // Missing: later not_found. Directory: walk / multi-file scan.
+            return None;
+        }
+        PathEntryKind::Special => {
+            return Some(
+                crate::exit::InvalidInputError {
+                    msg: format!("target is not a file: {display}"),
+                }
+                .into(),
+            );
+        }
+        PathEntryKind::RegularFile => {}
     }
     // Strict sole-path: binary / invalid UTF-8 → typed kinds; unreadable IO
     // on an existing file must also hard-fail (not soft no_matches / clean).
@@ -637,6 +652,21 @@ mod tests {
         assert!(sole_explicit_non_text(&["t.txt".into()], dir.path()).is_none());
         assert!(sole_explicit_non_text(&["t.txt".into(), "b.bin".into()], dir.path()).is_none());
         assert!(sole_explicit_non_text(&[".".into()], dir.path()).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sole_explicit_non_text_rejects_dangling_symlink() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+        let err = sole_explicit_non_text(&["dangling.txt".into()], dir.path()).unwrap();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dangling sole path must be invalid_input not not_found: {err}"
+        );
+        assert!(err.to_string().contains("not a file"), "got: {err}");
+        assert_eq!(crate::fallback::error_kind_str(&err), Some("invalid_input"));
     }
 
     #[test]

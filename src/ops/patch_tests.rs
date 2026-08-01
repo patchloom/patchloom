@@ -1390,6 +1390,33 @@ rename to \"caf\\303\\251-new.rs\"
     }
 
     #[test]
+    fn apply_pure_rename_octal_c_quoted_paths() {
+        use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
+        let mut files = std::collections::HashMap::new();
+        files.insert("café.rs".to_string(), "body\n".to_string());
+        let results = apply_patch_with_loader(
+            "\
+diff --git \"a/caf\\303\\251.rs\" \"b/caf\\303\\251-new.rs\"
+similarity index 100%
+rename from \"caf\\303\\251.rs\"
+rename to \"caf\\303\\251-new.rs\"
+",
+            |path| {
+                files
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("missing {path}"))
+            },
+            ApplyHunksOptions::default(),
+        )
+        .expect("apply octal C-quoted pure rename");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "café-new.rs");
+        assert_eq!(results[0].rename_from.as_deref(), Some("café.rs"));
+        assert_eq!(results[0].content, "body\n");
+    }
+
+    #[test]
     fn rename_would_clobber_dest_true_when_dest_exists() {
         assert!(rename_would_clobber_dest("old.rs", "new.rs", true));
         assert!(!rename_would_clobber_dest("old.rs", "new.rs", false));
