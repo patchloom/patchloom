@@ -7302,6 +7302,29 @@ fn file_create_already_exists_is_already_exists() {
     );
 }
 
+/// Dangling symlink is a present entry → already_exists without force (#2087).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_create_dangling_symlink_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    let link = dir.path().join("dangling.txt");
+    std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+    let err = file_create(&link, "y\n", false, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::fallback::is_already_exists(&err),
+        "dangling create without force: {err}"
+    );
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("already_exists")
+    );
+    // force overwrites the dangling entry with a regular file
+    let r = file_create(&link, "y\n", true, ApplyMode::Apply, None).unwrap();
+    assert!(r.applied);
+    assert!(link.is_file());
+    assert_eq!(fs::read_to_string(&link).unwrap(), "y\n");
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn file_rename_destination_exists_is_already_exists() {

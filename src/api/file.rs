@@ -64,16 +64,21 @@ fn file_write(
     match op {
         Operation::FileCreate { content, force, .. } => {
             let path_str = path.to_string_lossy();
-            if path.exists() && !path.is_file() {
-                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("target is not a file: {}", path.display()),
-                }));
+            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+            // Match engine: entry presence (dangling is present) + real dirs refuse.
+            match classify_path_entry(path) {
+                PathEntryKind::RealDirectory => {
+                    return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                        msg: format!("target is not a file: {}", path.display()),
+                    }));
+                }
+                PathEntryKind::Missing | PathEntryKind::RegularFile | PathEntryKind::Special => {}
             }
             crate::ops::file::ensure_parent_components_are_directories(path)?;
             let force = force.unwrap_or(false);
             // Match engine path: refuse existing without force in all modes
             // (Preview/Check/Apply). Preview must not soft-succeed (#MPI dual-path).
-            if !force && path.exists() {
+            if !force && path_entry_exists(path) {
                 return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                     msg: format!(
                         "file already exists: {} (use force to overwrite)",
@@ -82,14 +87,20 @@ fn file_write(
                 }));
             }
             // Force: soft-load prior (binary/encoding/unreadable → empty) (#1962).
-            let original = if path.exists() {
-                match crate::files::load_text_strict(path, &path_str) {
-                    Ok(s) => s,
-                    Err(e) if force && crate::exit::is_load_text_strict_fail(&e) => String::new(),
-                    Err(e) => return Err(e),
+            // Special nodes (dangling) → empty original; regular text strict load.
+            let original = match classify_path_entry(path) {
+                PathEntryKind::RegularFile => {
+                    match crate::files::load_text_strict(path, &path_str) {
+                        Ok(s) => s,
+                        Err(e) if force && crate::exit::is_load_text_strict_fail(&e) => {
+                            String::new()
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
-            } else {
-                String::new()
+                PathEntryKind::Missing | PathEntryKind::Special | PathEntryKind::RealDirectory => {
+                    String::new()
+                }
             };
             let policy = crate::write::WritePolicy::default();
             let (applied, backup_session) =
