@@ -314,11 +314,23 @@ fn patch_problem_kind(results: &[PatchFileResult]) -> (&'static str, String, u8)
     let has_missing = results.iter().any(|r| r.status == "missing");
     let has_error = results.iter().any(|r| r.status == "error");
     let has_conflict = results.iter().any(|r| r.status == "conflict");
+    let has_already_exists = results.iter().any(|r| {
+        r.status == "already_exists"
+            || r.error
+                .as_deref()
+                .is_some_and(|e| e.contains("destination already exists"))
+    });
     if has_conflict {
         (
             "conflicts",
             "one or more patch targets have merge conflicts".into(),
             exit::CONFLICTS,
+        )
+    } else if has_already_exists {
+        (
+            "already_exists",
+            "one or more patch rename destinations already exist".into(),
+            exit::FAILURE,
         )
     } else if has_stale {
         (
@@ -568,6 +580,24 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Pure rename: content may match original, but apply still moves
             // the path — report would_change so agents do not skip apply.
             let is_path_rename = pf.rename_from.as_ref().is_some_and(|from| from != &pf.path);
+            if let Some(from) = pf.rename_from.as_deref() {
+                let dest_path = cwd.join(&pf.path);
+                if crate::ops::patch::rename_would_clobber_dest(
+                    from,
+                    &pf.path,
+                    crate::ops::file::path_entry_exists(&dest_path),
+                ) {
+                    let msg = crate::ops::patch::rename_dest_exists_msg(&pf.path);
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "already_exists",
+                        error: Some(msg),
+                        conflicts: None,
+                    });
+                    any_problem = true;
+                    continue;
+                }
+            }
             match apply_hunks(&original, &pf.hunks) {
                 Ok(new_content) if new_content == original && !is_path_rename => {
                     results.push(PatchFileResult {

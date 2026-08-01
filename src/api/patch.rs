@@ -88,6 +88,17 @@ fn patch_write(
         let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
+        if let Some(from) = pf.rename_from.as_deref()
+            && crate::ops::patch::rename_would_clobber_dest(
+                from,
+                &pf.path,
+                crate::ops::file::path_entry_exists(&write_path),
+            )
+        {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: crate::ops::patch::rename_dest_exists_msg(&pf.path),
+            }));
+        }
         // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
         let original = if pf.is_creation {
             String::new()
@@ -163,6 +174,17 @@ pub fn apply_patch_file(
         let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
+        if let Some(from) = pf.rename_from.as_deref()
+            && crate::ops::patch::rename_would_clobber_dest(
+                from,
+                &pf.path,
+                crate::ops::file::path_entry_exists(&write_path),
+            )
+        {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: crate::ops::patch::rename_dest_exists_msg(&pf.path),
+            }));
+        }
         // Strict sole-path (#1894). Creation: empty original.
         let original = if pf.is_creation {
             String::new()
