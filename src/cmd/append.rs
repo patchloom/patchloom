@@ -88,15 +88,27 @@ pub(crate) fn run_content_inject(
     let file = global.rewrite_user_path_arg(&cwd, file)?;
     let file = file.as_str();
     let path = cwd.join(file);
-    if !path.exists() {
+    // Entry presence (not Path::exists follow): dangling symlink is present
+    // like create/delete/rename (#2087 dual-path), not not_found.
+    use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
+    if !path_entry_exists(&path) {
         let msg = format!("file does not exist: {file}");
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if !path.is_file() {
-        let msg = format!("target is not a file: {file}");
-        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
-        return Ok(crate::exit::FAILURE);
+    match classify_path_entry(&path) {
+        PathEntryKind::RegularFile => {}
+        PathEntryKind::Missing => {
+            let msg = format!("file does not exist: {file}");
+            global.emit_error_json_kind(Some("not_found"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
+        _ => {
+            // Dangling/symlink-to-dir/FIFO/dir: content ops need a regular file.
+            let msg = format!("target is not a file: {file}");
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
     }
     // Fail before the engine so --json gets error_kind and binaries are not
     // rewritten as text (NUL is valid UTF-8).
@@ -271,6 +283,28 @@ mod tests {
 
         let code = run(args, &GlobalFlags::default()).unwrap();
         assert_eq!(code, exit::FAILURE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn append_rejects_dangling_symlink_as_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+
+        let args = AppendArgs {
+            file: link.to_string_lossy().into_owned(),
+            content: Some("content\n".to_string()),
+            stdin: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.json = true;
+
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        // Dangling is present: invalid_input, not not_found (matches create/delete).
+        assert!(crate::ops::file::path_entry_exists(&link));
     }
 
     #[test]

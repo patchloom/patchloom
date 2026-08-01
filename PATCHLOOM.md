@@ -151,7 +151,7 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 - Text I/O honesty (#1894):
 | Surface | Binary / invalid UTF-8 | Unreadable (IO) |
 |---------|------------------------|-----------------|
-| Sole explicit path (`load_text_strict` / `sole_explicit_non_text`) | `binary` / `invalid_encoding` / `invalid_input` | IO / `not_found` |
+| Sole explicit path (`load_text_strict` / `sole_explicit_non_text`) | `binary` / `invalid_encoding` / `invalid_input` (also dangling/FIFO `not a file`) | IO / `not_found` |
 | Explicit multi-file list | `refused[]` reason `binary` or `invalid_utf8` | `refused[]` reason `unreadable` |
 | Directory walk (`try_read_text_file`) | content SoftSkip (silent) | SoftSkip; empty scan must not report pattern `no_matches` if unreadable may have masked it (AST rename) |
 | Tx multi-path probe (`read_and_probe`) | SoftSkip `Ok(false)` | Hard `Err` (plan names paths) |

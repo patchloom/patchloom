@@ -1245,6 +1245,41 @@ rename to new.rs\n";
     client.cancel().await.unwrap();
 }
 
+/// Pure rename source outside workspace must fail closed (#2109 PathGuard).
+#[tokio::test]
+async fn test_mcp_apply_patch_pure_rename_escape_source_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    // Outside file next to workspace
+    let outside = dir.path().parent().unwrap().join("pl-outside-secret.env");
+    fs::write(&outside, "SECRET=1\n").unwrap();
+    let outside_name = outside.file_name().unwrap().to_str().unwrap();
+
+    let diff = format!(
+        "diff --git a/../{out} b/stolen.env\nsimilarity index 100%\nrename from ../{out}\nrename to stolen.env\n",
+        out = outside_name
+    );
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(is_error, "escape rename_from must fail: {val}");
+    let s = val.to_string();
+    assert!(
+        s.contains("guard") || s.contains("escape") || s.contains("reject") || s.contains("path"),
+        "expected containment failure, got: {val}"
+    );
+    assert!(
+        outside.exists() && fs::read_to_string(&outside).unwrap().contains("SECRET"),
+        "outside file must not be moved"
+    );
+    assert!(!dir.path().join("stolen.env").exists());
+    let _ = fs::remove_file(&outside);
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_apply_patch_on_stale_merge() {
     if !has_mcp_support() {

@@ -265,8 +265,33 @@ pub fn sole_explicit_non_text(paths: &[String], cwd: &Path) -> Option<anyhow::Er
             cwd.join(p)
         }
     };
-    if !path.is_file() {
-        return None;
+    // Presence without following, then follow only for loadable targets.
+    // Symlink-to-file must still load (replace/search follow); symlink-to-dir
+    // returns None so directory walks proceed. Dangling (and other specials
+    // that are neither file nor dir after follow) used to fall through
+    // Path::is_file()==false into soft not_found (#2087 dual-path).
+    match classify_path_entry(&path) {
+        PathEntryKind::Missing | PathEntryKind::RealDirectory => {
+            // Missing: later not_found. Directory: walk / multi-file scan.
+            return None;
+        }
+        PathEntryKind::RegularFile => {}
+        PathEntryKind::Special => {
+            if path.is_file() {
+                // Symlink to a regular file (or rare special that follows as file).
+            } else if path.is_dir() {
+                // Symlink to a directory: allow multi-file scan.
+                return None;
+            } else {
+                // Dangling symlink, socket, etc.: present but not text.
+                return Some(
+                    crate::exit::InvalidInputError {
+                        msg: format!("target is not a file: {display}"),
+                    }
+                    .into(),
+                );
+            }
+        }
     }
     // Strict sole-path: binary / invalid UTF-8 → typed kinds; unreadable IO
     // on an existing file must also hard-fail (not soft no_matches / clean).
@@ -637,6 +662,50 @@ mod tests {
         assert!(sole_explicit_non_text(&["t.txt".into()], dir.path()).is_none());
         assert!(sole_explicit_non_text(&["t.txt".into(), "b.bin".into()], dir.path()).is_none());
         assert!(sole_explicit_non_text(&[".".into()], dir.path()).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sole_explicit_non_text_rejects_dangling_symlink() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+        let err = sole_explicit_non_text(&["dangling.txt".into()], dir.path()).unwrap();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dangling sole path must be invalid_input not not_found: {err}"
+        );
+        assert!(err.to_string().contains("not a file"), "got: {err}");
+        assert_eq!(crate::fallback::error_kind_str(&err), Some("invalid_input"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sole_explicit_non_text_allows_symlink_to_text_file() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real.txt");
+        fs::write(&real, "hi\n").unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert!(
+            sole_explicit_non_text(&["link.txt".into()], dir.path()).is_none(),
+            "symlink-to-file must still load as sole text path"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sole_explicit_non_text_allows_symlink_to_directory() {
+        let dir = TempDir::new().unwrap();
+        let nested = dir.path().join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(nested.join("a.txt"), "x\n").unwrap();
+        let link = dir.path().join("link_dir");
+        std::os::unix::fs::symlink(&nested, &link).unwrap();
+        assert!(
+            sole_explicit_non_text(&["link_dir".into()], dir.path()).is_none(),
+            "symlink-to-dir must allow multi-file scan"
+        );
     }
 
     #[test]

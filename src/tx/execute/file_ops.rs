@@ -11,12 +11,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
     match op {
         Operation::FileAppend { path, content } => {
             let file_path = tx.cwd.join(path);
-            if file_path.exists() && !file_path.is_file() {
-                return Err(crate::exit::InvalidInputError {
-                    msg: format!("target is not a file: {path}"),
-                }
-                .into());
-            }
+            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
             if tx.deletions.contains(&file_path) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -24,15 +19,22 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 )
                 .into());
             }
-            if !file_path.exists() && !tx.pending.contains_key(&file_path) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("file does not exist: {path}"),
-                )
-                .into());
-            }
-            // On-disk binary only (in-tx text create then append is fine).
             if !tx.pending.contains_key(&file_path) {
+                if !path_entry_exists(&file_path) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file does not exist: {path}"),
+                    )
+                    .into());
+                }
+                // Dangling symlink is present (not not_found) but not a regular file.
+                if classify_path_entry(&file_path) != PathEntryKind::RegularFile {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("target is not a file: {path}"),
+                    }
+                    .into());
+                }
+                // On-disk binary only (in-tx text create then append is fine).
                 crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
@@ -42,12 +44,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
 
         Operation::FilePrepend { path, content } => {
             let file_path = tx.cwd.join(path);
-            if file_path.exists() && !file_path.is_file() {
-                return Err(crate::exit::InvalidInputError {
-                    msg: format!("target is not a file: {path}"),
-                }
-                .into());
-            }
+            use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
             if tx.deletions.contains(&file_path) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -55,14 +52,20 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 )
                 .into());
             }
-            if !file_path.exists() && !tx.pending.contains_key(&file_path) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("file does not exist: {path}"),
-                )
-                .into());
-            }
             if !tx.pending.contains_key(&file_path) {
+                if !path_entry_exists(&file_path) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file does not exist: {path}"),
+                    )
+                    .into());
+                }
+                if classify_path_entry(&file_path) != PathEntryKind::RegularFile {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("target is not a file: {path}"),
+                    }
+                    .into());
+                }
                 crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             }
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
