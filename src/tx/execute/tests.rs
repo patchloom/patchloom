@@ -615,7 +615,6 @@ fn case_only_rename_plan_apply_preserves_content() {
         report.ok,
         "case-only rename plan should succeed: {report:?}"
     );
-
     // Content must still exist under either spelling (case-insensitive FS).
     let content = std::fs::read_to_string(dir.path().join("README.md"))
         .or_else(|_| std::fs::read_to_string(&src))
@@ -715,4 +714,86 @@ fn execute_and_collect_preserves_no_match_error_kind() {
             );
         }
     }
+}
+
+/// rename a→b then create a: both paths must exist with correct content.
+/// Stale tx.renames used to fs::rename a→b and skip writing resurrected a.
+#[test]
+fn rename_then_create_preserves_both_paths() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("lib.rs");
+    std::fs::write(&a, "old body\n").unwrap();
+
+    let plan = crate::plan::Plan {
+        version: crate::plan::SCHEMA_VERSION,
+        cwd: None,
+        operations: vec![
+            Operation::FileRename {
+                from: "lib.rs".into(),
+                to: "lib_old.rs".into(),
+                force: false,
+            },
+            Operation::FileCreate {
+                path: "lib.rs".into(),
+                content: "new body\n".into(),
+                force: Some(false),
+            },
+        ],
+        write_policy: None,
+        strict: None,
+        format: None,
+        validate: None,
+        verify: None,
+        for_each: None,
+    };
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+    assert!(report.ok, "rename-then-create should succeed: {report:?}");
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("lib.rs")).unwrap(),
+        "new body\n",
+        "resurrected source must keep create content"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("lib_old.rs")).unwrap(),
+        "old body\n",
+        "rename dest must keep original content"
+    );
+}
+
+/// rename a→b then delete b: neither path should remain.
+#[test]
+fn rename_then_delete_dest_removes_both() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "content\n").unwrap();
+
+    let plan = crate::plan::Plan {
+        version: crate::plan::SCHEMA_VERSION,
+        cwd: None,
+        operations: vec![
+            Operation::FileRename {
+                from: "a.txt".into(),
+                to: "b.txt".into(),
+                force: false,
+            },
+            Operation::FileDelete {
+                path: "b.txt".into(),
+            },
+        ],
+        write_policy: None,
+        strict: None,
+        format: None,
+        validate: None,
+        verify: None,
+        for_each: None,
+    };
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+    assert!(
+        report.ok,
+        "rename-then-delete-dest should succeed: {report:?}"
+    );
+    assert!(!dir.path().join("a.txt").exists(), "source must be gone");
+    assert!(
+        !dir.path().join("b.txt").exists(),
+        "dest delete must stick (stale rename must not re-create b)"
+    );
 }

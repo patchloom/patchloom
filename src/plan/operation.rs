@@ -13,6 +13,8 @@ pub enum Operation {
         /// Glob pattern to match files (e.g. "src/**/*.rs"). Mutually exclusive with path.
         glob: Option<String>,
         /// File path to replace in. Mutually exclusive with glob.
+        /// Alias `file` matches MCP replace_text / LLM prior (#fixloop).
+        #[serde(alias = "file")]
         path: Option<String>,
         /// Treat `old` as a regex pattern.
         #[serde(default)]

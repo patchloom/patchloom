@@ -294,10 +294,20 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
             p
         }
         Operation::PatchApply { diff, .. } => {
-            // Parse the diff to extract file paths from ---/+++ headers.
+            // Parse the diff to extract write targets and git rename sources.
+            // rename_from must be guarded too (pure rename of ../outside must fail closed).
             // If parsing fails, return empty (the error will surface at apply time).
             match crate::ops::patch::parse_patch(diff) {
-                Ok(files) => files.into_iter().map(|pf| pf.path).collect(),
+                Ok(files) => files
+                    .into_iter()
+                    .flat_map(|pf| {
+                        let mut paths = vec![pf.path];
+                        if let Some(from) = pf.rename_from {
+                            paths.push(from);
+                        }
+                        paths
+                    })
+                    .collect(),
                 Err(_) => vec![],
             }
         }

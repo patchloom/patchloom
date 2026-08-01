@@ -165,9 +165,28 @@ pub(crate) fn commit_changes(
 
     // Prefer explicit file.rename records (covers rename-then-edit). Fall back
     // to content-based pure-rename detection for any remaining pairs.
-    let mut rename_pairs: Vec<(PathBuf, PathBuf)> = renames.to_vec();
-    let mut covered_from: HashSet<PathBuf> = renames.iter().map(|(f, _)| f.clone()).collect();
-    let mut covered_to: HashSet<PathBuf> = renames.iter().map(|(_, t)| t.clone()).collect();
+    // Drop stale rename records when a later op resurrected the source (e.g.
+    // rename a→b then create a) or removed the dest (rename a→b then delete b).
+    // Otherwise commit still fs::renames and skips writing resurrected content.
+    // Drop renames whose source was resurrected (e.g. rename a→b then create a).
+    // Keep intermediate chain sources that may not be in `deletions` because
+    // they were create-in-tx rename dests (empty original) before a further rename.
+    let mut rename_pairs: Vec<(PathBuf, PathBuf)> = renames
+        .iter()
+        .filter(|(from, _to)| {
+            if deletions.contains(from) {
+                return true;
+            }
+            // Resurrected: source is a non-empty write and not deleted.
+            let resurrected = changes
+                .iter()
+                .any(|(p, _, new_c)| p == from && !new_c.is_empty());
+            !resurrected
+        })
+        .cloned()
+        .collect();
+    let mut covered_from: HashSet<PathBuf> = rename_pairs.iter().map(|(f, _)| f.clone()).collect();
+    let mut covered_to: HashSet<PathBuf> = rename_pairs.iter().map(|(_, t)| t.clone()).collect();
     for (from, to) in detect_pure_renames(changes, deletions, existed_before) {
         if covered_from.contains(&from) || covered_to.contains(&to) {
             continue;

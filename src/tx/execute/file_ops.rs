@@ -161,8 +161,11 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 tx.deletions.remove(&file_path);
             } else {
                 tx.write_file(&file_path, String::new());
-                tx.deletions.insert(file_path);
+                tx.deletions.insert(file_path.clone());
             }
+            // Deleting a rename dest must drop the pair so commit does not
+            // fs::rename the source back into existence.
+            tx.renames.retain(|(_, to)| to != &file_path);
         }
 
         Operation::FileRename { from, to, force } => {

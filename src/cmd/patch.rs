@@ -747,9 +747,33 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     return Ok(exit::FAILURE);
                 }
             };
+            // Parity with normal patch check: refuse rename dest clobber early.
+            if let Some(from) = pf.rename_from.as_deref() {
+                let dest_path = cwd.join(&pf.path);
+                if crate::ops::patch::rename_would_clobber_dest(
+                    from,
+                    &pf.path,
+                    crate::ops::file::path_entry_exists(&dest_path),
+                ) {
+                    all_ok = false;
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "already_exists",
+                        error: Some(crate::ops::patch::rename_dest_exists_msg(&pf.path)),
+                        conflicts: None,
+                        from: Some(from.to_string()),
+                        to: Some(pf.path.clone()),
+                        action: Some("renamed"),
+                    });
+                    continue;
+                }
+            }
             match apply_patch_file(&original, &pf.hunks, check_options) {
                 Ok(applied) => {
-                    if applied.status == ApplyHunksStatus::Conflict {
+                    // Conflicts are soft when --allow-conflicts (would write markers).
+                    if applied.status == ApplyHunksStatus::Conflict
+                        && !apply_options.allow_conflicts
+                    {
                         all_ok = false;
                     }
                     // Clean means apply without fuzz, not "no content change".
@@ -775,6 +799,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
         }
+        // With --allow-conflicts, conflict rows are intentional would-change, not
+        // top-level ok:false / error_kind:conflicts (agents branch on ok first).
         emit_patch_files_output(global, all_ok, &results, Some(false), None)?;
         let has_errors = results.iter().any(|r| r.status == "error");
         let has_conflicts = results.iter().any(|r| r.status == "conflict");

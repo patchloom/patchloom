@@ -629,6 +629,10 @@ impl PatchloomService {
             })?;
             for pf in &patch_files {
                 svc.check_path(&pf.path)?;
+                // Git rename source must be contained too (pure rename of ../x).
+                if let Some(from) = &pf.rename_from {
+                    svc.check_path(from)?;
+                }
             }
 
             let op = Operation::PatchApply {

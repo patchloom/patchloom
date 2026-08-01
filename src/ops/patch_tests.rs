@@ -1351,6 +1351,30 @@ copy to bar.rs
     }
 
     #[test]
+    fn copy_with_headers_is_not_rename() {
+        // copy from/to + ---/+++ + hunks must not set rename_from (would delete source).
+        let diff = "\
+diff --git a/src.rs b/dst.rs
+similarity index 80%
+copy from src.rs
+copy to dst.rs
+--- a/src.rs
++++ b/dst.rs
+@@ -1 +1,2 @@
+ line
++added
+";
+        let files = parse_patch(diff).expect("copy with headers parses");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "dst.rs");
+        assert!(
+            files[0].rename_from.is_none(),
+            "copy must not become rename, got {:?}",
+            files[0].rename_from
+        );
+    }
+
+    #[test]
     fn rename_would_clobber_dest_true_when_dest_exists() {
         assert!(rename_would_clobber_dest("old.rs", "new.rs", true));
         assert!(!rename_would_clobber_dest("old.rs", "new.rs", false));
