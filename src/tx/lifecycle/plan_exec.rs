@@ -115,10 +115,15 @@ pub fn execute_plan_direct(
         }
         // Upfront check on declared paths using shared helper; dynamic (globs
         // patterns, patch embedded paths) are best-effort or handled by loaders.
+        // Entry ops (delete/rename) use no-follow last component (#2115).
         for op in &plan.operations {
             for p in op.declared_paths() {
-                g.check_path(&p)
-                    .map_err(crate::fallback::EditError::guard_rejected)?;
+                let r = if op.uses_entry_containment() {
+                    g.check_path_entry(&p)
+                } else {
+                    g.check_path(&p)
+                };
+                r.map_err(crate::fallback::EditError::guard_rejected)?;
             }
         }
     }

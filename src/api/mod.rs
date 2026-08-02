@@ -777,11 +777,18 @@ fn apply_cross_file_mutation(
     perform_mutation: impl FnOnce() -> anyhow::Result<()>,
 ) -> anyhow::Result<(bool, Option<String>)> {
     if mode != ApplyMode::Apply {
+        // Still enforce entry containment on preview/check so hosts see
+        // guard_rejected without mutating (#2115).
+        ensure_contained_entry(guard, src)?;
+        if let Some(d) = dst {
+            ensure_contained_entry(guard, d)?;
+        }
         return Ok((false, None));
     }
-    ensure_contained(guard, src)?;
+    // Path-only rename: entry semantics (no-follow final component) on both ends.
+    ensure_contained_entry(guard, src)?;
     if let Some(d) = dst {
-        ensure_contained(guard, d)?;
+        ensure_contained_entry(guard, d)?;
     }
     let cwd = src.parent().unwrap_or_else(|| Path::new("."));
     let mut backup = BackupSession::new(cwd)?;
@@ -884,6 +891,16 @@ pub(crate) fn maybe_post_write(
 pub(crate) fn ensure_contained(guard: Option<&PathGuard>, path: &Path) -> anyhow::Result<()> {
     if let Some(g) = guard {
         g.check_path(&path.to_string_lossy())
+            .map_err(crate::fallback::EditError::guard_rejected)?;
+    }
+    Ok(())
+}
+
+/// Containment for directory-entry ops (delete / path-only rename): do not follow
+/// the final path component (#2115). See [`PathGuard::check_path_entry`].
+pub(crate) fn ensure_contained_entry(guard: Option<&PathGuard>, path: &Path) -> anyhow::Result<()> {
+    if let Some(g) = guard {
+        g.check_path_entry(&path.to_string_lossy())
             .map_err(crate::fallback::EditError::guard_rejected)?;
     }
     Ok(())

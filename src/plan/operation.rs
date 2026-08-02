@@ -682,6 +682,12 @@ impl Operation {
     pub fn declared_paths(&self) -> Vec<String> {
         crate::plan::declared_paths(self)
     }
+
+    /// True when declared paths should use entry containment (no-follow last
+    /// component) rather than follow-mode `PathGuard::check_path` (#2115).
+    pub fn uses_entry_containment(&self) -> bool {
+        matches!(self, Self::FileDelete { .. } | Self::FileRename { .. })
+    }
 }
 
 /// Serde default for [`Operation::ApplyFragment::unique`] (agents need fail-closed uniqueness).

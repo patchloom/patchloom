@@ -199,6 +199,7 @@
 //! | Force create over binary/unreadable prior | [`api::file_create`](..., `force: true`) (#1962) |
 //! | Path-only rename/delete non-text (byte backup, no OS dual-path) | [`api::file_rename`] / [`api::file_delete`] (#2031) |
 //! | Delete FIFO/socket/device/symlink under PathGuard | [`api::file_delete`] (dirs still refused; #2087) |
+//! | Unlink/rename symlink when target is outside workspace | Entry guard [`PathGuard::check_path_entry`] on delete/rename (#2115) |
 //! | Rename symlink/FIFO/dangling (path-only; never rewrites link target) | [`api::file_rename`] (#2091) |
 //! | YAML presentation drift on library writes | [`EditResult::style_changed`] / [`api::is_style_changed`] (#2088) |
 //! | Morph-class freeform on disk | [`api::apply_fragment_to_file`] + [`FragmentPlacement`] (#2032) |

@@ -7602,6 +7602,60 @@ fn file_delete_symlink_unlinks_link_not_target() {
     assert_eq!(fs::read_to_string(&target).unwrap(), "keep me\n");
 }
 
+/// Symlink to a path outside the workspace: entry guard allows unlink (#2115).
+///
+/// Follow-mode `check_path` would deny (resolved target escapes). Hosts must
+/// not need parent-only precheck + `guard: None`.
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_symlink_to_outside_under_workspace_guard() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    fs::write(&secret, "SECRET=1\n").unwrap();
+    let link = dir.path().join("link-out");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+
+    let guard = crate::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    // Sanity: follow-mode containment would reject the resolved target.
+    assert!(
+        guard.check_path(link.to_str().unwrap()).is_err(),
+        "check_path must follow outside target and deny"
+    );
+    assert!(
+        guard.would_allow_entry(link.to_str().unwrap()),
+        "check_path_entry must allow the workspace link entry"
+    );
+
+    let r = file_delete(&link, ApplyMode::Apply, Some(&guard))
+        .expect("entry guard must allow unlink of outside-target link");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(secret.exists(), "outside target must never be deleted");
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "SECRET=1\n");
+}
+
+/// Dangling symlink under workspace guard (#2115 entry mode).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_dangling_symlink_under_guard() {
+    let dir = TempDir::new().unwrap();
+    let link = dir.path().join("dangling");
+    std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+    let guard = crate::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let r = file_delete(&link, ApplyMode::Apply, Some(&guard)).expect("dangling under guard");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+}
+
 /// Dangling symlink is still unlinkable (#2087 path_entry_exists).
 #[cfg(all(unix, any(feature = "cli", feature = "files")))]
 #[test]
@@ -7637,6 +7691,32 @@ fn file_delete_symlink_to_directory() {
         fs::read_to_string(real_dir.join("inside.txt")).unwrap(),
         "x\n"
     );
+}
+
+/// Rename of outside-target symlink under workspace guard (#2115).
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_rename_symlink_to_outside_under_workspace_guard() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    fs::write(&secret, "SECRET=1\n").unwrap();
+    let link = dir.path().join("link-out");
+    let moved = dir.path().join("moved-out");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+
+    let guard = crate::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let r = file_rename(&link, &moved, false, ApplyMode::Apply, Some(&guard))
+        .expect("entry guard must allow rename of outside-target link");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(moved.is_symlink());
+    assert_eq!(fs::read_link(&moved).unwrap(), secret);
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "SECRET=1\n");
 }
 
 /// Rename moves the symlink entry only; never rewrites the target (#2091).

@@ -48,11 +48,16 @@ Bline is a real embedder that dogfooded these steps; the checklist is host-gener
    following the target; directories stay refused (#2087, #2091). Soft-loading a
    symlink as text then writing would rewrite the **target**; rename uses an
    empty path-only snapshot so write policies never mutate the link target.
-   Append/prepend refuse non-text and special entries (including dangling
-   symlinks) with `invalid_input` (not `not_found`). Sole explicit
-   replace/search/tidy paths use the same classification via
-   `sole_explicit_non_text` so agents do not mis-branch on `not_found` for a
-   present non-file entry.
+   **Entry containment (#2115):** delete and path-only rename use
+   `PathGuard::check_path_entry` (parent follows; final component does not).
+   A workspace link whose target is outside the root can be unlinked or
+   renamed under a workspace guard without parent-only host workarounds or
+   `guard: None`. Content writes (`replace`, `doc_*`, append) still use
+   follow-mode `check_path`. Append/prepend refuse non-text and special
+   entries (including dangling symlinks) with `invalid_input` (not
+   `not_found`). Sole explicit replace/search/tidy paths use the same
+   classification via `sole_explicit_non_text` so agents do not mis-branch
+   on `not_found` for a present non-file entry.
 9. **Doc presentation honesty:** library `EditResult.style_changed` (and
    `is_style_changed`) mirrors CLI/MCP when YAML block-sequence layout
    collapses; values can still be correct (#2088). Warn hosts/agents; do not
