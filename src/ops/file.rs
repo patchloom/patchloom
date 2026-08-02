@@ -138,6 +138,13 @@ pub fn rename_or_copy(src: &Path, dst: &Path) -> anyhow::Result<()> {
     match std::fs::rename(src, dst) {
         Ok(()) => Ok(()),
         Err(e) if is_cross_device_rename_error(&e) => {
+            // Cross-device copy opens the source; FIFO/socket would block forever.
+            if !is_regular_file_for_backup(src) {
+                anyhow::bail!(
+                    "cannot cross-device rename special node {}: copy would open a non-regular file",
+                    src.display()
+                );
+            }
             let dest_existed = path_entry_exists(dst);
             std::fs::copy(src, dst).with_context(|| {
                 format!("cross-device copy {} -> {}", src.display(), dst.display())
@@ -217,6 +224,11 @@ pub fn ensure_not_binary_file(path: &Path, display: &str) -> Result<(), crate::e
     use std::io::Read;
 
     if !path.exists() {
+        return Ok(());
+    }
+    // Never open FIFOs/sockets/devices for a binary probe (blocks forever).
+    // Callers that must reject special nodes do so before this helper.
+    if !is_regular_file_for_backup(path) {
         return Ok(());
     }
     let mut file = match std::fs::File::open(path) {
@@ -638,6 +650,31 @@ mod tests {
     fn ensure_not_binary_missing_path_ok() {
         let dir = TempDir::new().unwrap();
         ensure_not_binary_file(&dir.path().join("nope"), "nope").unwrap();
+    }
+
+    /// Must not open FIFOs for the binary probe (blocks forever).
+    #[cfg(unix)]
+    #[test]
+    fn ensure_not_binary_fifo_no_hang() {
+        use std::process::Command as StdCommand;
+        use std::time::{Duration, Instant};
+
+        let dir = TempDir::new().unwrap();
+        let fifo = dir.path().join("p.fifo");
+        assert!(
+            StdCommand::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let start = Instant::now();
+        ensure_not_binary_file(&fifo, "p.fifo").unwrap();
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "ensure_not_binary_file on FIFO took {:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
