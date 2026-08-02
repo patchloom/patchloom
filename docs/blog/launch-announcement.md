@@ -71,17 +71,18 @@ Patchloom tells agents when not to use it. The right tool for the right job.
 ```bash
 cargo install patchloom                    # crates.io
 brew install patchloom/tap/patchloom       # macOS / Linux (Homebrew)
+npx patchloom --version                    # npm / GitHub binary
 ```
 
 ```powershell
-# Windows
-winget install Patchloom.Patchloom
+# Windows (recommended)
 scoop bucket add patchloom https://github.com/patchloom/scoop-bucket
 scoop install patchloom/patchloom
-choco install patchloom
 ```
 
 Or download a prebuilt binary from [GitHub Releases](https://github.com/patchloom/patchloom/releases).
+winget and Chocolatey community listings exist for search discovery only;
+prefer Scoop or Releases when you need the current version.
 
 Set up your project in one command:
 
