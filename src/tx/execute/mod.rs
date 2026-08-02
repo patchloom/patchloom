@@ -25,6 +25,47 @@ mod tests;
 pub(crate) use file_ops::execute_file_op;
 pub(crate) use policy::{build_write_policy, build_write_policy_with_plan};
 
+/// Upfront PathGuard for one plan op.
+///
+/// [`Operation::FileDelete`] / [`Operation::FileRename`] use entry mode
+/// (no-follow last component, #2115). [`Operation::PatchApply`] is
+/// per-file: pure/git renames use entry mode; content hunks use follow
+/// mode so symlink smuggling stays blocked (MPI 2026-08-02 / MCP
+/// `apply_patch` pure rename of workspace link → outside target).
+pub(crate) fn enforce_guard_for_op(
+    g: &crate::containment::PathGuard,
+    op: &Operation,
+) -> anyhow::Result<()> {
+    if let Operation::PatchApply { diff, .. } = op {
+        // Parse failure deferred to apply time (same as declared_paths).
+        if let Ok(files) = crate::ops::patch::parse_patch(diff) {
+            for pf in files {
+                if pf.rename_from.is_some() {
+                    g.check_path_entry(&pf.path)
+                        .map_err(crate::fallback::EditError::guard_rejected)?;
+                    if let Some(from) = &pf.rename_from {
+                        g.check_path_entry(from)
+                            .map_err(crate::fallback::EditError::guard_rejected)?;
+                    }
+                } else {
+                    g.check_path(&pf.path)
+                        .map_err(crate::fallback::EditError::guard_rejected)?;
+                }
+            }
+        }
+        return Ok(());
+    }
+    for p in op.declared_paths() {
+        let r = if op.uses_entry_containment() {
+            g.check_path_entry(&p)
+        } else {
+            g.check_path(&p)
+        };
+        r.map_err(crate::fallback::EditError::guard_rejected)?;
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Pending file changes
 // ---------------------------------------------------------------------------
@@ -717,21 +758,13 @@ pub(crate) fn execute_and_collect(
     let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut policy_finalized: HashSet<PathBuf> = HashSet::new();
 
-    // Upfront PathGuard on declared paths (same contract as execute_plan_inner /
-    // execute_plan_direct). CLI `tx` and `batch` call this function directly and
-    // previously only had guard wiring on replace glob expansion, so
-    // `file.create ../escape` under `--contain` could still write outside the
-    // workspace (MPI cycle 13). Entry ops use no-follow last component (#2115).
+    // Upfront PathGuard (same contract as execute_plan_inner /
+    // execute_plan_direct). CLI `tx` and `batch` call this function directly.
+    // PatchApply renames use entry mode; content paths follow (see
+    // enforce_guard_for_op).
     if let Some(g) = guard {
         for op in &plan.operations {
-            for p in op.declared_paths() {
-                let r = if op.uses_entry_containment() {
-                    g.check_path_entry(&p)
-                } else {
-                    g.check_path(&p)
-                };
-                r.map_err(crate::fallback::EditError::guard_rejected)?;
-            }
+            enforce_guard_for_op(g, op)?;
         }
     }
 
