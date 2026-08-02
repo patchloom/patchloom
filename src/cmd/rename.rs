@@ -48,8 +48,8 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
     // Empty-path + --contain, and rewrite absolute paths so case-only / backup
     // I/O never sees Windows \\?\ UNC forms (#1931 / platform path suite).
-    args.from = global.rewrite_user_path_arg(&cwd, &args.from)?;
-    args.to = global.rewrite_user_path_arg(&cwd, &args.to)?;
+    args.from = global.rewrite_user_path_arg_entry(&cwd, &args.from)?;
+    args.to = global.rewrite_user_path_arg_entry(&cwd, &args.to)?;
     let src = cwd.join(&args.from);
     let dst = cwd.join(&args.to);
 

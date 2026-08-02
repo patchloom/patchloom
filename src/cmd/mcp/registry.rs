@@ -15,8 +15,10 @@ use crate::plan::Operation;
 
 /// Validation rule for a single field in an auto-generated MCP tool.
 pub(super) enum FieldValidation {
-    /// Validate a string field with `check_path` (path containment).
+    /// Validate a string field with follow-mode `check_path` (content ops).
     Path(&'static str),
+    /// Validate with entry-mode `check_path_entry` (delete / path-only rename) (#2115).
+    PathEntry(&'static str),
     /// Validate a string field with `validate_param_size` (1 MiB limit).
     ParamSize(&'static str),
     /// Validate a string field with `validate_content_size` (10 MiB limit).
@@ -266,7 +268,10 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
             "Use force=true to overwrite an existing destination. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
-        validations: &[FieldValidation::Path("from"), FieldValidation::Path("to")],
+        validations: &[
+            FieldValidation::PathEntry("from"),
+            FieldValidation::PathEntry("to"),
+        ],
     },
     McpToolMeta {
         tool_name: "append_file",
@@ -311,7 +316,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
             "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
-        validations: &[FieldValidation::Path("path")],
+        validations: &[FieldValidation::PathEntry("path")],
     },
     // MCP-friendly alias of tidy.fix with agent-oriented defaults (trim + final
     // newline on when omitted). Defaults applied in handle_simple_op.
@@ -457,6 +462,11 @@ pub(super) fn handle_simple_op(
             FieldValidation::Path(field) => {
                 if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
                     service.check_path(val)?;
+                }
+            }
+            FieldValidation::PathEntry(field) => {
+                if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
+                    service.check_path_entry(val)?;
                 }
             }
             FieldValidation::ParamSize(field) => {

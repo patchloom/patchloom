@@ -29,7 +29,7 @@ struct DeleteOutput {
 pub fn run(mut args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("delete: file={}", args.file);
     let cwd = global.resolve_cwd()?;
-    args.file = global.rewrite_user_path_arg(&cwd, &args.file)?;
+    args.file = global.rewrite_user_path_arg_entry(&cwd, &args.file)?;
     let path = cwd.join(&args.file);
 
     // One classify: dangling ok; real directories refuse; no follow (#2087).
