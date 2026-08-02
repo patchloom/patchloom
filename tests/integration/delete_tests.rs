@@ -397,6 +397,33 @@ fn test_delete_contain_allows_in_workspace() {
     assert!(!dir.path().join("inside.txt").exists());
 }
 
+/// Entry containment: workspace symlink to outside target under `--contain` (#2115).
+#[cfg(unix)]
+#[test]
+fn test_delete_contain_allows_symlink_to_outside_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    fs::write(&secret, "SECRET=1\n").unwrap();
+    let link = dir.path().join("link-out");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "delete", "link-out", "--apply"])
+        .assert()
+        .code(0);
+
+    assert!(
+        fs::symlink_metadata(&link).is_err(),
+        "link entry must be unlinked"
+    );
+    assert!(secret.exists(), "outside target must remain");
+    assert_eq!(fs::read_to_string(&secret).unwrap(), "SECRET=1\n");
+}
+
 #[test]
 fn test_delete_json_not_found_sets_error_kind() {
     let dir = TempDir::new().unwrap();

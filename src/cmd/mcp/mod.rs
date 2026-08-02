@@ -237,6 +237,15 @@ impl PatchloomService {
         Ok(())
     }
 
+    /// Entry-mode path check (delete / path-only rename): do not follow the
+    /// final path component (#2115).
+    fn check_path_entry(&self, path: &str) -> Result<(), McpError> {
+        self.path_guard
+            .check_path_entry(path)
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        Ok(())
+    }
+
     /// The workspace root directory (non-canonicalized).
     fn cwd(&self) -> &std::path::Path {
         self.path_guard.root()
@@ -322,8 +331,13 @@ impl PatchloomService {
 
     /// Validate paths for a single operation (including embedded paths for PatchApply).
     fn validate_op_paths(&self, op: &Operation) -> Result<(), McpError> {
+        let entry = op.uses_entry_containment();
         for declared in op.declared_paths() {
-            self.check_path(&declared)?;
+            if entry {
+                self.check_path_entry(&declared)?;
+            } else {
+                self.check_path(&declared)?;
+            }
         }
         if let Operation::PatchApply { diff, .. } = op {
             let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
@@ -333,9 +347,14 @@ impl PatchloomService {
                 )
             })?;
             for pf in &patch_files {
-                self.check_path(&pf.path)?;
-                if let Some(from) = &pf.rename_from {
-                    self.check_path(from)?;
+                // Pure/git renames are path-only; content patches follow.
+                if pf.rename_from.is_some() {
+                    self.check_path_entry(&pf.path)?;
+                    if let Some(from) = &pf.rename_from {
+                        self.check_path_entry(from)?;
+                    }
+                } else {
+                    self.check_path(&pf.path)?;
                 }
             }
         }

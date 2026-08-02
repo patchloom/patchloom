@@ -41,6 +41,7 @@ fn validate_op_paths_under_plan_cwd(
     let Some(prefix) = plan_cwd else {
         return svc.validate_op_paths(op);
     };
+    let entry = op.uses_entry_containment();
     let check = |path: &str| -> Result<(), McpError> {
         let candidate = if std::path::Path::new(path).is_absolute() {
             path.to_string()
@@ -51,7 +52,11 @@ fn validate_op_paths_under_plan_cwd(
                 path.trim_start_matches('/')
             )
         };
-        svc.check_path(&candidate)
+        if entry {
+            svc.check_path_entry(&candidate)
+        } else {
+            svc.check_path(&candidate)
+        }
     };
     for declared in op.declared_paths() {
         check(&declared)?;
@@ -64,7 +69,33 @@ fn validate_op_paths_under_plan_cwd(
             )
         })?;
         for pf in &patch_files {
-            check(&pf.path)?;
+            if pf.rename_from.is_some() {
+                // Path-only rename headers: entry containment (#2115).
+                let candidate = if std::path::Path::new(pf.path.as_str()).is_absolute() {
+                    pf.path.clone()
+                } else {
+                    format!(
+                        "{}/{}",
+                        prefix.trim_end_matches('/'),
+                        pf.path.trim_start_matches('/')
+                    )
+                };
+                svc.check_path_entry(&candidate)?;
+                if let Some(from) = &pf.rename_from {
+                    let from_c = if std::path::Path::new(from.as_str()).is_absolute() {
+                        from.clone()
+                    } else {
+                        format!(
+                            "{}/{}",
+                            prefix.trim_end_matches('/'),
+                            from.trim_start_matches('/')
+                        )
+                    };
+                    svc.check_path_entry(&from_c)?;
+                }
+            } else {
+                check(&pf.path)?;
+            }
         }
     }
     Ok(())

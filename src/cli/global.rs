@@ -466,26 +466,60 @@ impl GlobalFlags {
     ///   so backup and apply never see raw Windows `\\?\` paths (#1931).
     /// - **Relative:** optionally validate under `--contain`, but keep the
     ///   original string for agent JSON (`skipped` / `refused` / plan paths).
+    ///
+    /// Uses follow-mode containment (content ops). For delete/rename entry
+    /// ops under `--contain`, use [`rewrite_user_path_arg_entry`] (#2115).
     pub fn rewrite_user_path_arg(
         &self,
         cwd: &std::path::Path,
         path: &str,
     ) -> anyhow::Result<String> {
+        self.rewrite_user_path_arg_inner(cwd, path, false)
+    }
+
+    /// Like [`rewrite_user_path_arg`] but uses entry-mode PathGuard checks
+    /// (no-follow last component) for `delete` / `rename` under `--contain`.
+    pub fn rewrite_user_path_arg_entry(
+        &self,
+        cwd: &std::path::Path,
+        path: &str,
+    ) -> anyhow::Result<String> {
+        self.rewrite_user_path_arg_inner(cwd, path, true)
+    }
+
+    fn rewrite_user_path_arg_inner(
+        &self,
+        cwd: &std::path::Path,
+        path: &str,
+        entry: bool,
+    ) -> anyhow::Result<String> {
+        if path.trim().is_empty() {
+            return Err(crate::exit::InvalidInputError {
+                msg: "path must not be empty".into(),
+            }
+            .into());
+        }
+        if let Some(guard) = self.workspace_guard(cwd)? {
+            let resolved = if entry {
+                guard
+                    .check_path_entry(path)
+                    .map_err(crate::fallback::EditError::guard_rejected)?
+            } else {
+                guard
+                    .check_path(path)
+                    .map_err(crate::fallback::EditError::guard_rejected)?
+            };
+            if std::path::Path::new(path).is_absolute() {
+                return Ok(resolved.to_string_lossy().into_owned());
+            }
+            // Relative: validate under contain, keep original spelling for agents.
+            return Ok(path.to_string());
+        }
         if std::path::Path::new(path).is_absolute() {
-            Ok(self
-                .normalize_io_path(cwd, path)?
+            Ok(dunce::simplified(std::path::Path::new(path))
                 .to_string_lossy()
                 .into_owned())
         } else {
-            // Validate only when sandboxing; keep relative display form.
-            if self.contain {
-                self.normalize_io_path(cwd, path)?;
-            } else if path.trim().is_empty() {
-                return Err(crate::exit::InvalidInputError {
-                    msg: "path must not be empty".into(),
-                }
-                .into());
-            }
             Ok(path.to_string())
         }
     }

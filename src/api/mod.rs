@@ -64,7 +64,18 @@
 //! );
 //! ```
 //!
-//! **Guard semantics:** The guard provides *write-time* enforcement and is only checked for `ApplyMode::Apply` writes (via `ensure_contained` + `write_if_apply`). Reads (e.g. for diff computation, `Preview`/`Check` modes, `doc_get`, search) and pre-write loads may still observe or describe paths outside the guard. This is intentional for trusted library embedding (the host/caller controls visibility). MCP uses a separate strict pre-check layer on all paths. `execute_plan` also accepts a guard and performs upfront validation on declared paths.
+//! **Guard semantics:** The guard provides *write-time* enforcement for most
+//! mutators (via `ensure_contained` / follow-mode `PathGuard::check_path` on
+//! Apply). **Entry ops** (`file_delete`, path-only `file_rename`) use
+//! `ensure_contained_entry` / `PathGuard::check_path_entry` (parent follows;
+//! final component does not) on Preview/Check/Apply so a workspace symlink
+//! whose target is outside the root can still be unlinked (#2115). Content
+//! writes (`replace`, `doc_*`, append) stay on follow mode so they cannot
+//! smuggle writes outside the root through a link. Reads (diff computation,
+//! `doc_get`, search) may still observe paths outside the guard; the host
+//! controls visibility. MCP and CLI `--contain` use the same entry vs follow
+//! split for delete/rename. `execute_plan` pre-checks declared paths with
+//! the matching mode per op.
 //!
 //! ## Guard & WritePolicy contract
 //!
