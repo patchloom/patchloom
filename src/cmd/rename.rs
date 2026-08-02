@@ -261,9 +261,13 @@ fn run_direct_rename(
 
     // Synthetic rename diff for JSON/--diff so agents see the path move even
     // when content is byte-identical (matches engine-backed text rename UX).
+    // Never open special nodes: `read_to_string` on a FIFO blocks forever
+    // (fixrealloop / MPI dogfood after #2091 path-only rename).
     let from_disp = args.from.clone();
     let to_disp = args.to.clone();
-    let content_for_diff = if matches!(kind, DirectRenameKind::Binary) {
+    let content_for_diff = if matches!(kind, DirectRenameKind::Binary)
+        || !crate::ops::file::is_regular_file_for_backup(src)
+    {
         None
     } else {
         fs::read_to_string(src).ok()
@@ -616,6 +620,49 @@ mod tests {
         assert_eq!(code, exit::SUCCESS);
         assert!(!src.exists());
         assert_eq!(fs::read(&dst).unwrap(), b"\x00\x01\x02\xff\xfe");
+    }
+
+    /// FIFO rename must not open the pipe for a text probe (hangs forever).
+    #[cfg(unix)]
+    #[test]
+    fn rename_fifo_apply_path_only_no_hang() {
+        use std::process::Command as StdCommand;
+        use std::time::{Duration, Instant};
+
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("pipe.fifo");
+        let dst = dir.path().join("moved.fifo");
+        let status = StdCommand::new("mkfifo")
+            .arg(&src)
+            .status()
+            .expect("mkfifo available on unix CI");
+        assert!(status.success(), "mkfifo must create {src:?}");
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let args = RenameArgs {
+            from: "pipe.fifo".into(),
+            to: "moved.fifo".into(),
+            force: false,
+            write: Default::default(),
+        };
+
+        let start = Instant::now();
+        let code = run(args, &global).expect("FIFO rename must not hang or error");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "FIFO rename took {:?}; likely opened the pipe",
+            start.elapsed()
+        );
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!src.exists(), "source FIFO unlinked");
+        assert!(dst.exists(), "dest FIFO path exists");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+            let ft = fs::symlink_metadata(&dst).unwrap().file_type();
+            assert!(ft.is_fifo(), "dest must remain a FIFO, not a regular file");
+        }
     }
 
     #[test]
