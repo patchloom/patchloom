@@ -257,6 +257,42 @@ fn check_path_entry_rejects_parent_escape() {
     assert!(guard.check_path_entry("../../etc/passwd").is_err());
 }
 
+/// Entry mode follows intermediate directory components: a parent that is a
+/// symlink out of the workspace is still rejected (#2115).
+#[cfg(unix)]
+#[test]
+fn check_path_entry_rejects_intermediate_parent_symlink_escape() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::TempDir::new().unwrap();
+    let outside = tempfile::TempDir::new().unwrap();
+    fs::write(outside.path().join("secret"), "x").unwrap();
+    // workspace/outlink → outside dir; path outlink/secret would reach outside.
+    let outlink = dir.path().join("outlink");
+    symlink(outside.path(), &outlink).unwrap();
+
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let via = outlink.join("secret");
+    let via_str = via.to_str().expect("utf-8 temp path");
+    assert!(
+        guard.check_path(via_str).is_err(),
+        "follow mode must deny intermediate outlink"
+    );
+    assert!(
+        guard.check_path_entry(via_str).is_err(),
+        "entry mode must still deny intermediate parent symlink escape"
+    );
+    // The outlink entry itself remains an in-workspace name (delete/rename ok).
+    let outlink_str = outlink.to_str().expect("utf-8 temp path");
+    assert!(
+        guard.check_path_entry(outlink_str).is_ok(),
+        "entry mode must allow the symlink directory entry itself"
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_safe_canonicalize_preserves_drive_letter() {

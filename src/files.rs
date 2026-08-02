@@ -151,13 +151,23 @@ pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
     }
 }
 
+/// True when `path` is a regular file (or symlink to one) safe to open for
+/// text/binary probes. FIFOs, sockets, devices, and directories return false so
+/// callers never block forever on open (#2113 family).
+fn is_openable_regular_file(path: &Path) -> bool {
+    match std::fs::metadata(path) {
+        Ok(m) => m.is_file(),
+        Err(_) => false,
+    }
+}
+
 /// Returns whether the file at `path` appears to be binary by reading only its
 /// first 8 KiB (streaming, no full allocation for large files).
 ///
 /// Heuristic: true when a NUL byte appears in the probe window (same rule as
 /// [`is_binary`]). Returns **false** if the path cannot be opened or read
-/// (missing, permission, …); callers that need a typed open error should open
-/// the path themselves.
+/// (missing, permission, FIFO/socket/device, …); callers that need a typed open
+/// error should open the path themselves.
 ///
 /// Public for embedder preflight (#1884) so hosts do not reimplement the
 /// window size or probe semantics. Writers still enforce binary themselves
@@ -165,6 +175,10 @@ pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
 /// Available with default features and under `features = ["files"]` (always
 /// compiled; no `cli` gate).
 pub fn is_binary_file(path: &Path) -> bool {
+    // Never open special nodes: FIFO/socket open blocks forever.
+    if !is_openable_regular_file(path) {
+        return false;
+    }
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return false,
@@ -654,8 +668,16 @@ impl SoftTextSkip {
 ///
 /// For files larger than 8 KiB, only the first 8 KiB are read initially
 /// for the binary check. If the file is binary, no further I/O occurs.
+///
+/// Never opens FIFOs, sockets, or devices (would block forever); those
+/// return [`SoftTextSkip::Unreadable`].
 pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
     use std::io::Read;
+
+    // Metadata-first: `File::open` on a FIFO blocks until a writer connects.
+    if !is_openable_regular_file(path) {
+        return Err(SoftTextSkip::Unreadable);
+    }
 
     let mut file = match std::fs::File::open(path) {
         Ok(f) => f,
@@ -1014,6 +1036,26 @@ mod tests {
         assert!(!is_binary_file(&dir.path().join("nope.bin"))); // open fails -> false
     }
 
+    /// Public binary probe must not open FIFOs (blocks forever).
+    #[cfg(unix)]
+    #[test]
+    fn is_binary_file_fifo_no_hang() {
+        use std::time::Instant;
+        let dir = tempfile::TempDir::new().unwrap();
+        let fifo = dir.path().join("p.fifo");
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        let start = Instant::now();
+        assert!(!is_binary_file(&fifo));
+        assert!(
+            start.elapsed().as_secs() < 2,
+            "is_binary_file on FIFO took {:?}",
+            start.elapsed()
+        );
+    }
+
     // ── Text I/O honesty (#1894) ──────────────────────────────────────
 
     #[test]
@@ -1346,6 +1388,29 @@ mod tests {
         assert!(SoftTextSkip::Binary.is_content_skip());
         assert!(!SoftTextSkip::Unreadable.is_content_skip());
         assert_eq!(SoftTextSkip::InvalidUtf8.as_reason(), "invalid_utf8");
+    }
+
+    /// Soft text load must not open FIFOs (blocks forever).
+    #[cfg(unix)]
+    #[test]
+    fn try_read_text_file_fifo_no_hang() {
+        use std::time::Instant;
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("p.fifo");
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        let start = Instant::now();
+        assert_eq!(
+            try_read_text_file(&fifo).unwrap_err(),
+            SoftTextSkip::Unreadable
+        );
+        assert!(
+            start.elapsed().as_secs() < 2,
+            "try_read_text_file on FIFO took {:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
