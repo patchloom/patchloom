@@ -8,6 +8,13 @@
 //! 1. **Syntactic check** (no I/O): rejects `../` traversal that goes beyond root depth
 //! 2. **Symlink-aware check**: canonicalizes and verifies the resolved path is contained
 //!
+//! ## Content vs entry containment (#2115)
+//!
+//! | Mode | API | Use for |
+//! |------|-----|---------|
+//! | **Follow** (default) | [`PathGuard::check_path`] | Content writes (`replace`, `doc_*`, append) so a symlink cannot smuggle writes outside the root |
+//! | **Entry** (no-follow last component) | [`PathGuard::check_path_entry`] | Directory-entry ops (`file_delete`, path-only `file_rename`) so `workspace/link → /etc/passwd` can be unlinked without treating the op as touching `/etc/passwd` |
+//!
 //! ## Policy choices for different use cases
 //!
 //! | Policy | Use when | Example |
@@ -214,30 +221,17 @@ impl PathGuard {
     /// Validate that `path` stays within the workspace root (or additional roots if configured).
     ///
     /// Returns the canonicalized path on success. Rejects paths that
-    /// escape the allowed roots via `../` traversal or symlinks.
+    /// escape the allowed roots via `../` traversal or **followed** symlinks.
+    ///
+    /// Use this for **content** ops. For unlink/rename of directory entries
+    /// (including symlinks whose target is outside the workspace), use
+    /// [`check_path_entry`] instead (#2115).
     pub fn check_path(&self, path: &str) -> Result<PathBuf, ContainmentError> {
         let p = Path::new(path);
 
         if p.is_absolute() {
-            match &self.absolute_policy {
-                AbsolutePathPolicy::Reject => {
-                    return Err(ContainmentError::AbsolutePath(path.to_string()));
-                }
-                AbsolutePathPolicy::AllowIfContained => {
-                    // Skip syntactic check, go straight to symlink-aware check.
-                    let roots = vec![self.canon_root.clone()];
-                    return self.check_resolved_absolute(path, p, &roots);
-                }
-                AbsolutePathPolicy::AllowAdditionalRoots(extra) => {
-                    let mut allowed = vec![self.canon_root.clone()];
-                    for r in extra {
-                        if let Ok(c) = safe_canonicalize(r) {
-                            allowed.push(c);
-                        }
-                    }
-                    return self.check_resolved_absolute(path, p, &allowed);
-                }
-            }
+            let roots = self.absolute_allowed_roots(path)?;
+            return self.check_resolved_absolute(path, p, &roots);
         }
 
         // Syntactic depth-tracking check (no I/O). Relative always against primary root.
@@ -245,6 +239,30 @@ impl PathGuard {
 
         // Symlink-aware containment check (primary root).
         self.check_resolved_relative(path)
+    }
+
+    /// Validate that a **directory entry** path stays under allowed roots without
+    /// following the final path component (#2115).
+    ///
+    /// Resolves the **parent** with normal symlink following, then appends the
+    /// final file name without following that name. Use for `file_delete` and
+    /// path-only `file_rename` so hosts can unlink `workspace/link → outside`
+    /// under a workspace PathGuard without the guard treating the op as
+    /// touching the outside target.
+    ///
+    /// Intermediate directory components still follow (a parent dir that is a
+    /// symlink out of the workspace is still rejected).
+    pub fn check_path_entry(&self, path: &str) -> Result<PathBuf, ContainmentError> {
+        let p = Path::new(path);
+
+        if p.is_absolute() {
+            let roots = self.absolute_allowed_roots(path)?;
+            return self.check_entry_under_roots(path, p, &roots);
+        }
+
+        validate_relative_depth(path, p, &self.root)?;
+        let joined = self.root.join(path);
+        self.check_entry_under_roots(path, &joined, std::slice::from_ref(&self.canon_root))
     }
 
     /// The original (non-canonicalized) workspace root.
@@ -258,9 +276,65 @@ impl PathGuard {
     }
 
     /// Returns true if the path would be allowed under the current policy
-    /// (dry-run, no error details).
+    /// (dry-run, no error details). Follow semantics ([`check_path`]).
     pub fn would_allow(&self, path: &str) -> bool {
         self.check_path(path).is_ok()
+    }
+
+    /// Dry-run entry-mode check ([`check_path_entry`]).
+    pub fn would_allow_entry(&self, path: &str) -> bool {
+        self.check_path_entry(path).is_ok()
+    }
+
+    /// Allowed canonical roots for absolute-path checks under the current policy.
+    ///
+    /// Returns `Err(AbsolutePath)` when absolute paths are rejected.
+    fn absolute_allowed_roots(&self, path: &str) -> Result<Vec<PathBuf>, ContainmentError> {
+        match &self.absolute_policy {
+            AbsolutePathPolicy::Reject => Err(ContainmentError::AbsolutePath(path.to_string())),
+            AbsolutePathPolicy::AllowIfContained => Ok(vec![self.canon_root.clone()]),
+            AbsolutePathPolicy::AllowAdditionalRoots(extra) => {
+                let mut allowed = vec![self.canon_root.clone()];
+                for r in extra {
+                    if let Ok(c) = safe_canonicalize(r) {
+                        allowed.push(c);
+                    }
+                }
+                Ok(allowed)
+            }
+        }
+    }
+
+    /// Parent-follow + final-component no-follow under `allowed_roots`.
+    fn check_entry_under_roots(
+        &self,
+        display: &str,
+        path: &Path,
+        allowed_roots: &[PathBuf],
+    ) -> Result<PathBuf, ContainmentError> {
+        let normalized = normalize_lexical(path);
+        let Some(file_name) = normalized.file_name() else {
+            // No final component (e.g. `/` or `..`): fall back to follow check.
+            return self.check_resolved_absolute(display, path, allowed_roots);
+        };
+        let parent = normalized.parent().unwrap_or_else(|| Path::new("."));
+        let parent_canon =
+            canonicalize_or_ancestor(parent).map_err(|e| ContainmentError::Canonicalize {
+                path: display.to_string(),
+                source: e,
+            })?;
+        let contained = allowed_roots.iter().any(|r| parent_canon.starts_with(r));
+        if !contained {
+            return Err(ContainmentError::Escaped {
+                path: dunce::simplified(Path::new(display))
+                    .to_string_lossy()
+                    .into_owned(),
+                root: self.root.display().to_string(),
+            });
+        }
+        let mut entry = parent_canon;
+        entry.push(file_name);
+        Ok(entry)
     }
 
     /// Check that an absolute path resolves within one of the allowed roots.

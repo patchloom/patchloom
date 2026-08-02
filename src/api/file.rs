@@ -132,12 +132,14 @@ fn file_write(
             } else {
                 String::new()
             };
+            // Entry containment: do not follow symlink targets (#2115).
             // Preview/Check: report would-delete without unlinking (#2087 DryRun).
             let (applied, backup_session) = if mode == ApplyMode::Apply {
+                super::ensure_contained_entry(guard, path)?;
                 super::apply_mutation(
                     path,
                     mode,
-                    guard,
+                    None, // already checked with entry semantics
                     |backup| backup.save_before_delete(path),
                     || {
                         std::fs::remove_file(path)
@@ -145,7 +147,7 @@ fn file_write(
                     },
                 )?
             } else {
-                super::ensure_contained(guard, path)?;
+                super::ensure_contained_entry(guard, path)?;
                 (false, None)
             };
             {
@@ -315,6 +317,12 @@ pub fn file_create(
 /// is backed up for undo; special nodes get an empty backup marker (restore
 /// recreates an empty regular file, not the original node type).
 ///
+/// **Guard:** uses entry containment ([`PathGuard::check_path_entry`]): the
+/// directory entry must sit under the workspace; the symlink **target** is not
+/// used for allow/deny (#2115). So `workspace/link → /etc/passwd` can be
+/// deleted with a workspace guard without treating the op as touching
+/// `/etc/passwd`.
+///
 /// DryRun / Preview / Check report would-delete without unlinking.
 pub fn file_delete(
     path: &Path,
@@ -339,6 +347,11 @@ pub fn file_delete(
 /// special nodes use an empty path-only snapshot so write policies never
 /// rewrite the link target. Regular-file content is soft-loaded for
 /// preview/diff; binary / invalid UTF-8 still path-rename (#2031).
+///
+/// **Guard:** both `src` and `dst` use entry containment
+/// ([`PathGuard::check_path_entry`]) so a link whose target is outside the
+/// workspace can still be renamed when the **entry paths** stay inside
+/// (#2115).
 pub fn file_rename(
     src: &Path,
     dst: &Path,

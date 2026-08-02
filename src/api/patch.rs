@@ -276,10 +276,11 @@ pub fn apply_patch_file(
         for op in &staged {
             match op {
                 StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
-                StageOp::Delete { path, .. } => super::ensure_contained(guard, path)?,
+                // Path-only delete/rename: entry containment (#2115).
+                StageOp::Delete { path, .. } => super::ensure_contained_entry(guard, path)?,
                 StageOp::Rename { from, to, .. } => {
-                    super::ensure_contained(guard, from)?;
-                    super::ensure_contained(guard, to)?;
+                    super::ensure_contained_entry(guard, from)?;
+                    super::ensure_contained_entry(guard, to)?;
                 }
             }
         }

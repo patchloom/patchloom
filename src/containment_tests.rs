@@ -218,6 +218,44 @@ fn path_guard_canon_root_has_no_windows_unc_prefix() {
         guard_abs.canon_root()
     );
 }
+/// Entry mode: symlink to outside target is allowed when the link entry is inside (#2115).
+#[cfg(unix)]
+#[test]
+fn check_path_entry_allows_symlink_to_outside_target() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::TempDir::new().unwrap();
+    let outside = tempfile::TempDir::new().unwrap();
+    let secret = outside.path().join("secret");
+    fs::write(&secret, "x").unwrap();
+    let link = dir.path().join("link");
+    symlink(&secret, &link).unwrap();
+
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    assert!(
+        guard.check_path(link.to_str().unwrap()).is_err(),
+        "follow mode must deny outside target"
+    );
+    let entry = guard
+        .check_path_entry(link.to_str().unwrap())
+        .expect("entry mode must allow workspace link");
+    assert!(
+        entry.starts_with(guard.canon_root()),
+        "entry path under root: {entry:?}"
+    );
+    assert!(guard.would_allow_entry(link.to_str().unwrap()));
+}
+
+/// Entry mode still rejects paths that escape via relative traversal.
+#[test]
+fn check_path_entry_rejects_parent_escape() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+    assert!(guard.check_path_entry("../../etc/passwd").is_err());
+}
 
 #[cfg(windows)]
 #[test]

@@ -721,12 +721,16 @@ pub(crate) fn execute_and_collect(
     // execute_plan_direct). CLI `tx` and `batch` call this function directly and
     // previously only had guard wiring on replace glob expansion, so
     // `file.create ../escape` under `--contain` could still write outside the
-    // workspace (MPI cycle 13).
+    // workspace (MPI cycle 13). Entry ops use no-follow last component (#2115).
     if let Some(g) = guard {
         for op in &plan.operations {
             for p in op.declared_paths() {
-                g.check_path(&p)
-                    .map_err(crate::fallback::EditError::guard_rejected)?;
+                let r = if op.uses_entry_containment() {
+                    g.check_path_entry(&p)
+                } else {
+                    g.check_path(&p)
+                };
+                r.map_err(crate::fallback::EditError::guard_rejected)?;
             }
         }
     }
