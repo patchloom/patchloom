@@ -142,13 +142,24 @@ impl BackupSession {
             if let Some(parent) = backup_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::copy(file_path, &backup_path).with_context(|| {
-                format!(
-                    "failed to back up {} to {}",
-                    file_path.display(),
-                    backup_path.display()
-                )
-            })?;
+            // Same special-node rule as save_before_delete: never `fs::copy` a
+            // FIFO/socket/device (blocks forever) or symlink target (#2087).
+            if crate::ops::file::is_regular_file_for_backup(file_path) {
+                std::fs::copy(file_path, &backup_path).with_context(|| {
+                    format!(
+                        "failed to back up {} to {}",
+                        file_path.display(),
+                        backup_path.display()
+                    )
+                })?;
+            } else {
+                std::fs::write(&backup_path, b"").with_context(|| {
+                    format!(
+                        "writing empty backup marker for {} (special node)",
+                        file_path.display()
+                    )
+                })?;
+            }
             self.entries.push(ManifestEntry {
                 path: rel_str,
                 action: FileAction::Modified,
@@ -846,6 +857,41 @@ mod tests {
         let restored = restore_session(dir.path(), &ts).unwrap();
         assert_eq!(restored, 1);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "doomed content");
+    }
+
+    /// `save_before_write` must not `fs::copy` a FIFO (blocks forever).
+    #[cfg(unix)]
+    #[test]
+    fn save_before_write_fifo_empty_marker_no_hang() {
+        use std::process::Command as StdCommand;
+        use std::time::{Duration, Instant};
+
+        let dir = TempDir::new().unwrap();
+        let fifo = dir.path().join("pipe.fifo");
+        let status = StdCommand::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo available on unix CI");
+        assert!(status.success());
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        let start = Instant::now();
+        session
+            .save_before_write(&fifo)
+            .expect("FIFO write backup must not hang");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "save_before_write on FIFO took {:?}",
+            start.elapsed()
+        );
+        let ts = session.finalize().unwrap().unwrap();
+        let marker = dir
+            .path()
+            .join(".patchloom/backups")
+            .join(&ts)
+            .join("pipe.fifo");
+        assert!(marker.exists());
+        assert_eq!(std::fs::read(&marker).unwrap(), b"");
     }
 
     #[test]

@@ -1245,6 +1245,42 @@ rename to new.rs\n";
     client.cancel().await.unwrap();
 }
 
+/// Pure rename must refuse an existing destination (CLI/library parity, #2107).
+#[tokio::test]
+async fn test_mcp_apply_patch_pure_rename_refuses_existing_dest() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "source\n").unwrap();
+    fs::write(dir.path().join("new.rs"), "dest-existing\n").unwrap();
+
+    let diff = "\
+diff --git a/old.rs b/new.rs\n\
+similarity index 100%\n\
+rename from old.rs\n\
+rename to new.rs\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(is_error, "overwrite dest via pure rename must fail: {val}");
+    let s = val.to_string();
+    assert!(
+        s.contains("already_exists") || s.contains("already exists"),
+        "expected already_exists honesty, got: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.rs")).unwrap(),
+        "source\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "dest-existing\n"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// Pure rename source outside workspace must fail closed (#2109 PathGuard).
 #[tokio::test]
 async fn test_mcp_apply_patch_pure_rename_escape_source_rejected() {
