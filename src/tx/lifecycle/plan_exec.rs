@@ -113,18 +113,10 @@ pub fn execute_plan_direct(
                 )));
             }
         }
-        // Upfront check on declared paths using shared helper; dynamic (globs
-        // patterns, patch embedded paths) are best-effort or handled by loaders.
-        // Entry ops (delete/rename) use no-follow last component (#2115).
+        // Upfront check on declared paths; PatchApply renames use entry mode
+        // (no-follow last component) like FileRename (#2115 / MPI 2026-08-02).
         for op in &plan.operations {
-            for p in op.declared_paths() {
-                let r = if op.uses_entry_containment() {
-                    g.check_path_entry(&p)
-                } else {
-                    g.check_path(&p)
-                };
-                r.map_err(crate::fallback::EditError::guard_rejected)?;
-            }
+            super::super::execute::enforce_guard_for_op(g, op)?;
         }
     }
 

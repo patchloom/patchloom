@@ -1281,6 +1281,51 @@ rename to new.rs\n";
     client.cancel().await.unwrap();
 }
 
+/// Pure rename of a workspace symlink whose *target* is outside must succeed
+/// with entry-mode PathGuard (follow mode rejected the link; #2120 apply_patch
+/// parity with execute_plan).
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_pure_rename_symlink_outside_target() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = dir
+        .path()
+        .parent()
+        .unwrap()
+        .join("pl-mcp-symlink-target.txt");
+    fs::write(&outside, "outside-payload\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+    let diff = "\
+diff --git a/link.txt b/link2.txt\n\
+similarity index 100%\n\
+rename from link.txt\n\
+rename to link2.txt\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        !is_error,
+        "path-only rename of in-workspace symlink must not follow target: {val}"
+    );
+    assert_eq!(val["ok"], true, "ok: {val}");
+    assert!(!link.exists(), "old link removed");
+    let dest = dir.path().join("link2.txt");
+    assert!(dest.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "outside-payload\n",
+        "outside target content must not be rewritten"
+    );
+    client.cancel().await.unwrap();
+    let _ = fs::remove_file(&outside);
+}
+
 /// Pure rename source outside workspace must fail closed (#2109 PathGuard).
 #[tokio::test]
 async fn test_mcp_apply_patch_pure_rename_escape_source_rejected() {

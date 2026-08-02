@@ -265,18 +265,10 @@ fn execute_plan_inner(
 
     // PathGuard enforcement (same pattern as lifecycle.rs execute_plan_direct).
     // Use GuardRejected (not InvalidInput) so edit_error_kind peels correctly (#1935).
-    // FileDelete / FileRename use entry (no-follow last component) so symlink
-    // targets outside the workspace do not block unlink/rename (#2115).
+    // FileDelete / FileRename / PatchApply pure renames use entry mode (#2115).
     if let Some(g) = options.guard {
         for op in &operations {
-            for p in op.declared_paths() {
-                let r = if op.uses_entry_containment() {
-                    g.check_path_entry(&p)
-                } else {
-                    g.check_path(&p)
-                };
-                r.map_err(crate::fallback::EditError::guard_rejected)?;
-            }
+            super::execute::enforce_guard_for_op(g, op)?;
         }
     }
 

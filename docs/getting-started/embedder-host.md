@@ -142,6 +142,12 @@ batch gate (#2064). When each replace uses `for_agent()`, over-wide fuzzy fails
 inside that op (all-or-nothing batch). Plan/tx multi-path top-level honesty
 matches that worst-case rollup (#2007).
 
+**Multi-file `apply_patch_file`:** preflights every hunk, then one backup
+session for every path (including creates and rename destinations). Mid-batch
+write failure restores the whole session (no orphan creates or half-renames).
+Prefer this (or plan/`execute_plan` patch ops) over looping single-file
+`apply_patch` when a unified diff touches multiple files.
+
 ## Related
 
 - [Comparisons](comparisons.md) (Morph, filesystem MCP, yq, ast-grep)

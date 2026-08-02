@@ -1217,6 +1217,52 @@ fn apply_patch_file_stale_second_file_leaves_first_unchanged() {
     assert_eq!(fs::read_to_string(&b).unwrap(), "bbb\n");
 }
 
+/// Pure rename then a later write failure must restore source and remove dest
+/// (rename pairs backed up as Deleted + Created; fixloop #2120 / MPI follow-up).
+#[test]
+fn apply_patch_file_mid_write_after_pure_rename_restores() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    fs::write(&a, "src-content\n").unwrap();
+    // Parent that cannot host a child (blocks second create after rename).
+    let nested = dir.path().join("nested");
+    fs::write(&nested, "block\n").unwrap();
+
+    let patch = "\
+diff --git a/a.txt b/b.txt\n\
+similarity index 100%\n\
+rename from a.txt\n\
+rename to b.txt\n\
+--- /dev/null\n\
++++ b/nested/child.txt\n\
+@@ -0,0 +1 @@\n\
++orphan\n";
+
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("nested")
+            || msg.contains("Not a directory")
+            || msg.contains("not a directory")
+            || msg.contains("failed")
+            || msg.contains("restore"),
+        "expected mid-write failure after rename, got: {msg}"
+    );
+    assert!(
+        a.exists(),
+        "source a.txt must be restored after rename + later failure"
+    );
+    assert_eq!(
+        fs::read_to_string(&a).unwrap(),
+        "src-content\n",
+        "restored source content"
+    );
+    assert!(
+        !dir.path().join("b.txt").exists(),
+        "rename dest b.txt must be removed on restore"
+    );
+}
+
 /// Multi-file patch: create then a write that fails mid-batch must remove the
 /// created path (Created backup). Without backing up missing paths, restore
 /// left orphan creates (fixloop 2026-08-02).
