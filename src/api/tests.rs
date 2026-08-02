@@ -1217,6 +1217,53 @@ fn apply_patch_file_stale_second_file_leaves_first_unchanged() {
     assert_eq!(fs::read_to_string(&b).unwrap(), "bbb\n");
 }
 
+/// Multi-file patch: create then a write that fails mid-batch must remove the
+/// created path (Created backup). Without backing up missing paths, restore
+/// left orphan creates (fixloop 2026-08-02).
+#[test]
+fn apply_patch_file_mid_write_after_create_restores_orphan() {
+    let dir = TempDir::new().unwrap();
+    // Parent path that cannot host a child file (regular file, not directory).
+    let nested = dir.path().join("nested");
+    fs::write(&nested, "block\n").unwrap();
+
+    // First file: create ok. Second: create nested/child.txt fails because
+    // parent `nested` is a file (preflight is creation-only; no load of parent).
+    let patch = "\
+--- /dev/null\n\
++++ b/new.txt\n\
+@@ -0,0 +1 @@\n\
++created\n\
+--- /dev/null\n\
++++ b/nested/child.txt\n\
+@@ -0,0 +1 @@\n\
++orphan\n";
+
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("nested")
+            || msg.contains("Not a directory")
+            || msg.contains("not a directory")
+            || msg.contains("failed")
+            || msg.contains("restore"),
+        "expected mid-write failure, got: {msg}"
+    );
+    assert!(
+        !dir.path().join("new.txt").exists(),
+        "created new.txt must be restored (removed) when later write fails; orphan left behind"
+    );
+    assert!(
+        !dir.path().join("nested").join("child.txt").exists(),
+        "failed second create must not leave nested/child.txt"
+    );
+    assert_eq!(
+        fs::read_to_string(&nested).unwrap(),
+        "block\n",
+        "blocking parent file must stay intact"
+    );
+}
+
 /// Mid-write failure after a successful first write must restore all files.
 #[test]
 fn write_if_apply_many_restores_on_second_write_failure() {

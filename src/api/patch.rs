@@ -125,7 +125,13 @@ fn patch_write(
             if let Some(ref from) = pf.rename_from {
                 let old = cwd.join(from);
                 if crate::ops::file::path_entry_exists(&old) {
-                    let _ = std::fs::remove_file(&old);
+                    // Hard-fail remove (no silent dual-path leave-behind).
+                    std::fs::remove_file(&old).map_err(|e| {
+                        anyhow::anyhow!(
+                            "patch rename: failed to remove source {}: {e}",
+                            old.display()
+                        )
+                    })?;
                 }
             }
         }
@@ -285,23 +291,25 @@ pub fn apply_patch_file(
             }
         }
         let mut backup = crate::backup::BackupSession::new(cwd)?;
+        // Always record every path (including creates and rename dests as
+        // FileAction::Created when missing). Skipping non-existent paths left
+        // orphans after mid-batch restore (fixloop 2026-08-02; same class as
+        // write_if_apply_many).
         for op in &staged {
             match op {
                 StageOp::Write { write_path, .. } => {
-                    if crate::ops::file::path_entry_exists(write_path) {
-                        backup.save_before_write(write_path)?;
-                    }
+                    backup.save_before_write(write_path)?;
                 }
                 StageOp::Delete { path, .. } => {
                     if crate::ops::file::path_entry_exists(path) {
-                        backup.save_before_write(path)?;
+                        backup.save_before_delete(path)?;
                     }
                 }
                 StageOp::Rename { from, to, .. } => {
                     if crate::ops::file::path_entry_exists(from) {
-                        backup.save_before_write(from)?;
+                        backup.save_before_delete(from)?;
                     }
-                    if crate::ops::file::path_entry_exists(to) && to != from {
+                    if to != from {
                         backup.save_before_write(to)?;
                     }
                 }

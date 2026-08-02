@@ -755,12 +755,18 @@ pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Opti
         }
         Err(SoftTextSkip::Unreadable) => {
             if !quiet {
-                // Surface the real OS error when possible (permission, etc.).
-                let detail = std::fs::File::open(path)
-                    .err()
-                    .map(|e| e.to_string())
-                    .or_else(|| std::fs::metadata(path).err().map(|e| e.to_string()))
-                    .unwrap_or_else(|| "unreadable".into());
+                // Never re-open for diagnostics: FIFO/socket/device hang forever
+                // (#fixloop 2026-08-02). Soft load already refused specials via
+                // is_openable_regular_file; only open regular files for OS detail.
+                let detail = if !is_openable_regular_file(path) {
+                    "not a regular file".to_string()
+                } else {
+                    std::fs::File::open(path)
+                        .err()
+                        .map(|e| e.to_string())
+                        .or_else(|| std::fs::metadata(path).err().map(|e| e.to_string()))
+                        .unwrap_or_else(|| "unreadable".into())
+                };
                 eprintln!("{cmd}: skipping {}: {detail}", path.display());
             }
             None
@@ -1409,6 +1415,30 @@ mod tests {
         assert!(
             start.elapsed().as_secs() < 2,
             "try_read_text_file on FIFO took {:?}",
+            start.elapsed()
+        );
+    }
+
+    /// CLI soft-read diagnostic must not re-open FIFOs for OS error text
+    /// (hang residual after soft refuse; fixloop 2026-08-02).
+    #[cfg(all(unix, feature = "cli"))]
+    #[test]
+    fn read_text_file_logged_fifo_no_hang() {
+        use std::time::Instant;
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("p.fifo");
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        let start = Instant::now();
+        assert!(
+            read_text_file_logged(&fifo, "replace", false).is_none(),
+            "FIFO must soft-skip"
+        );
+        assert!(
+            start.elapsed().as_secs() < 2,
+            "read_text_file_logged on FIFO took {:?}",
             start.elapsed()
         );
     }
