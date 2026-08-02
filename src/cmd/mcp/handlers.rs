@@ -141,7 +141,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if selector exists, returns true/false), \"keys\" (list object keys at selector path), \"len\" (count items at selector path), \"select\" (filter array by predicate), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
+        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if selector exists, returns true/false), \"keys\" (list object keys at selector path), \"len\" (count items at selector path), \"select\" (filter array via selector predicates, e.g. users[role=admin] or items[0].name; there is no separate predicate field), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
     )]
     async fn doc_query(
         &self,
@@ -659,10 +659,16 @@ impl PatchloomService {
                 McpError::invalid_params(format!("failed to parse diff: {e}"), None)
             })?;
             for pf in &patch_files {
-                svc.check_path(&pf.path)?;
-                // Git rename source must be contained too (pure rename of ../x).
-                if let Some(from) = &pf.rename_from {
-                    svc.check_path(from)?;
+                // Pure/git renames are path-only (entry mode, #2115); content
+                // patches follow. Match execute_plan validation so symlink
+                // renames are not rejected when the target is outside.
+                if pf.rename_from.is_some() {
+                    svc.check_path_entry(&pf.path)?;
+                    if let Some(from) = &pf.rename_from {
+                        svc.check_path_entry(from)?;
+                    }
+                } else {
+                    svc.check_path(&pf.path)?;
                 }
             }
 
@@ -767,7 +773,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Plan field for the op list is `operations` (alias `ops` accepted). Optional plan.cwd (relative path under the server workspace) re-roots relative op paths; absolute paths and ../ escapes are rejected. Do not set both plan.cwd and for_each. plan.format/validate lifecycle shell steps are ignored on MCP (use project config). Strongly recommended for multi-file or multi-op work. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples. Nested example: {\"plan\": {\"version\": 1, \"cwd\": \"fixtures/svc\", \"operations\": [{\"op\": \"doc.set\", \"path\": \"configs/app.yaml\", \"selector\": \"name\", \"value\": \"x\"}]}}"
+        description = "Execute an arbitrary multi-step transaction plan atomically (MCP equivalent of `patchloom tx`). Provide either an inline 'plan' object or a 'plan_path' to a plan file. Supports mixed operations (doc.*, md.*, replace, file create/delete/rename, tidy, patch, etc). Plan field for the op list is `operations` (alias `ops` accepted). Optional plan.cwd must be a relative path under the server workspace (re-roots relative op paths); absolute plan.cwd strings and ../ escapes are rejected. Op path fields may use absolute paths that resolve inside the workspace (AllowIfContained). Do not set both plan.cwd and for_each. plan.format/validate lifecycle shell steps are ignored on MCP (use project config). Strongly recommended for multi-file or multi-op work. See agent-rules --mode mcp or PATCHLOOM.md for plan schema examples. Nested example: {\"plan\": {\"version\": 1, \"cwd\": \"fixtures/svc\", \"operations\": [{\"op\": \"doc.set\", \"path\": \"configs/app.yaml\", \"selector\": \"name\", \"value\": \"x\"}]}}"
     )]
     async fn execute_plan(
         &self,
@@ -971,7 +977,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Return server identity and workspace root: cwd, surface (full|core), tool_count, package version, MCP protocol_version from handshake, and optional recommendation (coding agents may prefer core). Use this to discover the root path before file operations; path parameters on other tools are relative to cwd."
+        description = "Return server identity and workspace root: cwd, surface (full|core), tool_count, package version, MCP protocol_version from handshake, and optional recommendation (coding agents may prefer core). Prefer relative path parameters under cwd; absolute paths are allowed only when they resolve inside the workspace (AllowIfContained). Outside-workspace and ../ escapes are rejected."
     )]
     async fn server_info(
         &self,
