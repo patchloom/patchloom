@@ -380,6 +380,44 @@ fn test_tidy_check_files_from_sole_binary_is_binary_error_kind() {
     assert!(v["error"].as_str().unwrap_or("").contains("binary"), "{v}");
 }
 
+/// Multi-file --files-from: FIFO co-path appears as not_regular_file (MPI 2026-08-03).
+#[cfg(unix)]
+#[test]
+fn test_tidy_check_files_from_multi_fifo_refused_not_regular_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "hello\n").unwrap();
+    let fifo = dir.path().join("f.pipe");
+    std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo");
+    fs::write(dir.path().join("list.txt"), "ok.txt\nf.pipe\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "tidy", "check"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let refused = v["refused"]
+        .as_array()
+        .expect("refused[] for FIFO files-from co-path");
+    assert!(
+        refused.iter().any(|r| {
+            r["path"].as_str() == Some("f.pipe") && r["reason"].as_str() == Some("not_regular_file")
+        }),
+        "{v}"
+    );
+}
+
 /// Multi-file --files-from: non-text co-path appears in refused[].
 #[test]
 fn test_tidy_check_files_from_multi_invalid_utf8_refused() {
