@@ -1358,12 +1358,50 @@ fn apply_mutation_restores_on_perform_failure() {
         msg.contains("restored session") || msg.contains("backup finalize"),
         "hosts must see restore outcome + session, got: {msg}"
     );
-    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
+    // #2127: hosts peel session without Display scrape.
+    let session = super::backup_session_from_error(&err).expect("session after fail-restore");
+    assert!(
+        !session.is_empty(),
+        "backup_session_from_error must return finalized session id"
+    );
     let sessions = crate::backup::list_sessions(dir.path()).unwrap();
+    assert!(
+        sessions.iter().any(|s| s.timestamp == session),
+        "peeled session {session:?} must match list_sessions: {sessions:?}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
     assert!(
         !sessions.is_empty(),
         "finalize-before-mutate must leave a discoverable session for undo"
     );
+}
+
+#[test]
+fn backup_session_from_error_format_failed_with_session() {
+    let err: anyhow::Error = super::FormatFailedError::new("format command failed")
+        .with_backup_session(Some("fmt_1".into()))
+        .into();
+    assert_eq!(super::backup_session_from_error(&err), Some("fmt_1"));
+    assert_eq!(super::format_failed_backup_session(&err), Some("fmt_1"));
+}
+
+#[test]
+fn backup_session_from_error_none_for_no_match() {
+    let err: anyhow::Error = crate::exit::NoMatchError {
+        msg: "no matches".into(),
+    }
+    .into();
+    assert_eq!(super::backup_session_from_error(&err), None);
+}
+
+#[test]
+fn backup_session_from_error_none_for_guard_rejected() {
+    let err: anyhow::Error = crate::fallback::EditError::new(
+        crate::fallback::EditErrorKind::GuardRejected,
+        "path outside workspace",
+    )
+    .into();
+    assert_eq!(super::backup_session_from_error(&err), None);
 }
 
 #[test]

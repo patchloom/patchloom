@@ -140,6 +140,7 @@ Per-path details stay on `changes[]`. File multi-op Apply with a final span gate
 refuses before write/backup (#2008). Prefer per-op honesty; rollup fields are worst-case only.\n\n\
              **Library embedder undo / post-write (Rust hosts, not CLI-only):**\n\
              - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).\n\
+             - On `Err` after write/backup (`format_failed` or fail-restore), `api::backup_session_from_error(&err)` peels the session id without scraping Display (#2127).\n\
              - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path\n\
              - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)\n\
              - `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)\n\

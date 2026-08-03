@@ -213,6 +213,7 @@
 //! | Soft zero matches | [`EditErrorKind::NoMatch`] / [`api::is_no_match`] (JSON kind `no_matches`) |
 //! | Unique multi-match ambiguity | [`EditErrorKind::AmbiguousTarget`] / [`api::is_ambiguous`] (JSON `ambiguous`) |
 //! | Post-write format/lint failure | [`EditErrorKind::FormatFailed`] / [`api::is_format_failed`] |
+//! | Session id after FormatFailed or fail-restore (undo without Display scrape) | [`api::backup_session_from_error`] (#2127); success path: [`EditResult::backup_session`] |
 //! | Shared agent replace policy (primary + fallback) | [`ReplaceOptions::for_agent`] / [`AGENT_MIN_FUZZY_SCORE`] (#1965 / #2005) |
 //! | Over-wide fuzzy auto-refuse on `for_agent` | [`ReplaceOptions::refuse_suspicious_fuzzy`] / [`EditErrorKind::FuzzySpanSuspicious`] / [`api::is_fuzzy_span_suspicious`] (#2005) |
 //! | Custom over-wide fuzzy refuse | [`api::fuzzy_span_suspicious`] / [`FuzzySpanPolicy`] (#1981) |
@@ -332,6 +333,11 @@ pub use api::{
     load_text, load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
     plan_apply_fragment_to_replace, prefer_widest_matched_text, refuse_batch_if_suspicious_fuzzy,
     run_post_write_validation, search_file, strip_lazy_markers, text_diff,
+};
+/// Fail-restore / FormatFailed session peel for library hosts (#2127).
+pub use api::{
+    FormatFailedError, MutationAfterBackupError, backup_session_from_error,
+    format_failed_backup_session, format_failed_written_files, mutation_after_backup_session,
 };
 #[cfg(any(feature = "cli", feature = "files"))]
 pub use api::{
