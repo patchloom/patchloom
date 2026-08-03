@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test force-release-version-test server-json-test git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test force-release-version-test verify-homebrew-version-test server-json-test git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -39,9 +39,9 @@ pty-test: ## Run PTY-based interactive terminal tests (serial)
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme server-json-test ## Run all checks (full CI gate)
+check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme server-json-test verify-homebrew-version-test ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-readme server-json-test ## Fast check (skips PATCHLOOM.md sync check only; includes README count + release notes)
+check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-readme server-json-test verify-homebrew-version-test ## Fast check (skips PATCHLOOM.md sync check only; includes README count + release notes)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
@@ -78,6 +78,9 @@ pack-mcpb-test: ## Unit tests for scripts/pack-mcpb.sh (VERSION override + pack 
 
 force-release-version-test: ## Unit tests for force_release_version.py (Release-As preferred path)
 	python3 scripts/test_force_release_version.py
+
+verify-homebrew-version-test: ## Unit tests for scripts/verify-homebrew-version.sh (#2134)
+	python3 scripts/test_verify_homebrew_version.py
 
 server-json-test: ## Lock server.json MCP Registry constraints (description ≤100 chars)
 	python3 scripts/test_server_json.py

@@ -607,9 +607,11 @@ pub use fuzzy_span::{FuzzySpanPolicy, fuzzy_span_suspicious, fuzzy_span_suspicio
 /// Re-export: binary | invalid_encoding | invalid_input from sole-path loads (#1963).
 pub use crate::exit::is_load_text_strict_fail;
 /// Re-export: session id + written paths from FormatFailed / fail-restore (#2127).
+/// Also: `suggested_op` peel for predicate write-nav fail-closed (#2133).
 pub use crate::exit::{
-    FormatFailedError, MutationAfterBackupError, backup_session_from_error,
+    FormatFailedError, InvalidInputHintError, MutationAfterBackupError, backup_session_from_error,
     format_failed_backup_session, format_failed_written_files, mutation_after_backup_session,
+    suggested_op_from_error,
 };
 pub use crate::fallback::{
     EditError, EditErrorKind, PeeledError, classify_error, classify_error_ref, edit_error_kind,

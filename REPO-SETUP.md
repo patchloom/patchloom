@@ -22,7 +22,7 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 
 Keep directory copy aligned with the tagged version. Automated where possible:
 
-1. **Version channels** — confirm crates.io max version, Homebrew formula on `patchloom/homebrew-tap`, and Scoop `bucket/patchloom.json` match the release tag. Operators still need `brew upgrade` / `scoop update` on machines that already had an older cellar; document that in install notes. Optional bottle `--version` CI is tracked separately (#2134).
+1. **Version channels** — confirm crates.io max version, Homebrew formula on `patchloom/homebrew-tap`, and Scoop `bucket/patchloom.json` match the release tag. Release workflow job `verify-homebrew-install` installs from the tap and asserts `patchloom --version` matches the release (#2134). Operators with an older linked cellar still need `brew upgrade` / `scoop update` (CI only covers new installs).
 2. **MCP Registry** — runs from Release after crates/npm; on failure: Actions → **Publish MCP Registry** → version input. `server.json` description should stay differentiation-focused (structured agent edits, not generic filesystem) and **at most 100 characters** (registry schema hard limit; longer values fail validate with 422). Version field is stamped by the publish job.
 3. **Smithery** — `publish-smithery.yml` after Release when `SMITHERY_API_KEY` is set; manual: `make pack-mcpb && bash scripts/publish-smithery.sh`.
 4. **Glama** — no API publish; after listing exists, sync from GitHub + `glama.json`. If description drifts, update via Glama UI (human session). Suggested blurb: same as `server.json` description.

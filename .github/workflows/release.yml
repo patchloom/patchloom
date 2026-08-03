@@ -633,6 +633,53 @@ jobs:
           done
           git push
 
+  # After formula push: install from the tap and assert --version matches the
+  # release (new install path). Operators with a stale linked cellar still need
+  # `brew upgrade patchloom` locally; CI cannot fix PATH lag (#2134).
+  verify-homebrew-install:
+    needs:
+      - plan
+      - host
+      - publish-homebrew-formula
+    runs-on: "ubuntu-22.04"
+    timeout-minutes: 20
+    env:
+      PLAN: ${{ needs.plan.outputs.val }}
+    if: ${{ always() && !cancelled() && needs.host.result == 'success' && needs.publish-homebrew-formula.result == 'success' && !github.event.repository.private && (!fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases) }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Homebrew (Linux)
+        run: |
+          set -euo pipefail
+          if ! command -v brew >/dev/null 2>&1; then
+            NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          fi
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+          brew --version
+      - name: Install from tap and assert version
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          set -euo pipefail
+          export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
+          version=$(echo "$PLAN" | jq -r '.releases[0].app_version // empty')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "PLAN had no releases[0].app_version" >&2
+            exit 1
+          fi
+          # Formula was just pushed; tap may need a fresh fetch.
+          brew tap patchloom/tap || brew untap patchloom/tap; brew tap patchloom/tap
+          EXPECTED_VERSION="$version" INSTALL=1 \
+            bash scripts/verify-homebrew-version.sh
+
   # Push updated Scoop manifest to patchloom/scoop-bucket (version + hashes).
   # The committed JSON is the install source of truth; checkver/autoupdate in
   # the manifest is only a client-side fallback if the bucket lags.
@@ -979,6 +1026,7 @@ jobs:
       - plan
       - host
       - publish-homebrew-formula
+      - verify-homebrew-install
       - publish-scoop-bucket
       - publish-npm
       - publish-chocolatey
@@ -987,7 +1035,8 @@ jobs:
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
-    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.publish-chocolatey.result == 'skipped' || needs.publish-chocolatey.result == 'success') && (needs.publish-winget.result == 'skipped' || needs.publish-winget.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
+    # verify-homebrew-install may skip when formula publish skips; treat skip as ok.
+    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.verify-homebrew-install.result == 'skipped' || needs.verify-homebrew-install.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.publish-chocolatey.result == 'skipped' || needs.publish-chocolatey.result == 'success') && (needs.publish-winget.result == 'skipped' || needs.publish-winget.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 10
     env:

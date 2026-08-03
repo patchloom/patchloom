@@ -80,6 +80,10 @@ Before filing "CLI behavior differs from 0.x" bugs, compare `patchloom --version
 to the version your host embeds. Dual-path dogfood (library + brew CLI) is
 expected to split until the shell binary is upgraded.
 
+Release CI installs a **fresh** Homebrew formula and checks
+`patchloom --version` against the tag. That does **not** upgrade machines that
+already have an older cellar linked; run `brew upgrade patchloom` there.
+
 ## Recommended: GitHub Releases
 
 Pre-built binaries for Linux (x64, ARM64, musl), macOS (x64, ARM64), and

@@ -878,6 +878,14 @@ pub(crate) fn execute_and_collect(
                 if crate::exit::is_invalid_encoding(&e) {
                     return Err(crate::exit::InvalidEncodingError { msg }.into());
                 }
+                // Preserve suggested_op when re-wrapping InvalidInputHintError (#2133).
+                if let Some(op) = crate::exit::suggested_op_from_error(&e) {
+                    return Err(crate::exit::InvalidInputHintError {
+                        msg,
+                        suggested_op: op,
+                    }
+                    .into());
+                }
                 if crate::exit::is_invalid_input(&e) {
                     return Err(crate::exit::InvalidInputError { msg }.into());
                 }

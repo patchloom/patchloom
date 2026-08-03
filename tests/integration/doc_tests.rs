@@ -2837,7 +2837,7 @@ fn test_doc_set_on_directory_json_error_kind() {
     );
 }
 
-/// Predicate selectors on doc set point agents at doc update (#1725).
+/// Predicate selectors on doc set point agents at doc update (#1725 / #2133).
 #[test]
 fn test_doc_set_predicate_errors_with_update_hint() {
     let dir = TempDir::new().unwrap();
@@ -2859,6 +2859,16 @@ fn test_doc_set_predicate_errors_with_update_hint() {
         combined.contains("doc update") && combined.contains("wildcard/predicate"),
         "expected actionable error, got: {combined}"
     );
+    let json: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("stdout must be JSON error envelope: {e}; stdout={stdout:?} stderr={stderr:?}")
+    });
+    assert_eq!(json["error_kind"], "invalid_input");
+    assert_eq!(
+        json["suggested_op"], "doc.update",
+        "machine-stable suggested_op for harness retry (#2133): {json}"
+    );
+    assert_eq!(json["applied"], false);
+    assert_eq!(json["ok"], false);
 }
 
 /// Multi-document YAML is an array root; bare keys must hint document index.
