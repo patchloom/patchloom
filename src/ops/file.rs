@@ -435,7 +435,11 @@ pub fn explicit_multi_path_non_text_refused(
                 cwd.join(raw)
             }
         };
-        if !path.is_file() {
+        // Missing paths are callers' `skipped[]`, not refused. Do **not** use
+        // `is_file()` here: FIFOs/sockets return false and would silently drop
+        // specials from refused[] while replace (which soft-loads every path)
+        // reports `not_regular_file` (MPI 2026-08-03 sibling of #2122).
+        if !path_entry_exists(&path) {
             continue;
         }
         match crate::files::try_read_text_file(&path) {
@@ -866,5 +870,26 @@ mod tests {
         fs::write(dir.path().join("b.bin"), b"x\x00y").unwrap();
         assert!(explicit_multi_path_non_text_refused(&["b.bin".into()], dir.path()).is_none());
         assert!(explicit_multi_path_non_text_refused(&[".".into()], dir.path()).is_none());
+    }
+
+    /// FIFO co-path must surface `not_regular_file` (not silent drop via
+    /// `is_file()` filter). Shared by search/tidy multi-path (#2122 sibling).
+    #[cfg(unix)]
+    #[test]
+    fn multi_path_non_text_refused_lists_fifo_not_regular_file() {
+        use std::process::Command as StdCommand;
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("t.txt"), "hi\n").unwrap();
+        let fifo = dir.path().join("p.fifo");
+        StdCommand::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        let refused =
+            explicit_multi_path_non_text_refused(&["t.txt".into(), "p.fifo".into()], dir.path())
+                .expect("FIFO co-path must be refused");
+        assert_eq!(refused.len(), 1, "{refused:?}");
+        assert_eq!(refused[0].path, "p.fifo");
+        assert_eq!(refused[0].reason, "not_regular_file");
     }
 }

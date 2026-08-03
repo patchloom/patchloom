@@ -1119,6 +1119,50 @@ fn test_search_sole_invalid_utf8_is_invalid_encoding() {
     );
 }
 
+/// Multi-path FIFO co-list must appear in refused[] as not_regular_file
+/// (search shared helper dropped non-is_file specials; MPI 2026-08-03).
+#[cfg(unix)]
+#[test]
+fn test_search_multi_path_fifo_refused_not_regular_file() {
+    let dir = TempDir::new().unwrap();
+    let text = dir.path().join("text.txt");
+    let fifo = dir.path().join("f.pipe");
+    fs::write(&text, "needle in text\n").unwrap();
+    std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo");
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "needle"])
+        .arg(&text)
+        .arg(&fifo)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert!(v["match_count"].as_u64().unwrap_or(0) >= 1, "{v}");
+    let refused = v["refused"]
+        .as_array()
+        .expect("refused[] required for FIFO co-path");
+    let fifo_row = refused
+        .iter()
+        .find(|r| r["path"].as_str().is_some_and(|p| p.contains("f.pipe")))
+        .expect("FIFO in refused");
+    assert_eq!(
+        fifo_row["reason"], "not_regular_file",
+        "must not omit specials via is_file filter: {v}"
+    );
+}
+
 /// Explicit multi-path search must list binary co-paths in refused[] (parity
 /// with replace; agents otherwise assume every listed path was scanned).
 /// MPI 2026-07-20.
