@@ -278,7 +278,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     // --- Medium tier ---
     OpMeta {
         name: "doc.set",
-        description: "Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.",
+        description: "Set a value at a single concrete selector path in a JSON, YAML, or TOML file (keys and indexes such as server.port or items.0.v). Parser-backed; output is always valid. Not for predicates or wildcards (items[name=foo].v, items[*].v); use doc.update for multi-match writes.",
         tier: Tier::Medium,
         examples: &[(
             "Update a version in package.json",

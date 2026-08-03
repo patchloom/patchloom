@@ -54,6 +54,9 @@ pub enum DocAction {
         /// File path (JSON, YAML, or TOML).
         file: String,
         /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Single concrete path only (keys and indexes). Not for
+        /// predicates or wildcards (`items[name=foo].v`, `items[*].v`);
+        /// use `doc update` for multi-match writes.
         selector: String,
         /// Value (JSON literal or bare string).
         value: String,
@@ -145,6 +148,8 @@ pub enum DocAction {
         /// File path (JSON, YAML, or TOML).
         file: String,
         /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Single concrete path only (same rule as `doc set`). For
+        /// predicates or wildcards use `doc update`.
         selector: String,
         /// Value to set if missing (JSON literal or bare string).
         value: String,

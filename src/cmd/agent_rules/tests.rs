@@ -518,8 +518,11 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
         out.contains("Which surface to use")
             && out.contains("ast-grep")
             && out.contains("Context budget")
-            && out.contains("Multi-document YAML"),
-        "agent-rules need decision tree + ast-grep complement + context tips (#1992/#1993/#1996)"
+            && out.contains("Multi-document YAML")
+            && out.contains("doc update")
+            && out.contains("items[name=a].v")
+            && out.contains("structured multi-match"),
+        "agent-rules need decision tree + set-vs-update + ast-grep + context tips (#1992/#1993/#1996/#2132)"
     );
     assert!(
         out.contains("Morph Fast Apply")

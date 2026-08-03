@@ -142,6 +142,28 @@ mod basic {
         );
     }
 
+    /// Agent DX: doc.set must steer multi-match predicates to doc.update (#2132).
+    #[test]
+    fn doc_set_description_points_predicates_to_doc_update() {
+        let base = operation_description("doc.set").expect("doc.set in registry");
+        assert!(
+            base.contains("single concrete") && base.contains("doc.update"),
+            "doc.set description must say single concrete path and point to doc.update: {base}"
+        );
+        assert!(
+            !base.contains("items[name=") || base.contains("doc.update"),
+            "if predicate examples appear they must still route to doc.update: {base}"
+        );
+        let desc = mcp_tool_description(
+            "doc.set",
+            Some("Single concrete path only. For selector predicates use doc_update."),
+        );
+        assert!(
+            desc.contains("doc.update") || desc.contains("doc_update"),
+            "MCP doc_set description must mention doc.update or doc_update: {desc}"
+        );
+    }
+
     #[test]
     fn mcp_tool_description_strips_op_from_all_registry_examples() {
         for meta in OPERATION_REGISTRY.iter() {
