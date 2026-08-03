@@ -62,7 +62,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "doc_set",
         op_name: "doc.set",
         extra: Some(
-            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+            "Single concrete path only (keys/indexes). For selector predicates or wildcards (items[name=foo].v, items[*].v) use doc_update / plan doc.update. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: true,
         validations: &[
@@ -151,7 +151,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "doc_update",
         op_name: "doc.update",
         extra: Some(
-            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+            "Multi-match writes: use selector predicates or wildcards (items[name=foo].v, items[*].enabled). Prefer this over doc_set when filtering by field. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
         validations: &[

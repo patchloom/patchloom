@@ -7,7 +7,8 @@
 |--------|-----|--------------------------|----------|
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |
 | identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |
-| structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |
+| structured single path | `doc set` | `doc.set` | `doc_set` |
+| structured multi-match (predicate/wildcard) | `doc update` | `doc.update` | `doc_update` |
 | search | `search` | n/a | `search_files` |
 | list files | n/a (MCP) | n/a | `list_files` |
 | read | `read` | n/a | `read_file` |
@@ -51,7 +52,8 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 
 | If the task is… | Prefer | Avoid |
 |---|---|---|
-| JSON/YAML/TOML key mutate | `doc set` / plan `doc.*` / MCP `doc_set` | regex replace on structured files |
+| JSON/YAML/TOML single key/index path | `doc set` / plan `doc.set` / MCP `doc_set` (e.g. `server.port`, `items.0.v`) | regex replace on structured files |
+| JSON/YAML/TOML multi-match by predicate or wildcard | `doc update` / plan `doc.update` / MCP `doc_update` (e.g. `items[name=a].v`, `items[*].enabled`) | `doc set` with predicates (fails closed) |
 | Multi-document YAML | selector `0.key` or `[0].key` | bare key on stream root |
 | Markdown section/bullet/table | `md *` | whole-file rewrite |
 | Identifier rename in code | `ast rename` / `ast_rename_project` | fuzzy replace for symbols |
@@ -526,7 +528,7 @@ dependencies[name=react].version # predicate filter
 - `file.delete`: Delete a file.
 - `file.rename`: Rename (move) a file.
 - `tidy.fix`: Normalize whitespace in a file. When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; normalize_eol stays keep). Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).
-- `doc.set`: Set a value at a selector path in a JSON, YAML, or TOML file. Parser-backed; output is always valid.
+- `doc.set`: Set a value at a single concrete selector path in a JSON, YAML, or TOML file (keys and indexes such as server.port or items.0.v). Parser-backed; output is always valid. Not for predicates or wildcards (items[name=foo].v, items[*].v); use doc.update for multi-match writes.
 - `doc.delete`: Delete a value at a selector path in a JSON, YAML, or TOML file. CLI --json and MCP/tx success include changed and removed (0 on missing key; exit 0 / ok is idempotent).
 - `doc.merge`: Deep-merge a JSON object into a document root, or into a selector path (e.g. multi-doc YAML `0` / `[0]`).
 - `doc.append`: Append a value to an array at a selector path.

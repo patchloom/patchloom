@@ -22,11 +22,12 @@ This file captures the recommended day 1 policy setup for `patchloom/patchloom`,
 
 Keep directory copy aligned with the tagged version. Automated where possible:
 
-1. **MCP Registry** — runs from Release after crates/npm; on failure: Actions → **Publish MCP Registry** → version input. `server.json` description should stay differentiation-focused (structured agent edits, not generic filesystem) and **at most 100 characters** (registry schema hard limit; longer values fail validate with 422). Version field is stamped by the publish job.
-2. **Smithery** — `publish-smithery.yml` after Release when `SMITHERY_API_KEY` is set; manual: `make pack-mcpb && bash scripts/publish-smithery.sh`.
-3. **Glama** — no API publish; after listing exists, sync from GitHub + `glama.json`. If description drifts, update via Glama UI (human session). Suggested blurb: same as `server.json` description.
-4. **Secondary marketplaces** (mcp.so, mcpservers.org, PulseMCP, awesome lists) — re-check only when deliberately listing; not release-blocking.
-5. **GitHub repo description / topics / homepage** — optional re-check after major messaging changes (`gh api repos/patchloom/patchloom`).
+1. **Version channels** — confirm crates.io max version, Homebrew formula on `patchloom/homebrew-tap`, and Scoop `bucket/patchloom.json` match the release tag. Operators still need `brew upgrade` / `scoop update` on machines that already had an older cellar; document that in install notes. Optional bottle `--version` CI is tracked separately (#2134).
+2. **MCP Registry** — runs from Release after crates/npm; on failure: Actions → **Publish MCP Registry** → version input. `server.json` description should stay differentiation-focused (structured agent edits, not generic filesystem) and **at most 100 characters** (registry schema hard limit; longer values fail validate with 422). Version field is stamped by the publish job.
+3. **Smithery** — `publish-smithery.yml` after Release when `SMITHERY_API_KEY` is set; manual: `make pack-mcpb && bash scripts/publish-smithery.sh`.
+4. **Glama** — no API publish; after listing exists, sync from GitHub + `glama.json`. If description drifts, update via Glama UI (human session). Suggested blurb: same as `server.json` description.
+5. **Secondary marketplaces** (mcp.so, mcpservers.org, PulseMCP, awesome lists) — re-check only when deliberately listing; not release-blocking.
+6. **GitHub repo description / topics / homepage** — optional re-check after major messaging changes (`gh api repos/patchloom/patchloom`).
 | Security reporting | commit `SECURITY.md` now, then enable GitHub private vulnerability reporting after the repo becomes public | private Free org repos do not expose GitHub private vulnerability reporting yet |
 | Branch protection | Protect `main` once the repo is public or on a plan that supports private branch protection | required before accepting outside patches |
 | Public repo metadata | commit `LICENSE`, `README.md`, `CONTRIBUTING.md`, and issue templates in the bootstrap | keep the repo legible from day one |

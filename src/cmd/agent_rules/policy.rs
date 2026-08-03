@@ -23,7 +23,8 @@ the edit is structured or multi-file. Prefer **ast-grep** (or similar) for \
 DSL; use Patchloom for host-safe apply, configs, markdown, batch/tx/undo, and peels.\n\n\
          | If the task is… | Prefer | Avoid |\n\
          |---|---|---|\n\
-         | JSON/YAML/TOML key mutate | `doc set` / plan `doc.*` / MCP `doc_set` | regex replace on structured files |\n\
+         | JSON/YAML/TOML single key/index path | `doc set` / plan `doc.set` / MCP `doc_set` (e.g. `server.port`, `items.0.v`) | regex replace on structured files |\n\
+         | JSON/YAML/TOML multi-match by predicate or wildcard | `doc update` / plan `doc.update` / MCP `doc_update` (e.g. `items[name=a].v`, `items[*].enabled`) | `doc set` with predicates (fails closed) |\n\
          | Multi-document YAML | selector `0.key` or `[0].key` | bare key on stream root |\n\
          | Markdown section/bullet/table | `md *` | whole-file rewrite |\n\
          | Identifier rename in code | `ast rename` / `ast_rename_project` | fuzzy replace for symbols |\n\

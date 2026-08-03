@@ -6,6 +6,17 @@ shell out to the CLI). Public API: [docs.rs/patchloom](https://docs.rs/patchloom
 This is the **one-screen** ordered checklist for a first host integration.
 Bline is a real embedder that dogfooded these steps; the checklist is host-generic.
 
+**Version dual-path:** a Cargo pin of patchloom (library) can be ahead of the
+operator shell binary (`brew` / `scoop` / old `cargo install`). When dogfooding
+CLI and library side by side, run `patchloom --version` and compare to
+`Cargo.lock` before treating CLI exit codes as a library regression. See
+[Installation: verify which binary](installation.md#verify-which-binary-and-crate-you-have).
+
+**`doc set` vs `doc update`:** single concrete paths use `doc.set` / MCP
+`doc_set`; predicate or wildcard multi-match uses `doc.update` / `doc_update`.
+Do not expose only `doc_set` if agents need list updates by name. See
+[Comparisons](comparisons.md#doc-set-vs-doc-update-agent-dx).
+
 ## Minimal checklist
 
 1. **PathGuard** from the workspace root (and `allow_temp_directory` if the

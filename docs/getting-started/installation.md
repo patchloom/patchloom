@@ -14,6 +14,15 @@ brew install patchloom/tap/patchloom
 
 This installs patchloom with all commands, including the MCP server.
 
+After a new GitHub Release, formula metadata can show the new version while
+your linked cellar is still the previous one until you upgrade:
+
+```bash
+brew update
+brew upgrade patchloom
+patchloom --version
+```
+
 ## Recommended: Scoop (Windows)
 
 ```powershell
@@ -51,6 +60,25 @@ new version via [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishe
 ```bash
 cargo install patchloom
 ```
+
+## Verify which binary and crate you have
+
+Channels can disagree until you upgrade each one. Embedder hosts that pin
+patchloom in `Cargo.toml` / `Cargo.lock` often ship a **library** version
+ahead of the operator's shell `PATH` binary (Homebrew, Scoop, older
+`cargo install`).
+
+| Surface | How to check |
+|---------|----------------|
+| CLI on PATH | `patchloom --version` |
+| Homebrew formula / cellar | `brew info patchloom/tap/patchloom` then `brew upgrade patchloom` if linked is behind |
+| Scoop | `scoop update patchloom` then re-check `--version` |
+| crates.io install | `cargo install patchloom` (or `cargo install-update -a` if you use cargo-update) |
+| Embedder library pin | `Cargo.lock` entry for `name = "patchloom"` |
+
+Before filing "CLI behavior differs from 0.x" bugs, compare `patchloom --version`
+to the version your host embeds. Dual-path dogfood (library + brew CLI) is
+expected to split until the shell binary is upgraded.
 
 ## Recommended: GitHub Releases
 

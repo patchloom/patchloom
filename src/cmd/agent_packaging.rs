@@ -54,7 +54,8 @@ fn canonical_name_map_markdown_for_surface(full_ast_tools: bool) -> &'static str
 |--------|-----|--------------------------|----------|\n\
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |\n\
 | identifier rename | `ast rename` | `ast.rename` | `ast_rename` or plan via `execute_plan` |\n\
-| structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |\n\
+| structured single path | `doc set` | `doc.set` | `doc_set` |\n\
+| structured multi-match (predicate/wildcard) | `doc update` | `doc.update` | `doc_update` |\n\
 | search | `search` | n/a | `search_files` |\n\
 | list files | n/a (MCP) | n/a | `list_files` |\n\
 | read | `read` | n/a | `read_file` |\n\
@@ -70,7 +71,8 @@ patchloom usage.\n\n"
 |--------|-----|--------------------------|----------------------|\n\
 | multi-op atomic | `tx` | (plan root) | `execute_plan` |\n\
 | identifier rename | `ast rename` | `ast.rename` | plan via `execute_plan` only (no standalone `ast_*` on core) |\n\
-| structured set | `doc set` / `doc update` | `doc.set` / `doc.update` | `doc_set` / plan |\n\
+| structured single path | `doc set` | `doc.set` | `doc_set` |\n\
+| structured multi-match (predicate/wildcard) | `doc update` | `doc.update` | plan via `execute_plan` only (no standalone `doc_update` on core) |\n\
 | search | `search` | n/a | `search_files` |\n\
 | list files | n/a (MCP) | n/a | `list_files` |\n\
 | read | `read` | n/a | `read_file` |\n\
@@ -179,6 +181,7 @@ mod tests {
             "search_files",
             "read_file",
             "doc_set",
+            "doc_update",
             "ast_rename",
         ] {
             assert!(t.contains(id), "missing {id}");
@@ -186,6 +189,16 @@ mod tests {
         assert!(
             t.contains("invent") || t.contains("not** patchloom") || t.contains("Host meta-tools"),
             "name map must discourage invented ids"
+        );
+        assert!(
+            t.contains("structured multi-match") && t.contains("doc update"),
+            "full name map must separate set vs update (#2132): {t}"
+        );
+        let core = canonical_name_map_markdown_core();
+        assert!(
+            core.contains("no standalone `doc_update` on core")
+                || core.contains("execute_plan") && core.contains("doc.update"),
+            "core name map must not invent standalone doc_update tool: {core}"
         );
     }
 
