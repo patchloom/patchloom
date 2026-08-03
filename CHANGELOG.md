@@ -11,6 +11,26 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.26.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.25.0...patchloom-v0.26.0) (2026-08-03)
+
+
+### Bug Fixes
+
+* **api:** PathGuard entry mode for delete and path-only rename ([#2116](https://github.com/patchloom/patchloom/issues/2116)) ([bb0e3dc](https://github.com/patchloom/patchloom/commit/bb0e3dc5647be6e3be89ab5c2c30be11a37dad81))
+* **cli,mcp:** entry PathGuard on delete/rename dual paths ([#2117](https://github.com/patchloom/patchloom/issues/2117)) ([44a94d1](https://github.com/patchloom/patchloom/commit/44a94d139eadc8d8c693716862ab02e56197c95d))
+* FIFO-safe text probes and entry PathGuard parent escape test ([#2118](https://github.com/patchloom/patchloom/issues/2118)) ([08ddf4c](https://github.com/patchloom/patchloom/commit/08ddf4cc2ddd361332156a45aa52c0e5138010af)), closes [#2113](https://github.com/patchloom/patchloom/issues/2113) [#2115](https://github.com/patchloom/patchloom/issues/2115)
+* make force-release-version rewrite manifest key safely ([#2124](https://github.com/patchloom/patchloom/issues/2124)) ([ef0411d](https://github.com/patchloom/patchloom/commit/ef0411d2f6a8a9566afa3a93d38c3faad87377db)), closes [#2114](https://github.com/patchloom/patchloom/issues/2114)
+* multi-path FIFO refuse reason not_regular_file ([#2122](https://github.com/patchloom/patchloom/issues/2122)) ([493ffc6](https://github.com/patchloom/patchloom/commit/493ffc66ebfb3da1a794a5a7dfcca31e04e9f321))
+* never open FIFOs on rename, backup, or binary probe ([#2113](https://github.com/patchloom/patchloom/issues/2113)) ([e48de85](https://github.com/patchloom/patchloom/commit/e48de853b31e402c6428602b4de3eaf9d930a52d))
+* PatchApply entry PathGuard for pure renames ([#2121](https://github.com/patchloom/patchloom/issues/2121)) ([7686e8d](https://github.com/patchloom/patchloom/commit/7686e8d018225108f4c967f6ad6727549b658d51))
+* real-world half-apply restore, FIFO diag hang, MCP path honesty ([#2120](https://github.com/patchloom/patchloom/issues/2120)) ([8dfa5fd](https://github.com/patchloom/patchloom/commit/8dfa5fd32f7ea2059dd4d421b27e9ad04a216974))
+* search/tidy multi-path FIFO refused not_regular_file ([#2123](https://github.com/patchloom/patchloom/issues/2123)) ([dbb4651](https://github.com/patchloom/patchloom/commit/dbb465178c8cbbfa2b0a9ab0a14ecb97406d564d))
+
+
+### Documentation
+
+* add release notes for 0.26.0 ([#2125](https://github.com/patchloom/patchloom/issues/2125)) ([a1449fc](https://github.com/patchloom/patchloom/commit/a1449fcc16dcb6f1164bf6f3fde073a68830c92c))
+
 ## [0.25.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.24.0...patchloom-v0.25.0) (2026-08-01)
 
 
