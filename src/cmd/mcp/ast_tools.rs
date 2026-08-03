@@ -216,7 +216,9 @@ pub(super) fn handle_ast_rename(
             let source = match crate::files::try_read_text_file(path) {
                 Ok(s) => s,
                 Err(
-                    crate::files::SoftTextSkip::Binary | crate::files::SoftTextSkip::InvalidUtf8,
+                    crate::files::SoftTextSkip::Binary
+                    | crate::files::SoftTextSkip::InvalidUtf8
+                    | crate::files::SoftTextSkip::NotRegularFile,
                 ) => {
                     return None;
                 }

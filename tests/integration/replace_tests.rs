@@ -3559,3 +3559,60 @@ fn test_apply_fragment_cli_ambiguous_json_hint() {
         "ambiguous hint must guide apply-fragment users: {v}"
     );
 }
+
+/// Multi-path FIFO co-list must refuse with `not_regular_file` (not
+/// `unreadable`) so agents do not retry chmod (fixrealloop 2026-08-03).
+#[cfg(unix)]
+#[test]
+fn test_replace_files_from_fifo_refused_not_regular_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hit me\n").unwrap();
+    let fifo = dir.path().join("f.pipe");
+    std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .expect("mkfifo");
+    let list = dir.path().join("list.txt");
+    fs::write(&list, "a.txt\nf.pipe\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "--files-from",
+            list.to_str().unwrap(),
+            "replace",
+            "hit",
+            "--new",
+            "HIT",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "HIT me\n"
+    );
+    let refused = v["refused"].as_array().expect("refused[]");
+    let fifo_row = refused
+        .iter()
+        .find(|r| r["path"].as_str() == Some("f.pipe"))
+        .expect("fifo in refused");
+    assert_eq!(
+        fifo_row["reason"], "not_regular_file",
+        "FIFO must not look like chmod-able unreadable: {v}"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("not a regular file"),
+        "stderr diagnostic: {stderr}"
+    );
+}

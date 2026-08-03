@@ -61,7 +61,11 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     let operations: Vec<Operation> = crate::par_process_files(&paths, None, &[], |path| {
         let source = match crate::files::try_read_text_file(path) {
             Ok(s) => s,
-            Err(crate::files::SoftTextSkip::Binary | crate::files::SoftTextSkip::InvalidUtf8) => {
+            Err(
+                crate::files::SoftTextSkip::Binary
+                | crate::files::SoftTextSkip::InvalidUtf8
+                | crate::files::SoftTextSkip::NotRegularFile,
+            ) => {
                 return None;
             }
             Err(crate::files::SoftTextSkip::Unreadable) => {
