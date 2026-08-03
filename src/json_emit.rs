@@ -235,6 +235,7 @@ mod tests {
             removed: None,
             error_kind: None,
             error: None,
+            suggested_op: None,
             backup_session: None,
             match_mode: None,
             match_score: None,

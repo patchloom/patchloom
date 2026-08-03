@@ -4,7 +4,7 @@ use crate::exit;
 use crate::plan::{self, Plan};
 use crate::tx::{
     CommitError, TxArgs, TxExecResult, TxOutput, build_applied_with_error_output,
-    build_error_output, build_full_tx_output, exit_code_from_tx_output,
+    build_error_output_with_suggested_op, build_full_tx_output, exit_code_from_tx_output,
     format_error_with_backup_hint, run_lifecycle,
 };
 use crate::write::run_format_command;
@@ -28,8 +28,18 @@ fn emit_error_json(
     backup_session: Option<&str>,
     compact: bool,
 ) -> bool {
+    emit_error_json_with_suggested_op(error_kind, error, backup_session, None, compact)
+}
+
+fn emit_error_json_with_suggested_op(
+    error_kind: &str,
+    error: &str,
+    backup_session: Option<&str>,
+    suggested_op: Option<&str>,
+    compact: bool,
+) -> bool {
     emit_output_json(
-        &build_error_output(error_kind, error, backup_session),
+        &build_error_output_with_suggested_op(error_kind, error, backup_session, suggested_op),
         compact,
     )
 }
@@ -522,7 +532,8 @@ pub(crate) fn run_parsed_plan(
                 None => ("operation_failed", exit::OPERATION_FAILED),
             };
             if structured {
-                let ok = emit_error_json(kind, &msg, None, compact);
+                let suggested = exit::suggested_op_from_error(&e);
+                let ok = emit_error_json_with_suggested_op(kind, &msg, None, suggested, compact);
                 return Ok(exit_after_emit(ok, code));
             }
             eprintln!("tx: {msg}");

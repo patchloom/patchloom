@@ -58,6 +58,10 @@ pub struct TxOutput {
     pub error_kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub error: Option<String>,
+    /// Machine-stable alternate plan op (e.g. `"doc.update"`) on fail-closed
+    /// write-nav predicate errors (#2133). Omitted when none applies.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub suggested_op: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub backup_session: Option<String>,
     /// Aggregate replace match honesty when every replace-backed change agrees
@@ -541,6 +545,7 @@ pub(crate) fn build_tx_output_with_meta(
         removed: None,
         error_kind: None,
         error: None,
+        suggested_op: None,
         backup_session: None,
         match_mode: top_mode,
         match_score: top_score,
@@ -657,6 +662,16 @@ pub(crate) fn build_error_output(
     error: &str,
     backup_session: Option<&str>,
 ) -> TxOutput {
+    build_error_output_with_suggested_op(error_kind, error, backup_session, None)
+}
+
+/// Like [`build_error_output`], with optional machine-stable `suggested_op` (#2133).
+pub(crate) fn build_error_output_with_suggested_op(
+    error_kind: &str,
+    error: &str,
+    backup_session: Option<&str>,
+    suggested_op: Option<&str>,
+) -> TxOutput {
     let body = format_error_with_backup_hint(error, backup_session);
     TxOutput {
         ok: false,
@@ -675,6 +690,7 @@ pub(crate) fn build_error_output(
         removed: None,
         error_kind: Some(error_kind.to_string()),
         error: Some(format_error_with_kind(error_kind, &body)),
+        suggested_op: suggested_op.map(str::to_string),
         backup_session: backup_session.map(str::to_string),
         match_mode: None,
         match_score: None,
@@ -857,6 +873,7 @@ mod tests {
             removed: None,
             error_kind: None,
             error: None,
+            suggested_op: None,
             backup_session: None,
             match_mode: None,
             match_score: None,
@@ -884,6 +901,7 @@ mod tests {
             removed: None,
             error_kind: Some(kind.to_string()),
             error: Some("test error".to_string()),
+            suggested_op: None,
             backup_session: None,
             match_mode: None,
             match_score: None,

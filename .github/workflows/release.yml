@@ -675,8 +675,9 @@ jobs:
             echo "PLAN had no releases[0].app_version" >&2
             exit 1
           fi
-          # Formula was just pushed; tap may need a fresh fetch.
-          brew tap patchloom/tap || brew untap patchloom/tap; brew tap patchloom/tap
+          # Formula was just pushed; force a clean tap fetch (untap may no-op).
+          brew untap patchloom/tap 2>/dev/null || true
+          brew tap patchloom/tap
           EXPECTED_VERSION="$version" INSTALL=1 \
             bash scripts/verify-homebrew-version.sh
 

@@ -34,7 +34,8 @@ mod tidy_op;
 // output.rs
 pub(crate) use output::{
     ReplaceMatchMeta, TxExecResult, build_applied_with_error_output, build_error_output,
-    build_full_tx_output, format_error_with_backup_hint, match_mode_label,
+    build_error_output_with_suggested_op, build_full_tx_output, format_error_with_backup_hint,
+    match_mode_label,
 };
 pub use output::{
     TxChange, TxDocMutation, TxLintResult, TxOutput, TxReadResult, TxRefused, TxSearchMatch,

@@ -8,12 +8,11 @@ use super::steps::{
 use crate::cli::global::GlobalFlags;
 use crate::plan::{self, Plan};
 use crate::tx::execute::execute_and_collect;
-use crate::tx::output::{
-    TxOutput, build_applied_with_error_output, build_error_output, build_full_tx_output,
-};
+use crate::tx::output::{TxOutput, build_applied_with_error_output, build_full_tx_output};
 use crate::tx::validate::validate_plan_operations;
 #[cfg(feature = "ast")]
 use crate::tx::verify;
+use crate::tx::{build_error_output, build_error_output_with_suggested_op};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -145,9 +144,15 @@ pub fn execute_plan_direct(
         Ok(r) => r,
         Err(e) => {
             // Shared typed-kind table (no_matches, ambiguous, …); unknown →
-            // operation_failed (tx default, exit 9).
+            // operation_failed (tx default, exit 9). Preserve suggested_op (#2133).
+            let suggested = crate::exit::suggested_op_from_error(&e);
             if let Some((kind, _)) = crate::exit::classify_typed_error(&e) {
-                return Ok(build_error_output(kind, &e.to_string(), None));
+                return Ok(build_error_output_with_suggested_op(
+                    kind,
+                    &e.to_string(),
+                    None,
+                    suggested,
+                ));
             }
             return Ok(build_error_output("operation_failed", &e.to_string(), None));
         }
