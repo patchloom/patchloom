@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Force version fields on the release-please branch (make force-release-version).
+"""EMERGENCY: force version fields on the release-please branch.
+
+Prefer landing ``Release-As: X.Y.Z`` in a commit body on **main** (or a
+``fix!:`` / ``BREAKING CHANGE`` commit) so release-please recomputes the
+version on every run. Edits to the synthetic release-please branch are
+wiped when main advances.
 
 Updates .release-please-manifest.json package key ".", Cargo.toml version,
 Cargo.lock root package version, and the top versioned CHANGELOG section.
 
-Intentionally does NOT use naive sed on the manifest: replacing the first
-quoted string turns {".": "0.25.1"} into {"0.26.0": "0.25.1"} (bug hit when
-forcing PR #2114 from 0.25.1 to 0.26.0 for SoftTextSkip non_exhaustive).
+Does NOT use naive sed on the manifest: replacing the first quoted string
+turns {".": "0.25.1"} into {"0.26.0": "0.25.1"} (bug hit on #2114).
 """
 from __future__ import annotations
 
