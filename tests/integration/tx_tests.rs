@@ -2157,6 +2157,57 @@ fn test_tx_doc_set_selector_in_plan() {
     assert_eq!(v["nested"]["name"], "new");
 }
 
+/// Tx re-wrap must preserve suggested_op for predicate-on-doc.set (#2133).
+#[test]
+fn test_tx_doc_set_predicate_emits_suggested_op() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"items":[{"id":"a","val":1}]}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "items[id=a].val",
+            "value": 9
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "predicate doc.set must fail closed"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "tx --json error envelope: {e}; stdout={stdout:?} stderr={:?}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    });
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(
+        v["suggested_op"], "doc.update",
+        "tx re-wrap must keep suggested_op (#2133): {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"items":[{"id":"a","val":1}]}"#,
+        "fail-closed must not write"
+    );
+}
+
 #[test]
 fn test_tx_doc_ensure_selector_in_plan() {
     let dir = TempDir::new().unwrap();
