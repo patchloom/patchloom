@@ -19,9 +19,10 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make test-library-hygiene` | Enforce pure-library embedder set: clippy + tests under `--no-default-features --features "ast,files"` (catches dead_code, hygiene for #800 #802) |
 | `make test-mcp-no-ast` | Lib tests with `mcp,cli,files` and no `ast` (MCP inventory/router/instructions honesty) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
-| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme, server-json-test |
-| `make check-fast` | Fast check: same as `check` minus `check-patchloom-md` (still runs `check-readme` and `server-json-test` so test-count and MCP Registry description drift fail locally before CI) |
+| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme, server-json-test, verify-homebrew-version-test |
+| `make check-fast` | Fast check: same as `check` minus `check-patchloom-md` (still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test` so test-count and MCP Registry description drift fail locally before CI) |
 | `make server-json-test` | Lock `server.json` MCP Registry constraints (description ≤100 chars; part of `check`) |
+| `make verify-homebrew-version-test` | Unit tests for `scripts/verify-homebrew-version.sh` (release tap version assert helpers; part of `check`) |
 | `make update-readme` | Update README.md rounded test count (only changes when hundreds digit changes) |
 | `make check-readme` | Verify README.md rounded test count is accurate (part of `check`) |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |

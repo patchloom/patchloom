@@ -95,9 +95,9 @@ pub fn navigate_mut<'a>(
                 })
             })?,
             _ => {
-                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: write_nav_predicate_msg("write navigation (doc.set/ensure/delete/move)"),
-                }));
+                return Err(write_nav_predicate_error(
+                    "write navigation (doc.set/ensure/delete/move)",
+                ));
             }
         };
     }
@@ -188,9 +188,7 @@ pub fn set_at_path(
             }
         }
         _ => {
-            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: write_nav_predicate_msg("doc.set/doc.ensure"),
-            }));
+            return Err(write_nav_predicate_error("doc.set/doc.ensure"));
         }
     }
     Ok(())
@@ -219,6 +217,30 @@ fn write_nav_predicate_msg(op_context: &str) -> String {
         "selector uses wildcard/predicate, which is not valid for {op_context} \
          (single path only). {alt}"
     )
+}
+
+/// Plan serde name for agent JSON `suggested_op` when a multi-match alternative exists (#2133).
+fn write_nav_suggested_op(op_context: &str) -> Option<&'static str> {
+    if op_context == "doc.delete" || op_context.starts_with("doc.delete ") {
+        Some("doc.delete_where")
+    } else if op_context.starts_with("doc.move") {
+        // Move has no multi-match sibling; agents must pick a concrete path.
+        None
+    } else {
+        // doc.set / doc.ensure / shared write-navigation contexts.
+        Some("doc.update")
+    }
+}
+
+/// Fail-closed predicate/wildcard error with optional machine-stable `suggested_op` (#2133).
+fn write_nav_predicate_error(op_context: &str) -> anyhow::Error {
+    let msg = write_nav_predicate_msg(op_context);
+    match write_nav_suggested_op(op_context) {
+        Some(suggested_op) => {
+            anyhow::Error::new(crate::exit::InvalidInputHintError { msg, suggested_op })
+        }
+        None => anyhow::Error::new(crate::exit::InvalidInputError { msg }),
+    }
 }
 
 /// Delete the value at the given selector path. Returns `true` if
@@ -280,9 +302,7 @@ pub fn delete_at_selector(
                 Ok(false)
             }
         }
-        _ => Err(anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: write_nav_predicate_msg("doc.delete"),
-        })),
+        _ => Err(write_nav_predicate_error("doc.delete")),
     }
 }
 
@@ -470,9 +490,7 @@ pub fn move_at_path(
                 }
             }
             _ => {
-                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: write_nav_predicate_msg("doc.move (from)"),
-                }));
+                return Err(write_nav_predicate_error("doc.move (from)"));
             }
         }
     };
@@ -533,9 +551,7 @@ pub fn move_at_path(
                 }
             }
             _ => {
-                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: write_nav_predicate_msg("doc.move (to)"),
-                }));
+                return Err(write_nav_predicate_error("doc.move (to)"));
             }
         }
     }
@@ -568,9 +584,7 @@ pub fn move_at_path(
                 arr.remove(*i);
             }
             _ => {
-                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: write_nav_predicate_msg("doc.move (remove source)"),
-                }));
+                return Err(write_nav_predicate_error("doc.move (remove source)"));
             }
         }
     }
@@ -721,6 +735,22 @@ mod tests {
         assert!(
             msg.contains("doc update") && msg.contains("wildcard/predicate"),
             "got: {msg}"
+        );
+        assert_eq!(
+            crate::exit::suggested_op_from_error(&err),
+            Some("doc.update"),
+            "predicate on set must expose suggested_op doc.update (#2133)"
+        );
+    }
+
+    #[test]
+    fn delete_at_path_predicate_suggests_delete_where() {
+        let mut root = json!({"items":[{"id":"a","val":1}]});
+        let err = delete_at_selector(&mut root, &segs("items[id=a]")).unwrap_err();
+        assert_eq!(
+            crate::exit::suggested_op_from_error(&err),
+            Some("doc.delete_where"),
+            "predicate on delete must expose suggested_op doc.delete_where (#2133): {err}"
         );
     }
 

@@ -280,7 +280,10 @@ pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErr
         if e.downcast_ref::<crate::exit::AmbiguousError>().is_some() {
             return Some(EditErrorKind::AmbiguousTarget);
         }
-        if e.downcast_ref::<crate::exit::InvalidInputError>().is_some() {
+        if e.downcast_ref::<crate::exit::InvalidInputError>().is_some()
+            || e.downcast_ref::<crate::exit::InvalidInputHintError>()
+                .is_some()
+        {
             return Some(EditErrorKind::InvalidInput);
         }
         if e.downcast_ref::<crate::exit::AlreadyExistsError>()

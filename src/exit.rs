@@ -85,10 +85,43 @@ impl std::fmt::Display for InvalidInputError {
 
 impl std::error::Error for InvalidInputError {}
 
-/// Check whether an `anyhow::Error` chain contains an [`InvalidInputError`].
+/// Invalid input with a machine-stable alternate plan/CLI op for agents (#2133).
+///
+/// Classifies as `error_kind: "invalid_input"` (same as [`InvalidInputError`])
+/// and adds JSON field `suggested_op` (plan serde name, e.g. `"doc.update"`).
+/// Does not auto-apply the suggested op; harnesses may retry or classify.
+#[derive(Debug)]
+pub struct InvalidInputHintError {
+    pub msg: String,
+    /// Plan operation name (e.g. `"doc.update"`, `"doc.delete_where"`).
+    pub suggested_op: &'static str,
+}
+
+impl std::fmt::Display for InvalidInputHintError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for InvalidInputHintError {}
+
+/// Check whether an `anyhow::Error` chain contains an [`InvalidInputError`]
+/// or [`InvalidInputHintError`].
 pub fn is_invalid_input(err: &anyhow::Error) -> bool {
-    err.chain()
-        .any(|cause| cause.downcast_ref::<InvalidInputError>().is_some())
+    err.chain().any(|cause| {
+        cause.downcast_ref::<InvalidInputError>().is_some()
+            || cause.downcast_ref::<InvalidInputHintError>().is_some()
+    })
+}
+
+/// First [`InvalidInputHintError::suggested_op`] in the error chain (#2133).
+#[must_use]
+pub fn suggested_op_from_error(err: &anyhow::Error) -> Option<&'static str> {
+    err.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<InvalidInputHintError>()
+            .map(|e| e.suggested_op)
+    })
 }
 
 /// True when any cause is an IO `NotFound` (missing file/dir).
@@ -483,8 +516,9 @@ pub fn agent_error_message(err: &anyhow::Error) -> String {
 
 /// Build the shared JSON error envelope + exit code for agent `--json` paths.
 ///
-/// Includes `error_kind` when classifiable and `backup_session` when a
-/// FormatFailed or fail-restore error carries one (#2127).
+/// Includes `error_kind` when classifiable, `backup_session` when a
+/// FormatFailed or fail-restore error carries one (#2127), and `suggested_op`
+/// when an [`InvalidInputHintError`] is in the chain (#2133).
 #[must_use]
 pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) {
     let (kind, code) = match classify_typed_error(err) {
@@ -497,6 +531,10 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
     });
     if let Some(k) = kind {
         output["error_kind"] = serde_json::Value::String(k.to_string());
+    }
+    // Predicate/wildcard write-nav fail-closed (#2133): machine-stable op hint.
+    if let Some(op) = suggested_op_from_error(err) {
+        output["suggested_op"] = serde_json::Value::String(op.to_string());
     }
     // FormatFailed and MutationAfterBackup (#2127 residual CLI JSON parity).
     if let Some(bs) = backup_session_from_error(err) {
@@ -648,6 +686,42 @@ mod tests {
         assert_eq!(
             classify_typed_error(&wrapped),
             Some(("format_failed", FAILURE))
+        );
+    }
+
+    #[test]
+    fn structured_error_payload_includes_suggested_op_from_hint() {
+        let err: anyhow::Error = InvalidInputHintError {
+            msg: "selector uses wildcard/predicate".into(),
+            suggested_op: "doc.update",
+        }
+        .into();
+        let wrapped = err.context("operation 1 (doc.set) failed");
+        assert!(is_invalid_input(&wrapped));
+        assert_eq!(suggested_op_from_error(&wrapped), Some("doc.update"));
+        assert_eq!(
+            classify_typed_error(&wrapped),
+            Some(("invalid_input", FAILURE))
+        );
+        let (payload, code) = structured_error_payload(&wrapped);
+        assert_eq!(code, FAILURE);
+        assert_eq!(payload["error_kind"], "invalid_input");
+        assert_eq!(payload["suggested_op"], "doc.update");
+        assert_eq!(payload["applied"], false);
+        assert_eq!(payload["ok"], false);
+    }
+
+    #[test]
+    fn plain_invalid_input_has_no_suggested_op() {
+        let err: anyhow::Error = InvalidInputError {
+            msg: "empty selector".into(),
+        }
+        .into();
+        assert_eq!(suggested_op_from_error(&err), None);
+        let (payload, _) = structured_error_payload(&err);
+        assert!(
+            payload.get("suggested_op").is_none(),
+            "plain invalid_input must not invent suggested_op: {payload}"
         );
     }
 
