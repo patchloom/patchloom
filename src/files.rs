@@ -636,7 +636,12 @@ pub fn matches_glob(path: &Path, matcher: Option<&GlobSet>) -> bool {
 /// SoftSkip: sole paths should hard-fail via [`load_text_strict`]; multi-path
 /// walks may continue but must not report pattern `no_matches` when any
 /// unreadable path may have masked the scan.
+/// **[`NotRegularFile`]** is FIFO/socket/device/directory (or other non-regular
+/// entry): open would hang or is not text; multi-path `refused[]` reason is
+/// `not_regular_file` (not `unreadable`) so agents do not retry chmod
+/// (fixrealloop 2026-08-03).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SoftTextSkip {
     /// NUL in the binary probe window.
     Binary,
@@ -644,6 +649,9 @@ pub enum SoftTextSkip {
     InvalidUtf8,
     /// Open/read/metadata failed (missing, permission, …).
     Unreadable,
+    /// Path exists but is not a regular file (FIFO, socket, device, directory).
+    /// Appended after [`Unreadable`] (0.25 honesty; fixrealloop multi-path refuse).
+    NotRegularFile,
 }
 
 impl SoftTextSkip {
@@ -653,6 +661,7 @@ impl SoftTextSkip {
             SoftTextSkip::Binary => "binary",
             SoftTextSkip::InvalidUtf8 => "invalid_utf8",
             SoftTextSkip::Unreadable => "unreadable",
+            SoftTextSkip::NotRegularFile => "not_regular_file",
         }
     }
 
@@ -670,13 +679,20 @@ impl SoftTextSkip {
 /// for the binary check. If the file is binary, no further I/O occurs.
 ///
 /// Never opens FIFOs, sockets, or devices (would block forever); those
-/// return [`SoftTextSkip::Unreadable`].
+/// return [`SoftTextSkip::NotRegularFile`] when the path exists as a non-regular
+/// entry, else [`SoftTextSkip::Unreadable`] when missing / metadata fails.
 pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
     use std::io::Read;
 
     // Metadata-first: `File::open` on a FIFO blocks until a writer connects.
     if !is_openable_regular_file(path) {
-        return Err(SoftTextSkip::Unreadable);
+        // Entry exists but is not a regular file (FIFO/socket/dir/…) → clear
+        // refused reason. Missing path (no metadata) → unreadable.
+        return match std::fs::symlink_metadata(path) {
+            Ok(meta) if !meta.file_type().is_file() => Err(SoftTextSkip::NotRegularFile),
+            Ok(_) => Err(SoftTextSkip::Unreadable),
+            Err(_) => Err(SoftTextSkip::Unreadable),
+        };
     }
 
     let mut file = match std::fs::File::open(path) {
@@ -753,20 +769,21 @@ pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Opti
             }
             None
         }
+        Err(SoftTextSkip::NotRegularFile) => {
+            if !quiet {
+                eprintln!("{cmd}: skipping {}: not a regular file", path.display());
+            }
+            None
+        }
         Err(SoftTextSkip::Unreadable) => {
             if !quiet {
-                // Never re-open for diagnostics: FIFO/socket/device hang forever
-                // (#fixloop 2026-08-02). Soft load already refused specials via
-                // is_openable_regular_file; only open regular files for OS detail.
-                let detail = if !is_openable_regular_file(path) {
-                    "not a regular file".to_string()
-                } else {
-                    std::fs::File::open(path)
-                        .err()
-                        .map(|e| e.to_string())
-                        .or_else(|| std::fs::metadata(path).err().map(|e| e.to_string()))
-                        .unwrap_or_else(|| "unreadable".into())
-                };
+                // Regular-file path only: re-open for OS permission detail.
+                // Specials use NotRegularFile and never reach here.
+                let detail = std::fs::File::open(path)
+                    .err()
+                    .map(|e| e.to_string())
+                    .or_else(|| std::fs::metadata(path).err().map(|e| e.to_string()))
+                    .unwrap_or_else(|| "unreadable".into());
                 eprintln!("{cmd}: skipping {}: {detail}", path.display());
             }
             None
@@ -1410,8 +1427,9 @@ mod tests {
         let start = Instant::now();
         assert_eq!(
             try_read_text_file(&fifo).unwrap_err(),
-            SoftTextSkip::Unreadable
+            SoftTextSkip::NotRegularFile
         );
+        assert_eq!(SoftTextSkip::NotRegularFile.as_reason(), "not_regular_file");
         assert!(
             start.elapsed().as_secs() < 2,
             "try_read_text_file on FIFO took {:?}",

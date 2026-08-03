@@ -404,7 +404,7 @@ pub struct PathRefused {
 ///
 /// Sole non-text is hard `invalid_input` via [`sole_explicit_non_text`].
 /// Directory walks (any path is a directory) omit mass `refused[]` (noise).
-/// Reasons: `binary`, `invalid_utf8`, `unreadable`.
+/// Reasons: `binary`, `invalid_utf8`, `unreadable`, `not_regular_file`.
 pub fn explicit_multi_path_non_text_refused(
     paths: &[String],
     cwd: &Path,
