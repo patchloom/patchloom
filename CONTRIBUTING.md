@@ -15,7 +15,7 @@ cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), and `server-json-test` (MCP Registry `server.json` description ≤100 chars). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme` and `server-json-test`).
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), `server-json-test` (MCP Registry `server.json` description ≤100 chars), and `verify-homebrew-version-test` (release tap version-assert script helpers). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`).
 
 ## Issues and triage
 
@@ -58,7 +58,8 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make pty-test` | Run PTY-based interactive terminal tests (serial) |
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Full CI gate (run before every commit) |
-| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README test count) |
+| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README count + homebrew version script tests) |
+| `make verify-homebrew-version-test` | Unit tests for `scripts/verify-homebrew-version.sh` (part of `check`) |
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033). Not part of `check`; run before tagging a release |
 | `make windows-smoke` | PowerShell dogfood (`scripts/windows-smoke.ps1`; peels, tx, CRLF, rename force/binary; backslash paths on Windows). Not part of `check`; CI `ci-windows`. Local `pwsh` on macOS/Linux supported. Requires `pwsh` |
 | `make audit` | Run `cargo audit` for known vulnerabilities (also in CI) |

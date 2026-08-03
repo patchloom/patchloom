@@ -281,6 +281,52 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     client.cancel().await.unwrap();
 }
 
+/// Multi-surface (#2133): MCP doc_set with predicate selector peels suggested_op.
+#[tokio::test]
+async fn test_mcp_doc_set_predicate_emits_suggested_op() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("data.json"),
+        r#"{"items":[{"id":"a","val":1}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "data.json",
+            "selector": "items[id=a].val",
+            "value": 9
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "predicate doc_set must fail closed via MCP: {val}"
+    );
+    assert_eq!(val["error_kind"], "invalid_input", "{val}");
+    assert_eq!(
+        val["suggested_op"], "doc.update",
+        "MCP must expose machine-stable suggested_op (#2133): {val}"
+    );
+    assert_eq!(val["ok"], false, "{val}");
+    assert_eq!(
+        val["applied"], false,
+        "fail-closed must not claim applied: {val}"
+    );
+    let content = fs::read_to_string(dir.path().join("data.json")).unwrap();
+    assert_eq!(
+        content, r#"{"items":[{"id":"a","val":1}]}"#,
+        "MCP fail-closed must not write: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_search_finds_pattern() {
     if !has_mcp_support() {

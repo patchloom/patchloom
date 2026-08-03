@@ -755,6 +755,21 @@ mod tests {
     }
 
     #[test]
+    fn move_predicate_has_no_suggested_op() {
+        let mut root = json!({"items":[{"id":"a","val":1}]});
+        // from path ends with predicate: no multi-match move sibling.
+        let err = move_at_path(&mut root, &segs("items[id=a]"), &segs("elsewhere")).unwrap_err();
+        assert!(
+            crate::exit::suggested_op_from_error(&err).is_none(),
+            "doc.move multi-match has no alternate op: {err}"
+        );
+        assert!(
+            err.to_string().contains("wildcard/predicate"),
+            "still fail-closed with predicate message: {err}"
+        );
+    }
+
+    #[test]
     fn set_at_path_array_root_key_hints_document_index() {
         // Multi-doc YAML / top-level array: key at root needs 0.key / [0].key.
         let mut root = json!([{"a": 1}, {"b": 2}]);

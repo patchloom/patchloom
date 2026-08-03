@@ -766,7 +766,8 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 - **What it does:** Sets or creates a value at a selector path.
 - **Use when:** One exact selector path should be updated deterministically.
-- **Prefer instead:** Use `doc merge` for multi field updates, or `doc ensure` when existing values should be preserved.
+- **Prefer instead:** Use `doc merge` for multi field updates, or `doc ensure` when existing values should be preserved. Use `doc update` for predicate or wildcard multi-match (`items[name=a].v`, `items[*].enabled`).
+- **Failure behavior:** Predicate or wildcard selectors fail closed (exit 1) with `error_kind: "invalid_input"` and machine-stable `suggested_op: "doc.update"` under `--json` / plan / MCP (#2133).
 - **Leading slash:** A single leading `/` is stripped (JSON Pointer habit). `/feature_flag` sets key `feature_flag`, not a key named `/feature_flag` (#1794). Prefer bare keys in agent prompts.
 
 <!-- ref:doc-action:delete -->
@@ -1378,6 +1379,7 @@ The operations below are the building blocks inside `operations`.
 | Reject weak fuzzy matches | CLI `--min-fuzzy-score` / `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score` / MCP `min_fuzzy_score` (#1687); range `0.0..=1.0` |
 | Apply session id for surgical undo | `EditResult.backup_session` after Apply (#1686); pair with `restore_path_from_session` |
 | Session id on fail-restore / FormatFailed | `api::backup_session_from_error(&err)` (#2127); also `format_failed_backup_session` / `MutationAfterBackupError` |
+| Alternate plan op after fail-closed write-nav | `api::suggested_op_from_error(&err)` → plan serde name (`doc.update`, `doc.delete_where`) when a predicate/wildcard hit `doc.set`/`ensure`/`delete` (#2133); CLI/tx/MCP JSON field `suggested_op` (same values); keep `error_kind: invalid_input` |
 | Nested monorepo backup listing | `backup::list_sessions_under` + `ListSessionsOptions` (#1688) |
 | Ancestor backup root discovery | `backup::find_backup_roots(path)` walks parents for `.patchloom/backups` (#1934) |
 | File op structured kinds | `file_create` / `file_delete` / `file_rename` / `file_append`: dest-exists without force → `AlreadyExists` (#1947); missing path → `NotFound`; dir/empty path → `InvalidInput`; append/prepend on binary → `Binary` / invalid UTF-8 → `InvalidEncoding` (#1963); **path-only** `file_rename` / `file_delete` succeed on binary and invalid UTF-8 with byte backup (#2031); force create overwrites non-text prior (#1962); PathGuard → `GuardRejected` (#1935) |
