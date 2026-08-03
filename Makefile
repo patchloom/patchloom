@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test server-json-test git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test force-release-version-test server-json-test git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -75,6 +75,9 @@ pack-mcpb: ## Pack mcpb/ into target/mcpb/patchloom-<version>.mcpb (Smithery / d
 
 pack-mcpb-test: ## Unit tests for scripts/pack-mcpb.sh (VERSION override + pack stamp)
 	python3 scripts/test_pack_mcpb.py
+
+force-release-version-test: ## Unit tests for force_release_version.py (Release-As preferred path)
+	python3 scripts/test_force_release_version.py
 
 server-json-test: ## Lock server.json MCP Registry constraints (description ≤100 chars)
 	python3 scripts/test_server_json.py
@@ -195,23 +198,30 @@ fuzz: ## Run fuzz tests (requires nightly). Use FUZZ_TIME=N for seconds per targ
 	echo "All fuzz targets passed."
 
 # EMERGENCY only: edits the synthetic release-please branch (wiped on next main merge).
-# Preferred: land on main with commit body "Release-As: X.Y.Z" (or fix!:/BREAKING CHANGE).
-# See patchloom-contrib "Force next release version (Release-As)".
-force-release-version: ## EMERGENCY: edit release-please branch version (prefer Release-As on main). VERSION=X.Y.Z
+# PREFERRED (durable): land on main:
+#   git commit --allow-empty -s -m "chore: release X.Y.Z" -m "Release-As: X.Y.Z"
+# Or fix!:/BREAKING CHANGE on the product PR. See ci-build-release skill
+# "Force next release version (Release-As)" (patchloom-contrib cross-links).
+force-release-version: ## EMERGENCY: branch-only force (prefer Release-As on main). VERSION=X.Y.Z
 ifndef VERSION
 	$(error Set VERSION, e.g. make force-release-version VERSION=0.26.0)
 endif
-	@echo "EMERGENCY force of release-please branch to $(VERSION)..."
-	@echo "Prefer instead: empty commit on main with body Release-As: $(VERSION)"
+	@echo "=============================================================="
+	@echo "PREFERRED (durable) on main, not this target:"
+	@echo "  git commit --allow-empty -s -m 'chore: release $(VERSION)' -m 'Release-As: $(VERSION)'"
+	@echo "Docs: ci-build-release skill, Force next release version (Release-As)"
+	@echo "=============================================================="
+	@echo "EMERGENCY: forcing release-please branch files to $(VERSION)..."
 	@git fetch origin
 	@git checkout -B release-please--branches--main--components--patchloom origin/release-please--branches--main--components--patchloom
 	@# scripts/force_release_version.py updates manifest key ".", Cargo.toml/lock, CHANGELOG
 	@# (do not sed the first JSON string: that rewrote {".": "x"} into {"y": "x"} on #2114).
-	@python3 scripts/force_release_version.py "$(VERSION)"
+	@# Requires --i-know-this-is-wiped so the preferred path is always printed first.
+	@python3 scripts/force_release_version.py --i-know-this-is-wiped "$(VERSION)"
 	@make sync-patchloom-md || true
 	@git add .release-please-manifest.json Cargo.toml Cargo.lock CHANGELOG.md PATCHLOOM.md
 	@git commit -s -m "chore: force release version to $(VERSION) in release-please branch" || true
 	@git push origin HEAD:release-please--branches--main--components--patchloom
 	@echo "Now clean the PR: gh pr edit <PR> --title 'chore(main): release patchloom $(VERSION)'"
 	@echo "This will be wiped on the next main merge unless main has Release-As: $(VERSION)."
-	@echo "Primary process: patchloom-contrib 'Force next release version (Release-As)'."
+	@echo "Land Release-As on main ASAP so the next release-please rebuild keeps $(VERSION)."
