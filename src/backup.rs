@@ -259,16 +259,21 @@ pub fn backup_write_files(
     })();
 
     if let Err(e) = write_result {
-        // Auto-restore from backup on partial write failure so the caller
-        // does not end up with a half-written batch.
-        if let Some(ref ts) = backup_ts
-            && let Err(restore_err) = restore_session(cwd, ts)
-        {
-            return Err(e.context(format!(
-                "write failed AND auto-restore also failed: {restore_err}"
-            )));
-        }
-        return Err(e);
+        // Auto-restore on partial write failure; surface typed fail-restore
+        // so hosts peel session via `backup_session_from_error` (#2127 residual).
+        let Some(ts) = backup_ts else {
+            return Err(e);
+        };
+        let mutation_msg = e.to_string();
+        return match restore_session(cwd, &ts) {
+            Ok(_) => Err(crate::exit::MutationAfterBackupError::restored(ts, mutation_msg).into()),
+            Err(restore_err) => Err(crate::exit::MutationAfterBackupError::restore_failed(
+                ts,
+                restore_err.to_string(),
+                mutation_msg,
+            )
+            .into()),
+        };
     }
     Ok(())
 }
@@ -1259,8 +1264,13 @@ mod tests {
         let files: Vec<(&Path, &str, &crate::write::WritePolicy)> =
             vec![(&real, "updated", &policy), (&bad, "x", &policy)];
         let result = backup_write_files(dir.path(), &files);
-        assert!(result.is_err(), "write to missing dir should fail");
-
+        let err = result.expect_err("write to missing dir should fail");
+        let session = crate::exit::backup_session_from_error(&err)
+            .expect("fail-restore must peel session without Display scrape");
+        assert!(
+            !session.is_empty(),
+            "session id must be non-empty after finalize"
+        );
         // After the auto-restore, the first file should be back to its
         // original content (not left in the "updated" state).
         assert_eq!(
@@ -1283,11 +1293,13 @@ mod tests {
         let files: Vec<(&Path, &str, &crate::write::WritePolicy)> =
             vec![(&real, "updated", &policy), (&bad, "x", &policy)];
         let result = backup_write_files(dir.path(), &files);
-        assert!(result.is_err(), "write to missing dir should fail");
+        let err = result.expect_err("write to missing dir should fail");
 
         // The manifest must exist because finalize() runs before writes.
         let sessions = list_sessions(dir.path()).unwrap();
         assert_eq!(sessions.len(), 1, "backup session must be finalized");
+        let session = crate::exit::backup_session_from_error(&err).expect("peel session");
+        assert_eq!(session, sessions[0].timestamp);
 
         // Auto-restore should have reverted the first file back to original.
         assert_eq!(std::fs::read_to_string(&real).unwrap(), "original");

@@ -484,7 +484,7 @@ pub fn agent_error_message(err: &anyhow::Error) -> String {
 /// Build the shared JSON error envelope + exit code for agent `--json` paths.
 ///
 /// Includes `error_kind` when classifiable and `backup_session` when a
-/// post-write format failure carries one.
+/// FormatFailed or fail-restore error carries one (#2127).
 #[must_use]
 pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) {
     let (kind, code) = match classify_typed_error(err) {
@@ -498,13 +498,14 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
     if let Some(k) = kind {
         output["error_kind"] = serde_json::Value::String(k.to_string());
     }
-    if let Some(bs) = format_failed_backup_session(err) {
+    // FormatFailed and MutationAfterBackup (#2127 residual CLI JSON parity).
+    if let Some(bs) = backup_session_from_error(err) {
         output["backup_session"] = serde_json::Value::String(bs.to_string());
     }
     let written = format_failed_written_files(err);
     // Write landed if we have written paths, or a backup session (callback
     // renames / soft-empty path-only ops attach backup with empty written[]).
-    let write_landed = !written.is_empty() || format_failed_backup_session(err).is_some();
+    let write_landed = !written.is_empty() || backup_session_from_error(err).is_some();
     if write_landed {
         // Canonical with other mutators (#1831 / #1788): agents branch on
         // `applied`. Keep `write_applied` as a deprecated alias for one release.
@@ -718,6 +719,34 @@ mod tests {
         // Simulate outer wrap that still peels FormatFailed via chain.
         let wrapped = fmt.context("post-write hooks failed");
         assert_eq!(backup_session_from_error(&wrapped), Some("fmt_sess"));
+    }
+
+    #[test]
+    fn backup_session_from_error_peels_mutation_under_outer_context() {
+        // Root typed error + outer Display context (CLI remappers often wrap).
+        let root: anyhow::Error =
+            MutationAfterBackupError::restored("wrap_1", "write failed").into();
+        let wrapped = root.context("operation 0 failed");
+        assert_eq!(backup_session_from_error(&wrapped), Some("wrap_1"));
+    }
+
+    #[test]
+    fn structured_error_payload_includes_mutation_after_backup_session() {
+        let err: anyhow::Error = MutationAfterBackupError::restored("json_1", "disk full").into();
+        let (payload, code) = structured_error_payload(&err);
+        assert_eq!(code, FAILURE);
+        assert_eq!(payload["backup_session"], "json_1");
+        assert_eq!(
+            payload["applied"], true,
+            "fail-restore means write attempt landed (session finalized): {payload}"
+        );
+        assert!(
+            payload["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("restored session json_1"),
+            "error text should mention session: {payload}"
+        );
     }
 
     #[test]
