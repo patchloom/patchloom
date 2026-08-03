@@ -201,10 +201,11 @@ endif
 	@echo "Forcing release-please branch to $(VERSION)..."
 	@git fetch origin
 	@git checkout -B release-please--branches--main--components--patchloom origin/release-please--branches--main--components--patchloom
-	@sed -i.bak 's/"[^"]*"/"$(VERSION)"/' .release-please-manifest.json; rm -f .release-please-manifest.json.bak
-	@sed -i.bak 's/^version = ".*"/version = "$(VERSION)"/' Cargo.toml; rm -f Cargo.toml.bak
+	@# scripts/force_release_version.py updates manifest key ".", Cargo.toml/lock, CHANGELOG
+	@# (do not sed the first JSON string: that rewrote {".": "x"} into {"y": "x"} on #2114).
+	@python3 scripts/force_release_version.py "$(VERSION)"
 	@make sync-patchloom-md || true
-	@git add .release-please-manifest.json Cargo.toml PATCHLOOM.md
+	@git add .release-please-manifest.json Cargo.toml Cargo.lock CHANGELOG.md PATCHLOOM.md
 	@git commit -s -m "chore: force release version to $(VERSION) in release-please branch" || true
 	@git push origin HEAD:release-please--branches--main--components--patchloom
 	@echo "Now clean the PR: gh pr edit <PR> --title 'chore(main): release patchloom $(VERSION)'"
