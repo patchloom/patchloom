@@ -1,4 +1,9 @@
-//! Exit codes for patchloom.
+//! Exit codes and typed agent-facing errors for patchloom.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Exit constants,
+//! typed peel errors (NoMatch, FormatFailed, MutationAfterBackup, …), and
+//! JSON structured_error_payload stay one unit so remappers cannot drift
+//! (#2127 fail-restore session peels live with FormatFailed helpers).
 
 #![cfg_attr(not(feature = "cli"), allow(dead_code))]
 
@@ -343,6 +348,107 @@ pub fn format_failed_written_files(err: &anyhow::Error) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Mutation failed after backup finalize (library Apply fail-restore path).
+///
+/// Constructed as the **root** of an `anyhow` error (via [`Into`]), not as
+/// `.context()`, so [`backup_session_from_error`] can downcast it. Hosts read
+/// [`Self::session`] without scraping Display (#2127).
+///
+/// The original mutation failure is kept in [`Self::mutation_msg`] for humans;
+/// prefer session peel over re-classifying the mutation kind.
+#[derive(Debug)]
+pub struct MutationAfterBackupError {
+    /// Finalized backup session id (same shape as [`FormatFailedError::backup_session`]).
+    pub session: String,
+    /// `true` when `restore_session` succeeded after the mutation failure.
+    pub restored: bool,
+    /// Present when restore failed; human-readable restore error.
+    pub restore_err: Option<String>,
+    /// Display of the original mutation error (kept for diagnostics).
+    pub mutation_msg: String,
+}
+
+impl MutationAfterBackupError {
+    /// Build a restored-session error (undo still available).
+    #[must_use]
+    pub fn restored(session: impl Into<String>, mutation_msg: impl Into<String>) -> Self {
+        Self {
+            session: session.into(),
+            restored: true,
+            restore_err: None,
+            mutation_msg: mutation_msg.into(),
+        }
+    }
+
+    /// Build a restore-failed error (disk may still be half-applied).
+    #[must_use]
+    pub fn restore_failed(
+        session: impl Into<String>,
+        restore_err: impl Into<String>,
+        mutation_msg: impl Into<String>,
+    ) -> Self {
+        Self {
+            session: session.into(),
+            restored: false,
+            restore_err: Some(restore_err.into()),
+            mutation_msg: mutation_msg.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for MutationAfterBackupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match (self.restored, &self.restore_err) {
+            (true, _) => write!(
+                f,
+                "mutation failed after backup finalize; restored session {} (undo still available): {}",
+                self.session, self.mutation_msg
+            ),
+            (false, Some(re)) => write!(
+                f,
+                "mutation failed after backup finalize; restore of session {} also failed: {re}: {}",
+                self.session, self.mutation_msg
+            ),
+            (false, None) => write!(
+                f,
+                "mutation failed after backup finalize; restore of session {} also failed: {}",
+                self.session, self.mutation_msg
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MutationAfterBackupError {}
+
+/// First [`MutationAfterBackupError::session`] found in the error chain.
+#[must_use]
+pub fn mutation_after_backup_session(err: &anyhow::Error) -> Option<&str> {
+    err.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<MutationAfterBackupError>()
+            .map(|e| e.session.as_str())
+    })
+}
+
+/// Backup session id from fail-restore or FormatFailed errors (#2127).
+///
+/// Prefer [`crate::api::EditResult::backup_session`] on success. Use this on
+/// `Err` paths so hosts can call undo without scraping English Display text.
+///
+/// Peels, in order:
+/// 1. [`FormatFailedError::backup_session`]
+/// 2. [`MutationAfterBackupError::session`]
+///
+/// Returns `None` when no session was finalized (e.g. NoMatch, GuardRejected).
+///
+/// Note: [`MutationAfterBackupError`] must be the root (or a downcastable
+/// cause via [`std::error::Error::source`]), not an `anyhow` Display-only
+/// `.context()` layer, or this helper cannot see it.
+#[must_use]
+pub fn backup_session_from_error(err: &anyhow::Error) -> Option<&str> {
+    format_failed_backup_session(err).or_else(|| mutation_after_backup_session(err))
+}
+
 /// True when any cause is an IO `IsADirectory` (path exists but is a directory).
 #[must_use]
 pub fn is_io_is_a_directory(err: &anyhow::Error) -> bool {
@@ -542,6 +648,76 @@ mod tests {
             classify_typed_error(&wrapped),
             Some(("format_failed", FAILURE))
         );
+    }
+
+    #[test]
+    fn backup_session_from_error_peels_format_failed() {
+        let err: anyhow::Error = FormatFailedError::new("format command failed (false)")
+            .with_backup_session(Some("99_0".into()))
+            .into();
+        assert_eq!(backup_session_from_error(&err), Some("99_0"));
+        assert_eq!(format_failed_backup_session(&err), Some("99_0"));
+    }
+
+    #[test]
+    fn backup_session_from_error_peels_mutation_after_backup() {
+        // Root via Into (not .context): anyhow context layers are not downcastable.
+        let err: anyhow::Error = MutationAfterBackupError::restored("42_1", "disk full").into();
+        assert_eq!(backup_session_from_error(&err), Some("42_1"));
+        assert_eq!(mutation_after_backup_session(&err), Some("42_1"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("restored session 42_1"),
+            "Display stays human-readable: {msg}"
+        );
+        assert!(
+            msg.contains("disk full"),
+            "mutation detail must remain visible: {msg}"
+        );
+    }
+
+    #[test]
+    fn backup_session_from_error_peels_restore_failed() {
+        let err: anyhow::Error =
+            MutationAfterBackupError::restore_failed("7_0", "permission denied", "write failed")
+                .into();
+        assert_eq!(backup_session_from_error(&err), Some("7_0"));
+        let msg = err.to_string();
+        assert!(
+            msg.contains("restore of session 7_0"),
+            "Display keeps restore-failed wording: {msg}"
+        );
+        assert!(msg.contains("write failed"), "mutation detail: {msg}");
+    }
+
+    #[test]
+    fn backup_session_from_error_none_for_plain_no_match_and_guard() {
+        let no_match: anyhow::Error = NoMatchError {
+            msg: "no matches for old".into(),
+        }
+        .into();
+        assert_eq!(backup_session_from_error(&no_match), None);
+
+        let guard: anyhow::Error = crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::GuardRejected,
+            "path outside workspace",
+        )
+        .into();
+        assert_eq!(backup_session_from_error(&guard), None);
+
+        let plain = anyhow::anyhow!("something went wrong");
+        assert_eq!(backup_session_from_error(&plain), None);
+    }
+
+    #[test]
+    fn backup_session_from_error_prefers_format_failed_when_both_in_chain() {
+        // FormatFailed is the primary post-write path; prefer it if both appear.
+        let fmt: anyhow::Error = FormatFailedError::new("fmt")
+            .with_backup_session(Some("fmt_sess".into()))
+            .into();
+        // Simulate outer wrap that still peels FormatFailed via chain.
+        let wrapped = fmt.context("post-write hooks failed");
+        assert_eq!(backup_session_from_error(&wrapped), Some("fmt_sess"));
     }
 
     #[test]

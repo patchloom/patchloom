@@ -133,6 +133,9 @@
 //!   [`is_type_error`], [`is_format_failed`], [`is_guard_rejected`],
 //!   [`is_invalid_input`], [`is_binary`], [`is_invalid_encoding`],
 //!   [`is_no_match`], [`is_ambiguous`]
+//! - [`backup_session_from_error`]: session id on FormatFailed / fail-restore
+//!   errors without Display scrape (#2127); prefer [`EditResult::backup_session`]
+//!   on success
 //! - [`file_create`] with `force: true` overwrites unreadable/binary priors
 //!   without a host remove+recreate loop (#1962); hardlinks stay on the normal
 //!   Apply write path
@@ -600,9 +603,14 @@ impl ReplaceOptions {
 
 pub use fuzzy_span::{FuzzySpanPolicy, fuzzy_span_suspicious, fuzzy_span_suspicious_with_policy};
 
-// Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948, #1963, #1964).
+// Re-export structured edit errors for embedders (#1492, #1659, #1947, #1948, #1963, #1964, #2127).
 /// Re-export: binary | invalid_encoding | invalid_input from sole-path loads (#1963).
 pub use crate::exit::is_load_text_strict_fail;
+/// Re-export: session id + written paths from FormatFailed / fail-restore (#2127).
+pub use crate::exit::{
+    FormatFailedError, MutationAfterBackupError, backup_session_from_error,
+    format_failed_backup_session, format_failed_written_files, mutation_after_backup_session,
+};
 pub use crate::fallback::{
     EditError, EditErrorKind, PeeledError, classify_error, classify_error_ref, edit_error_kind,
     edit_error_ref, error_kind_str, find_similar_targets, is_already_exists, is_ambiguous,
@@ -753,21 +761,27 @@ pub(crate) fn apply_mutation(
 /// On mutation failure after finalize: restore the session, and always
 /// surface restore outcome + session id so hosts can undo or report
 /// half-applied state (do not swallow restore errors with `let _ =`).
-fn mutation_err_after_backup(
+///
+/// Returns typed [`crate::exit::MutationAfterBackupError`] as the root error
+/// (not `.context()`) so [`backup_session_from_error`] can downcast without
+/// Display scrape (#2127). Mutation detail is in the Display/`mutation_msg`.
+pub(crate) fn mutation_err_after_backup(
     backup_root: &Path,
     session: Option<&str>,
     mutation_err: anyhow::Error,
 ) -> anyhow::Error {
+    use crate::exit::MutationAfterBackupError;
     let Some(ts) = session else {
         return mutation_err;
     };
+    // Use Display (not {:#}) for the nested detail: the typed error is the
+    // root, so the full chain is only this one layer.
+    let mutation_msg = mutation_err.to_string();
     match crate::backup::restore_session(backup_root, ts) {
-        Ok(_) => mutation_err.context(format!(
-            "mutation failed after backup finalize; restored session {ts} (undo still available)"
-        )),
-        Err(re) => mutation_err.context(format!(
-            "mutation failed after backup finalize; restore of session {ts} also failed: {re}"
-        )),
+        Ok(_) => MutationAfterBackupError::restored(ts, mutation_msg).into(),
+        Err(re) => {
+            MutationAfterBackupError::restore_failed(ts, re.to_string(), mutation_msg).into()
+        }
     }
 }
 

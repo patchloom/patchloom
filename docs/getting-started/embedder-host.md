@@ -26,7 +26,10 @@ Bline is a real embedder that dogfooded these steps; the checklist is host-gener
    peels. Keep a `_` arm: `EditErrorKind` is `#[non_exhaustive]`.
 6. **Apply writers:** prefer `api` file_* / `replace_text` /
    `apply_content_edits_to_file` (hardlink preserve, `backup_session`). Persist
-   `EditResult.backup_session` if the host exposes undo.
+   `EditResult.backup_session` on success if the host exposes undo. On `Err`
+   after write/backup (FormatFailed or fail-restore), use
+   `api::backup_session_from_error(&err)` for the same session id without
+   scraping English Display (#2127).
 7. **Multi-op / multi-path honesty:**
    - Buffer multi-op: `apply_content_edits` + **`ContentEditsResult.op_honesty`**
      (per-replace `old` + `matched_text` + `match_score`; #2006).

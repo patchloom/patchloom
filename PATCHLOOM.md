@@ -121,6 +121,7 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 
 **Library embedder undo / post-write (Rust hosts, not CLI-only):**
 - After `ApplyMode::Apply`, `EditResult.backup_session` is the session id for that write (#1686).
+- On `Err` after write/backup (`format_failed` or fail-restore), `api::backup_session_from_error(&err)` peels the session id without scraping Display (#2127).
 - `backup::restore_path_from_latest_backup(project_root, path)` — latest session that contains the path
 - `backup::restore_path_from_session(project_root, timestamp, path)` — one path from a chosen session (#1660)
 - `backup::list_sessions_under(root, &ListSessionsOptions { descendants: true, .. })` — nested monorepo sessions (#1688)
