@@ -194,11 +194,15 @@ fuzz: ## Run fuzz tests (requires nightly). Use FUZZ_TIME=N for seconds per targ
 	done; \
 	echo "All fuzz targets passed."
 
-force-release-version: ## Helper to reduce manual force-edits for release-please desync (tech-debt #738). Run: make force-release-version VERSION=0.5.0
+# EMERGENCY only: edits the synthetic release-please branch (wiped on next main merge).
+# Preferred: land on main with commit body "Release-As: X.Y.Z" (or fix!:/BREAKING CHANGE).
+# See patchloom-contrib "Force next release version (Release-As)".
+force-release-version: ## EMERGENCY: edit release-please branch version (prefer Release-As on main). VERSION=X.Y.Z
 ifndef VERSION
-	$(error Set VERSION, e.g. make force-release-version VERSION=0.5.0)
+	$(error Set VERSION, e.g. make force-release-version VERSION=0.26.0)
 endif
-	@echo "Forcing release-please branch to $(VERSION)..."
+	@echo "EMERGENCY force of release-please branch to $(VERSION)..."
+	@echo "Prefer instead: empty commit on main with body Release-As: $(VERSION)"
 	@git fetch origin
 	@git checkout -B release-please--branches--main--components--patchloom origin/release-please--branches--main--components--patchloom
 	@# scripts/force_release_version.py updates manifest key ".", Cargo.toml/lock, CHANGELOG
@@ -209,4 +213,5 @@ endif
 	@git commit -s -m "chore: force release version to $(VERSION) in release-please branch" || true
 	@git push origin HEAD:release-please--branches--main--components--patchloom
 	@echo "Now clean the PR: gh pr edit <PR> --title 'chore(main): release patchloom $(VERSION)'"
-	@echo "Full process in patchloom-contrib skill under 'Major version bumps'."
+	@echo "This will be wiped on the next main merge unless main has Release-As: $(VERSION)."
+	@echo "Primary process: patchloom-contrib 'Force next release version (Release-As)'."
