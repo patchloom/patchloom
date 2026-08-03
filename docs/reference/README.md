@@ -1377,6 +1377,7 @@ The operations below are the building blocks inside `operations`.
 | Match honesty (fuzzy confidence) | `EditResult` / `ContentEditsResult` `match_mode` / `match_score` (#1662); CLI/MCP JSON (#1669); plan/tx `TxChange` + aggregate mode/score/`match_count` from engine meta (#1674) |
 | Reject weak fuzzy matches | CLI `--min-fuzzy-score` / `ReplaceOptions.min_fuzzy_score` / plan `min_fuzzy_score` / MCP `min_fuzzy_score` (#1687); range `0.0..=1.0` |
 | Apply session id for surgical undo | `EditResult.backup_session` after Apply (#1686); pair with `restore_path_from_session` |
+| Session id on fail-restore / FormatFailed | `api::backup_session_from_error(&err)` (#2127); also `format_failed_backup_session` / `MutationAfterBackupError` |
 | Nested monorepo backup listing | `backup::list_sessions_under` + `ListSessionsOptions` (#1688) |
 | Ancestor backup root discovery | `backup::find_backup_roots(path)` walks parents for `.patchloom/backups` (#1934) |
 | File op structured kinds | `file_create` / `file_delete` / `file_rename` / `file_append`: dest-exists without force → `AlreadyExists` (#1947); missing path → `NotFound`; dir/empty path → `InvalidInput`; append/prepend on binary → `Binary` / invalid UTF-8 → `InvalidEncoding` (#1963); **path-only** `file_rename` / `file_delete` succeed on binary and invalid UTF-8 with byte backup (#2031); force create overwrites non-text prior (#1962); PathGuard → `GuardRejected` (#1935) |
