@@ -178,7 +178,9 @@ jobs:
 
       - name: Setup WSL (Ubuntu)
         uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
-        timeout-minutes: 12
+        # Healthy on windows-2022 is ~3-12m (download + packages). Cap below job
+        # timeout so hangs fail closed instead of burning the full matrix.
+        timeout-minutes: 15
         with:
           distribution: Ubuntu-24.04
           # Full distro upgrade not needed; package install refreshes apt.
