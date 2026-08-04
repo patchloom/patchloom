@@ -1094,7 +1094,7 @@ pub fn apply_doc_mutation(
             // Prefer `selector: "0"` (or CLI `--selector 0`) to merge into one doc.
             let target = if let Some(sel) = selector.as_deref().filter(|s| !s.is_empty()) {
                 let parsed = selector::parse_anyhow(sel)?;
-                navigate_mut(root, &parsed, false)?
+                navigate_mut(root, &parsed, false, "doc.merge")?
             } else {
                 root
             };
@@ -1116,7 +1116,7 @@ pub fn apply_doc_mutation(
         }
         DocMutation::Append { selector, value } => {
             let sel = selector::parse_anyhow(&selector)?;
-            let target = navigate_mut(root, &sel, false)?;
+            let target = navigate_mut(root, &sel, false, "doc.append")?;
             match target.as_array_mut() {
                 Some(arr) => {
                     arr.push(value);
@@ -1129,7 +1129,7 @@ pub fn apply_doc_mutation(
         }
         DocMutation::Prepend { selector, value } => {
             let sel = selector::parse_anyhow(&selector)?;
-            let target = navigate_mut(root, &sel, false)?;
+            let target = navigate_mut(root, &sel, false, "doc.prepend")?;
             match target.as_array_mut() {
                 Some(arr) => {
                     arr.insert(0, value);

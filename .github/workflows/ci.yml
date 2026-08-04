@@ -139,10 +139,20 @@ jobs:
           $ErrorActionPreference = "Stop"
           pwsh -NoProfile -File scripts/windows-smoke.ps1 -Bin target\debug\patchloom.exe
 
-  # WSL2 on windows-latest (free GHA runner). Path semantics are Linux-like;
-  # checkout is copied to ext4 home (building under /mnt/c is too slow).
-  # Expanded beyond path-only smoke: full lib + integration (no clippy/fuzz/pty;
-  # those stay on ubuntu-latest). Keeps WSL interop honest for agents in WSL.
+  # WSL2 path honesty: full lib + integration (no clippy/fuzz/pty; those stay
+  # on ubuntu-latest). Checkout is copied to ext4 home (building under /mnt/c
+  # is too slow).
+  #
+  # Runner + setup notes (2026-08):
+  # - Pin windows-2022: windows-latest is Windows Server 2025, where
+  #   Vampire/setup-wsl has hung for 30+ minutes on "Setup WSL" (no step
+  #   logs until complete). Successful jobs still take ~3.5m when healthy;
+  #   2022 is the stable WSL host for GHA.
+  # - update: false: setup-wsl's update runs `apt-get upgrade --yes`. That is
+  #   unnecessary for CI and a hang/slow vector. `additional-packages` already
+  #   runs `apt-get update` + install.
+  # - Step timeout so a stuck install fails the job instead of burning the
+  #   full 60m job budget.
   ci-wsl:
     needs: [changes]
     if: >
@@ -152,8 +162,8 @@ jobs:
         !startsWith(github.head_ref, 'release-please')
       ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
-    runs-on: windows-latest
-    timeout-minutes: 60
+    runs-on: windows-2022
+    timeout-minutes: 45
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -168,13 +178,16 @@ jobs:
 
       - name: Setup WSL (Ubuntu)
         uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        timeout-minutes: 12
         with:
           distribution: Ubuntu-24.04
-          update: true
+          # Full distro upgrade not needed; package install refreshes apt.
+          update: false
           additional-packages: build-essential curl ca-certificates pkg-config libssl-dev
 
       - name: Install Rust and run lib + integration tests in WSL
         shell: wsl-bash {0}
+        timeout-minutes: 30
         run: |
           set -euo pipefail
           # Inline workspace path (wsl-bash does not always inherit step env).
