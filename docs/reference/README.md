@@ -767,7 +767,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 - **What it does:** Sets or creates a value at a selector path.
 - **Use when:** One exact selector path should be updated deterministically.
 - **Prefer instead:** Use `doc merge` for multi field updates, or `doc ensure` when existing values should be preserved. Use `doc update` for predicate or wildcard multi-match (`items[name=a].v`, `items[*].enabled`).
-- **Failure behavior:** Predicate or wildcard selectors fail closed (exit 1) with `error_kind: "invalid_input"` and machine-stable `suggested_op: "doc.update"` under `--json` / plan / MCP (#2133).
+- **Failure behavior:** Predicate or wildcard selectors fail closed (exit 1) with `error_kind: "invalid_input"` and machine-stable `suggested_op: "doc.update"` under `--json` / plan / MCP (#2133). The same mapping applies when the predicate is an **intermediate** parent segment (e.g. `items[id=a].val`), not only a leaf (#2138).
 - **Leading slash:** A single leading `/` is stripped (JSON Pointer habit). `/feature_flag` sets key `feature_flag`, not a key named `/feature_flag` (#1794). Prefer bare keys in agent prompts.
 
 <!-- ref:doc-action:delete -->
@@ -777,6 +777,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 - **Use when:** A selector path or node is obsolete and should disappear cleanly.
 - **Idempotency:** When the selector matches nothing, the command exits 0 and does not rewrite the file.
 - **JSON summary:** With `--json` / `--jsonl`, success payloads include `changed` (bool) and `removed` (`1` when a value was deleted, `0` on no-match). Exit 0 with `"removed": 0` is expected for idempotent cleanup of a missing key.
+- **Failure behavior:** Predicate or wildcard on a single-path delete (leaf or intermediate parent, e.g. `items[id=a].val`) fails closed with `error_kind: "invalid_input"` and `suggested_op: "doc.delete_where"` under `--json` / plan / MCP (#2133 / #2138). Prefer `doc delete-where` or a concrete index path.
 - **Prefer instead:** Use `doc delete-where` when the target is a subset of array items instead of one direct selector path.
 
 <!-- ref:doc-action:delete-where -->

@@ -28,8 +28,9 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
          `doc delete-where` (array filter). If you pass a predicate to `doc set`, the error points \
          you at `doc update` or an index path. With `--json` / plan / MCP, that fail-closed path \
          also sets machine-stable `suggested_op` (`\"doc.update\"` for set/ensure multi-match; \
-         `\"doc.delete_where\"` for predicate delete). Hosts can branch without scraping English \
-         (`api::suggested_op_from_error` on the library path).\n\n\
+         `\"doc.delete_where\"` for predicate delete). Intermediate parent predicates \
+         (`items[id=a].val` on delete) use the same mapping as leaf predicates (#2138). Hosts can \
+         branch without scraping English (`api::suggested_op_from_error` on the library path).\n\n\
          **Multi-document YAML:** Files with multiple `---` documents parse as a **top-level array** \
          (one element per document). Address a field with a document index first, e.g. `0.metadata.name` \
          or `[0].metadata.name`, not a bare key at the stream root. A bare root key on multi-doc \
