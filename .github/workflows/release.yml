@@ -1003,8 +1003,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Soft-fail: winget community PR is best-effort. A bad/expired
+      # WINGET_TOKEN (CreateRef denied on the fork) must not fail the
+      # whole Release matrix or skip announce (0.27.0: CreateRef failure).
+      # Re-run Actions → "Publish WinGet package" after rotating the PAT.
       - name: Publish to WinGet
+        id: winget
         if: env.WINGET_TOKEN != ''
+        continue-on-error: true
         uses: vedantmgoyal9/winget-releaser@4ffc7888bffd451b357355dc214d43bb9f23917e # v2
         with:
           identifier: Patchloom.Patchloom
@@ -1022,6 +1028,12 @@ jobs:
           echo "Set a classic PAT with public_repo on a fork of microsoft/winget-pkgs"
           echo "(fork-user SebTardif) as secret WINGET_TOKEN to enable auto version PRs."
 
+      - name: Note winget publish soft-failure
+        if: env.WINGET_TOKEN != '' && steps.winget.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning::publish-winget failed (often expired WINGET_TOKEN or missing Contents write on SebTardif/winget-pkgs). Release artifacts are still published. Fix: rotate classic PAT public_repo, gh secret set WINGET_TOKEN, then workflow_dispatch Publish WinGet package."
+
   announce:
     needs:
       - plan
@@ -1037,7 +1049,9 @@ jobs:
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
     # verify-homebrew-install may skip when formula publish skips; treat skip as ok.
-    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.verify-homebrew-install.result == 'skipped' || needs.verify-homebrew-install.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.publish-chocolatey.result == 'skipped' || needs.publish-chocolatey.result == 'success') && (needs.publish-winget.result == 'skipped' || needs.publish-winget.result == 'success') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
+    # publish-winget uses continue-on-error; treat failure as success for announce
+    # so a bad WINGET_TOKEN does not skip the release announcement job.
+    if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') && (needs.verify-homebrew-install.result == 'skipped' || needs.verify-homebrew-install.result == 'success') && (needs.publish-scoop-bucket.result == 'skipped' || needs.publish-scoop-bucket.result == 'success') && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') && (needs.publish-chocolatey.result == 'skipped' || needs.publish-chocolatey.result == 'success') && (needs.publish-winget.result == 'skipped' || needs.publish-winget.result == 'success' || needs.publish-winget.result == 'failure') && (needs.custom-publish-crates.result == 'skipped' || needs.custom-publish-crates.result == 'success') }}
     runs-on: "ubuntu-22.04"
     timeout-minutes: 10
     env:
