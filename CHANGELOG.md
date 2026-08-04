@@ -11,6 +11,21 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.27.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.26.0...patchloom-v0.27.0) (2026-08-04)
+
+
+### Features
+
+* **api:** public backup_session_from_error for fail-restore ([#2129](https://github.com/patchloom/patchloom/issues/2129)) ([5aa99d3](https://github.com/patchloom/patchloom/commit/5aa99d3746cdaf05e71e40499d9389f9070956ce)), closes [#2127](https://github.com/patchloom/patchloom/issues/2127)
+* suggested_op on predicate write-nav; Homebrew version CI ([#2136](https://github.com/patchloom/patchloom/issues/2136)) ([03caa71](https://github.com/patchloom/patchloom/commit/03caa715c27e65030b05e4539360d611f5b4bf3e)), closes [#2133](https://github.com/patchloom/patchloom/issues/2133) [#2134](https://github.com/patchloom/patchloom/issues/2134)
+
+
+### Bug Fixes
+
+* fail-restore session peel parity and embed version 0.26 ([#2131](https://github.com/patchloom/patchloom/issues/2131)) ([75ee841](https://github.com/patchloom/patchloom/commit/75ee8415484324a810a382e120b00151fbcb2481))
+* navigate_mut intermediate suggested_op from op context ([#2140](https://github.com/patchloom/patchloom/issues/2140)) ([f2f4820](https://github.com/patchloom/patchloom/commit/f2f4820c9a7c2824fbc7b18896cef3cc6a3fb3ed))
+* preserve suggested_op on tx JSON path; harden brew re-tap ([#2137](https://github.com/patchloom/patchloom/issues/2137)) ([2b1049d](https://github.com/patchloom/patchloom/commit/2b1049df4737996579917c4d8029043fa42f9b69)), closes [#2133](https://github.com/patchloom/patchloom/issues/2133) [#2134](https://github.com/patchloom/patchloom/issues/2134)
+
 ## [0.26.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.25.0...patchloom-v0.26.0) (2026-08-03)
 
 
