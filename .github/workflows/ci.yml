@@ -147,10 +147,15 @@ jobs:
   # - Pin windows-2022: windows-latest is Windows Server 2025, where
   #   Vampire/setup-wsl has hung for 30+ minutes on "Setup WSL" (no step
   #   logs until complete). 2022 is the stable WSL host for GHA.
-  # - update: false: setup-wsl's update runs `apt-get upgrade --yes` (slow hang).
+  # - update: false: setup-wsl's *distro* apt upgrade (slow hang). Separate from
+  #   platform `wsl --update`, which setup-wsl still runs on win22 for WSL2.
   # - Install apt packages in a separate step with retries. Putting packages in
   #   setup-wsl `additional-packages` timed out at 15m on slow archive.ubuntu.com
   #   (main post-#2141). Distro-only install is faster; apt retries absorb flakes.
+  # - Pre-update via `wsl --update --web-download` + outer setup-wsl retry:
+  #   Store-path `wsl --update` gets intermittent Forbidden (403) on GHA
+  #   (Vampire/setup-wsl#72). Web download often succeeds; second setup attempt
+  #   after backoff covers residual Store 403s.
   ci-wsl:
     needs: [changes]
     if: >
@@ -174,9 +179,44 @@ jobs:
         with:
           persist-credentials: false
 
+      # Prefer GitHub/web CDN over Microsoft Store (403 flake on hosted runners).
+      # Soft-fail: setup-wsl still runs platform update; this just primes WSL.
+      - name: Pre-update WSL via web download
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Continue'
+          for ($i = 1; $i -le 5; $i++) {
+            Write-Host "Attempt $i/5: wsl --update --web-download"
+            & wsl.exe --update --web-download
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "WSL web-download update succeeded"
+              exit 0
+            }
+            Write-Host "Exit $LASTEXITCODE; sleeping before retry"
+            Start-Sleep -Seconds (15 * $i)
+          }
+          Write-Host "web-download update failed after retries; continuing to setup-wsl"
+          exit 0
+
       - name: Setup WSL (Ubuntu distro only)
+        id: setup_wsl
+        continue-on-error: true
         uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
         # Distro download + register only (no apt). Fail closed if hung.
+        timeout-minutes: 12
+        with:
+          distribution: Ubuntu-24.04
+          update: false
+
+      - name: Backoff before Setup WSL retry
+        if: steps.setup_wsl.outcome == 'failure'
+        shell: pwsh
+        run: Start-Sleep -Seconds 45
+
+      - name: Setup WSL (retry after Store 403 / flake)
+        if: steps.setup_wsl.outcome == 'failure'
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
         timeout-minutes: 12
         with:
           distribution: Ubuntu-24.04
