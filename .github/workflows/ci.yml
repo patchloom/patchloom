@@ -146,13 +146,11 @@ jobs:
   # Runner + setup notes (2026-08):
   # - Pin windows-2022: windows-latest is Windows Server 2025, where
   #   Vampire/setup-wsl has hung for 30+ minutes on "Setup WSL" (no step
-  #   logs until complete). Successful jobs still take ~3.5m when healthy;
-  #   2022 is the stable WSL host for GHA.
-  # - update: false: setup-wsl's update runs `apt-get upgrade --yes`. That is
-  #   unnecessary for CI and a hang/slow vector. `additional-packages` already
-  #   runs `apt-get update` + install.
-  # - Step timeout so a stuck install fails the job instead of burning the
-  #   full 60m job budget.
+  #   logs until complete). 2022 is the stable WSL host for GHA.
+  # - update: false: setup-wsl's update runs `apt-get upgrade --yes` (slow hang).
+  # - Install apt packages in a separate step with retries. Putting packages in
+  #   setup-wsl `additional-packages` timed out at 15m on slow archive.ubuntu.com
+  #   (main post-#2141). Distro-only install is faster; apt retries absorb flakes.
   ci-wsl:
     needs: [changes]
     if: >
@@ -163,7 +161,7 @@ jobs:
       ))
       && (needs.changes.result == 'skipped' || needs.changes.outputs.code == 'true')
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -176,20 +174,62 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup WSL (Ubuntu)
+      - name: Setup WSL (Ubuntu distro only)
         uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
-        # Healthy on windows-2022 is ~3-12m (download + packages). Cap below job
-        # timeout so hangs fail closed instead of burning the full matrix.
-        timeout-minutes: 15
+        # Distro download + register only (no apt). Fail closed if hung.
+        timeout-minutes: 12
         with:
           distribution: Ubuntu-24.04
-          # Full distro upgrade not needed; package install refreshes apt.
           update: false
-          additional-packages: build-essential curl ca-certificates pkg-config libssl-dev
+
+      - name: Install build packages in WSL
+        shell: wsl-bash {0}
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          # archive.ubuntu.com is flaky from some GHA regions (Ign / multi-minute
+          # gaps). Retry update and install separately so a single mirror blip
+          # does not burn the step.
+          apt_update() {
+            sudo -E apt-get update -y
+          }
+          apt_install() {
+            sudo -E apt-get install -y --no-install-recommends \
+              build-essential curl ca-certificates pkg-config libssl-dev
+          }
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            echo "apt-get update attempt ${attempt}/5"
+            if apt_update; then
+              ok=1
+              break
+            fi
+            sleep $((attempt * 5))
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "apt-get update failed after retries" >&2
+            exit 1
+          fi
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            echo "apt-get install attempt ${attempt}/5"
+            if apt_install; then
+              ok=1
+              break
+            fi
+            sleep $((attempt * 5))
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "apt-get install failed after retries" >&2
+            exit 1
+          fi
+          gcc --version
+          pkg-config --version
 
       - name: Install Rust and run lib + integration tests in WSL
         shell: wsl-bash {0}
-        timeout-minutes: 30
+        timeout-minutes: 25
         run: |
           set -euo pipefail
           # Inline workspace path (wsl-bash does not always inherit step env).
