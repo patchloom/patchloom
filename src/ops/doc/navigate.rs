@@ -17,10 +17,17 @@ fn value_type_name(v: &serde_json::Value) -> &'static str {
     }
 }
 
+/// Navigate to `segments` under `root`, optionally creating intermediate objects.
+///
+/// `op_context` is the plan/CLI op label used when a predicate or wildcard
+/// appears as an intermediate segment (e.g. `"doc.delete"`, `"doc.set"`).
+/// Intermediate failures must use the same `suggested_op` mapping as leaf
+/// failures (#2133 / #2138); do not pass a shared multi-op string.
 pub fn navigate_mut<'a>(
     root: &'a mut serde_json::Value,
     segments: &[selector::Segment],
     create: bool,
+    op_context: &str,
 ) -> anyhow::Result<&'a mut serde_json::Value> {
     let mut current = root;
     for seg in segments {
@@ -95,9 +102,7 @@ pub fn navigate_mut<'a>(
                 })
             })?,
             _ => {
-                return Err(write_nav_predicate_error(
-                    "write navigation (doc.set/ensure/delete/move)",
-                ));
+                return Err(write_nav_predicate_error(op_context));
             }
         };
     }
@@ -124,7 +129,7 @@ pub fn set_at_path(
         }));
     }
     let (parent_path, last) = split_last(segments);
-    let parent = navigate_mut(root, parent_path, true)?;
+    let parent = navigate_mut(root, parent_path, true, "doc.set")?;
 
     // Convert null parent (e.g. empty YAML parsed to null) to an empty
     // object so `doc set` works on empty documents.
@@ -197,18 +202,13 @@ pub fn set_at_path(
 /// Agent-facing message when a single-path write op receives a predicate/wildcard
 /// selector (#1725). Points at the right multi-match alternative and index form.
 fn write_nav_predicate_msg(op_context: &str) -> String {
-    // Match exact op labels, not substrings of compound messages like
-    // "doc.set/ensure/delete/move".
-    let alt = if op_context == "doc.delete"
-        || op_context.starts_with("doc.delete ")
-        || op_context.starts_with("doc.move")
-    {
-        if op_context.starts_with("doc.move") {
-            "Use a concrete index/key path (e.g. items.0.val), not wildcards or predicates"
-        } else {
-            "Use: doc delete-where <file> <array-selector> --predicate key=value for filtered \
-             array deletes, or a concrete index path such as items.0"
-        }
+    // Match exact op labels, not substrings of multi-op compound strings.
+    // Intermediate navigation must pass the leaf op (#2138).
+    let alt = if op_context.starts_with("doc.move") || op_context.starts_with("doc.delete_where") {
+        "Use a concrete index/key path (e.g. items.0.val), not wildcards or predicates"
+    } else if op_context == "doc.delete" || op_context.starts_with("doc.delete ") {
+        "Use: doc delete-where <file> <array-selector> --predicate key=value for filtered \
+         array deletes, or a concrete index path such as items.0"
     } else {
         "Use: doc update <file> 'items[id=b].val' <value> for multi-match writes, \
          or a concrete index path such as items.0.val"
@@ -220,14 +220,18 @@ fn write_nav_predicate_msg(op_context: &str) -> String {
 }
 
 /// Plan serde name for agent JSON `suggested_op` when a multi-match alternative exists (#2133).
+///
+/// Intermediate and leaf failures must use the same mapping (#2138): pass an
+/// op-specific context into [`navigate_mut`], never a multi-op compound string.
 fn write_nav_suggested_op(op_context: &str) -> Option<&'static str> {
     if op_context == "doc.delete" || op_context.starts_with("doc.delete ") {
         Some("doc.delete_where")
-    } else if op_context.starts_with("doc.move") {
-        // Move has no multi-match sibling; agents must pick a concrete path.
+    } else if op_context.starts_with("doc.move") || op_context.starts_with("doc.delete_where") {
+        // Move has no multi-match sibling; delete_where is already the multi-match
+        // delete (intermediate predicate on its array path is just invalid).
         None
     } else {
-        // doc.set / doc.ensure / shared write-navigation contexts.
+        // doc.set / doc.ensure / merge / append / prepend: point at multi-match update.
         Some("doc.update")
     }
 }
@@ -256,7 +260,7 @@ pub fn delete_at_selector(
     // Soft no-match only when a key is missing. Type/invalid errors (e.g. bare
     // key under multi-doc array root, nested metadata.name) must propagate so
     // agents get type_error instead of silent "already gone".
-    let parent = match navigate_mut(root, parent_path, false) {
+    let parent = match navigate_mut(root, parent_path, false, "doc.delete") {
         Ok(p) => p,
         Err(e) if crate::exit::is_no_match(&e) => return Ok(false),
         Err(e) => return Err(e),
@@ -338,7 +342,9 @@ pub fn delete_where(
     }
     let pred_val = raw_val.trim();
 
-    let target = navigate_mut(root, segments, false)?;
+    // Intermediate predicate on the array path has no multi-match sibling
+    // (caller is already delete_where); omit suggested_op via move-style map.
+    let target = navigate_mut(root, segments, false, "doc.delete_where")?;
     let arr = target.as_array_mut().ok_or_else(|| {
         anyhow::Error::new(crate::exit::TypeErrorError {
             msg: "selector does not point to an array".into(),
@@ -409,7 +415,7 @@ pub fn move_at_path(
     if from_parent == to_parent
         && let (selector::Segment::Index(fi), selector::Segment::Index(ti)) = (from_last, to_last)
     {
-        let parent = navigate_mut(root, from_parent, false)?;
+        let parent = navigate_mut(root, from_parent, false, "doc.move")?;
         let arr = parent.as_array_mut().ok_or_else(|| {
             anyhow::Error::new(crate::exit::TypeErrorError {
                 msg: "parent is not an array".into(),
@@ -434,7 +440,7 @@ pub fn move_at_path(
     // Cross-container move: clone-insert-remove so the tree is not mutated
     // if destination insertion fails (#1183).
     let cloned = {
-        let parent = navigate_mut(root, from_parent, false)?;
+        let parent = navigate_mut(root, from_parent, false, "doc.move")?;
         match from_last {
             selector::Segment::Key(k) => {
                 // Numeric dot-notation on arrays (#1288).
@@ -497,7 +503,7 @@ pub fn move_at_path(
 
     // Insert clone at destination path (creates intermediate objects).
     {
-        let parent = navigate_mut(root, to_parent, true)?;
+        let parent = navigate_mut(root, to_parent, true, "doc.move")?;
         match to_last {
             selector::Segment::Key(k) => {
                 // Numeric dot-notation on arrays (#1288).
@@ -558,7 +564,7 @@ pub fn move_at_path(
 
     // Destination insert succeeded; now remove from source.
     {
-        let parent = navigate_mut(root, from_parent, false)?;
+        let parent = navigate_mut(root, from_parent, false, "doc.move")?;
         match from_last {
             selector::Segment::Key(k) => {
                 // Numeric dot-notation on arrays (#1288).
@@ -701,21 +707,21 @@ mod tests {
     #[test]
     fn navigate_mut_key() {
         let mut root = json!({"a": {"b": 1}});
-        let val = navigate_mut(&mut root, &segs("a.b"), false).unwrap();
+        let val = navigate_mut(&mut root, &segs("a.b"), false, "doc.set").unwrap();
         assert_eq!(val, &json!(1));
     }
 
     #[test]
     fn navigate_mut_index() {
         let mut root = json!({"items": [10, 20, 30]});
-        let val = navigate_mut(&mut root, &segs("items[1]"), false).unwrap();
+        let val = navigate_mut(&mut root, &segs("items[1]"), false, "doc.set").unwrap();
         assert_eq!(val, &json!(20));
     }
 
     #[test]
     fn navigate_mut_missing_key_errors() {
         let mut root = json!({"a": 1});
-        let result = navigate_mut(&mut root, &segs("b"), false);
+        let result = navigate_mut(&mut root, &segs("b"), false, "doc.set");
         assert!(result.is_err(), "expected error, got Ok: {result:?}");
         assert!(result.unwrap_err().to_string().contains("key not found"));
     }
@@ -723,7 +729,7 @@ mod tests {
     #[test]
     fn navigate_mut_create_intermediate() {
         let mut root = json!({"a": {}});
-        let val = navigate_mut(&mut root, &segs("a.b"), true).unwrap();
+        let val = navigate_mut(&mut root, &segs("a.b"), true, "doc.set").unwrap();
         assert!(val.is_object(), "should create intermediate object");
     }
 
@@ -755,6 +761,43 @@ mod tests {
     }
 
     #[test]
+    fn delete_intermediate_predicate_suggests_delete_where() {
+        // Intermediate predicate (parent path of leaf key) must not fall through
+        // to suggested_op doc.update (#2138).
+        let mut root = json!({"items":[{"id":"a","val":1}]});
+        let err = delete_at_selector(&mut root, &segs("items[id=a].val")).unwrap_err();
+        let msg = err.to_string();
+        assert_eq!(
+            crate::exit::suggested_op_from_error(&err),
+            Some("doc.delete_where"),
+            "intermediate predicate on delete must suggest doc.delete_where (#2138): {err}"
+        );
+        assert!(
+            msg.contains("delete-where") || msg.contains("delete_where") || msg.contains("items.0"),
+            "English must point at delete-where / concrete path, not doc update: {msg}"
+        );
+        assert!(
+            !msg.contains("doc update"),
+            "must not suggest update-style English for delete intermediate: {msg}"
+        );
+    }
+
+    #[test]
+    fn set_intermediate_predicate_suggests_update() {
+        let mut root = json!({"items":[{"id":"a","val":1}]});
+        let err = set_at_path(&mut root, &segs("items[id=a].val"), json!(9)).unwrap_err();
+        assert_eq!(
+            crate::exit::suggested_op_from_error(&err),
+            Some("doc.update"),
+            "intermediate predicate on set still suggests doc.update (#2138): {err}"
+        );
+        assert!(
+            err.to_string().contains("doc update"),
+            "set intermediate English still points at doc update: {err}"
+        );
+    }
+
+    #[test]
     fn move_predicate_has_no_suggested_op() {
         let mut root = json!({"items":[{"id":"a","val":1}]});
         // from path ends with predicate: no multi-match move sibling.
@@ -766,6 +809,26 @@ mod tests {
         assert!(
             err.to_string().contains("wildcard/predicate"),
             "still fail-closed with predicate message: {err}"
+        );
+    }
+
+    #[test]
+    fn move_intermediate_predicate_has_no_suggested_op() {
+        // Intermediate parent path under move must not invent doc.update (#2138).
+        let mut root = json!({"items":[{"id":"a","val":1}], "elsewhere": 0});
+        let err =
+            move_at_path(&mut root, &segs("items[id=a].val"), &segs("elsewhere")).unwrap_err();
+        assert!(
+            crate::exit::suggested_op_from_error(&err).is_none(),
+            "intermediate move predicate must omit suggested_op (#2138): {err}"
+        );
+        assert!(
+            err.to_string().contains("wildcard/predicate"),
+            "still fail-closed: {err}"
+        );
+        assert!(
+            !err.to_string().contains("doc update"),
+            "must not use update English for move intermediate: {err}"
         );
     }
 
@@ -791,7 +854,7 @@ mod tests {
     fn navigate_mut_array_root_bare_key_hints_index() {
         // append/prepend/navigate share this path (fixrealloop multi-doc).
         let mut root = json!([{"tags": ["a"]}, {"tags": ["b"]}]);
-        let err = navigate_mut(&mut root, &segs("tags"), false).unwrap_err();
+        let err = navigate_mut(&mut root, &segs("tags"), false, "doc.set").unwrap_err();
         let msg = err.to_string();
         assert!(
             crate::exit::is_type_error(&err),
@@ -1086,7 +1149,7 @@ mod tests {
         // Regression: navigate_mut with create=true should handle
         // null nodes by converting them to objects.
         let mut root = serde_json::Value::Null;
-        let val = navigate_mut(&mut root, &segs("a.b"), true).unwrap();
+        let val = navigate_mut(&mut root, &segs("a.b"), true, "doc.set").unwrap();
         assert!(val.is_object());
         assert!(root.is_object());
     }
@@ -1117,7 +1180,7 @@ mod tests {
     fn navigate_mut_error_on_non_object_intermediate() {
         let mut root = json!({"a": "scalar"});
         let path = segs("a.b");
-        let err = navigate_mut(&mut root, &path, true).unwrap_err();
+        let err = navigate_mut(&mut root, &path, true, "doc.set").unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("string"),
@@ -1150,7 +1213,7 @@ mod tests {
     #[test]
     fn navigate_mut_numeric_dot_notation_on_array() {
         let mut root = json!({"env": [{"value": "A"}, {"value": "B"}]});
-        let val = navigate_mut(&mut root, &segs("env.0.value"), false).unwrap();
+        let val = navigate_mut(&mut root, &segs("env.0.value"), false, "doc.set").unwrap();
         assert_eq!(val, &json!("A"));
     }
 

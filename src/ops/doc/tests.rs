@@ -86,7 +86,7 @@ mod basic {
     fn navigate_mut_existing_key() {
         let mut val = json!({"a": {"b": 42}});
         let seg = crate::selector::parse("a.b").unwrap();
-        let found = navigate_mut(&mut val, &seg, false).unwrap();
+        let found = navigate_mut(&mut val, &seg, false, "doc.set").unwrap();
         assert_eq!(*found, json!(42));
     }
 
@@ -94,7 +94,7 @@ mod basic {
     fn navigate_mut_create_missing_key() {
         let mut val = json!({"a": 1});
         let seg = crate::selector::parse("b.c").unwrap();
-        let found = navigate_mut(&mut val, &seg, true).unwrap();
+        let found = navigate_mut(&mut val, &seg, true, "doc.set").unwrap();
         // created as empty object, then descended into "c" which was also created
         assert!(found.is_object());
     }
@@ -103,7 +103,7 @@ mod basic {
     fn navigate_mut_array_index() {
         let mut val = json!({"items": [10, 20, 30]});
         let seg = crate::selector::parse("items[1]").unwrap();
-        let found = navigate_mut(&mut val, &seg, false).unwrap();
+        let found = navigate_mut(&mut val, &seg, false, "doc.set").unwrap();
         assert_eq!(*found, json!(20));
     }
 
@@ -796,14 +796,14 @@ mod error_handling {
     fn navigate_mut_missing_key_no_create() {
         let mut val = json!({"a": 1});
         let seg = crate::selector::parse("b").unwrap();
-        navigate_mut(&mut val, &seg, false).expect_err("expected error");
+        navigate_mut(&mut val, &seg, false, "doc.set").expect_err("expected error");
     }
 
     #[test]
     fn navigate_mut_index_out_of_bounds() {
         let mut val = json!({"items": [10]});
         let seg = crate::selector::parse("items[5]").unwrap();
-        navigate_mut(&mut val, &seg, false).expect_err("expected error");
+        navigate_mut(&mut val, &seg, false, "doc.set").expect_err("expected error");
     }
 
     #[test]
