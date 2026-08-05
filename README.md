@@ -4,6 +4,8 @@
 
 # Patchloom
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.patchloom%2Fpatchloom.svg)](https://mcptoplist.com/server/io.github.patchloom%2Fpatchloom)
+
 [![CI](https://github.com/patchloom/patchloom/actions/workflows/ci.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![Security](https://github.com/patchloom/patchloom/actions/workflows/security.yml/badge.svg)](https://github.com/patchloom/patchloom/actions/workflows/security.yml)
 [![crates.io](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/crate-version.json&logo=rust)](https://crates.io/crates/patchloom)
