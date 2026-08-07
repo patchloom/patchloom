@@ -249,11 +249,30 @@ fn execute_plan_inner(
         operations.len(),
         options.guard.is_some()
     );
-    // Full op validation (empty path, replace args, tidy.fix, …).
-    // Defense in depth when callers skip validate_plan_operations (CLI
-    // stage_for_write / single-op paths historically only re-checked TidyFix).
+    // Empty path/glob strings join to cwd and produce opaque errors
+    // (`: target is not a file: <cwd>`). Reject early on all stage paths
+    // (CLI stage_for_write skips validate_plan_operations).
     for op in &operations {
-        crate::tx::validate::validate_operation(op)?;
+        for p in op.declared_paths() {
+            if p.trim().is_empty() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "path must not be empty".into(),
+                }
+                .into());
+            }
+        }
+    }
+    // TidyFix-specific constraints when callers skip validate_plan_operations.
+    for op in &operations {
+        if let Operation::TidyFix { dedent, indent, .. } = op
+            && dedent.is_some()
+            && indent.is_some()
+        {
+            return Err(crate::exit::InvalidInputError {
+                msg: "tidy.fix: 'dedent' and 'indent' cannot both be set".into(),
+            }
+            .into());
+        }
     }
 
     // PathGuard enforcement (same pattern as lifecycle.rs execute_plan_direct).
