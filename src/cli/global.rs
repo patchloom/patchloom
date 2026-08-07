@@ -410,7 +410,7 @@ impl GlobalFlags {
     ) -> anyhow::Result<std::path::PathBuf> {
         let path = path.as_ref();
         let path_str = path.to_string_lossy();
-        if path_str.trim().is_empty() {
+        if crate::containment::is_blank_path(&path_str) {
             return Err(crate::exit::InvalidInputError {
                 msg: "path must not be empty".into(),
             }
@@ -441,7 +441,7 @@ impl GlobalFlags {
         cwd: &std::path::Path,
         path: &str,
     ) -> anyhow::Result<std::path::PathBuf> {
-        if path.trim().is_empty() {
+        if crate::containment::is_blank_path(path) {
             return Err(crate::exit::InvalidInputError {
                 msg: "path must not be empty".into(),
             }
@@ -493,7 +493,7 @@ impl GlobalFlags {
         path: &str,
         entry: bool,
     ) -> anyhow::Result<String> {
-        if path.trim().is_empty() {
+        if crate::containment::is_blank_path(path) {
             return Err(crate::exit::InvalidInputError {
                 msg: "path must not be empty".into(),
             }
@@ -567,7 +567,7 @@ impl GlobalFlags {
         let paths: Vec<_> = paths.into_iter().collect();
         for p in &paths {
             let p = p.as_ref();
-            if p.trim().is_empty() {
+            if crate::containment::is_blank_path(p) {
                 return Err(crate::exit::InvalidInputError {
                     msg: "path must not be empty".into(),
                 }

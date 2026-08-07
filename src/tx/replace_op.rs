@@ -1721,7 +1721,15 @@ mod tests {
         );
         let meta = f.replace_match_meta.get(&file).expect("fuzzy meta");
         assert_eq!(meta.mode, crate::api::MatchMode::Fuzzy);
-        assert!(meta.score.is_some(), "similarity fallback should set score");
+        let score = meta.score.expect("similarity fallback should set score");
+        assert!(
+            (0.0..=1.0).contains(&score),
+            "fuzzy score should be in [0,1], got {score}"
+        );
+        assert!(
+            score > 0.0,
+            "matched fuzzy rewrite should have positive score"
+        );
         assert_eq!(meta.match_count, 1);
     }
 

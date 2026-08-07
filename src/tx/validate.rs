@@ -11,7 +11,7 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
     // Empty path/glob strings resolve as cwd and produce opaque errors
     // (`: target is not a file: <cwd>`). Reject early like CLI read/create.
     for p in op.declared_paths() {
-        if p.trim().is_empty() {
+        if crate::containment::is_blank_path(&p) {
             return Err(crate::exit::InvalidInputError {
                 msg: "path must not be empty".into(),
             }

@@ -2837,6 +2837,30 @@ fn test_doc_set_on_directory_json_error_kind() {
     );
 }
 
+/// Empty path must not join to cwd as a directory target (#2150 follow-up).
+#[test]
+fn test_doc_set_empty_path_json_invalid_input() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "set", "", "a", "1", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "empty path must be invalid_input: {json}"
+    );
+    assert!(
+        json["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("path must not be empty"),
+        "error should name empty path, not cwd directory: {json}"
+    );
+}
+
 /// Predicate selectors on doc set point agents at doc update (#1725 / #2133).
 #[test]
 fn test_doc_set_predicate_errors_with_update_hint() {
