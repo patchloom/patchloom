@@ -249,18 +249,11 @@ fn execute_plan_inner(
         operations.len(),
         options.guard.is_some()
     );
-    // Validate TidyFix-specific constraints (dedent + indent mutual exclusion).
-    // Defense in depth when callers skip validate_plan_operations.
+    // Full op validation (empty path, replace args, tidy.fix, …).
+    // Defense in depth when callers skip validate_plan_operations (CLI
+    // stage_for_write / single-op paths historically only re-checked TidyFix).
     for op in &operations {
-        if let Operation::TidyFix { dedent, indent, .. } = op
-            && dedent.is_some()
-            && indent.is_some()
-        {
-            return Err(crate::exit::InvalidInputError {
-                msg: "tidy.fix: 'dedent' and 'indent' cannot both be set".into(),
-            }
-            .into());
-        }
+        crate::tx::validate::validate_operation(op)?;
     }
 
     // PathGuard enforcement (same pattern as lifecycle.rs execute_plan_direct).

@@ -908,10 +908,20 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --contain on read-only doc paths (writes use execute_via_engine guard).
     match &args.action {
         DocAction::Diff { file_a, file_b } => {
+            for p in [file_a.as_str(), file_b.as_str()] {
+                if p.trim().is_empty() {
+                    global.emit_error_json_kind(Some("invalid_input"), "path must not be empty")?;
+                    return Ok(exit::FAILURE);
+                }
+            }
             global.check_paths_contained(&cwd, [file_a.as_str(), file_b.as_str()])?;
         }
         _ => {
             if let Some(p) = args.action.file_path() {
+                if p.trim().is_empty() {
+                    global.emit_error_json_kind(Some("invalid_input"), "path must not be empty")?;
+                    return Ok(exit::FAILURE);
+                }
                 global.check_paths_contained(&cwd, [p])?;
             }
         }
