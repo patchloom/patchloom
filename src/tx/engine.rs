@@ -249,8 +249,20 @@ fn execute_plan_inner(
         operations.len(),
         options.guard.is_some()
     );
-    // Validate TidyFix-specific constraints (dedent + indent mutual exclusion).
-    // Defense in depth when callers skip validate_plan_operations.
+    // Empty path/glob strings join to cwd and produce opaque errors
+    // (`: target is not a file: <cwd>`). Reject early on all stage paths
+    // (CLI stage_for_write skips validate_plan_operations).
+    for op in &operations {
+        for p in op.declared_paths() {
+            if p.trim().is_empty() {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "path must not be empty".into(),
+                }
+                .into());
+            }
+        }
+    }
+    // TidyFix-specific constraints when callers skip validate_plan_operations.
     for op in &operations {
         if let Operation::TidyFix { dedent, indent, .. } = op
             && dedent.is_some()

@@ -81,8 +81,10 @@ scoop install patchloom/patchloom
 ```
 
 Or download a prebuilt binary from [GitHub Releases](https://github.com/patchloom/patchloom/releases).
-winget and Chocolatey community listings exist for search discovery only;
-prefer Scoop or Releases when you need the current version.
+winget (`Patchloom.Patchloom`) is published per release (use
+`winget source update` if search is stale). Chocolatey often lags
+GitHub while versions wait for moderation. Prefer Scoop or Releases
+when you need a known-current build.
 
 Set up your project in one command:
 

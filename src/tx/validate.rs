@@ -8,6 +8,17 @@ pub(super) fn op_label(op: &Operation) -> &'static str {
 }
 
 pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
+    // Empty path/glob strings resolve as cwd and produce opaque errors
+    // (`: target is not a file: <cwd>`). Reject early like CLI read/create.
+    for p in op.declared_paths() {
+        if p.trim().is_empty() {
+            return Err(crate::exit::InvalidInputError {
+                msg: "path must not be empty".into(),
+            }
+            .into());
+        }
+    }
+
     match op {
         Operation::Replace {
             old,
@@ -254,6 +265,32 @@ mod tests {
         let err = validate_operation(&op).unwrap_err();
         assert!(
             err.to_string().contains("nth must be >= 1"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn empty_path_doc_set_rejected() {
+        let op = Operation::DocSet {
+            path: String::new(),
+            selector: "a".into(),
+            value: serde_json::json!(1),
+        };
+        let err = validate_operation(&op).unwrap_err();
+        assert!(
+            err.to_string().contains("path must not be empty"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn whitespace_only_path_rejected() {
+        let op = Operation::FileDelete {
+            path: "  \t".into(),
+        };
+        let err = validate_operation(&op).unwrap_err();
+        assert!(
+            err.to_string().contains("path must not be empty"),
             "unexpected error: {err}"
         );
     }
