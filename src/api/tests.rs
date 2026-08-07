@@ -7670,7 +7670,10 @@ fn file_delete_binary_path_only_succeeds() {
     let r = file_delete(&bin, ApplyMode::Apply, None).expect("binary delete (#2031)");
     assert!(r.applied);
     assert!(!bin.exists());
-    assert!(r.backup_session.is_some());
+    assert!(
+        r.backup_session.as_ref().is_some_and(|s| !s.is_empty()),
+        "binary delete must record backup session: {r:?}"
+    );
 }
 
 /// FIFO delete under PathGuard (#2087).
@@ -8221,7 +8224,10 @@ fn apply_fragment_to_file_after_strips_markers() {
     let body = fs::read_to_string(&path).unwrap();
     assert!(body.contains("bar();"), "body: {body}");
     assert!(!body.contains("existing code"), "markers stripped: {body}");
-    assert!(r.backup_session.is_some());
+    assert!(
+        r.backup_session.as_ref().is_some_and(|s| !s.is_empty()),
+        "apply_fragment apply must record backup session: {r:?}"
+    );
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]

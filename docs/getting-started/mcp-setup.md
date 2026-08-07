@@ -82,8 +82,10 @@ requires a Glama session (unauthenticated calls redirect to sign-up).
 
 The MCP server is included by default in all pre-built binaries and in
 recommended installs (Homebrew, Scoop, npm `npx` / global, crates.io).
-Community winget/Chocolatey builds may lag; use Scoop or a GitHub Release
-binary when you need a current MCP server. Verify it works:
+winget usually tracks the latest GitHub Release after Microsoft publishes
+the version PR; Chocolatey often lags while versions wait for moderation.
+Prefer Scoop or a GitHub Release binary when you need a known-current MCP
+server. Verify it works:
 
 ```bash
 patchloom mcp-server --help

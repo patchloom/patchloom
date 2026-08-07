@@ -165,8 +165,10 @@ MCP mode wins overall (228.5s vs 233.8s native) because structured tool calls sk
 ## Install
 
 Prefer channels that track each GitHub Release (Homebrew, Scoop, crates,
-npm, Releases). winget and Chocolatey community catalogs are for discovery
-only; they often lag for days or weeks.
+npm, Releases). On Windows, Scoop is recommended. winget
+(`Patchloom.Patchloom`) is published per release and is usually current
+after Microsoft's publish pipeline (`winget source update` if search is
+stale). Chocolatey often lags while community moderation runs.
 
 ```bash
 # Homebrew (macOS/Linux)
@@ -189,8 +191,8 @@ scoop install patchloom/patchloom
 Pre-built binaries for Linux, macOS, and Windows are on the
 [Releases](https://github.com/patchloom/patchloom/releases/latest) page.
 See [Installation](./docs/getting-started/installation.md) for shell
-installer scripts, source builds, shell completions, and the winget /
-Chocolatey discovery listings.
+installer scripts, source builds, shell completions, and winget /
+Chocolatey notes.
 
 - MCP Registry name: `mcp-name: io.github.patchloom/patchloom`
 
@@ -509,7 +511,7 @@ flowchart LR
 
 | Component | Status |
 |---|---|
-| CLI | Install from [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`), or [GitHub Releases](https://github.com/patchloom/patchloom/releases/latest). Also listed on [winget](https://github.com/microsoft/winget-pkgs/tree/master/manifests/p/Patchloom/Patchloom) and [Chocolatey](https://community.chocolatey.org/packages/patchloom) for search discovery only (community indexes often lag the latest release). |
+| CLI | Install from [crates.io](https://crates.io/crates/patchloom), [Homebrew](https://github.com/patchloom/homebrew-tap), [Scoop](https://github.com/patchloom/scoop-bucket), [npm](https://www.npmjs.com/package/patchloom) (`npx patchloom`), or [GitHub Releases](https://github.com/patchloom/patchloom/releases/latest). Also on [winget](https://github.com/microsoft/winget-pkgs/tree/master/manifests/p/Patchloom/Patchloom) (`Patchloom.Patchloom`; usually current after Microsoft publish) and [Chocolatey](https://community.chocolatey.org/packages/patchloom) (community moderation often lags GitHub). |
 | MCP server | Official [MCP Registry](https://registry.modelcontextprotocol.io/) name `io.github.patchloom/patchloom` (stdio; crates.io / npm packages; see `server.json`). Local MCPB for [Smithery](https://smithery.ai/) / desktop hosts: `make pack-mcpb` (`mcpb/`). [Glama](https://glama.ai/mcp/servers) directory prep: root `glama.json` + manual **Add MCP Server** (see [MCP setup](./docs/getting-started/mcp-setup.md#glama-directory)) |
 | Editor extension | Published on [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=patchloom.patchloom) and [Open VSX](https://open-vsx.org/extension/patchloom/patchloom) |
 

@@ -2,9 +2,10 @@
 
 **Prefer channels we control.** They track each GitHub Release within minutes:
 Homebrew, Scoop, crates.io, npm, and GitHub Release binaries/installers.
-Community catalogs (winget, Chocolatey) are listed so Windows search can
-discover the project; they often ship **older** builds for days or weeks.
-Do not use them when you need the current release.
+On Windows, **Scoop** is still the recommended path. Community catalogs
+(winget, Chocolatey) remain useful for discovery and are fine when they
+match the version you need; see the winget/Chocolatey section for how
+each lags after a new GitHub Release.
 
 ## Recommended: Homebrew (macOS and Linux)
 
@@ -104,28 +105,31 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/patchloom/patchloo
 
 Pre-built binaries include all commands, including the MCP server.
 
-## Discoverability only: winget and Chocolatey (Windows)
+## winget and Chocolatey (Windows)
 
-These community catalogs help people who only know `winget search` or
-`choco search` find that patchloom exists. They are **not** recommended for
-day-to-day installs or upgrades. Moderated community feeds lag GitHub
-Releases (often by days or weeks). After you discover the project this way,
-switch to **Scoop** or a **GitHub Release** installer for current builds.
+Prefer **Scoop** or a GitHub Release installer when you want the channel we
+operate. Use winget or Chocolatey when that is what your environment already
+allows. Both are published from Release CI; currency differs after each tag.
 
 ```powershell
-# Discovery / advertisement paths only (may install an older version)
+# winget (package id is Patchloom.Patchloom)
+winget source update
 winget install Patchloom.Patchloom
+# or upgrade an existing install
+winget upgrade Patchloom.Patchloom
+
+# Chocolatey (community feed; may trail GitHub latest)
 choco install patchloom
 ```
 
-| Catalog | Id / package | Why it lags |
-|---------|--------------|-------------|
-| winget | `Patchloom.Patchloom` | PRs to `microsoft/winget-pkgs` plus Microsoft validation and human queues |
-| Chocolatey | `patchloom` on the community feed | Every version is moderated before it becomes the installable latest |
+| Catalog | Id / package | Currency after a GitHub Release |
+|---------|--------------|----------------------------------|
+| winget | `Patchloom.Patchloom` | Release CI opens a `microsoft/winget-pkgs` PR. After Microsoft merge and publish, refresh with `winget source update`. Can lag by days while the PR waits; once published it is usually current. |
+| Chocolatey | `patchloom` | Each nupkg is pushed automatically, then community moderation must approve it before it is installable as latest. Often trails GitHub longer than winget. |
 
-We still publish version PRs / nupkgs so the listings stay alive. If either
-channel only offers an old build, that is expected. Use Scoop or GitHub
-Releases for the version you just saw announced.
+If `winget show` / `choco list` only offers an older build, that is expected
+until the community queue clears. Use Scoop or GitHub Releases for the
+version you just saw announced.
 
 ## From source
 
