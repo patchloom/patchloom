@@ -909,7 +909,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     match &args.action {
         DocAction::Diff { file_a, file_b } => {
             for p in [file_a.as_str(), file_b.as_str()] {
-                if p.trim().is_empty() {
+                if crate::containment::is_blank_path(p) {
                     global.emit_error_json_kind(Some("invalid_input"), "path must not be empty")?;
                     return Ok(exit::FAILURE);
                 }
@@ -918,7 +918,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         _ => {
             if let Some(p) = args.action.file_path() {
-                if p.trim().is_empty() {
+                if crate::containment::is_blank_path(p) {
                     global.emit_error_json_kind(Some("invalid_input"), "path must not be empty")?;
                     return Ok(exit::FAILURE);
                 }

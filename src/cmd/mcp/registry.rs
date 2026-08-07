@@ -461,11 +461,17 @@ pub(super) fn handle_simple_op(
         match v {
             FieldValidation::Path(field) => {
                 if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
+                    if crate::containment::is_blank_path(val) {
+                        return Err(McpError::invalid_params("path must not be empty", None));
+                    }
                     service.check_path(val)?;
                 }
             }
             FieldValidation::PathEntry(field) => {
                 if let Some(val) = args_obj.get(*field).and_then(|v| v.as_str()) {
+                    if crate::containment::is_blank_path(val) {
+                        return Err(McpError::invalid_params("path must not be empty", None));
+                    }
                     service.check_path_entry(val)?;
                 }
             }

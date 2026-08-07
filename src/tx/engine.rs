@@ -254,7 +254,7 @@ fn execute_plan_inner(
     // (CLI stage_for_write skips validate_plan_operations).
     for op in &operations {
         for p in op.declared_paths() {
-            if p.trim().is_empty() {
+            if crate::containment::is_blank_path(&p) {
                 return Err(crate::exit::InvalidInputError {
                     msg: "path must not be empty".into(),
                 }

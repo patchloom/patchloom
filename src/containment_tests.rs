@@ -99,8 +99,26 @@ fn nonexistent_file_in_existing_directory() {
 fn empty_path() {
     let dir = tempfile::TempDir::new().unwrap();
     let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
-    // Empty string resolves to cwd itself, which is contained.
-    guard.check_path("").unwrap();
+    // Empty / whitespace would resolve as the workspace root (not a file target).
+    let err = guard.check_path("").expect_err("empty path rejected");
+    assert!(
+        matches!(err, ContainmentError::EmptyPath),
+        "expected EmptyPath, got {err:?}"
+    );
+    assert!(err.to_string().contains("path must not be empty"), "{err}");
+    let err = guard
+        .check_path("  \t")
+        .expect_err("whitespace path rejected");
+    assert!(matches!(err, ContainmentError::EmptyPath), "{err:?}");
+    let err = guard
+        .check_path_entry("")
+        .expect_err("empty entry path rejected");
+    assert!(matches!(err, ContainmentError::EmptyPath), "{err:?}");
+    let zwsp = "\u{200b}";
+    let err = guard.check_path(zwsp).expect_err("ZWSP-only path rejected");
+    assert!(matches!(err, ContainmentError::EmptyPath), "{err:?}");
+    assert!(crate::containment::is_blank_path("\u{200b}\u{feff}"));
+    assert!(!crate::containment::is_blank_path("a"));
 }
 
 #[test]
@@ -416,6 +434,13 @@ fn error_source_non_canonicalize_returns_none() {
         root: "/r".to_string(),
     };
     assert!(err2.source().is_none());
+    let err3 = ContainmentError::EmptyPath;
+    assert!(err3.source().is_none());
+    assert!(
+        err3.to_string().contains("path must not be empty"),
+        "{}",
+        err3
+    );
 }
 
 #[test]

@@ -60,6 +60,16 @@
 
 use std::path::{Component, Path, PathBuf};
 
+/// True when a path string is empty, whitespace-only, or only Unicode
+/// format characters that do not form a real path component (ZWSP/ZWNJ/ZWJ/BOM).
+///
+/// Empty paths would otherwise resolve as the workspace/cwd root (not a file).
+pub fn is_blank_path(path: &str) -> bool {
+    path.chars().all(|c| {
+        c.is_whitespace() || matches!(c, '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{feff}')
+    })
+}
+
 /// Canonicalize a path without the Windows `\\?\` UNC prefix when safe.
 ///
 /// On Windows, [`std::fs::canonicalize`] returns paths like
@@ -150,6 +160,9 @@ pub enum ContainmentError {
     /// The path is absolute and the policy rejects absolute paths.
     AbsolutePath(String),
 
+    /// Empty or whitespace-only path (would resolve as the workspace root).
+    EmptyPath,
+
     /// The path escapes the workspace directory (via `../` or symlinks).
     Escaped {
         /// The offending path.
@@ -171,6 +184,7 @@ impl std::fmt::Display for ContainmentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ContainmentError::AbsolutePath(p) => write!(f, "absolute paths are not allowed: {p}"),
+            ContainmentError::EmptyPath => write!(f, "path must not be empty"),
             ContainmentError::Escaped { path, root } => {
                 write!(
                     f,
@@ -227,6 +241,9 @@ impl PathGuard {
     /// (including symlinks whose target is outside the workspace), use
     /// [`check_path_entry`] instead (#2115).
     pub fn check_path(&self, path: &str) -> Result<PathBuf, ContainmentError> {
+        if is_blank_path(path) {
+            return Err(ContainmentError::EmptyPath);
+        }
         let p = Path::new(path);
 
         if p.is_absolute() {
@@ -253,6 +270,9 @@ impl PathGuard {
     /// Intermediate directory components still follow (a parent dir that is a
     /// symlink out of the workspace is still rejected).
     pub fn check_path_entry(&self, path: &str) -> Result<PathBuf, ContainmentError> {
+        if is_blank_path(path) {
+            return Err(ContainmentError::EmptyPath);
+        }
         let p = Path::new(path);
 
         if p.is_absolute() {

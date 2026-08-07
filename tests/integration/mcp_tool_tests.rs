@@ -281,6 +281,29 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     client.cancel().await.unwrap();
 }
 
+/// Empty path must fail closed at MCP validation (not resolve as workspace root).
+#[tokio::test]
+async fn test_mcp_doc_set_empty_path_rejected() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({"path": "", "selector": "x", "value": 1}),
+    )
+    .await;
+    assert!(is_error, "empty path doc_set must error: {val}");
+    let msg = val.to_string();
+    assert!(
+        msg.contains("path must not be empty") || msg.contains("empty"),
+        "MCP empty path message: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// Multi-surface (#2133): MCP doc_set with predicate selector peels suggested_op.
 #[tokio::test]
 async fn test_mcp_doc_set_predicate_emits_suggested_op() {
