@@ -155,7 +155,12 @@ impl AbsolutePathPolicy {
 }
 
 /// Errors from workspace path validation.
+///
+/// Marked `#[non_exhaustive]` so new variants (e.g. [`Self::EmptyPath`]) can be
+/// added without a forced major bump for every future case. Downstream `match`
+/// arms should include a wildcard.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ContainmentError {
     /// The path is absolute and the policy rejects absolute paths.
     AbsolutePath(String),
