@@ -1133,3 +1133,37 @@ fn test_batch_unreadable_input_does_not_double_wrap() {
         "must not double-wrap load_text_strict: {v}"
     );
 }
+
+/// Blank path on batch file ops is invalid_input (parity with CLI create).
+#[test]
+fn test_batch_blank_path_json_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    for line in [
+        r#"file.create "" "x""#,
+        r#"file.create "   " "x""#,
+        r#"file.delete """#,
+    ] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["batch", "--apply"])
+            .write_stdin(format!("{line}\n"))
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "line={line:?} stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(v["ok"], false, "line={line:?} {v}");
+        assert_eq!(v["error_kind"], "invalid_input", "line={line:?} {v}");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("path must not be empty") || err.contains("empty"),
+            "line={line:?} {v}"
+        );
+    }
+}

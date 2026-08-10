@@ -210,6 +210,42 @@ fn test_patch_apply_missing_file_json_not_found() {
     );
 }
 
+/// Blank patch path is invalid_input (exit 1), not parse_error (exit 4).
+/// Parity with create/doc/read empty-path peels (#2152 family).
+#[test]
+fn test_patch_apply_blank_path_json_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    for path in ["", "   ", "\t"] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .arg("--json")
+            .arg("--cwd")
+            .arg(dir.path())
+            .arg("patch")
+            .arg("apply")
+            .arg(path)
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "blank path {path:?} exit: stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(v["ok"], false, "path={path:?} {v}");
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "path={path:?} must not be parse_error: {v}"
+        );
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("path must not be empty"),
+            "path={path:?} message: {v}"
+        );
+    }
+}
+
 #[test]
 fn test_patch_apply_json_stale_error_returns_error_object() {
     let dir = TempDir::new().unwrap();
