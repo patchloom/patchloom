@@ -251,6 +251,17 @@ EOF
 Values are JSON-first: unquoted `2.0` becomes a number. Force a string with nested
 quotes as above (Unix shells).
 
+On Windows PowerShell (no bash heredoc), write ops to a file:
+
+```powershell
+@'
+doc.set config.json version "\"2.0.0\""
+md.upsert_bullet AGENTS.md "Rules" "- Always test"
+replace src/main.rs "v1" "v2"
+'@ | Set-Content ops.txt -Encoding utf8
+patchloom batch --apply ops.txt
+```
+
 Or use a JSON plan with format and validate lifecycle:
 
 ```json
@@ -296,7 +307,7 @@ Add patchloom as a dependency (omit CLI/MCP/AST with `default-features = false`)
 
 ```toml
 [dependencies]
-patchloom = { version = "0.26.0", default-features = false }
+patchloom = { version = "0.27.0", default-features = false }
 ```
 
 ```rust

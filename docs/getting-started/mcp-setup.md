@@ -93,13 +93,28 @@ patchloom mcp-server --help
 
 ## Configure your agent
 
+Set `command` to an absolute path to the binary, or to `patchloom` if the
+CLI is already on `PATH` (Homebrew, Scoop, `cargo install`, installer).
+
+Examples:
+
+| Platform | Typical `command` value |
+|----------|-------------------------|
+| Unix (Homebrew / cargo) | `patchloom` or `/opt/homebrew/bin/patchloom` |
+| Windows (Scoop) | `patchloom` or `C:\\Users\\you\\scoop\\shims\\patchloom.exe` |
+| Windows (portable zip) | `C:\\path\\to\\patchloom.exe` |
+
+JSON configs need escaped backslashes on Windows paths
+(`C:\\\\Users\\\\...\\\\patchloom.exe`). Prefer the bare name `patchloom`
+when the shim is on `PATH`.
+
 ### Grok (config.toml)
 
 Add to `~/.grok/config.toml`:
 
 ```toml
 [mcp_servers.patchloom]
-command = "/path/to/patchloom"
+command = "patchloom"
 args = ["mcp-server"]
 ```
 
@@ -111,7 +126,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 {
   "mcpServers": {
     "patchloom": {
-      "command": "/path/to/patchloom",
+      "command": "patchloom",
       "args": ["mcp-server"]
     }
   }
@@ -126,7 +141,7 @@ Create `.vscode/mcp.json` in your workspace root:
 {
   "servers": {
     "patchloom": {
-      "command": "/path/to/patchloom",
+      "command": "patchloom",
       "args": ["mcp-server"]
     }
   }
@@ -141,7 +156,7 @@ Create `.cursor/mcp.json` in your workspace root:
 {
   "servers": {
     "patchloom": {
-      "command": "/path/to/patchloom",
+      "command": "patchloom",
       "args": ["mcp-server"]
     }
   }

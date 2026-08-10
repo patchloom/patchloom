@@ -104,6 +104,24 @@ md.insert_after_heading CHANGELOG.md "## Unreleased" "- Bumped to v3.0.0"
 EOF
 ```
 
+### On Windows / PowerShell
+
+Classic PowerShell does not support bash heredocs (`<<'EOF'`). Write the
+ops to a file, or use a here-string piped into a temp file:
+
+```powershell
+@'
+doc.set package.json version "3.0.0"
+replace README.md "v1.0.0" "v3.0.0"
+md.insert_after_heading CHANGELOG.md "## Unreleased" "- Bumped to v3.0.0"
+'@ | Set-Content ops.txt -Encoding utf8
+patchloom batch --apply ops.txt
+```
+
+Cross-platform alternative: put the same ops in a JSON plan and run
+`patchloom tx bump.json --apply` (Step 5). Prefer `tx` or MCP when shell
+quoting is painful.
+
 ## Step 5: Run an atomic transaction with a saved plan
 
 Use `tx` when the change should live in a reusable plan file, or when you need

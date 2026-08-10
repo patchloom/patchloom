@@ -90,8 +90,8 @@ already have an older cellar linked; run `brew upgrade patchloom` there.
 Pre-built binaries for Linux (x64, ARM64, musl), macOS (x64, ARM64), and
 Windows (x64, ARM64) are available on the
 [Releases](https://github.com/patchloom/patchloom/releases/latest) page.
-Download the archive for your platform, extract, and place `patchloom` on
-your PATH.
+Download the archive for your platform, extract, and place `patchloom` (or
+`patchloom.exe` on Windows) on your PATH.
 
 Shell and PowerShell installer scripts are also available:
 
@@ -104,6 +104,30 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/patchloom/patchloo
 ```
 
 Pre-built binaries include all commands, including the MCP server.
+
+### Portable zip (Windows)
+
+Each release ships flat zips (no nested folder). Common asset names:
+
+- `patchloom-x86_64-pc-windows-msvc.zip` (x64)
+- `patchloom-aarch64-pc-windows-msvc.zip` (ARM64)
+
+Tag form is `patchloom-vX.Y.Z` (for example `patchloom-v0.27.0`).
+
+```powershell
+$ver = "0.27.0"   # or the version you need
+$tag = "patchloom-v$ver"
+$url = "https://github.com/patchloom/patchloom/releases/download/$tag/patchloom-x86_64-pc-windows-msvc.zip"
+$dir = "$env:TEMP\patchloom-portable"
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+$zip = Join-Path $dir "pl.zip"
+Invoke-WebRequest -Uri $url -OutFile $zip
+Expand-Archive -Path $zip -DestinationPath $dir -Force
+# Layout: patchloom.exe, LICENSE, README.md, CHANGELOG.md at $dir root
+& "$dir\patchloom.exe" --version
+& "$dir\patchloom.exe" --help
+# Optional: copy patchloom.exe to a directory already on PATH
+```
 
 ## winget and Chocolatey (Windows)
 
@@ -130,6 +154,13 @@ choco install patchloom
 If `winget show` / `choco list` only offers an older build, that is expected
 until the community queue clears. Use Scoop or GitHub Releases for the
 version you just saw announced.
+
+The files under [`chocolatey/`](../../chocolatey/) in this repository are a
+**packaging template**. Release CI rewrites the nuspec version and checksums
+before push; do not treat the in-tree `version` field as the live community
+feed version. Check
+[community.chocolatey.org/packages/patchloom](https://community.chocolatey.org/packages/patchloom)
+for what `choco install` actually resolves.
 
 ## From source
 
@@ -165,14 +196,14 @@ Rust tools. Disable default features to omit CLI (clap), MCP server, and AST:
 
 ```toml
 [dependencies]
-patchloom = { version = "0.26.0", default-features = false }
+patchloom = { version = "0.27.0", default-features = false }
 ```
 
 To add AST support without CLI/MCP (LLM agent embedders typically use
 `ast` + `files` for plan execution and AST file mutators):
 
 ```toml
-patchloom = { version = "0.26.0", default-features = false, features = ["ast", "files"] }
+patchloom = { version = "0.27.0", default-features = false, features = ["ast", "files"] }
 ```
 
 See the [crate documentation](https://docs.rs/patchloom) for the full API
