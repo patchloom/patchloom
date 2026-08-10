@@ -84,6 +84,9 @@ enum DiffReadError {
     Binary(String),
     /// Diff bytes are not valid UTF-8 (#1896 / #1963).
     InvalidEncoding(String),
+    /// Blank / invalid patch *path* (not malformed diff text). Agents branch on
+    /// `invalid_input` like other commands (#2152 family).
+    InvalidInput(String),
 }
 
 fn classify_diff_bytes(bytes: Vec<u8>, display: &str) -> Result<String, DiffReadError> {
@@ -117,6 +120,12 @@ fn read_diff_input(
     if let Some(path) = file {
         if path == "-" {
             read_diff_stdin()
+        } else if crate::containment::is_blank_path(path) {
+            // Fail closed before resolve/load so blank paths do not become
+            // `parse_error` via IoError mapping (parity with create/doc/read).
+            Err(DiffReadError::InvalidInput(
+                "path must not be empty".to_string(),
+            ))
         } else {
             // Relative patch paths resolve under --cwd (parity with `tx` / `batch`).
             let full = global
@@ -130,9 +139,14 @@ fn read_diff_input(
                 } else if crate::exit::is_invalid_encoding(&e) {
                     DiffReadError::InvalidEncoding(e.to_string())
                 } else if crate::exit::is_invalid_input(&e) {
-                    // Directory / non-file / unreadable treated as IO for patch
-                    // input (agents still get a fail-closed read error).
-                    DiffReadError::IoError(display.clone(), std::io::Error::other(e.to_string()))
+                    let msg = e.to_string();
+                    if msg.contains("path must not be empty") {
+                        DiffReadError::InvalidInput(msg)
+                    } else {
+                        // Directory / non-file / unreadable treated as IO for patch
+                        // input (agents still get a fail-closed read error).
+                        DiffReadError::IoError(display.clone(), std::io::Error::other(msg))
+                    }
                 } else if crate::exit::is_io_not_found(&e) {
                     DiffReadError::IoError(
                         display.clone(),
@@ -539,6 +553,16 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         Err(DiffReadError::InvalidEncoding(msg)) => {
             emit_error(global, &format!("patch: {msg}"), "invalid_encoding")?;
+            return Ok(exit::FAILURE);
+        }
+        Err(DiffReadError::InvalidInput(msg)) => {
+            // Blank path (and similar): stable agent peel, not parse_error.
+            let detail = if msg.contains("path must not be empty") {
+                "path must not be empty".to_string()
+            } else {
+                format!("patch: {msg}")
+            };
+            emit_error(global, &detail, "invalid_input")?;
             return Ok(exit::FAILURE);
         }
     };
