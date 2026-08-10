@@ -67,7 +67,7 @@ See also the branch hygiene rules in `~/.grok/skills/patchloom-contrib/SKILL.md`
 
 - The open release-please PR (#724 etc.) title must be correct. Use `gh pr edit --title` when it shows the wrong version.
 - The PR *body* can be very long and may temporarily show the wrong next version header (release-please behavior). This is tracked as tech-debt #740.
-- When updating library embedding examples (in lib.rs, README, docs/), keep the version string in sync with the current Cargo.toml / .release-please-manifest.json (avoids the 0.4 vs 0.5 drift reported in #816 follow-up).
+- When updating library embedding examples (in lib.rs, README, docs/), keep the version string in sync with the current Cargo.toml / .release-please-manifest.json (avoids the 0.4 vs 0.5 drift reported in #816 follow-up). Embed and portable-zip version lines carry `x-release-please-version` markers; `release-please-config.json` lists those files under `extra-files` so release PRs bump them with Cargo.toml. Integration smoke `test_smoke_library_embed_version_matches_cargo` fails if they drift. If you add a new hard-coded version pin, mark the line and add the file to `extra-files`.
 - **Library follow-up PRs and high-level API changes must use explicit Closes links in the PR body** (see #819 and the new rule in Git hygiene above). The #811-#815 library embedder work + #817/#818 follow-ups exposed the gap where minimal PR bodies left issues open after squash-merge. Always include them for traceability.
 - Primary curation is done via `RELEASE_NOTES.md` (applied to the final GitHub Release by the host job, not the PR body).
 - See `patchloom-contrib` skill ("Curated release notes" and "Major version bumps" sections) for the full process.

@@ -4,7 +4,13 @@
     ".": {
       "release-type": "rust",
       "changelog-path": "CHANGELOG.md",
-      "bump-minor-pre-major": true
+      "bump-minor-pre-major": true,
+      "extra-files": [
+        { "type": "generic", "path": "src/lib.rs" },
+        { "type": "generic", "path": "README.md" },
+        { "type": "generic", "path": "docs/introduction.md" },
+        { "type": "generic", "path": "docs/getting-started/installation.md" }
+      ]
     }
   }
 }
