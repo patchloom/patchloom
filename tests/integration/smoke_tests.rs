@@ -776,6 +776,96 @@ fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
 }
 
 #[test]
+fn test_smoke_library_embed_version_matches_cargo() {
+    let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
+    let version_line = cargo
+        .lines()
+        .find(|line| line.starts_with("version = "))
+        .expect("Cargo.toml should declare package version");
+    let version = version_line
+        .split('"')
+        .nth(1)
+        .expect("package version should be quoted");
+    let needle = format!("patchloom = {{ version = \"{version}\"");
+
+    let files = [
+        repo_root().join("src/lib.rs"),
+        readme_path(),
+        installation_path(),
+        repo_root().join("docs/introduction.md"),
+    ];
+    for path in files {
+        let content = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        assert!(
+            content.contains(&needle),
+            "{} must embed Cargo.toml version {version} (expected snippet: {needle})",
+            path.display()
+        );
+    }
+
+    // Portable zip PowerShell example should use the same release version.
+    let installation = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        installation.contains(&format!("$ver = \"{version}\"")),
+        "installation portable zip example should set $ver to Cargo.toml version {version}"
+    );
+}
+
+#[test]
+fn test_smoke_windows_install_and_batch_docs() {
+    let installation = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        installation.contains("Portable zip (Windows)"),
+        "installation guide should document portable Windows zip layout"
+    );
+    assert!(
+        installation.contains("patchloom-x86_64-pc-windows-msvc.zip"),
+        "installation guide should name the Windows x64 zip asset"
+    );
+    assert!(
+        installation.contains("patchloom.exe"),
+        "installation guide should mention patchloom.exe for Windows"
+    );
+    assert!(
+        installation.contains("packaging template"),
+        "installation guide should note chocolatey/ is a packaging template"
+    );
+
+    let quickstart = fs::read_to_string(quickstart_path()).unwrap();
+    assert!(
+        quickstart.contains("On Windows / PowerShell"),
+        "quickstart should have a Windows/PowerShell batch section"
+    );
+    assert!(
+        quickstart.contains("Set-Content ops.txt"),
+        "quickstart should show PowerShell Set-Content batch ops"
+    );
+
+    let readme = fs::read_to_string(readme_path()).unwrap();
+    assert!(
+        readme.contains("Set-Content ops.txt"),
+        "README should show PowerShell batch without bash heredoc"
+    );
+
+    let mcp = fs::read_to_string(
+        repo_root()
+            .join("docs")
+            .join("getting-started")
+            .join("mcp-setup.md"),
+    )
+    .unwrap();
+    assert!(
+        mcp.contains("Windows (Scoop)"),
+        "mcp-setup should document Windows command path examples"
+    );
+    assert!(
+        mcp.contains("\"command\": \"patchloom\""),
+        "mcp-setup examples should prefer PATH binary name patchloom"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();
@@ -811,7 +901,7 @@ fn test_smoke_readme_command_examples() {
     assert!(launch.contains("appends the rules to an existing agent instructions file"));
     assert!(launch.contains(".vscode/mcp.json"));
     assert!(launch.contains(".cursor/mcp.json"));
-    assert!(launch.contains("2,800+ tests"));
+    assert!(launch.contains("4100+ tests"));
     assert!(
         launch.contains("24 commands"),
         "launch announcement CLI command count drifted"
