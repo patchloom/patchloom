@@ -1054,3 +1054,64 @@ fn test_md_sole_binary_is_binary_error_kind_not_no_matches() {
         "{json}"
     );
 }
+
+/// #2152 family: blank/whitespace paths on file lifecycle CLI commands must
+/// fail closed as invalid_input (parity with read/doc/md empty-path tests).
+#[test]
+fn test_file_ops_blank_path_json_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let cases: &[(&[&str], &str)] = &[
+        (&["create", "", "--content", "x", "--apply"], "create empty"),
+        (
+            &["create", "   ", "--content", "x", "--apply"],
+            "create whitespace",
+        ),
+        (&["delete", "", "--apply"], "delete empty"),
+        (&["delete", "\t", "--apply"], "delete tab"),
+        (&["append", "", "--content", "x", "--apply"], "append empty"),
+        (
+            &["prepend", "", "--content", "x", "--apply"],
+            "prepend empty",
+        ),
+        (
+            &["rename", "", "dest.txt", "--apply"],
+            "rename empty source",
+        ),
+        (&["rename", "src.txt", "", "--apply"], "rename empty dest"),
+    ];
+
+    // rename dest empty needs a source file when validation order requires it
+    fs::write(dir.path().join("src.txt"), "hi\n").unwrap();
+
+    for (args, label) in cases {
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        cmd.arg("--json").arg("--cwd").arg(dir.path());
+        for a in *args {
+            cmd.arg(a);
+        }
+        let output = cmd.output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{label}: expected exit 1, stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+                panic!(
+                    "{label}: invalid JSON: {e}; stdout={}",
+                    String::from_utf8_lossy(&output.stdout)
+                )
+            });
+        assert_eq!(parsed["ok"], false, "{label}: {parsed}");
+        assert_eq!(
+            parsed["error_kind"], "invalid_input",
+            "{label}: expected invalid_input: {parsed}"
+        );
+        let err = parsed["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("path must not be empty") || err.contains("empty"),
+            "{label}: error should mention empty path: {parsed}"
+        );
+    }
+}
