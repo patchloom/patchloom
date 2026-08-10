@@ -1159,10 +1159,7 @@ fn test_batch_blank_path_json_invalid_input() {
         );
         let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(v["ok"], false, "line={line:?} {v}");
-        assert_eq!(
-            v["error_kind"], "invalid_input",
-            "line={line:?} {v}"
-        );
+        assert_eq!(v["error_kind"], "invalid_input", "line={line:?} {v}");
         let err = v["error"].as_str().unwrap_or("");
         assert!(
             err.contains("path must not be empty") || err.contains("empty"),

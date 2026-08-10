@@ -21,6 +21,10 @@ Do not expose only `doc_set` if agents need list updates by name. See
 
 1. **PathGuard** from the workspace root (and `allow_temp_directory` if the
    agent writes under `/tmp`). Pass `Some(&guard)` into Apply writers.
+   Blank or whitespace-only paths fail closed as `ContainmentError::EmptyPath`
+   (`path must not be empty`); they do not resolve as the workspace root.
+   Match `ContainmentError` with a `_` arm: the enum is `#[non_exhaustive]`
+   (0.28.0).
 2. **Sole-path text load:** `api::load_text` / `load_text_strict` (or
    `is_binary_file` preflight). Peel `Binary` / `InvalidEncoding` /
    `is_load_text_strict_fail` instead of scraping English.
