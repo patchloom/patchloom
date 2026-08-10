@@ -266,8 +266,8 @@ md.upsert_bullet CHANGELOG.md "## Changes" "- Bumped to 2.0.0"
 EOF
 ```
 
-One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays (`file.create f.json {"x":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, `\n` `\t` `\r` `\\` `\"` expand (multi-line content on one batch line).
-Batch `replace` accepts optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.
+One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays (`file.create f.json {"x":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, `\n` `\t` `\r` `\\` `\"` expand (multi-line content on one batch line). Prefer positional content (`file.create f.txt "hi"`); a leading `content=` / `body=` key is also accepted so plan-shaped lines do not write literal `content=…` bytes.
+Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). Optional `old=`/`new=` (or `from=`/`to=`) prefixes on the pattern tokens are peeled. Optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.
 
 On Windows (where heredocs are not available), write operations to a file and pass it:
 

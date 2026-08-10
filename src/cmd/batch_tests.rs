@@ -276,6 +276,38 @@ mod basic {
         );
     }
 
+    /// Plan-shaped `old=`/`new=` (no leading dashes) must peel, not search for
+    /// literal `old=x` and soft-miss (fixrealloop 0.28).
+    #[test]
+    fn parse_line_replace_peels_old_new_kv_prefixes() {
+        let op = parse_line(r#"replace hello.txt old="hi" new="hello""#, 1).unwrap();
+        assert!(
+            matches!(
+                op,
+                Operation::Replace {
+                    path: Some(ref p),
+                    ref old,
+                    new_text: Some(ref t),
+                    ..
+                } if p == "hello.txt" && old == "hi" && t == "hello"
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line(r#"replace hello.txt from=hi to=hello"#, 1).unwrap();
+        assert!(
+            matches!(
+                op,
+                Operation::Replace {
+                    path: Some(ref p),
+                    ref old,
+                    new_text: Some(ref t),
+                    ..
+                } if p == "hello.txt" && old == "hi" && t == "hello"
+            ),
+            "got {op:?}"
+        );
+    }
+
     #[test]
     fn parse_line_replace_dash_prefixed_values_are_positionals() {
         // Bullet renames and flag-like strings must not be misread as flags.
@@ -323,6 +355,41 @@ mod basic {
             op,
             Operation::FileCreate { path, content, .. }
             if path == "hello.txt" && content == "Hello, World!"
+        ));
+    }
+
+    /// Plan-shaped `content="…"` must not write literal `content=…` bytes
+    /// (fixrealloop 0.28: agents paste plan keys into batch lines).
+    #[test]
+    fn parse_line_file_create_peels_content_kv_prefix() {
+        let op = parse_line(r#"file.create hello.txt content="hi""#, 1).unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::FileCreate { path, content, .. }
+                if path == "hello.txt" && content == "hi"
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line(r#"file.create hello.txt content=hi"#, 1).unwrap();
+        assert!(matches!(
+            &op,
+            Operation::FileCreate { path, content, .. }
+            if path == "hello.txt" && content == "hi"
+        ));
+        // Unquoted multi-word after content=
+        let op = parse_line("file.create note.txt content=hello world", 1).unwrap();
+        assert!(matches!(
+            &op,
+            Operation::FileCreate { path, content, .. }
+            if path == "note.txt" && content == "hello world"
+        ));
+        // body= alias
+        let op = parse_line(r#"file.append log.txt body="line\n""#, 1).unwrap();
+        assert!(matches!(
+            &op,
+            Operation::FileAppend { path, content }
+            if path == "log.txt" && content == "line\n"
         ));
     }
 

@@ -688,6 +688,16 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
         })
     })?;
 
+    // Plan/MCP-shaped `old=`/`new=` (and from=/to= aliases) glued by tokenize
+    // when agents write `replace f.txt old="x" new="y"`. Without peeling, old
+    // becomes the literal `old=x` and soft no_match (fixrealloop 0.28).
+    let old = peel_named_kv_prefix(&old, &["old", "from"])
+        .map(str::to_string)
+        .unwrap_or(old);
+    let new_text = peel_named_kv_prefix(&new_text, &["new", "to"])
+        .map(str::to_string)
+        .unwrap_or(new_text);
+
     // Agents often paste CLI order (`replace OLD --new NEW path` → batch line
     // `replace OLD NEW path`). Batch is PATH OLD NEW. When the first token is
     // not a file and the third token is, fail early with the correct order.
@@ -761,6 +771,47 @@ fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
     Ok(crate::ops::doc::parse_value(s))
 }
 
+/// Peel plan/CLI-shaped `key=value` prefixes agents paste into batch lines.
+///
+/// Tokenizer turns `content="hi"` into one token `content=hi` (unquoted key, quoted
+/// value glued). Without peeling, `file.create f.txt content="hi"` writes the
+/// literal bytes `content=hi` (fixrealloop 0.28 honesty dogfood). Same class as
+/// replace `old=` / `new=` below. Empty value after `=` is allowed (`content=`).
+fn peel_named_kv_prefix<'a>(tok: &'a str, keys: &[&str]) -> Option<&'a str> {
+    for key in keys {
+        if let Some(rest) = tok.strip_prefix(key)
+            && let Some(rest) = rest.strip_prefix('=')
+        {
+            return Some(rest);
+        }
+    }
+    None
+}
+
+/// Join free-form content tokens, peeling a leading `content=` (or `body=`) key.
+fn join_content_tokens(parts: &[&str]) -> String {
+    if parts.is_empty() {
+        return String::new();
+    }
+    if parts.len() == 1 {
+        if let Some(rest) = peel_named_kv_prefix(parts[0], &["content", "body"]) {
+            return expand_content_escapes(rest);
+        }
+        return expand_content_escapes(parts[0]);
+    }
+    // Multi-token: peel only when the first token is a bare key= form so
+    // `content=hello world` (unquoted multi-word) still works.
+    if let Some(rest) = peel_named_kv_prefix(parts[0], &["content", "body"]) {
+        let mut joined = rest.to_string();
+        for p in &parts[1..] {
+            joined.push(' ');
+            joined.push_str(p);
+        }
+        return expand_content_escapes(&joined);
+    }
+    expand_content_escapes(&parts.join(" "))
+}
+
 /// Path + free-form content for file.create/append/prepend.
 ///
 /// Requires at least a path. Remaining tokens are joined with a single space so
@@ -768,6 +819,8 @@ fn parse_json_value(s: &str) -> anyhow::Result<serde_json::Value> {
 /// JSON-aware tokens (see [`tokenize`]) so unquoted `{"x":1}` is not mangled.
 /// Content expands `\n` `\t` `\r` `\\` `\"` so agents can write multi-line files
 /// on one batch line (fixrealloop: TOML/Rust scaffolds).
+/// Optional `content=` / `body=` prefix on the content is peeled (plan-shaped
+/// key=value agents paste into batch).
 fn path_and_joined_content(
     op: &str,
     args: &[String],
@@ -779,12 +832,8 @@ fn path_and_joined_content(
         }));
     }
     let path = args[0].clone();
-    let raw = if args.len() == 1 {
-        String::new()
-    } else {
-        args[1..].join(" ")
-    };
-    Ok((path, expand_content_escapes(&raw)))
+    let parts: Vec<&str> = args[1..].iter().map(String::as_str).collect();
+    Ok((path, join_content_tokens(&parts)))
 }
 
 /// Like [`path_and_joined_content`], but peels optional `--force` so CLI-shaped
@@ -816,8 +865,7 @@ fn path_and_joined_content_create(
         }
         content_parts.push(tok.as_str());
     }
-    let raw = content_parts.join(" ");
-    Ok((path, expand_content_escapes(&raw), force))
+    Ok((path, join_content_tokens(&content_parts), force))
 }
 
 /// Expand common escapes in batch file content (`\n` `\t` `\r` `\\` `\"`).
