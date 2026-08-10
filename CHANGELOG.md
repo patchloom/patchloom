@@ -11,6 +11,20 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.28.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.27.0...patchloom-v0.28.0) (2026-08-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* mark ContainmentError as non_exhaustive ([#2153](https://github.com/patchloom/patchloom/issues/2153))
+
+### Bug Fixes
+
+* empty path reject; honest winget docs ([#2150](https://github.com/patchloom/patchloom/issues/2150)) ([0f8c7e5](https://github.com/patchloom/patchloom/commit/0f8c7e58e73ddbcb9030a6fb3a89dad5b8403690))
+* mark ContainmentError as non_exhaustive ([#2153](https://github.com/patchloom/patchloom/issues/2153)) ([220be47](https://github.com/patchloom/patchloom/commit/220be477137c259262e7cd4b02d6948994787d6e))
+* MPI blank paths, release-please embed pins, dep bumps ([#2155](https://github.com/patchloom/patchloom/issues/2155)) ([9ecf62a](https://github.com/patchloom/patchloom/commit/9ecf62a20619a4e8784070fcd38cfe0f653a1781))
+* PathGuard and MCP reject blank paths ([#2152](https://github.com/patchloom/patchloom/issues/2152)) ([624e612](https://github.com/patchloom/patchloom/commit/624e61272d81978a6f1dacfe48aebba2ef8ce405))
+
 ## [0.27.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.26.0...patchloom-v0.27.0) (2026-08-04)
 
 
