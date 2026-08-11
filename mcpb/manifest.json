@@ -4,8 +4,8 @@
   "name": "patchloom",
   "display_name": "Patchloom",
   "version": "0.15.2",
-  "description": "Structured file editing for AI agents: JSON/YAML/TOML, AST renames, markdown, batch, and replace via MCP.",
-  "long_description": "Patchloom is a single-binary CLI and MCP server for agent-grade repo edits. It edits JSON, YAML, and TOML by selector (preserving comments), understands code structure across many languages, batches multi-file edits, and exposes the same operations as structured MCP tools over stdio.\n\nInstall: the bundle prefers a PATH-installed `patchloom` binary, otherwise runs `npx -y patchloom@<version> mcp-server` (Node.js 18+). Pre-built binaries are also on crates.io, Homebrew, Scoop, Chocolatey, and GitHub Releases.",
+  "description": "Agent-safe structured edits: JSON/YAML/TOML/md/AST, dry-run, batch/tx. Not a filesystem MCP.",
+  "long_description": "Patchloom is a single-binary CLI and MCP server for agent-grade repo edits. It is not a generic filesystem MCP: it edits JSON, YAML, and TOML by selector (preserving comments), supports markdown section ops and multi-language AST renames, dry-run previews, multi-file batch/tx with undo, and exposes the same operations as structured MCP tools over stdio.\n\nInstall: the bundle prefers a PATH-installed `patchloom` binary, otherwise runs `npx -y patchloom@<version> mcp-server` (Node.js 18+). Pre-built binaries are also on crates.io, Homebrew, Scoop, Chocolatey, and GitHub Releases.",
   "author": {
     "name": "Sebastien Tardif",
     "url": "https://github.com/patchloom"
