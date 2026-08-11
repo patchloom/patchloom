@@ -36,10 +36,13 @@ jobs:
         with:
           persist-credentials: false
       # Analysis writes results.sarif before publishing to api.scorecard.dev.
-      # That publish step has been flaky (context deadline exceeded) and failed
-      # main even when checks themselves succeeded (e.g. run 28784596891 after
-      # #1431). Tolerate publish failures when SARIF was produced; fail hard
-      # only when analysis produced no results.
+      # Publish to api.scorecard.dev has been flaky (context deadline exceeded;
+      # e.g. run 28784596891 after #1431). Tolerate publish failures when SARIF
+      # exists. Fail hard only when analysis produced no results.
+      #
+      # Transient TLS failures under harden-runner MITM have also left empty
+      # results.sarif (run 31523528710: x509 not valid for api.github.com while
+      # scorecard-action runs as a Docker container). Retry once before failing.
       - name: Run Scorecard
         id: scorecard
         continue-on-error: true
@@ -48,10 +51,23 @@ jobs:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Retry Scorecard after empty results
+        id: scorecard_retry
+        if: hashFiles('results.sarif') == ''
+        continue-on-error: true
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Fail if Scorecard produced no results
         if: hashFiles('results.sarif') == ''
         run: |
-          echo "Scorecard analysis did not write results.sarif (step outcome=${{ steps.scorecard.outcome }})"
+          echo "Scorecard analysis did not write results.sarif after retry"
+          echo "first outcome=${{ steps.scorecard.outcome }} retry outcome=${{ steps.scorecard_retry.outcome }}"
+          echo "Common causes: transient GitHub API errors, or TLS MITM under harden-runner for the Docker-based scorecard-action"
           exit 1
       - name: Upload SARIF
         if: hashFiles('results.sarif') != ''
