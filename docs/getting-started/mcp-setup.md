@@ -51,32 +51,33 @@ publishes when the `SMITHERY_API_KEY` secret is set (soft-skip otherwise).
 ## Glama directory
 
 [Glama](https://glama.ai/mcp/servers) indexes open-source MCP servers for
-discovery, quality scores, and optional hosted connectors. Patchloom is not
-auto-listed from `server.json` alone; submission is a one-time web form after
-sign-in.
+discovery, quality scores, and optional hosted connectors.
 
-Repo metadata for Glama lives in [`glama.json`](../../glama.json) at the
-repository root (official schema: `maintainers` GitHub usernames). After the
-listing is live, Glama re-reads that file for ownership/indexing hints.
+**Listing (live):** [glama.ai/mcp/servers/patchloom/patchloom](https://glama.ai/mcp/servers/patchloom/patchloom)
+(search API id `pk95432szu`). Repo ownership metadata is in root
+[`glama.json`](../../glama.json) (`maintainers` GitHub usernames).
 
-### Submit (manual, once)
+**Canonical short description** (match `server.json` / MCP Registry, max 100
+chars):
+
+```text
+Agent-safe structured edits: JSON/YAML/TOML/md/AST, dry-run, batch/tx. Not a filesystem MCP.
+```
+
+If the Glama profile still shows the older “AI agent file editing via MCP…”
+blurb, open the listing as a maintainer and set the description to the text
+above (GitHub sync does not always replace an existing Glama description).
+
+### First-time submit (already done for Patchloom)
 
 1. Sign in at [glama.ai](https://glama.ai/) (GitHub OAuth is supported).
 2. Open [MCP Servers](https://glama.ai/mcp/servers) and click **Add MCP Server**.
-3. Submit:
-   - **GitHub repository URL:** `https://github.com/patchloom/patchloom`
-   - **Name / display name:** `patchloom`
-   - **Description:** match `server.json` (registry max 100 chars; structured agent edits, not a generic filesystem MCP)
-4. Wait for automated checks (license, security scan, health test). Most
-   submissions complete within minutes.
-5. Confirm search finds the listing, then optional check via the
-   [MCP Inspector](https://glama.ai/mcp/inspector).
+3. Submit GitHub URL `https://github.com/patchloom/patchloom` with the
+   description above.
+4. Confirm search: `GET https://glama.ai/api/mcp/v1/servers?query=patchloom`
+   returns a non-empty `servers` list.
 
-Expected listing URL shape after approval:
-`https://glama.ai/mcp/servers/patchloom/patchloom` (namespace/slug may vary).
-
-There is no public unauthenticated submit API; `POST /api/mcp/servers/submit`
-requires a Glama session (unauthenticated calls redirect to sign-up).
+There is no public unauthenticated submit API.
 
 ## Verify MCP support
 
