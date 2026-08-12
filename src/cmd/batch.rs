@@ -103,10 +103,10 @@ macro_rules! op {
 macro_rules! doc_psv {
     ($op_name:expr, $args:expr, $line_num:expr, $Variant:ident) => {{
         require_args($op_name, $args, 3, $line_num)?;
-        let value = parse_json_value(&$args[2])?;
+        let value = parse_json_value(&peel_owned(&$args[2], &["value"]))?;
         op!($Variant {
-            path: $args[0].clone(),
-            selector: $args[1].clone(),
+            path: peel_owned(&$args[0], &["path"]),
+            selector: peel_owned(&$args[1], &["selector", "key"]),
             value
         })
     }};
@@ -115,10 +115,16 @@ macro_rules! doc_psv {
 macro_rules! md_phc {
     ($op_name:expr, $args:expr, $line_num:expr, $Variant:ident, $field3:ident) => {{
         require_args($op_name, $args, 3, $line_num)?;
+        let third_keys: &[&str] = match stringify!($field3) {
+            "content" => &["content", "body"],
+            "bullet" => &["bullet"],
+            "row" => &["row"],
+            _ => &[],
+        };
         op!($Variant {
-            path: $args[0].clone(),
-            heading: $args[1].clone(),
-            $field3: $args[2].clone()
+            path: peel_owned(&$args[0], &["path"]),
+            heading: peel_owned(&$args[1], &["heading"]),
+            $field3: peel_owned(&$args[2], third_keys)
         })
     }};
 }
@@ -153,26 +159,26 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "doc.delete" => {
             require_args(op, args, 2, line_num)?;
             op!(DocDelete {
-                path: args[0].clone(),
-                selector: args[1].clone()
+                path: peel_owned(&args[0], &["path"]),
+                selector: peel_owned(&args[1], &["selector", "key"])
             })
         }
         "doc.merge" => {
             // PATH VALUE, or PATH SELECTOR VALUE (selector e.g. multi-doc `0`).
             match args.len() {
                 2 => {
-                    let value = parse_json_value(&args[1])?;
+                    let value = parse_json_value(&peel_owned(&args[1], &["value"]))?;
                     op!(DocMerge {
-                        path: args[0].clone(),
+                        path: peel_owned(&args[0], &["path"]),
                         selector: None,
                         value
                     })
                 }
                 3 => {
-                    let value = parse_json_value(&args[2])?;
+                    let value = parse_json_value(&peel_owned(&args[2], &["value"]))?;
                     op!(DocMerge {
-                        path: args[0].clone(),
-                        selector: Some(args[1].clone()),
+                        path: peel_owned(&args[0], &["path"]),
+                        selector: Some(peel_owned(&args[1], &["selector", "key"])),
                         value
                     })
                 }
@@ -186,9 +192,9 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "doc.move" => {
             require_args(op, args, 3, line_num)?;
             op!(DocMove {
-                path: args[0].clone(),
-                from: args[1].clone(),
-                to: args[2].clone()
+                path: peel_owned(&args[0], &["path"]),
+                from: peel_owned(&args[1], &["from", "selector", "key"]),
+                to: peel_owned(&args[2], &["to"])
             })
         }
         "doc.delete_where" => {
@@ -225,7 +231,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "file.delete" => {
             require_args(op, args, 1, line_num)?;
             op!(FileDelete {
-                path: args[0].clone()
+                path: peel_owned(&args[0], &["path"])
             })
         }
         "file.rename" => {
@@ -255,8 +261,8 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 }));
             }
             op!(FileRename {
-                from: path_args[0].clone(),
-                to: path_args[1].clone(),
+                from: peel_owned(&path_args[0], &["from"]),
+                to: peel_owned(&path_args[1], &["to"]),
                 force
             })
         }
@@ -329,9 +335,9 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "ast.rename" => {
             require_args(op, args, 3, line_num)?;
             op!(AstRename {
-                path: args[0].clone(),
-                old: args[1].clone(),
-                new: args[2].clone(),
+                path: peel_owned(&args[0], &["path"]),
+                old: peel_owned(&args[1], &["old", "from"]),
+                new: peel_owned(&args[2], &["new", "to"]),
                 lang: None
             })
         }
@@ -339,10 +345,10 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "ast.replace" => {
             require_args(op, args, 4, line_num)?;
             op!(AstReplace {
-                path: args[0].clone(),
-                symbol: args[1].clone(),
-                old: args[2].clone(),
-                new_text: args[3].clone(),
+                path: peel_owned(&args[0], &["path"]),
+                symbol: peel_owned(&args[1], &["symbol"]),
+                old: peel_owned(&args[2], &["old", "from"]),
+                new_text: peel_owned(&args[3], &["new", "to", "new_text"]),
                 regex: false,
                 lang: None
             })
@@ -691,12 +697,9 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
     // Plan/MCP-shaped `old=`/`new=` (and from=/to= aliases) glued by tokenize
     // when agents write `replace f.txt old="x" new="y"`. Without peeling, old
     // becomes the literal `old=x` and soft no_match (fixrealloop 0.28).
-    let old = peel_named_kv_prefix(&old, &["old", "from"])
-        .map(str::to_string)
-        .unwrap_or(old);
-    let new_text = peel_named_kv_prefix(&new_text, &["new", "to"])
-        .map(str::to_string)
-        .unwrap_or(new_text);
+    let path = peel_owned(&path, &["path"]);
+    let old = peel_owned(&old, &["old", "from"]);
+    let new_text = peel_owned(&new_text, &["new", "to"]);
 
     // Agents often paste CLI order (`replace OLD --new NEW path` → batch line
     // `replace OLD NEW path`). Batch is PATH OLD NEW. When the first token is
@@ -788,6 +791,13 @@ fn peel_named_kv_prefix<'a>(tok: &'a str, keys: &[&str]) -> Option<&'a str> {
     None
 }
 
+/// Peel a plan-shaped `key=value` prefix, or return the token unchanged.
+fn peel_owned(tok: &str, keys: &[&str]) -> String {
+    peel_named_kv_prefix(tok, keys)
+        .map(str::to_string)
+        .unwrap_or_else(|| tok.to_string())
+}
+
 /// Join free-form content tokens, peeling a leading `content=` (or `body=`) key.
 fn join_content_tokens(parts: &[&str]) -> String {
     if parts.is_empty() {
@@ -831,7 +841,7 @@ fn path_and_joined_content(
             msg: format!("line {line_num}: '{op}' requires a path argument, got 0"),
         }));
     }
-    let path = args[0].clone();
+    let path = peel_owned(&args[0], &["path"]);
     let parts: Vec<&str> = args[1..].iter().map(String::as_str).collect();
     Ok((path, join_content_tokens(&parts)))
 }
@@ -848,7 +858,7 @@ fn path_and_joined_content_create(
             msg: format!("line {line_num}: '{op}' requires a path argument, got 0"),
         }));
     }
-    let path = args[0].clone();
+    let path = peel_owned(&args[0], &["path"]);
     let mut force = false;
     let mut content_parts: Vec<&str> = Vec::new();
     for tok in args.iter().skip(1) {

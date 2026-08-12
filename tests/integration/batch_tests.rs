@@ -1134,6 +1134,33 @@ fn test_batch_unreadable_input_does_not_double_wrap() {
     );
 }
 
+/// Plan-shaped `content=` on md.replace_section must write the peeled body
+/// (sibling of file.create content= peel; #2160).
+#[test]
+fn test_batch_md_replace_section_peels_content_kv() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("README.md"), "## API\n\nold\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["batch", "--apply"])
+        .write_stdin("md.replace_section README.md heading=\"## API\" content=\"fresh\"\n")
+        .assert()
+        .code(0);
+
+    let got = fs::read_to_string(dir.path().join("README.md")).unwrap();
+    assert!(
+        got.contains("fresh") && !got.contains("content="),
+        "expected peeled section body, got:\n{got}"
+    );
+    assert!(
+        !got.contains("old"),
+        "old section body should be replaced:\n{got}"
+    );
+}
+
 /// Blank path on batch file ops is invalid_input (parity with CLI create).
 #[test]
 fn test_batch_blank_path_json_invalid_input() {

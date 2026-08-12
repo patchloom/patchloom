@@ -393,6 +393,79 @@ mod basic {
         ));
     }
 
+    /// Sibling of file.create `content=` (#2160): md/doc/ast/rename positionals
+    /// must peel plan-shaped keys instead of writing them into the file.
+    #[test]
+    fn parse_line_peels_plan_kv_on_md_doc_ast_rename() {
+        let op = parse_line(
+            "md.replace_section README.md heading=\"## API\" content=\"New docs\"",
+            1,
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::MdReplaceSection { path, heading, content }
+                if path == "README.md" && heading == "## API" && content == "New docs"
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line(
+            "md.upsert_bullet CHANGELOG.md heading=\"## Changes\" bullet=\"- item\"",
+            1,
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::MdUpsertBullet { path, heading, bullet }
+                if path == "CHANGELOG.md" && heading == "## Changes" && bullet == "- item"
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line("md.table_append notes.md heading=\"## T\" row=\"a|b\"", 1).unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::MdTableAppend { path, heading, row }
+                if path == "notes.md" && heading == "## T" && row == "a|b"
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line(r#"file.rename from=old.txt to=new.txt"#, 1).unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::FileRename { from, to, force }
+                if from == "old.txt" && to == "new.txt" && !force
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line(r#"doc.set config.json key=version value="2.0""#, 1).unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::DocSet { path, selector, value }
+                if path == "config.json"
+                    && selector == "version"
+                    && value.as_f64() == Some(2.0)
+            ),
+            "got {op:?}"
+        );
+        #[cfg(feature = "ast")]
+        {
+            let op = parse_line(r#"ast.rename src/lib.rs old=foo new=bar"#, 1).unwrap();
+            assert!(
+                matches!(
+                    &op,
+                    Operation::AstRename { path, old, new, .. }
+                    if path == "src/lib.rs" && old == "foo" && new == "bar"
+                ),
+                "got {op:?}"
+            );
+        }
+    }
+
     #[test]
     fn parse_line_file_delete() {
         let op = parse_line("file.delete old.txt", 1).unwrap();
