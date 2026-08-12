@@ -464,6 +464,26 @@ mod basic {
                 "got {op:?}"
             );
         }
+        // path= peel + empty content= (allowed; same as #2160)
+        let op = parse_line("file.create path=hello.txt content=", 1).unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::FileCreate { path, content, .. }
+                if path == "hello.txt" && content.is_empty()
+            ),
+            "got {op:?}"
+        );
+        // Tokens without '=' are not peeled
+        let op = parse_line(r#"file.create hello.txt heading"#, 1).unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::FileCreate { path, content, .. }
+                if path == "hello.txt" && content == "heading"
+            ),
+            "got {op:?}"
+        );
     }
 
     #[test]

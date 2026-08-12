@@ -69,6 +69,10 @@ REPLACE SHAPE:
   CLI:    patchloom replace OLD --new NEW path
   Do not paste CLI --new into a batch line (parse error with PATH OLD NEW hint).
 
+PLAN KEYS:
+  Optional key= prefixes on positionals are peeled (content=, body=, old=, new=,
+  heading=, bullet=, row=, from=, to=, selector=, key=, value=, path=).
+
 EXAMPLES:
   # Force string values with nested JSON quotes (bare 2.0 becomes a number).
   printf 'doc.set config.json version '"'"'"2.0.0"'"'"'\nreplace README.md v1 v2\n' | patchloom batch
