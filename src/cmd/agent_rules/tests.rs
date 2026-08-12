@@ -184,6 +184,18 @@ fn workflow_includes_whole_line_delete_example() {
 }
 
 #[test]
+fn workflow_documents_batch_plan_kv_peel_siblings() {
+    let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+    assert!(
+        out.contains("heading=")
+            && out.contains("bullet=")
+            && out.contains("file.rename")
+            && out.contains("selector="),
+        "agents need sibling peel coverage beyond file.create content=: {out}"
+    );
+}
+
+#[test]
 fn workflow_documents_multi_document_yaml_index() {
     let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
     assert!(

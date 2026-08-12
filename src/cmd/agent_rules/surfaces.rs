@@ -80,7 +80,9 @@ pub(crate) fn append_surfaces(
                  (`file.create f.json {\"x\":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, \
                  `\\n` `\\t` `\\r` `\\\\` `\\\"` expand (multi-line content on one batch line). Prefer positional \
                  content (`file.create f.txt \"hi\"`); a leading `content=` / `body=` key is also accepted so \
-                 plan-shaped lines do not write literal `content=…` bytes.\n\
+                 plan-shaped lines do not write literal `content=…` bytes. The same peel applies to md \
+                 `heading=`/`content=`/`bullet=`/`row=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace` \
+                 `old=`/`new=`, and doc `selector=`/`key=`/`value=` prefixes.\n\
                  Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). Optional \
                  `old=`/`new=` (or `from=`/`to=`) prefixes on the pattern tokens are peeled. Optional flags after \
                  path/old/new: `--fuzzy`, `--min-fuzzy-score`, `--word-boundary`/`-w`, `--command-position`, \
