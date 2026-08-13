@@ -11,6 +11,16 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.28.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.28.0...patchloom-v0.28.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **batch:** peel content=/old=/new= plan-shaped key prefixes ([#2160](https://github.com/patchloom/patchloom/issues/2160)) ([1869c3a](https://github.com/patchloom/patchloom/commit/1869c3a8eb810e90132313e93a729f7f0e697801))
+* patch blank path invalid_input parity ([#2158](https://github.com/patchloom/patchloom/issues/2158)) ([85b2f56](https://github.com/patchloom/patchloom/commit/85b2f56765159e869840dd7ccd8d4df9f9676892))
+* peel remaining batch plan-shaped key= prefixes ([#2164](https://github.com/patchloom/patchloom/issues/2164)) ([e3a9199](https://github.com/patchloom/patchloom/commit/e3a9199a58eb178f7920f84c298a191b468672e5))
+* restore replacement_text API + residual batch peels ([#2166](https://github.com/patchloom/patchloom/issues/2166)) ([667728a](https://github.com/patchloom/patchloom/commit/667728ad087538daa313b02fdeabe5514c8d0afd))
+
 ## [0.28.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.27.0...patchloom-v0.28.0) (2026-08-10)
 
 
