@@ -1,5 +1,5 @@
 use super::*;
-use crate::ops::replace::{ReplacementTextParams, replacement_text};
+use crate::ops::replace::{ReplacementTextParams, build_replacement_text};
 use crate::tx::{read_and_probe, read_file_content, update_file_content, validate_operation};
 use crate::write::WritePolicy;
 use std::collections::{HashMap, HashSet};
@@ -219,7 +219,7 @@ mod basic {
     #[test]
     fn regex_insert_before_uses_match_anchor_in_replacement_text() {
         let insert_before = Some("X".to_string());
-        let text = replacement_text(&ReplacementTextParams {
+        let text = build_replacement_text(&ReplacementTextParams {
             from: "b+",
             to: &None,
             insert_before: &insert_before,
@@ -236,7 +236,7 @@ mod basic {
     #[test]
     fn regex_insert_after_uses_match_anchor_in_replacement_text() {
         let insert_after = Some("X".to_string());
-        let text = replacement_text(&ReplacementTextParams {
+        let text = build_replacement_text(&ReplacementTextParams {
             from: "b+",
             to: &None,
             insert_before: &None,
