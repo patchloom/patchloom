@@ -1,5 +1,5 @@
 use super::*;
-use crate::ops::replace::replacement_text;
+use crate::ops::replace::{ReplacementTextParams, replacement_text};
 use crate::tx::{read_and_probe, read_file_content, update_file_content, validate_operation};
 use crate::write::WritePolicy;
 use std::collections::{HashMap, HashSet};
@@ -218,14 +218,34 @@ mod basic {
 
     #[test]
     fn regex_insert_before_uses_match_anchor_in_replacement_text() {
-        let text = replacement_text("b+", &None, &Some("X".to_string()), &None, true, true, "");
+        let insert_before = Some("X".to_string());
+        let text = replacement_text(&ReplacementTextParams {
+            from: "b+",
+            to: &None,
+            insert_before: &insert_before,
+            insert_after: &None,
+            use_match_anchor: true,
+            regex_mode: true,
+            file_content: "",
+            case_insensitive: false,
+        });
 
         assert_eq!(text, "X${0}");
     }
 
     #[test]
     fn regex_insert_after_uses_match_anchor_in_replacement_text() {
-        let text = replacement_text("b+", &None, &None, &Some("X".to_string()), true, true, "");
+        let insert_after = Some("X".to_string());
+        let text = replacement_text(&ReplacementTextParams {
+            from: "b+",
+            to: &None,
+            insert_before: &None,
+            insert_after: &insert_after,
+            use_match_anchor: true,
+            regex_mode: true,
+            file_content: "",
+            case_insensitive: false,
+        });
 
         assert_eq!(text, "${0}X");
     }
