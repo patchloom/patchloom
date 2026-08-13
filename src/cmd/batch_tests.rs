@@ -486,6 +486,81 @@ mod basic {
         );
     }
 
+    /// Residual batch ops that still used bare `.clone()` after #2160/#2164.
+    #[test]
+    fn parse_line_peels_plan_kv_on_remaining_batch_ops() {
+        let op = parse_line(
+            "doc.delete_where path=data.json selector=items predicate=\"status=drop\"",
+            1,
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::DocDeleteWhere { path, selector, predicate }
+                if path == "data.json" && selector == "items" && predicate == "status=drop"
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line(
+            "md.move_section path=README.md heading=\"## A\" before heading=\"## B\"",
+            1,
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                &op,
+                Operation::MdMoveSection {
+                    path,
+                    heading,
+                    to: None,
+                    before: Some(b),
+                    after: None,
+                } if path == "README.md" && heading == "## A" && b == "## B"
+            ),
+            "got {op:?}"
+        );
+        let op = parse_line("md.dedupe_headings path=NOTES.md", 1).unwrap();
+        assert!(
+            matches!(&op, Operation::MdDedupeHeadings { path } if path == "NOTES.md"),
+            "got {op:?}"
+        );
+        let op = parse_line("md.lint_agents path=AGENTS.md", 1).unwrap();
+        assert!(
+            matches!(&op, Operation::MdLintAgents { path } if path == "AGENTS.md"),
+            "got {op:?}"
+        );
+        let op = parse_line("tidy.fix path=src/lib.rs", 1).unwrap();
+        assert!(
+            matches!(&op, Operation::TidyFix { path, .. } if path == "src/lib.rs"),
+            "got {op:?}"
+        );
+        #[cfg(feature = "ast")]
+        {
+            let op = parse_line(
+                "ast.rewrite_signature path=lib.rs old=process parameters=\"(x: u64)\" return_type=\"-> u64\"",
+                1,
+            )
+            .unwrap();
+            assert!(
+                matches!(
+                    &op,
+                    Operation::AstRewriteSignature {
+                        path,
+                        old,
+                        parameters: Some(p),
+                        return_type: Some(r),
+                        ..
+                    } if path == "lib.rs"
+                        && old == "process"
+                        && p == "(x: u64)"
+                        && r == "-> u64"
+                ),
+                "got {op:?}"
+            );
+        }
+    }
+
     #[test]
     fn parse_line_file_delete() {
         let op = parse_line("file.delete old.txt", 1).unwrap();
