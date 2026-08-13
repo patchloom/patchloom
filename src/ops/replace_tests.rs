@@ -87,64 +87,81 @@ mod replace_tests {
 
         #[test]
         fn replacement_text_with_to() {
-            let result =
-                replacement_text("from", &Some("to".into()), &None, &None, false, false, "");
+            let to = Some("to".into());
+            let result = replacement_text(&ReplacementTextParams {
+                from: "from",
+                to: &to,
+                insert_before: &None,
+                insert_after: &None,
+                use_match_anchor: false,
+                regex_mode: false,
+                file_content: "",
+                case_insensitive: false,
+            });
             assert_eq!(result, "to");
         }
 
         #[test]
         fn replacement_text_insert_before_literal() {
-            let result = replacement_text(
-                "original",
-                &None,
-                &Some("PREFIX\n".into()),
-                &None,
-                false,
-                false,
-                "original",
-            );
+            let insert_before = Some("PREFIX\n".into());
+            let result = replacement_text(&ReplacementTextParams {
+                from: "original",
+                to: &None,
+                insert_before: &insert_before,
+                insert_after: &None,
+                use_match_anchor: false,
+                regex_mode: false,
+                file_content: "original",
+                case_insensitive: false,
+            });
             assert_eq!(result, "PREFIX\noriginal");
         }
 
         #[test]
         fn replacement_text_insert_after_literal() {
-            let result = replacement_text(
-                "original",
-                &None,
-                &None,
-                &Some("\nSUFFIX".into()),
-                false,
-                false,
-                "original",
-            );
+            let insert_after = Some("\nSUFFIX".into());
+            let result = replacement_text(&ReplacementTextParams {
+                from: "original",
+                to: &None,
+                insert_before: &None,
+                insert_after: &insert_after,
+                use_match_anchor: false,
+                regex_mode: false,
+                file_content: "original",
+                case_insensitive: false,
+            });
             assert_eq!(result, "original\nSUFFIX");
         }
 
         #[test]
         fn replacement_text_insert_before_regex_anchor() {
-            let result = replacement_text(
-                "ignored",
-                &None,
-                &Some("PREFIX\n".into()),
-                &None,
-                true,
-                true,
-                "ignored",
-            );
+            let insert_before = Some("PREFIX\n".into());
+            let result = replacement_text(&ReplacementTextParams {
+                from: "ignored",
+                to: &None,
+                insert_before: &insert_before,
+                insert_after: &None,
+                use_match_anchor: true,
+                regex_mode: true,
+                file_content: "ignored",
+                case_insensitive: false,
+            });
             assert_eq!(result, "PREFIX\n${0}");
         }
 
         #[test]
         fn replacement_text_insert_after_regex_anchor() {
-            let result = replacement_text(
-                "ignored",
-                &None,
-                &None,
-                &Some("\nSUFFIX".into()),
-                true,
-                true,
-                "ignored",
-            );
+            let insert_after = Some("\nSUFFIX".into());
+            let result = replacement_text(&ReplacementTextParams {
+                from: "ignored",
+                to: &None,
+                insert_before: &None,
+                insert_after: &insert_after,
+                use_match_anchor: true,
+                regex_mode: true,
+                file_content: "ignored",
+                case_insensitive: false,
+            });
             assert_eq!(result, "${0}\nSUFFIX");
         }
 
@@ -153,23 +170,34 @@ mod replace_tests {
         #[test]
         fn replacement_text_escapes_dollars_for_internal_regex() {
             // use_match_anchor=true (internal regex), regex_mode=false (not user-requested)
-            let result =
-                replacement_text("cost", &Some("$100".into()), &None, &None, true, false, "");
+            let to = Some("$100".into());
+            let result = replacement_text(&ReplacementTextParams {
+                from: "cost",
+                to: &to,
+                insert_before: &None,
+                insert_after: &None,
+                use_match_anchor: true,
+                regex_mode: false,
+                file_content: "",
+                case_insensitive: false,
+            });
             assert_eq!(result, "$$100");
         }
 
         #[test]
         fn replacement_text_preserves_dollars_for_user_regex() {
             // use_match_anchor=true, regex_mode=true (user explicitly requested regex)
-            let result = replacement_text(
-                "(c)ost",
-                &Some("$1ost".into()),
-                &None,
-                &None,
-                true,
-                true,
-                "",
-            );
+            let to = Some("$1ost".into());
+            let result = replacement_text(&ReplacementTextParams {
+                from: "(c)ost",
+                to: &to,
+                insert_before: &None,
+                insert_after: &None,
+                use_match_anchor: true,
+                regex_mode: true,
+                file_content: "",
+                case_insensitive: false,
+            });
             assert_eq!(result, "$1ost");
         }
 
@@ -232,16 +260,17 @@ mod replace_tests {
             assert!(!anchor_is_whole_line_ci("Debug\n", "debug", false));
             let out = normalize_line_insert_ci("Debug\n", "debug", "note", InsertSide::After, true);
             assert_eq!(out, "\nnote");
-            let full = replacement_text_ci(
-                "debug",
-                &None,
-                &None,
-                &Some("note".into()),
-                true,
-                false,
-                "Debug\n",
-                true,
-            );
+            let insert_after = Some("note".into());
+            let full = replacement_text_ci(&ReplacementTextParams {
+                from: "debug",
+                to: &None,
+                insert_before: &None,
+                insert_after: &insert_after,
+                use_match_anchor: true,
+                regex_mode: false,
+                file_content: "Debug\n",
+                case_insensitive: true,
+            });
             // ${0} + \nnote expands later; template must include line-oriented insert
             assert!(full.contains("note"), "got {full}");
             assert!(

@@ -6,8 +6,9 @@
 use super::execute::{TxState, read_and_probe, read_file_content};
 use crate::api::MatchMode;
 use crate::ops::replace::{
-    InsertSide, compile_replace_regex, context_filtered_span_with_re, expand_match_anchor_template,
-    normalize_line_insert, replace_content, replace_whole_lines, replacement_text_ci,
+    InsertSide, ReplacementTextParams, compile_replace_regex, context_filtered_span_with_re,
+    expand_match_anchor_template, normalize_line_insert, replace_content, replace_whole_lines,
+    replacement_text_ci,
 };
 use crate::plan::Operation;
 use crate::tx::output::merge_match_modes;
@@ -223,16 +224,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             Err(e) => return Err(e),
         };
         // Per-file content so whole-line anchor detection is accurate (#1885).
-        let replacement = replacement_text_ci(
-            old,
-            new_text,
+        let replacement = replacement_text_ci(&ReplacementTextParams {
+            from: old,
+            to: new_text,
             insert_before,
             insert_after,
-            use_regex,
+            use_match_anchor: use_regex,
             regex_mode,
-            content,
-            *case_insensitive,
-        );
+            file_content: content,
+            case_insensitive: *case_insensitive,
+        });
         let (replaced, match_count) = if *command_position {
             let to = new_text.as_deref().unwrap_or("");
             let (out, n) = crate::ops::shell_token::replace_command_position(content, old, to);
@@ -544,16 +545,16 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 .get(&file_path)
                 .map(|(_, c)| c.clone())
                 .expect("read_and_probe guarantees entry exists in pending");
-            let replacement = replacement_text_ci(
-                old,
-                new_text,
+            let replacement = replacement_text_ci(&ReplacementTextParams {
+                from: old,
+                to: new_text,
                 insert_before,
                 insert_after,
-                use_regex,
+                use_match_anchor: use_regex,
                 regex_mode,
-                &content,
-                *case_insensitive,
-            );
+                file_content: &content,
+                case_insensitive: *case_insensitive,
+            });
             let (replaced, match_count) = if *command_position {
                 let to = new_text.as_deref().unwrap_or("");
                 let (out, n) = crate::ops::shell_token::replace_command_position(&content, old, to);

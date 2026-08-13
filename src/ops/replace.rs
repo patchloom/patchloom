@@ -365,60 +365,51 @@ fn is_line_boundary_byte(b: u8) -> bool {
     b == b'\n' || b == b'\r'
 }
 
-/// Build the replacement string for replace / insert modes.
+/// Parameters for [`replacement_text`] / [`replacement_text_ci`].
 ///
-/// `file_content` is the file (or buffer) being edited; it is used to decide
-/// line-oriented insert normalization (#1885). Pass `""` only in pure unit
-/// tests that do not exercise whole-line-anchor detection.
-pub fn replacement_text(
-    from: &str,
-    to: &Option<String>,
-    insert_before: &Option<String>,
-    insert_after: &Option<String>,
-    use_match_anchor: bool,
-    regex_mode: bool,
-    file_content: &str,
-) -> String {
-    replacement_text_ci(
-        from,
-        to,
-        insert_before,
-        insert_after,
-        use_match_anchor,
-        regex_mode,
-        file_content,
-        false,
-    )
+/// Bundles the from/to/insert/anchor/regex/file/ci inputs so call sites do not
+/// hit `clippy::too_many_arguments` (#2163).
+#[derive(Clone, Copy)]
+pub struct ReplacementTextParams<'a> {
+    pub from: &'a str,
+    pub to: &'a Option<String>,
+    pub insert_before: &'a Option<String>,
+    pub insert_after: &'a Option<String>,
+    pub use_match_anchor: bool,
+    pub regex_mode: bool,
+    /// File (or buffer) being edited; used for line-oriented insert
+    /// normalization (#1885). Pass `""` only in pure unit tests that do not
+    /// exercise whole-line-anchor detection.
+    pub file_content: &'a str,
+    /// When true, whole-line insert detection is case-insensitive.
+    pub case_insensitive: bool,
 }
 
-/// Like [`replacement_text`] with case-insensitive whole-line insert detection.
-#[allow(clippy::too_many_arguments)]
-pub fn replacement_text_ci(
-    from: &str,
-    to: &Option<String>,
-    insert_before: &Option<String>,
-    insert_after: &Option<String>,
-    use_match_anchor: bool,
-    regex_mode: bool,
-    file_content: &str,
-    case_insensitive: bool,
-) -> String {
-    let anchor = if use_match_anchor { "${0}" } else { from };
+/// Build the replacement string for replace / insert modes.
+///
+/// Whole-line insert detection respects [`ReplacementTextParams::case_insensitive`].
+pub fn replacement_text(p: &ReplacementTextParams<'_>) -> String {
+    replacement_text_ci(p)
+}
+
+/// Alias of [`replacement_text`] (kept for call-site clarity at CI replace paths).
+pub fn replacement_text_ci(p: &ReplacementTextParams<'_>) -> String {
+    let anchor = if p.use_match_anchor { "${0}" } else { p.from };
 
     // When a regex is compiled internally (case_insensitive / word_boundary)
     // but the user did NOT request regex mode, dollar signs in user-provided
     // replacement text must be escaped so caps.expand() treats them literally.
-    let needs_escape = use_match_anchor && !regex_mode;
+    let needs_escape = p.use_match_anchor && !p.regex_mode;
 
-    if let Some(text) = insert_before {
+    if let Some(text) = p.insert_before {
         // Normalize against the literal `from` pattern (not ${0}) so whole-line
         // detection sees the real anchor text in the file.
         let normalized = normalize_line_insert_ci(
-            file_content,
-            from,
+            p.file_content,
+            p.from,
             text,
             InsertSide::Before,
-            case_insensitive,
+            p.case_insensitive,
         );
         let safe = if needs_escape {
             normalized.replace('$', "$$")
@@ -428,13 +419,13 @@ pub fn replacement_text_ci(
         return format!("{safe}{anchor}");
     }
 
-    if let Some(text) = insert_after {
+    if let Some(text) = p.insert_after {
         let normalized = normalize_line_insert_ci(
-            file_content,
-            from,
+            p.file_content,
+            p.from,
             text,
             InsertSide::After,
-            case_insensitive,
+            p.case_insensitive,
         );
         let safe = if needs_escape {
             normalized.replace('$', "$$")
@@ -444,7 +435,7 @@ pub fn replacement_text_ci(
         return format!("{anchor}{safe}");
     }
 
-    let raw = to.clone().unwrap_or_default();
+    let raw = p.to.clone().unwrap_or_default();
     if needs_escape {
         raw.replace('$', "$$")
     } else {
