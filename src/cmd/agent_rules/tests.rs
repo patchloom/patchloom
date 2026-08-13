@@ -190,7 +190,11 @@ fn workflow_documents_batch_plan_kv_peel_siblings() {
         out.contains("heading=")
             && out.contains("bullet=")
             && out.contains("file.rename")
-            && out.contains("selector="),
+            && out.contains("selector=")
+            && out.contains("predicate=")
+            && out.contains("md.move_section")
+            && out.contains("ast.rewrite_signature")
+            && out.contains("tidy.fix"),
         "agents need sibling peel coverage beyond file.create content=: {out}"
     );
 }
