@@ -1,3 +1,9 @@
+//! Replace content helpers shared by CLI, tx, API, and MCP.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Regex compile,
+//! line-oriented insert normalize, replacement_text params/builders, and
+//! content/whole-line replace co-located; do not split for LOC alone (#2163).
+
 use regex::Regex;
 
 /// Build an optional compiled regex for replace operations.
