@@ -34,6 +34,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make pack-mcpb-test` | Unit tests for pack version override and stamped manifest (`scripts/test_pack_mcpb.py`; skips full pack when `mcpb` CLI missing) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Default model is `grok-4.5`. Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-claude-opus-4-6`) |
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033). Not part of `check`; run before tagging a release |
+| `make semver-check` | `cargo-semver-checks` against the last crates.io release (public library API). Not part of `check`; CI runs it only on release-please PRs. Run before merging public API arity/signature changes, or when preparing a release |
 | `make windows-smoke` | PowerShell dogfood (`scripts/windows-smoke.ps1`: peels, tx, CRLF, rename force/binary path-only; backslash paths on Windows, nested paths on macOS/Linux pwsh). Not part of `check`; CI `ci-windows`. Requires `pwsh` |
 | `make fuzz` | Run fuzz tests (11 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
@@ -46,7 +47,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 
 Always run `make check` before committing. It is the full CI gate.
 
-Before tagging a release, also run `make embedder-smoke` (host-facing contracts that unit tests historically missed). On Windows (or with `pwsh`), also run `make windows-smoke` (CI already runs it on `ci-windows`).
+Before tagging a release, also run `make embedder-smoke` (host-facing contracts that unit tests historically missed) and `make semver-check` (public API arity/signature vs crates.io; would have caught the #2165 multi-arg break before release PR #2159). On Windows (or with `pwsh`), also run `make windows-smoke` (CI already runs it on `ci-windows`).
 
 ## Git hygiene
 

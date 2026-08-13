@@ -1,3 +1,9 @@
+//! Replace content helpers shared by CLI, tx, API, and MCP.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Regex compile,
+//! line-oriented insert normalize, replacement_text params/builders, and
+//! content/whole-line replace co-located; do not split for LOC alone (#2163).
+
 use regex::Regex;
 
 /// Build an optional compiled regex for replace operations.
@@ -365,10 +371,12 @@ fn is_line_boundary_byte(b: u8) -> bool {
     b == b'\n' || b == b'\r'
 }
 
-/// Parameters for [`replacement_text`] / [`replacement_text_ci`].
+/// Parameters for [`build_replacement_text`].
 ///
-/// Bundles the from/to/insert/anchor/regex/file/ci inputs so call sites do not
-/// hit `clippy::too_many_arguments` (#2163).
+/// Preferred call shape for in-crate and new callers (avoids
+/// `clippy::too_many_arguments`). The multi-arg [`replacement_text`] /
+/// [`replacement_text_ci`] entry points remain for public API stability
+/// (semver: arity must not change on a patch release; see #2163 follow-up).
 #[derive(Clone, Copy)]
 pub struct ReplacementTextParams<'a> {
     pub from: &'a str,
@@ -388,12 +396,8 @@ pub struct ReplacementTextParams<'a> {
 /// Build the replacement string for replace / insert modes.
 ///
 /// Whole-line insert detection respects [`ReplacementTextParams::case_insensitive`].
-pub fn replacement_text(p: &ReplacementTextParams<'_>) -> String {
-    replacement_text_ci(p)
-}
-
-/// Alias of [`replacement_text`] (kept for call-site clarity at CI replace paths).
-pub fn replacement_text_ci(p: &ReplacementTextParams<'_>) -> String {
+/// Prefer this over the multi-arg wrappers for new call sites.
+pub fn build_replacement_text(p: &ReplacementTextParams<'_>) -> String {
     let anchor = if p.use_match_anchor { "${0}" } else { p.from };
 
     // When a regex is compiled internally (case_insensitive / word_boundary)
@@ -441,6 +445,63 @@ pub fn replacement_text_ci(p: &ReplacementTextParams<'_>) -> String {
     } else {
         raw
     }
+}
+
+/// Build the replacement string for replace / insert modes.
+///
+/// `file_content` is the file (or buffer) being edited; it is used to decide
+/// line-oriented insert normalization (#1885). Pass `""` only in pure unit
+/// tests that do not exercise whole-line-anchor detection.
+///
+/// Stable multi-arg public API. New call sites should prefer
+/// [`build_replacement_text`] with [`ReplacementTextParams`].
+pub fn replacement_text(
+    from: &str,
+    to: &Option<String>,
+    insert_before: &Option<String>,
+    insert_after: &Option<String>,
+    use_match_anchor: bool,
+    regex_mode: bool,
+    file_content: &str,
+) -> String {
+    replacement_text_ci(
+        from,
+        to,
+        insert_before,
+        insert_after,
+        use_match_anchor,
+        regex_mode,
+        file_content,
+        false,
+    )
+}
+
+/// Like [`replacement_text`] with case-insensitive whole-line insert detection.
+///
+/// Stable multi-arg public API (arity locked for cargo-semver-checks). The
+/// `allow` is intentional for ABI compatibility; prefer
+/// [`build_replacement_text`] + [`ReplacementTextParams`] in new code (#2163).
+#[allow(clippy::too_many_arguments)]
+pub fn replacement_text_ci(
+    from: &str,
+    to: &Option<String>,
+    insert_before: &Option<String>,
+    insert_after: &Option<String>,
+    use_match_anchor: bool,
+    regex_mode: bool,
+    file_content: &str,
+    case_insensitive: bool,
+) -> String {
+    build_replacement_text(&ReplacementTextParams {
+        from,
+        to,
+        insert_before,
+        insert_after,
+        use_match_anchor,
+        regex_mode,
+        file_content,
+        case_insensitive,
+    })
 }
 
 fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> String {

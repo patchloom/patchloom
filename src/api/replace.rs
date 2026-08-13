@@ -235,16 +235,17 @@ fn replace_write(
         } else {
             None
         };
-        let replacement = ops::replace::replacement_text_ci(&ops::replace::ReplacementTextParams {
-            from: &old,
-            to: &direct_to,
-            insert_before: &insert_before,
-            insert_after: &insert_after,
-            use_match_anchor: compiled_re.is_some(),
-            regex_mode: is_regex,
-            file_content: &original,
-            case_insensitive,
-        });
+        let replacement =
+            ops::replace::build_replacement_text(&ops::replace::ReplacementTextParams {
+                from: &old,
+                to: &direct_to,
+                insert_before: &insert_before,
+                insert_after: &insert_after,
+                use_match_anchor: compiled_re.is_some(),
+                regex_mode: is_regex,
+                file_content: &original,
+                case_insensitive,
+            });
 
         let parsed_range = range.as_deref().map(|r| {
             let parts: Vec<&str> = r.splitn(2, ':').collect();
@@ -647,7 +648,7 @@ fn replace_in_content_inner(
     } else {
         None
     };
-    let replacement = ops::replace::replacement_text_ci(&ops::replace::ReplacementTextParams {
+    let replacement = ops::replace::build_replacement_text(&ops::replace::ReplacementTextParams {
         from,
         to: &direct_to,
         insert_before: &opts.insert_before,

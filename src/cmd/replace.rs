@@ -346,7 +346,7 @@ fn collect_replacements_with_list(
     let mut replacements: Vec<FileReplacement> =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let content = crate::files::read_text_file_logged(path, "replace", quiet)?;
-            let replacement = crate::ops::replace::replacement_text_ci(
+            let replacement = crate::ops::replace::build_replacement_text(
                 &crate::ops::replace::ReplacementTextParams {
                     from,
                     to: &new_opt,

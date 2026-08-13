@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test force-release-version-test verify-homebrew-version-test server-json-test git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny semver-check bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test force-release-version-test verify-homebrew-version-test server-json-test git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -142,6 +142,11 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Default
 
 embedder-smoke: build ## Pre-release host contracts (CLI peels + library fuzzy/path-only/fragment honesty)
 	bash scripts/embedder-smoke.sh target/debug/patchloom
+
+semver-check: ## cargo-semver-checks vs last crates.io release (requires cargo-semver-checks; not in make check)
+	@command -v cargo-semver-checks >/dev/null 2>&1 \
+		|| cargo install cargo-semver-checks --locked
+	cargo semver-checks check-release --all-features
 
 windows-smoke: build ## Windows/PowerShell dogfood (paths/peels/tx/CRLF/rename force+binary). Requires pwsh + Windows-style binary.
 	@# Prefer .exe on Windows; omit -Bin so the script auto-picks debug/release + .exe.

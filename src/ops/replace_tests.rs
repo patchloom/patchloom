@@ -88,7 +88,7 @@ mod replace_tests {
         #[test]
         fn replacement_text_with_to() {
             let to = Some("to".into());
-            let result = replacement_text(&ReplacementTextParams {
+            let result = build_replacement_text(&ReplacementTextParams {
                 from: "from",
                 to: &to,
                 insert_before: &None,
@@ -104,7 +104,7 @@ mod replace_tests {
         #[test]
         fn replacement_text_insert_before_literal() {
             let insert_before = Some("PREFIX\n".into());
-            let result = replacement_text(&ReplacementTextParams {
+            let result = build_replacement_text(&ReplacementTextParams {
                 from: "original",
                 to: &None,
                 insert_before: &insert_before,
@@ -120,7 +120,7 @@ mod replace_tests {
         #[test]
         fn replacement_text_insert_after_literal() {
             let insert_after = Some("\nSUFFIX".into());
-            let result = replacement_text(&ReplacementTextParams {
+            let result = build_replacement_text(&ReplacementTextParams {
                 from: "original",
                 to: &None,
                 insert_before: &None,
@@ -136,7 +136,7 @@ mod replace_tests {
         #[test]
         fn replacement_text_insert_before_regex_anchor() {
             let insert_before = Some("PREFIX\n".into());
-            let result = replacement_text(&ReplacementTextParams {
+            let result = build_replacement_text(&ReplacementTextParams {
                 from: "ignored",
                 to: &None,
                 insert_before: &insert_before,
@@ -152,7 +152,7 @@ mod replace_tests {
         #[test]
         fn replacement_text_insert_after_regex_anchor() {
             let insert_after = Some("\nSUFFIX".into());
-            let result = replacement_text(&ReplacementTextParams {
+            let result = build_replacement_text(&ReplacementTextParams {
                 from: "ignored",
                 to: &None,
                 insert_before: &None,
@@ -171,7 +171,7 @@ mod replace_tests {
         fn replacement_text_escapes_dollars_for_internal_regex() {
             // use_match_anchor=true (internal regex), regex_mode=false (not user-requested)
             let to = Some("$100".into());
-            let result = replacement_text(&ReplacementTextParams {
+            let result = build_replacement_text(&ReplacementTextParams {
                 from: "cost",
                 to: &to,
                 insert_before: &None,
@@ -188,7 +188,7 @@ mod replace_tests {
         fn replacement_text_preserves_dollars_for_user_regex() {
             // use_match_anchor=true, regex_mode=true (user explicitly requested regex)
             let to = Some("$1ost".into());
-            let result = replacement_text(&ReplacementTextParams {
+            let result = build_replacement_text(&ReplacementTextParams {
                 from: "(c)ost",
                 to: &to,
                 insert_before: &None,
@@ -199,6 +199,30 @@ mod replace_tests {
                 case_insensitive: false,
             });
             assert_eq!(result, "$1ost");
+        }
+
+        /// cargo-semver-checks locks multi-arg public arity on
+        /// `replacement_text` / `replacement_text_ci` (0.28.0 baseline).
+        /// Prefer `build_replacement_text` + `ReplacementTextParams` in-crate.
+        #[test]
+        fn replacement_text_multi_arg_public_api_still_callable() {
+            let to = Some("to".into());
+            assert_eq!(
+                replacement_text("from", &to, &None, &None, false, false, ""),
+                "to"
+            );
+            let insert_after = Some("note".into());
+            let full = replacement_text_ci(
+                "debug",
+                &None,
+                &None,
+                &insert_after,
+                true,
+                false,
+                "Debug\n",
+                true,
+            );
+            assert!(full.contains("note"), "got {full}");
         }
 
         #[test]
@@ -261,7 +285,7 @@ mod replace_tests {
             let out = normalize_line_insert_ci("Debug\n", "debug", "note", InsertSide::After, true);
             assert_eq!(out, "\nnote");
             let insert_after = Some("note".into());
-            let full = replacement_text_ci(&ReplacementTextParams {
+            let full = build_replacement_text(&ReplacementTextParams {
                 from: "debug",
                 to: &None,
                 insert_before: &None,

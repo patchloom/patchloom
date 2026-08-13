@@ -71,7 +71,8 @@ REPLACE SHAPE:
 
 PLAN KEYS:
   Optional key= prefixes on positionals are peeled (content=, body=, old=, new=,
-  heading=, bullet=, row=, from=, to=, selector=, key=, value=, path=).
+  heading=, bullet=, row=, from=, to=, selector=, key=, value=, path=,
+  predicate=, symbol=, parameters=, return_type=, before=, after=).
 
 EXAMPLES:
   # Force string values with nested JSON quotes (bare 2.0 becomes a number).
@@ -204,9 +205,9 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "doc.delete_where" => {
             require_args(op, args, 3, line_num)?;
             op!(DocDeleteWhere {
-                path: args[0].clone(),
-                selector: args[1].clone(),
-                predicate: args[2].clone()
+                path: peel_owned(&args[0], &["path"]),
+                selector: peel_owned(&args[1], &["selector", "key"]),
+                predicate: peel_owned(&args[2], &["predicate"])
             })
         }
 
@@ -283,20 +284,20 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             if args.len() == 4 {
                 let (before, after) = parse_position_keyword(&args[2], line_num)?;
                 Ok(Operation::MdMoveSection {
-                    path: args[0].clone(),
-                    heading: args[1].clone(),
+                    path: peel_owned(&args[0], &["path"]),
+                    heading: peel_owned(&args[1], &["heading"]),
                     to: None,
-                    before: before.map(|_| args[3].clone()),
-                    after: after.map(|_| args[3].clone()),
+                    before: before.map(|_| peel_owned(&args[3], &["before", "target", "heading"])),
+                    after: after.map(|_| peel_owned(&args[3], &["after", "target", "heading"])),
                 })
             } else if args.len() == 5 {
                 let (before, after) = parse_position_keyword(&args[3], line_num)?;
                 Ok(Operation::MdMoveSection {
-                    path: args[0].clone(),
-                    heading: args[1].clone(),
-                    to: Some(args[2].clone()),
-                    before: before.map(|_| args[4].clone()),
-                    after: after.map(|_| args[4].clone()),
+                    path: peel_owned(&args[0], &["path"]),
+                    heading: peel_owned(&args[1], &["heading"]),
+                    to: Some(peel_owned(&args[2], &["to", "dest", "path"])),
+                    before: before.map(|_| peel_owned(&args[4], &["before", "target", "heading"])),
+                    after: after.map(|_| peel_owned(&args[4], &["after", "target", "heading"])),
                 })
             } else {
                 Err(anyhow::Error::new(crate::exit::ParseErrorError {
@@ -309,13 +310,13 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "md.dedupe_headings" => {
             require_args(op, args, 1, line_num)?;
             op!(MdDedupeHeadings {
-                path: args[0].clone()
+                path: peel_owned(&args[0], &["path"])
             })
         }
         "md.lint_agents" => {
             require_args(op, args, 1, line_num)?;
             op!(MdLintAgents {
-                path: args[0].clone()
+                path: peel_owned(&args[0], &["path"])
             })
         }
 
@@ -323,7 +324,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "tidy.fix" => {
             require_args(op, args, 1, line_num)?;
             op!(TidyFix {
-                path: args[0].clone(),
+                path: peel_owned(&args[0], &["path"]),
                 ensure_final_newline: None,
                 trim_trailing_whitespace: None,
                 normalize_eol: None,
@@ -370,12 +371,14 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
                 }));
             }
             op!(AstRewriteSignature {
-                path: args[0].clone(),
-                old: args[1].clone(),
+                path: peel_owned(&args[0], &["path"]),
+                old: peel_owned(&args[1], &["old", "from", "symbol"]),
                 new_signature: None,
                 visibility: None,
-                parameters: Some(args[2].clone()),
-                return_type: args.get(3).cloned(),
+                parameters: Some(peel_owned(&args[2], &["parameters", "params"])),
+                return_type: args
+                    .get(3)
+                    .map(|t| peel_owned(t, &["return_type", "return", "ret"])),
                 lang: None
             })
         }
