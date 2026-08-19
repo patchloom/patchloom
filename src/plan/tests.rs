@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn json_escape_handles_special_chars() {
     // Backslash
@@ -15,7 +15,7 @@ fn json_escape_handles_special_chars() {
     assert_eq!(json_escape("hello"), "hello");
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn substitute_single_pass_no_cross_contamination() {
     // If {path} expands to a value containing "{name}", the {name}
@@ -29,7 +29,7 @@ fn substitute_single_pass_no_cross_contamination() {
     assert_eq!(result, r#"{"path": "{name}/test.txt", "name": "test.txt"}"#);
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn substitute_single_pass_basic() {
     let template = "file: {path}, dir: {dir}";
@@ -40,7 +40,7 @@ fn substitute_single_pass_basic() {
 
 /// Regression: substitute_single_pass must handle multi-byte UTF-8
 /// characters correctly (not corrupt them via byte-as-char casting).
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn substitute_single_pass_preserves_utf8() {
     let template = r#"{"path": "{path}", "to": "résumé café"}"#;
@@ -441,7 +441,7 @@ fn parse_plan_without_for_each_is_none() {
     assert!(plan.for_each.is_none());
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn for_each_rejects_plan_cwd_combination() {
     // Glob is relative to invocation cwd; plan.cwd re-roots after expand and
@@ -467,7 +467,7 @@ fn for_each_rejects_plan_cwd_combination() {
     );
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn for_each_rejects_multi_match_without_file_template() {
     let dir = tempfile::tempdir().unwrap();
@@ -490,7 +490,7 @@ fn for_each_rejects_multi_match_without_file_template() {
     );
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn for_each_escape_preserves_literal_braces() {
     // When a template value contains `{{path}}`, the doubled braces should
@@ -522,7 +522,7 @@ fn for_each_escape_preserves_literal_braces() {
     );
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn for_each_escape_mixed_literal_and_template() {
     // Mix of template variables and escaped braces in the same value.
@@ -547,7 +547,7 @@ fn for_each_escape_mixed_literal_and_template() {
     );
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn for_each_item_alias_substitutes_path() {
     // Agents often write {item}; treat it as {path}.
@@ -575,7 +575,7 @@ fn for_each_item_alias_substitutes_path() {
     );
 }
 
-#[cfg(all(feature = "cli", feature = "ast"))]
+#[cfg(all(feature = "files", feature = "ast"))]
 #[test]
 fn for_each_has_symbol_matches_nested_method() {
     // Methods live under impl; top-level-only filter would drop the file.
@@ -604,7 +604,7 @@ fn for_each_has_symbol_matches_nested_method() {
     );
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn for_each_unknown_path_template_is_invalid_input() {
     let dir = tempfile::tempdir().unwrap();
@@ -630,7 +630,7 @@ fn for_each_unknown_path_template_is_invalid_input() {
     );
 }
 
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 #[test]
 fn for_each_unescaped_braces_still_substitute() {
     // Verify that normal (unescaped) template variables still work.
@@ -917,4 +917,85 @@ fn replace_accepts_file_alias() {
         }
         other => panic!("expected Replace, got {other:?}"),
     }
+}
+
+#[test]
+fn lifecycle_cmds_yields_format_then_validate() {
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "operations": [{"op": "file.create", "path": "ok.txt", "content": "x"}],
+            "format": [{"cmd": "cargo fmt"}],
+            "validate": [{"command": "true"}]
+        }"#,
+    )
+    .unwrap();
+    let cmds: Vec<&str> = lifecycle_cmds(&plan).collect();
+    assert_eq!(cmds, vec!["cargo fmt", "true"]);
+}
+
+#[test]
+fn refuse_lifecycle_shell_metas_allows_plain_formatters() {
+    for cmd in ["true", "cargo fmt", "rustfmt", "rustfmt --edition 2021"] {
+        refuse_lifecycle_shell_metas(cmd)
+            .unwrap_or_else(|e| panic!("{cmd:?} should be allowed: {e}"));
+    }
+}
+
+#[test]
+fn refuse_lifecycle_shell_metas_rejects_redirects_and_substitutions() {
+    let cases = [
+        "printf secret > /tmp/escape.env",
+        "printf secret >> /tmp/escape.env",
+        "cat .env | sh",
+        "true && rm -rf /",
+        "true || echo x",
+        "true; echo x",
+        "echo $(whoami)",
+        "echo ${HOME}",
+        "echo `whoami`",
+        "echo x\necho y",
+        "echo x\recho y",
+    ];
+    for cmd in cases {
+        let err = refuse_lifecycle_shell_metas(cmd).expect_err(cmd);
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::InvalidInput),
+            "expected invalid_input for {cmd:?}: {err}"
+        );
+        assert!(
+            err.to_string().contains("metacharacter"),
+            "expected metacharacter diagnostic for {cmd:?}: {err}"
+        );
+    }
+}
+
+#[cfg(feature = "files")]
+#[test]
+fn for_each_expand_declared_paths_are_concrete() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::write(dir.path().join("notes.txt"), "x\n").unwrap();
+    std::fs::write(dir.path().join("keep.txt"), "y\n").unwrap();
+    let mut plan = parse_plan(
+        r#"{
+            "version": 1,
+            "for_each": {"glob": "*.txt"},
+            "operations": [{"op": "file.create", "path": "{path}", "content": "z", "force": true}]
+        }"#,
+    )
+    .unwrap();
+    expand_for_each(&mut plan, dir.path()).unwrap();
+    assert!(plan.for_each.is_none());
+    let mut paths: Vec<String> = plan
+        .operations
+        .iter()
+        .flat_map(Operation::declared_paths)
+        .collect();
+    paths.sort();
+    assert_eq!(paths, vec!["keep.txt".to_string(), "notes.txt".to_string()]);
+    assert!(
+        paths.iter().all(|p| !p.contains('{')),
+        "declared_paths after expand must not keep {{path}} templates: {paths:?}"
+    );
 }

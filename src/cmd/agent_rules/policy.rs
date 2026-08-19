@@ -103,6 +103,12 @@ tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n
              **Library host checklist (#2009):** ordered onboarding for LLM agent hosts / embedders \
 (primary + fallback replace, peels, multi-op honesty, pre-write span policy) lives in \
 `docs/getting-started/embedder-host.md` (linked from README and crate docs).\n\n\
+             **Library `for_each` + lifecycle (#2168 / #2169):** `plan.for_each` expands under the \
+`files` feature (not `cli` only). `execute_plan` expands before PathGuard so \
+`declared_paths` sees concrete files. Plan `format`/`validate` are raw shell; MCP strips them. \
+Hosts with PathGuard get an automatic refuse of redirects/pipelines/substitutions. \
+Preflight: `api::lifecycle_cmds(plan)` + `api::refuse_lifecycle_shell_metas(cmd)` \
+(`true` / `cargo fmt` / `rustfmt` with no metas still run).\n\n\
              **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback \
 replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
 `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \

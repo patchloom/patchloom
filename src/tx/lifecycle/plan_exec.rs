@@ -74,10 +74,11 @@ pub fn execute_plan_direct(
     cwd: &Path,
     guard: Option<&crate::containment::PathGuard>,
 ) -> anyhow::Result<TxOutput> {
-    // Expand for_each (glob-driven batch) before anything else.
-    #[cfg(feature = "cli")]
+    // Expand for_each (glob-driven batch) before PathGuard / declared_paths.
+    // Requires `files` (cli enables files). Library hosts must not silently
+    // skip expansion (#2169).
     let mut plan = plan;
-    #[cfg(feature = "cli")]
+    #[cfg(feature = "files")]
     if plan.for_each.is_some() {
         crate::plan::expand_for_each(&mut plan, cwd)?;
     }
@@ -112,6 +113,7 @@ pub fn execute_plan_direct(
                 )));
             }
         }
+        crate::plan::refuse_lifecycle_if_guarded(&plan, Some(g))?;
         // Upfront check on declared paths; PatchApply renames use entry mode
         // (no-follow last component) like FileRename (#2115 / MPI 2026-08-02).
         for op in &plan.operations {

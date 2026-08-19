@@ -515,6 +515,21 @@ pub(crate) fn run_parsed_plan(
     // 4. Execute all operations, collecting changes in memory (no writes).
     let engine_ctx = crate::tx::context::EngineContext::from_global(global, cwd.clone());
     let guard = global.workspace_guard(&cwd)?;
+    if let Err(e) = crate::plan::refuse_lifecycle_if_guarded(&plan, guard.as_ref()) {
+        let msg = e.to_string();
+        let (kind, code) = match exit::classify_typed_error(&e) {
+            Some((k, c)) => (k, c),
+            None => ("guard_rejected", exit::FAILURE),
+        };
+        if structured {
+            let ok = emit_error_json(kind, &msg, None, compact);
+            return Ok(exit_after_emit(ok, code));
+        }
+        if !global.quiet {
+            eprintln!("tx: {msg}");
+        }
+        return Ok(code);
+    }
     let mut result = match crate::tx::execute_and_collect(
         &plan,
         &engine_ctx,

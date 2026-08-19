@@ -157,6 +157,14 @@ run_lib_filter refuse_batch_if_suspicious_fuzzy_rejects_wide_honesty
 run_lib_filter refuse_batch_if_suspicious_fuzzy_after_live_content_edits
 pass "library refuse_batch_if_suspicious_fuzzy host contracts (#2064)"
 
+# --- #2168 / #2169: library for_each + lifecycle shell preflight ---
+run_lib_filter execute_plan_for_each_expands_without_cli
+run_lib_filter execute_plan_for_each_zero_match_is_no_match
+run_lib_filter execute_plan_for_each_expands_before_path_guard
+run_lib_filter execute_plan_guard_refuses_format_redirect
+run_lib_filter refuse_lifecycle_shell_metas_rejects_redirects_and_substitutions
+pass "library for_each expand + lifecycle shell preflight (#2168/#2169)"
+
 # --- #2031-#2033: path-only non-text + apply_fragment_to_file + honesty ctors ---
 run_lib_filter file_rename_binary_path_only
 run_lib_filter file_rename_invalid_utf8_path_only

@@ -8816,6 +8816,50 @@ fn test_tx_contain_rejects_parent_escape_in_plan() {
 }
 
 #[test]
+fn test_tx_contain_refuses_format_redirect() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "keep\n").unwrap();
+    let escape = dir.path().join("escape.env");
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "file.create",
+            "path": "ok.txt",
+            "content": "x",
+            "force": true
+        }],
+        "format": [{"cmd": "printf secret > escape.env"}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "--contain", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "guard_rejected",
+        "contain format redirect should be guard_rejected: {stdout}"
+    );
+    assert!(
+        !escape.exists(),
+        "tx --contain must not run format redirect {escape:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("ok.txt")).unwrap(),
+        "keep\n",
+        "tx --contain format refuse must happen before commit"
+    );
+}
+
+#[test]
 fn test_tx_append_after_delete_is_not_found() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("gone.txt");
