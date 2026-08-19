@@ -3653,8 +3653,8 @@ fn test_apply_fragment_cli_ambiguous_json_hint() {
     assert_eq!(v["error_kind"], "ambiguous", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("allow-non-unique") || err.contains("apply-fragment"),
-        "ambiguous hint must guide apply-fragment users: {v}"
+        err.contains("allow-non-unique"),
+        "ambiguous hint must name --allow-non-unique (not only replace --nth): {v}"
     );
 }
 

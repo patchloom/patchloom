@@ -811,20 +811,30 @@ fn test_search_unique_is_invalid_input_mentions_replace() {
         .args(["search", "needle", ".", "--unique"])
         .output()
         .unwrap();
-    assert_ne!(out.status.code(), Some(0));
-    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|_| serde_json::from_slice(&out.stderr).unwrap_or(serde_json::json!({})));
-    let blob = format!("{parsed}{}", String::from_utf8_lossy(&out.stderr));
-    assert!(
-        parsed.get("error_kind").and_then(|v| v.as_str()) == Some("invalid_input")
-            || blob.contains("invalid_input"),
-        "expected invalid_input: {blob}"
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "search --unique must be invalid_input exit 1; stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
     );
-    assert!(
-        blob.contains("replace") && blob.contains("--unique"),
-        "should point at replace --unique: {blob}"
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON on stdout: {}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    });
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "search --unique must set error_kind: {parsed}"
     );
-    assert!(!blob.contains("--quiet"), "must not tip --quiet: {blob}");
+    let err = parsed["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("replace") && err.contains("--unique"),
+        "should point at replace --unique: {parsed}"
+    );
+    assert!(!err.contains("--quiet"), "must not tip --quiet: {parsed}");
 }
 
 #[test]

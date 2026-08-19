@@ -1831,7 +1831,25 @@ fn apply_patch_path_matching_uses_path_components() {
 +changed\n";
 
     let result = apply_patch(&file, patch, ApplyMode::Preview, None);
-    assert!(result.is_err() || !result.unwrap().changed);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "original\n",
+        "must not rewrite notb/foo.rs when the patch dest is b/foo.rs"
+    );
+    match result {
+        Ok(r) => assert!(!r.changed, "b/foo.rs must not match notb/foo.rs: {r:?}"),
+        Err(e) => {
+            let msg = format!("{e:#}");
+            assert!(
+                msg.contains("b/foo.rs"),
+                "mismatch must name the patch dest b/foo.rs, got: {msg}"
+            );
+            assert!(
+                !msg.contains("notb/foo.rs"),
+                "must not treat notb/foo.rs as the dest: {msg}"
+            );
+        }
+    }
 }
 
 #[test]

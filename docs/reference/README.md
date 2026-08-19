@@ -211,7 +211,7 @@ These are the main entry points. If you are deciding between commands, start her
 - **What it does:** Searches text files with literal or regex matching, optional context, counts, and file only results. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You need to locate candidate edits, audit repo state, or narrow inputs before changing files. For AI agents, native search/grep tools are typically faster for simple pattern matching.
 - **Prefer instead:** Use `replace` for actual text mutation, or `doc`, `md`, or `patch` when you already know the structured change you want.
-- **Failure behavior:** Pattern miss on existing roots exits `3` with `error_kind: "no_matches"`. When every explicit path root (or non-stdin `--files-from` entry) is missing, exit `1` with `error_kind: "not_found"`. Empty pattern, incompatible flags, and invalid regex patterns use `invalid_input`.
+- **Failure behavior:** Pattern miss on existing roots exits `3` with `error_kind: "no_matches"`. When every explicit path root (or non-stdin `--files-from` entry) is missing, exit `1` with `error_kind: "not_found"`. Empty pattern, incompatible flags (`-l` with `-L`, `--unique`, invalid regex) use `invalid_input`. Search `--unique` is rejected with a pointer at `replace --unique` (search is read-only).
 - **Related:** `--glob`, `--files-from`, `replace`
 
 <!-- ref:command:replace -->
@@ -229,7 +229,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Applies a freeform text fragment with a **required** placement anchor. Strips Morph-style lazy marker lines such as `// ... existing code ...` from `--fragment`, then inserts after/before an anchor or replaces a unique `old` span. Dry-run by default. **Morph** here means [MorphLLM Fast Apply](https://www.morphllm.com/) (a cloud apply product); Patchloom only reuses the common marker style and does not call Morph's API.
 - **Use when:** An agent emitted a Morph-class lazy snippet but you know a unique placement (after/before/old). Prefer this over guessing without anchors.
-- **Flags:** Exactly one of `--after`, `--before`, or `--old`. Provide text via `--fragment` or `--stdin`. Default uniqueness: fail when the anchor matches more than once. Pass `--allow-non-unique` only when multi-match is intentional (plan/MCP field is `unique`, default `true`).
+- **Flags:** Exactly one of `--after`, `--before`, or `--old`. Provide text via `--fragment` or `--stdin`. Default uniqueness: fail when the anchor matches more than once. Pass `--allow-non-unique` only when multi-match is intentional (plan/MCP field is `unique`, default `true`). A fragment without a trailing newline is still placed on its own line next to a whole-line or indented whole-line anchor; the anchor's indent is copied (including when the `--after`/`--before` text itself includes those leading spaces).
 - **Prefer instead:** `replace` for exact known spans; `ast replace` / `ast rename` for code structure; never a cloud Morph merge for offline deterministic hosts.
 - **Failure behavior:** Missing placement or empty fragment after strip → `invalid_input` (exit 1). Anchor miss → `no_matches` (exit 3). Multi-match with default unique → `ambiguous` (exit 5). Preview without `--apply` → exit 2 when changes would apply.
 - **Related:** `replace`, `tx` plan op `apply.fragment`, MCP `apply_fragment`, `docs/plans/morph-gap-matrix.md`
