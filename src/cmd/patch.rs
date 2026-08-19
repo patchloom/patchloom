@@ -8,8 +8,8 @@ use crate::cli::global::GlobalFlags;
 use crate::diff::{DiffResult, format_diff_result_colored};
 use crate::exit;
 use crate::ops::patch::{
-    ApplyHunksOptions, ApplyHunksResult, ApplyHunksStatus, OnStale, apply_hunks,
-    apply_hunks_with_options, parse_patch,
+    ApplyHunksOptions, ApplyHunksResult, ApplyHunksStatus, OnStale, PatchFile, apply_hunks,
+    apply_hunks_with_options, parse_patch, unsupported_git_meta_msg,
 };
 use crate::plan::Operation;
 use crate::tx::engine::WriteSource;
@@ -259,6 +259,38 @@ struct PatchFilesOutput {
     backup_session: Option<String>,
 }
 
+fn dest_clobber_check_result(cwd: &std::path::Path, pf: &PatchFile) -> Option<PatchFileResult> {
+    let dest_exists = crate::ops::file::path_entry_exists(&cwd.join(&pf.path));
+    let msg = pf.dest_clobber_msg(dest_exists)?;
+    let (from, to, action) = if pf.rename_from.is_some() {
+        (
+            pf.rename_from.clone(),
+            Some(pf.path.clone()),
+            Some("renamed"),
+        )
+    } else if pf.copy_from.is_some() {
+        (pf.copy_from.clone(), Some(pf.path.clone()), Some("copied"))
+    } else {
+        (None, None, None)
+    };
+    Some(PatchFileResult {
+        path: pf.path.clone(),
+        status: "already_exists",
+        error: Some(msg),
+        conflicts: None,
+        from,
+        to,
+        action,
+    })
+}
+
+fn patch_load_rel(pf: &PatchFile) -> &str {
+    pf.copy_from
+        .as_deref()
+        .or(pf.rename_from.as_deref())
+        .unwrap_or(pf.path.as_str())
+}
+
 fn patch_file_result(path: &str, applied: &ApplyHunksResult) -> PatchFileResult {
     PatchFileResult {
         path: path.to_string(),
@@ -378,7 +410,7 @@ fn patch_problem_kind(results: &[PatchFileResult]) -> (&'static str, String, u8)
     } else if has_already_exists {
         (
             "already_exists",
-            "one or more patch rename destinations already exist".into(),
+            "one or more patch destinations already exist".into(),
             exit::FAILURE,
         )
     } else if has_stale {
@@ -592,8 +624,26 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut any_problem = false;
         let mut results = Vec::new();
         for pf in &patch_files {
-            // Git rename: check loads old path content (#2101).
-            let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+            if let Some(reason) = pf.unsupported.as_deref() {
+                results.push(PatchFileResult {
+                    path: pf.path.clone(),
+                    status: "error",
+                    error: Some(unsupported_git_meta_msg(&pf.path, reason)),
+                    conflicts: None,
+                    from: None,
+                    to: None,
+                    action: None,
+                });
+                any_problem = true;
+                continue;
+            }
+            if let Some(row) = dest_clobber_check_result(&cwd, pf) {
+                results.push(row);
+                any_problem = true;
+                continue;
+            }
+            // Git rename/copy: check loads source path (#2101 / #2171).
+            let load_rel = patch_load_rel(pf);
             let file_path = cwd.join(load_rel);
             // Strict target load (#1896); creation allows missing → empty.
             let original = match load_patch_target(&file_path, load_rel, pf.is_creation) {
@@ -642,32 +692,12 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     continue;
                 }
             };
-            // Pure rename: content may match original, but apply still moves
-            // the path — report would_change so agents do not skip apply.
-            let is_path_rename = pf.rename_from.as_ref().is_some_and(|from| from != &pf.path);
-            if let Some(from) = pf.rename_from.as_deref() {
-                let dest_path = cwd.join(&pf.path);
-                if crate::ops::patch::rename_would_clobber_dest(
-                    from,
-                    &pf.path,
-                    crate::ops::file::path_entry_exists(&dest_path),
-                ) {
-                    let msg = crate::ops::patch::rename_dest_exists_msg(&pf.path);
-                    results.push(PatchFileResult {
-                        path: pf.path.clone(),
-                        status: "already_exists",
-                        error: Some(msg),
-                        conflicts: None,
-                        from: Some(from.to_string()),
-                        to: Some(pf.path.clone()),
-                        action: Some("renamed"),
-                    });
-                    any_problem = true;
-                    continue;
-                }
-            }
+            // Path-only copy/rename/empty-create: content may match, apply still writes.
+            let is_path_op = pf.rename_from.as_ref().is_some_and(|from| from != &pf.path)
+                || pf.copy_from.is_some()
+                || (pf.is_creation && pf.hunks.is_empty() && pf.copy_from.is_none());
             match apply_hunks(&original, &pf.hunks) {
-                Ok(new_content) if new_content == original && !is_path_rename => {
+                Ok(new_content) if new_content == original && !is_path_op => {
                     results.push(PatchFileResult {
                         path: pf.path.clone(),
                         status: "unchanged",
@@ -680,12 +710,14 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
                 Ok(_) => {
                     any_would_change = true;
-                    let (from, to, action) = if is_path_rename {
+                    let (from, to, action) = if is_path_op && pf.rename_from.is_some() {
                         (
                             pf.rename_from.clone(),
                             Some(pf.path.clone()),
                             Some("renamed"),
                         )
+                    } else if pf.copy_from.is_some() {
+                        (pf.copy_from.clone(), Some(pf.path.clone()), Some("copied"))
                     } else {
                         (None, None, None)
                     };
@@ -741,8 +773,26 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut all_ok = true;
         let mut any_would_change = false;
         for pf in &patch_files {
-            // Git rename: load old path (parity with non-merge check) (#2101).
-            let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+            if let Some(reason) = pf.unsupported.as_deref() {
+                all_ok = false;
+                results.push(PatchFileResult {
+                    path: pf.path.clone(),
+                    status: "error",
+                    error: Some(unsupported_git_meta_msg(&pf.path, reason)),
+                    conflicts: None,
+                    from: None,
+                    to: None,
+                    action: None,
+                });
+                continue;
+            }
+            if let Some(row) = dest_clobber_check_result(&cwd, pf) {
+                all_ok = false;
+                results.push(row);
+                continue;
+            }
+            // Git rename/copy: load source path (parity with non-merge check).
+            let load_rel = patch_load_rel(pf);
             let file_path = cwd.join(load_rel);
             // Merge check: missing target → empty; binary/utf8 → typed kinds.
             let original = match load_patch_target(&file_path, load_rel, true) {
@@ -771,27 +821,6 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     return Ok(exit::FAILURE);
                 }
             };
-            // Parity with normal patch check: refuse rename dest clobber early.
-            if let Some(from) = pf.rename_from.as_deref() {
-                let dest_path = cwd.join(&pf.path);
-                if crate::ops::patch::rename_would_clobber_dest(
-                    from,
-                    &pf.path,
-                    crate::ops::file::path_entry_exists(&dest_path),
-                ) {
-                    all_ok = false;
-                    results.push(PatchFileResult {
-                        path: pf.path.clone(),
-                        status: "already_exists",
-                        error: Some(crate::ops::patch::rename_dest_exists_msg(&pf.path)),
-                        conflicts: None,
-                        from: Some(from.to_string()),
-                        to: Some(pf.path.clone()),
-                        action: Some("renamed"),
-                    });
-                    continue;
-                }
-            }
             match apply_patch_file(&original, &pf.hunks, check_options) {
                 Ok(applied) => {
                     // Conflicts are soft when --allow-conflicts (would write markers).

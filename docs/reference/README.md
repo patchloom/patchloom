@@ -929,7 +929,7 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:check -->
 ### `patch check`
 
-- **What it does:** Dry-run a unified diff without writing. Per-file status is `would_change` (exit 2) when the patch applies and content would change (including pure git renames where content is identical but the path moves), `unchanged` when the result equals the current file, or fail-closed statuses for problems (`missing` → `not_found`, rename dest exists → `already_exists`, `stale` → `ambiguous` / exit 5).
+- **What it does:** Dry-run a unified diff without writing. Per-file status is `would_change` (exit 2) when the patch applies and content would change (including pure git renames, 100% copies, and empty creates where content is identical but the dest is new), `unchanged` when the result equals the current file, or fail-closed statuses for problems (`missing` → `not_found`, rename/copy/empty-create dest exists → `already_exists`, unsupported git-meta → `invalid_input`, `stale` → `ambiguous` / exit 5).
 - **Use when:** CI or agents need the same “would change” signal as `patch apply` preview before committing to `--apply`.
 - **Prefer instead:** Use `patch apply` when the patch should be written, or `replace` and `doc` when you do not actually need to carry a diff file.
 - **JSON:** Includes `applied: false`. Do not treat historical status `clean` as “nothing to do”; that name meant “applies without fuzz” and confused agents.
