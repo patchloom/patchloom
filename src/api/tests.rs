@@ -8649,9 +8649,11 @@ fn apply_fragment_to_file_after_strips_markers() {
     .expect("apply_fragment_to_file after (#2032)");
     assert!(r.applied);
     assert!(r.changed);
-    let body = fs::read_to_string(&path).unwrap();
-    assert!(body.contains("bar();"), "body: {body}");
-    assert!(!body.contains("existing code"), "markers stripped: {body}");
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn foo() {\n  bar();\n  a();\n}\n",
+        "markers stripped and insert after fn foo() {{"
+    );
     assert!(
         r.backup_session.as_ref().is_some_and(|s| !s.is_empty()),
         "apply_fragment apply must record backup session: {r:?}"

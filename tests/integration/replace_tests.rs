@@ -3499,14 +3499,10 @@ fn test_apply_fragment_cli_after_strips_markers() {
         .assert()
         .code(0);
 
-    let body = fs::read_to_string(&file).unwrap();
-    assert!(
-        body.contains("  a();\n  b();\n"),
-        "expected insert after a(); got {body:?}"
-    );
-    assert!(
-        !body.contains("existing code"),
-        "lazy markers must be stripped: {body:?}"
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn foo() {\n  a();\n  b();\n}\n",
+        "markers stripped and insert after a(); no extra blank line"
     );
 }
 

@@ -210,7 +210,8 @@ pub fn normalize_line_insert(
                 } else {
                     indent_before_first_anchor(file_content, anchor)
                 };
-                format!("{eol}{indent}{insert_content}")
+                let payload = strip_one_trailing_eol(insert_content);
+                format!("{eol}{indent}{payload}")
             } else {
                 insert_content.to_string()
             }
@@ -257,7 +258,8 @@ pub fn normalize_line_insert_ci(
                 } else {
                     indent_before_first_anchor_ci(file_content, anchor, true)
                 };
-                format!("{eol}{indent}{insert_content}")
+                let payload = strip_one_trailing_eol(insert_content);
+                format!("{eol}{indent}{payload}")
             } else {
                 insert_content.to_string()
             }
@@ -298,6 +300,16 @@ fn starts_with_line_ending(s: &str) -> bool {
 #[inline]
 fn ends_with_line_ending(s: &str) -> bool {
     s.ends_with("\r\n") || s.ends_with('\n') || s.ends_with('\r')
+}
+
+/// Drop one trailing EOL so `{eol}{indent}{payload}` does not add a blank line
+/// when the payload already ends with a newline (Morph snippets, `--fragment`
+/// from a file). The file's original terminator after the splice stays.
+fn strip_one_trailing_eol(s: &str) -> &str {
+    s.strip_suffix("\r\n")
+        .or_else(|| s.strip_suffix('\n'))
+        .or_else(|| s.strip_suffix('\r'))
+        .unwrap_or(s)
 }
 
 fn looks_like_new_line_payload(insert_content: &str) -> bool {

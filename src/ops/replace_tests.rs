@@ -230,7 +230,18 @@ mod replace_tests {
             let file = "fn f() {\n}\n";
             let out =
                 normalize_line_insert(file, "fn f() {", "    // comment\n", InsertSide::After);
-            assert_eq!(out, "\n    // comment\n");
+            assert_eq!(out, "\n    // comment");
+            assert_eq!(
+                format!("fn f() {{{out}\n}}\n"),
+                "fn f() {\n    // comment\n}\n"
+            );
+        }
+
+        #[test]
+        fn normalize_line_insert_after_trailing_nl_does_not_add_blank_line() {
+            let file = "fn foo() {\n  a();\n}\n";
+            let out = normalize_line_insert(file, "fn foo() {", "  bar();\n", InsertSide::After);
+            assert_eq!(out, "\n  bar();");
         }
 
         #[test]
