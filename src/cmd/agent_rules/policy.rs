@@ -109,6 +109,12 @@ tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n
 Hosts with PathGuard get an automatic refuse of redirects/pipelines/substitutions. \
 Preflight: `api::lifecycle_cmds(plan)` + `api::refuse_lifecycle_shell_metas(cmd)` \
 (`true` / `cargo fmt` / `rustfmt` with no metas still run).\n\n\
+             **Library patch dest preflight (#2170–#2176):** hosts that refuse secret dests \
+before `apply_patch_file` must use `api::unquote_git_c_string` / `api::parse_diff_file_path` \
+/ `api::parse_diff_git_paths` / `api::patch_declared_paths` (or `parse_unified_diff` + \
+`path`/`rename_from`/`copy_from`). Do not quote-peel only and do not whitespace-split \
+`diff --git`. Git 100% `copy from`/`copy to` creates dest and keeps source. Git-meta \
+binary / mode-only dests are listed then apply refuses (no silent skip on mixed patches).\n\n\
              **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback \
 replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
 `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \

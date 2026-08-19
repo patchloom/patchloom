@@ -221,6 +221,7 @@
 //! | Buffer multi-op over-wide fuzzy refuse | [`api::refuse_batch_if_suspicious_fuzzy`] (#2064) |
 //! | Plan `for_each` glob expand (needs `files`, not `cli`) | `api::expand_for_each` / `api::execute_plan` (#2169) |
 //! | Plan format/validate shell preflight | [`api::lifecycle_cmds`] + [`api::refuse_lifecycle_shell_metas`]; `execute_plan(..., Some(guard))` refuses metas (#2168) |
+//! | Patch dest preflight (C-unescape, copy, dest list) | [`api::unquote_git_c_string`] / [`api::parse_diff_file_path`] / [`api::parse_diff_git_paths`] / [`api::patch_declared_paths`] (#2170–#2176). Do not quote-peel or whitespace-split `diff --git`. |
 //! | Plan/tx multi-path worst-case span | [`prefer_widest_matched_text`] / top-level `matched_text` (#2007) |
 //! | File multi-op pre-write span refuse | [`apply_content_edits_to_file_with_span_policy`] + [`FuzzySpanPolicy`] (#2008) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
@@ -334,10 +335,11 @@ pub use api::{
     is_changes_detected, is_conflicts, is_format_failed, is_fuzzy_span_suspicious,
     is_guard_rejected, is_invalid_encoding, is_invalid_input, is_lazy_marker_line,
     is_load_text_strict_fail, is_no_match, is_not_found, is_style_changed, is_type_error,
-    lifecycle_cmds, load_text, load_text_strict, merge_match_modes, parse_unified_diff, peel_error,
+    lifecycle_cmds, load_text, load_text_strict, merge_match_modes, parse_diff_file_path,
+    parse_diff_git_paths, parse_unified_diff, patch_declared_paths, peel_error,
     plan_apply_fragment_to_replace, prefer_widest_matched_text, refuse_batch_if_suspicious_fuzzy,
     refuse_lifecycle_shell_metas, run_post_write_validation, search_file, strip_lazy_markers,
-    text_diff,
+    text_diff, unquote_git_c_string,
 };
 /// Fail-restore / FormatFailed session peel for library hosts (#2127).
 pub use api::{

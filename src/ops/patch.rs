@@ -36,6 +36,39 @@ pub struct PatchFile {
     /// When `--- a/old` and `+++ b/new` differ (git rename), the pre-rename path.
     /// Content is loaded from this path; result is written to [`path`] (#2101).
     pub rename_from: Option<String>,
+    /// Git 100% copy source (`copy from`). Dest is [`path`]. Source is kept
+    /// (`rename_from` stays `None`). (#2171)
+    pub copy_from: Option<String>,
+    /// Dest is listed for preflight but apply refuses (`GIT binary patch`,
+    /// `Binary files … differ`, mode-only chmod). (#2173)
+    pub unsupported: Option<String>,
+}
+
+impl PatchFile {
+    fn with_path(path: String) -> Self {
+        Self {
+            path,
+            hunks: Vec::new(),
+            is_creation: false,
+            is_deletion: false,
+            rename_from: None,
+            copy_from: None,
+            unsupported: None,
+        }
+    }
+
+    /// Dest and source paths this file entry would touch (C-unescaped).
+    #[must_use]
+    pub fn declared_paths(&self) -> Vec<String> {
+        let mut paths = vec![self.path.clone()];
+        if let Some(from) = self.rename_from.as_ref() {
+            paths.push(from.clone());
+        }
+        if let Some(from) = self.copy_from.as_ref() {
+            paths.push(from.clone());
+        }
+        paths
+    }
 }
 
 /// True when a git rename would overwrite an existing destination that is not
@@ -58,6 +91,23 @@ pub fn rename_would_clobber_dest(from: &str, to: &str, dest_exists: bool) -> boo
 pub fn rename_dest_exists_msg(to: &str) -> String {
     format!(
         "destination already exists: {to} (patch rename refuses overwrite; remove dest or use file.rename --force)"
+    )
+}
+
+/// Error message when a git copy dest already exists.
+pub fn copy_dest_exists_msg(to: &str) -> String {
+    format!("destination already exists: {to} (patch copy refuses overwrite; remove dest)")
+}
+
+/// Error message when a git empty-create dest already exists.
+pub fn create_dest_exists_msg(to: &str) -> String {
+    format!("destination already exists: {to} (patch create refuses overwrite; remove dest)")
+}
+
+/// Apply-refuse message for a dest listed from git-meta that we do not write.
+pub fn unsupported_git_meta_msg(path: &str, reason: &str) -> String {
+    format!(
+        "patch apply: {path} -- unsupported git-meta ({reason}); dest is listed for preflight but apply refuses"
     )
 }
 
@@ -112,23 +162,44 @@ fn unquote_git_path_meta(s: &str) -> String {
 }
 
 /// Parse `diff --git a/old b/new` into (old, new) relative paths.
-/// Handles C-quoted paths with spaces: `diff --git "a/my f.rs" "b/other f.rs"`.
-fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
+///
+/// Handles C-quoted paths and mixed quoting (`"a/my file.rs" b/ok.rs`).
+/// Do not split `diff --git` on whitespace in hosts; use this helper. (#2176)
+#[must_use]
+pub fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
     let rest = line.strip_prefix("diff --git ")?;
-    // Prefer quoted form first.
-    if rest.starts_with('"') {
-        // "a/..." "b/..."
-        let mut chars = rest.chars().peekable();
-        let mut parts = Vec::new();
-        while chars.peek().is_some() {
-            while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
-                chars.next();
-            }
-            if chars.peek() != Some(&'"') {
-                break;
-            }
-            chars.next(); // opening "
-            // Keep escapes intact; unquote_git_c_string handles \n, \", \\, etc.
+    let (raw_a, raw_b) = split_two_git_path_tokens(rest)?;
+    // Tokenizer already dropped surrounding quotes; still C-unescape the body
+    // (`b/\056env` → `b/.env`).
+    let a = strip_diff_ab_prefix(&unquote_git_c_string(&raw_a))?;
+    let b = strip_diff_ab_prefix(&unquote_git_c_string(&raw_b))?;
+    if a.is_empty() || b.is_empty() {
+        return None;
+    }
+    Some((a, b))
+}
+
+fn strip_diff_ab_prefix(s: &str) -> Option<String> {
+    s.strip_prefix("a/")
+        .or_else(|| s.strip_prefix("b/"))
+        .map(str::to_string)
+}
+
+fn split_two_git_path_tokens(rest: &str) -> Option<(String, String)> {
+    let mut chars = rest.chars().peekable();
+    let first = next_git_path_token(&mut chars)?;
+    let second = next_git_path_token(&mut chars)?;
+    Some((first, second))
+}
+
+fn next_git_path_token(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
+        chars.next();
+    }
+    match chars.peek() {
+        None => None,
+        Some('"') => {
+            chars.next();
             let mut raw = String::new();
             while let Some(c) = chars.next() {
                 if c == '\\' {
@@ -142,28 +213,20 @@ fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
                     raw.push(c);
                 }
             }
-            parts.push(unquote_git_c_string(&raw));
-            if parts.len() == 2 {
-                break;
-            }
+            Some(raw)
         }
-        if parts.len() == 2 {
-            let a = parts[0].strip_prefix("a/").unwrap_or(&parts[0]);
-            let b = parts[1].strip_prefix("b/").unwrap_or(&parts[1]);
-            if !a.is_empty() && !b.is_empty() {
-                return Some((a.to_string(), b.to_string()));
+        Some(_) => {
+            let mut raw = String::new();
+            while let Some(&c) = chars.peek() {
+                if c.is_whitespace() {
+                    break;
+                }
+                raw.push(c);
+                chars.next();
             }
+            if raw.is_empty() { None } else { Some(raw) }
         }
-        return None;
     }
-    // Unquoted: a/path b/path (split on " b/").
-    let mut parts = rest.splitn(2, " b/");
-    let a = parts.next()?.strip_prefix("a/")?;
-    let b = parts.next()?;
-    if a.is_empty() || b.is_empty() {
-        return None;
-    }
-    Some((unquote_git_path_meta(a), unquote_git_path_meta(b)))
 }
 
 pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
@@ -183,10 +246,19 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
         if lines[i].starts_with("diff --git ")
             && (i + 1 >= lines.len() || !is_file_header(&lines, i + 1))
         {
-            // Look ahead for rename from/to before next file/diff.
+            // Look ahead for rename/copy/git-meta before next file/diff.
             let mut rename_from_meta: Option<String> = None;
             let mut rename_to_meta: Option<String> = None;
+            let mut copy_from_meta: Option<String> = None;
+            let mut copy_to_meta: Option<String> = None;
             let mut saw_copy = false;
+            let mut saw_new_file_mode = false;
+            let mut saw_deleted_file_mode = false;
+            let mut saw_empty_index = false;
+            let mut saw_git_binary = false;
+            let mut saw_binary_files = false;
+            let mut saw_old_mode = false;
+            let mut saw_new_mode = false;
             let mut j = i + 1;
             while j < lines.len() && !lines[j].starts_with("diff ") && !is_file_header(&lines, j) {
                 if let Some(rest) = lines[j].strip_prefix("rename from ") {
@@ -194,8 +266,29 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                     rename_from_meta = Some(unquote_git_path_meta(rest));
                 } else if let Some(rest) = lines[j].strip_prefix("rename to ") {
                     rename_to_meta = Some(unquote_git_path_meta(rest));
-                } else if lines[j].starts_with("copy from ") || lines[j].starts_with("copy to ") {
+                } else if let Some(rest) = lines[j].strip_prefix("copy from ") {
+                    copy_from_meta = Some(unquote_git_path_meta(rest));
                     saw_copy = true;
+                } else if let Some(rest) = lines[j].strip_prefix("copy to ") {
+                    copy_to_meta = Some(unquote_git_path_meta(rest));
+                    saw_copy = true;
+                } else if lines[j].starts_with("new file mode ") {
+                    saw_new_file_mode = true;
+                } else if lines[j].starts_with("deleted file mode ") {
+                    saw_deleted_file_mode = true;
+                } else if lines[j].starts_with("old mode ") {
+                    saw_old_mode = true;
+                } else if lines[j].starts_with("new mode ") {
+                    saw_new_mode = true;
+                } else if lines[j].starts_with("GIT binary patch") {
+                    saw_git_binary = true;
+                } else if lines[j].starts_with("Binary files ") && lines[j].contains(" differ") {
+                    saw_binary_files = true;
+                } else if let Some(rest) = lines[j].strip_prefix("index ") {
+                    // Empty blob create: `index 0000000..e69de29`.
+                    if rest.contains("0000000..e69de29") || rest.starts_with("0000000..") {
+                        saw_empty_index = true;
+                    }
                 } else if lines[j].starts_with("@@ ") {
                     // Has hunks under this diff without ---/+++; fall through
                     // to normal scan (should not happen in git format).
@@ -213,19 +306,66 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                 // Pure rename: require explicit rename from/to (never infer from
                 // path inequality alone — that mis-classifies copy as rename
                 // and would delete the source on apply).
-                files.push(PatchFile {
-                    path: to,
-                    hunks: Vec::new(),
-                    is_creation: false,
-                    is_deletion: false,
-                    rename_from: Some(from),
-                });
+                let mut pf = PatchFile::with_path(to);
+                pf.rename_from = Some(from);
+                files.push(pf);
+                i = j;
+                continue;
+            } else if let (Some(from), Some(to)) = (copy_from_meta, copy_to_meta) {
+                // 100% git copy: dest is created, source is kept. (#2171)
+                let mut pf = PatchFile::with_path(to);
+                pf.is_creation = true;
+                pf.copy_from = Some(from);
+                files.push(pf);
+                i = j;
+                continue;
+            } else if saw_git_binary || saw_binary_files {
+                let dest = parse_diff_git_paths(lines[i]).map(|(_, b)| b);
+                let Some(dest) = dest else {
+                    return Err("binary git-meta dest could not be parsed".to_string());
+                };
+                let reason = if saw_git_binary {
+                    "GIT binary patch"
+                } else {
+                    "Binary files differ"
+                };
+                let mut pf = PatchFile::with_path(dest);
+                pf.unsupported = Some(reason.to_string());
+                files.push(pf);
+                i = j;
+                continue;
+            } else if saw_new_file_mode && saw_empty_index {
+                let dest = parse_diff_git_paths(lines[i]).map(|(_, b)| b);
+                let Some(dest) = dest else {
+                    return Err("empty-create dest could not be parsed".to_string());
+                };
+                let mut pf = PatchFile::with_path(dest);
+                pf.is_creation = true;
+                files.push(pf);
+                i = j;
+                continue;
+            } else if saw_deleted_file_mode {
+                let dest = parse_diff_git_paths(lines[i]).map(|(a, _)| a);
+                let Some(dest) = dest else {
+                    return Err("deleted-file dest could not be parsed".to_string());
+                };
+                let mut pf = PatchFile::with_path(dest);
+                pf.is_deletion = true;
+                files.push(pf);
+                i = j;
+                continue;
+            } else if saw_old_mode && saw_new_mode {
+                let dest = parse_diff_git_paths(lines[i]).map(|(_, b)| b);
+                let Some(dest) = dest else {
+                    return Err("mode-only dest could not be parsed".to_string());
+                };
+                let mut pf = PatchFile::with_path(dest);
+                pf.unsupported = Some("mode-only chmod".to_string());
+                files.push(pf);
                 i = j;
                 continue;
             } else {
-                // copy from/to or incomplete meta: skip this diff line; do not
-                // treat as rename (avoids deleting the source of a copy).
-                let _ = parse_diff_git_paths(lines[i]);
+                // Incomplete meta (similarity only, etc.): skip this diff line.
                 i += 1;
                 continue;
             }
@@ -320,6 +460,8 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
             is_creation,
             is_deletion,
             rename_from,
+            copy_from: None,
+            unsupported: None,
         });
     }
 
@@ -355,19 +497,53 @@ fn parse_file_path(line: &str) -> String {
     path.to_string()
 }
 
-/// Git C-string unescape for paths inside double quotes.
+/// Dest and source paths a unified diff would touch (C-unescaped).
 ///
-/// Handles `\"`, `\\`, `\n`/`\t`/`\r`, and up to three-digit octal byte escapes
-/// (`\303\251` → UTF-8 `é`) used by `core.quotePath` for non-ASCII names.
-fn unquote_git_c_string(s: &str) -> String {
+/// Includes `---`/`+++`, rename from/to, copy from/to, empty creates, and
+/// git-meta dests that apply refuses (binary / mode-only). Parse errors are
+/// `Err` (do not return a partial dest list). (#2172)
+pub fn patch_declared_paths(text: &str) -> Result<Vec<String>, String> {
+    let files = parse_patch(text)?;
+    Ok(files.iter().flat_map(PatchFile::declared_paths).collect())
+}
+
+/// Parse one unified-diff path token (`+++ b/foo`, `rename to "\\056env"`).
+///
+/// Accepts a raw token with or without a `+++ ` / `--- ` / `rename` / `copy`
+/// prefix so hosts can feed single lines. (#2170)
+#[must_use]
+pub fn parse_diff_file_path(token: &str) -> String {
+    let t = token.trim();
+    let t = t
+        .strip_prefix("+++ ")
+        .or_else(|| t.strip_prefix("--- "))
+        .or_else(|| t.strip_prefix("rename from "))
+        .or_else(|| t.strip_prefix("rename to "))
+        .or_else(|| t.strip_prefix("copy from "))
+        .or_else(|| t.strip_prefix("copy to "))
+        .unwrap_or(t);
+    parse_file_path(&format!("+++ {t}"))
+}
+
+/// Git C-string unescape for a quoted path body (no surrounding quotes).
+///
+/// Handles `\"`, `\\`, `\a`/`\b`/`\f`/`\n`/`\r`/`\t`/`\v`, and up to
+/// three-digit octal byte escapes (`\303\251` → UTF-8 `é`, `\056` → `.`)
+/// used by `core.quotePath`. (#2170 / #2175)
+#[must_use]
+pub fn unquote_git_c_string(s: &str) -> String {
     let mut bytes = Vec::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
+                Some('a') => bytes.push(b'\x07'),
+                Some('b') => bytes.push(b'\x08'),
+                Some('f') => bytes.push(b'\x0c'),
                 Some('n') => bytes.push(b'\n'),
-                Some('t') => bytes.push(b'\t'),
                 Some('r') => bytes.push(b'\r'),
+                Some('t') => bytes.push(b'\t'),
+                Some('v') => bytes.push(b'\x0b'),
                 Some('"') => bytes.push(b'"'),
                 Some('\\') => bytes.push(b'\\'),
                 Some(d) if d.is_digit(8) => {
@@ -526,6 +702,8 @@ pub struct PatchApplyFileResult {
     pub is_deletion: bool,
     /// Pre-rename path when applying a git rename patch (#2101).
     pub rename_from: Option<String>,
+    /// Git copy source when dest is a 100% copy (source is kept). (#2171)
+    pub copy_from: Option<String>,
 }
 
 pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
@@ -991,12 +1169,25 @@ where
     })?;
     let mut results = Vec::new();
     for pf in &patch_files {
+        if let Some(reason) = pf.unsupported.as_deref() {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: unsupported_git_meta_msg(&pf.path, reason),
+            }));
+        }
         // New file creation: original is empty, don't try to load from disk.
         // Git rename: load from rename_from (old path), write to path (new).
-        let load_path = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+        // Git copy: load from copy_from, write dest, keep source. (#2171)
+        let load_path = pf
+            .copy_from
+            .as_deref()
+            .or(pf.rename_from.as_deref())
+            .unwrap_or(pf.path.as_str());
         let pure_rename =
             pf.rename_from.is_some() && pf.hunks.is_empty() && !pf.is_deletion && !pf.is_creation;
-        let original = if pf.is_creation {
+        let pure_copy = pf.copy_from.is_some() && pf.hunks.is_empty();
+        let original = if pf.copy_from.is_some() {
+            load_original(load_path)?
+        } else if pf.is_creation {
             String::new()
         } else {
             match load_original(load_path) {
@@ -1022,6 +1213,21 @@ where
                 is_creation: false,
                 is_deletion: false,
                 rename_from: pf.rename_from.clone(),
+                copy_from: None,
+            });
+            continue;
+        }
+        // Pure copy (empty hunks): write dest, keep source.
+        if pure_copy {
+            results.push(PatchApplyFileResult {
+                path: pf.path.clone(),
+                content: original,
+                status: ApplyHunksStatus::Clean,
+                conflicts: Vec::new(),
+                is_creation: true,
+                is_deletion: false,
+                rename_from: None,
+                copy_from: pf.copy_from.clone(),
             });
             continue;
         }
@@ -1039,6 +1245,7 @@ where
                     is_creation: false,
                     is_deletion: true,
                     rename_from: None,
+                    copy_from: None,
                 });
                 continue;
             }
@@ -1074,6 +1281,7 @@ where
                 is_creation: false,
                 is_deletion: is_clean_delete,
                 rename_from: None,
+                copy_from: None,
             });
             continue;
         }
@@ -1107,6 +1315,7 @@ where
             is_creation: pf.is_creation,
             is_deletion: false,
             rename_from: pf.rename_from.clone(),
+            copy_from: pf.copy_from.clone(),
         });
     }
     Ok(results)

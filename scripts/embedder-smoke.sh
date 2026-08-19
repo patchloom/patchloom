@@ -165,6 +165,12 @@ run_lib_filter execute_plan_guard_refuses_format_redirect
 run_lib_filter refuse_lifecycle_shell_metas_rejects_redirects_and_substitutions
 pass "library for_each expand + lifecycle shell preflight (#2168/#2169)"
 
+# --- #2170-#2176: patch dest helpers + git copy ---
+run_lib_filter patch_dest_helpers_public
+run_lib_filter apply_patch_file_copy_creates_dest_keeps_source
+run_lib_filter apply_patch_file_copy_refuses_existing_dest
+pass "library patch dest preflight + git copy (#2170/#2171/#2172)"
+
 # --- #2031-#2033: path-only non-text + apply_fragment_to_file + honesty ctors ---
 run_lib_filter file_rename_binary_path_only
 run_lib_filter file_rename_invalid_utf8_path_only

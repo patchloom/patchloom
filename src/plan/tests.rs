@@ -811,6 +811,15 @@ fn declared_paths_covers_operation_variants() {
     let plan = parse_plan(json).unwrap();
     assert_eq!(declared_paths(&plan.operations[0]), vec!["x"]);
 
+    // PatchApply 100% copy: dest + source for PathGuard / host dest-deny (#2171)
+    let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"diff --git a/foo.rs b/bar.rs\nsimilarity index 100%\ncopy from foo.rs\ncopy to bar.rs\n"}]}"#;
+    let plan = parse_plan(json).unwrap();
+    let ps = declared_paths(&plan.operations[0]);
+    assert!(
+        ps.contains(&"bar.rs".to_string()) && ps.contains(&"foo.rs".to_string()),
+        "copy dest+source must be declared: {ps:?}"
+    );
+
     // PatchApply with invalid diff: returns empty (error deferred to apply time)
     let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"not a valid diff"}]}"#;
     let plan = parse_plan(json).unwrap();

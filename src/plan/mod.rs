@@ -355,16 +355,7 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
             // rename_from must be guarded too (pure rename of ../outside must fail closed).
             // If parsing fails, return empty (the error will surface at apply time).
             match crate::ops::patch::parse_patch(diff) {
-                Ok(files) => files
-                    .into_iter()
-                    .flat_map(|pf| {
-                        let mut paths = vec![pf.path];
-                        if let Some(from) = pf.rename_from {
-                            paths.push(from);
-                        }
-                        paths
-                    })
-                    .collect(),
+                Ok(files) => files.iter().flat_map(|pf| pf.declared_paths()).collect(),
                 Err(_) => vec![],
             }
         }

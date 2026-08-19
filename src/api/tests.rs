@@ -1312,6 +1312,177 @@ rename to new.rs\n";
     );
 }
 
+#[test]
+fn apply_patch_file_copy_creates_dest_keeps_source() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("foo.rs"), "body\n").unwrap();
+
+    let patch = "\
+diff --git a/foo.rs b/bar.rs\n\
+similarity index 100%\n\
+copy from foo.rs\n\
+copy to bar.rs\n";
+
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].path, "bar.rs");
+    assert!(results[0].changed);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("foo.rs")).unwrap(),
+        "body\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("bar.rs")).unwrap(),
+        "body\n"
+    );
+}
+
+#[test]
+fn apply_patch_file_copy_refuses_existing_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("foo.rs"), "src\n").unwrap();
+    fs::write(dir.path().join("bar.rs"), "taken\n").unwrap();
+
+    let patch = "\
+diff --git a/foo.rs b/bar.rs\n\
+similarity index 100%\n\
+copy from foo.rs\n\
+copy to bar.rs\n";
+
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_already_exists(&err),
+        "expected already_exists, got: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("foo.rs")).unwrap(),
+        "src\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("bar.rs")).unwrap(),
+        "taken\n"
+    );
+}
+
+#[test]
+fn apply_patch_file_copy_missing_source_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let patch = "\
+diff --git a/foo.rs b/bar.rs\n\
+similarity index 100%\n\
+copy from foo.rs\n\
+copy to bar.rs\n";
+
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Preview, None).unwrap_err();
+    assert!(
+        crate::api::is_not_found(&err),
+        "expected not_found, got: {err}"
+    );
+    assert!(!dir.path().join("bar.rs").exists());
+}
+
+#[test]
+fn apply_patch_file_empty_create_refuses_existing_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join(".env"), "keep\n").unwrap();
+    let patch = "\
+diff --git a/ok.txt b/.env\n\
+new file mode 100644\n\
+index 0000000..e69de29\n";
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_already_exists(&err),
+        "expected already_exists, got: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".env")).unwrap(),
+        "keep\n"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn execute_plan_empty_create_refuses_existing_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join(".env"), "keep\n").unwrap();
+    let plan = crate::plan::Plan {
+        version: 1,
+        cwd: Some(dir.path().to_string_lossy().into()),
+        write_policy: None,
+        strict: None,
+        operations: vec![crate::plan::Operation::PatchApply {
+            diff: "diff --git a/ok.txt b/.env\nnew file mode 100644\nindex 0000000..e69de29\n"
+                .into(),
+            on_stale: Default::default(),
+            allow_conflicts: false,
+        }],
+        format: None,
+        validate: None,
+        verify: None,
+        for_each: None,
+    };
+    let report = execute_plan(plan, dir.path(), None).expect("plan report");
+    assert!(!report.ok, "empty-create dest-exists must fail: {report:?}");
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("already_exists"),
+        "{report:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".env")).unwrap(),
+        "keep\n"
+    );
+}
+
+#[test]
+fn patch_dest_helpers_public() {
+    assert_eq!(unquote_git_c_string("\\056env"), ".env");
+    assert_eq!(parse_diff_file_path(r#"+++ "b/\056env""#), ".env");
+    let paths = patch_declared_paths(
+        "\
+diff --git a/foo.rs b/bar.rs
+similarity index 100%
+copy from foo.rs
+copy to bar.rs
+",
+    )
+    .unwrap();
+    assert!(paths.contains(&"bar.rs".into()));
+    let files = parse_unified_diff(
+        "\
+diff --git a/foo.rs b/bar.rs
+similarity index 100%
+copy from foo.rs
+copy to bar.rs
+",
+    )
+    .unwrap();
+    assert_eq!(files[0].path, "bar.rs");
+    assert!(files[0].rename_from.is_none());
+    assert_eq!(files[0].copy_from.as_deref(), Some("foo.rs"));
+}
+
+#[test]
+fn apply_patch_file_c_quoted_bel_dest_writes_bel_name() {
+    // #2175: `\a` is BEL (0x07), not the letter `a`.
+    let dir = TempDir::new().unwrap();
+    let dest_name = format!("foo{}bar.rs", '\u{7}');
+    let patch = "\
+--- /dev/null
++++ \"b/foo\\abar.rs\"
+@@ -0,0 +1 @@
++secret
+";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].path, dest_name);
+    assert_eq!(
+        fs::read_to_string(dir.path().join(&dest_name)).unwrap(),
+        "secret\n"
+    );
+    assert!(!dir.path().join("fooabar.rs").exists());
+}
+
 /// Pure rename Preview: content may be unchanged, but path moves so `changed`
 /// must be true and path/dest_path must report old → new for host branching.
 #[test]

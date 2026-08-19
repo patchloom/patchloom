@@ -531,8 +531,11 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
             && out.contains("lifecycle_cmds")
             && out.contains("refuse_lifecycle_shell_metas")
             && out.contains("files")
-            && out.contains("#2168"),
-        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle (#2168/#2169)"
+            && out.contains("#2168")
+            && out.contains("unquote_git_c_string")
+            && out.contains("patch_declared_paths")
+            && out.contains("#2170"),
+        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle/patch dest (#2168/#2169/#2170)"
     );
     assert!(
         out.contains("Which surface to use")

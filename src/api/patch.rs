@@ -85,9 +85,32 @@ fn patch_write(
 
         // Apply to the first file in the patch (git rename: load old path).
         let pf = &patch_files[0];
-        let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+        if let Some(reason) = pf.unsupported.as_deref() {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: crate::ops::patch::unsupported_git_meta_msg(&pf.path, reason),
+            }));
+        }
+        let load_rel = pf
+            .copy_from
+            .as_deref()
+            .or(pf.rename_from.as_deref())
+            .unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
+        if pf.copy_from.is_some() && crate::ops::file::path_entry_exists(&write_path) {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: crate::ops::patch::copy_dest_exists_msg(&pf.path),
+            }));
+        }
+        if pf.is_creation
+            && pf.hunks.is_empty()
+            && pf.copy_from.is_none()
+            && crate::ops::file::path_entry_exists(&write_path)
+        {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: crate::ops::patch::create_dest_exists_msg(&pf.path),
+            }));
+        }
         if let Some(from) = pf.rename_from.as_deref()
             && crate::ops::patch::rename_would_clobber_dest(
                 from,
@@ -99,8 +122,18 @@ fn patch_write(
                 msg: crate::ops::patch::rename_dest_exists_msg(&pf.path),
             }));
         }
+        if pf.copy_from.is_some() && !crate::ops::file::path_entry_exists(&load_path) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("file not found: {load_rel}"),
+            )
+            .into());
+        }
         // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
-        let original = if pf.is_creation {
+        // 100% copy loads source bytes as text when possible; dest is still written.
+        let original = if pf.copy_from.is_some() {
+            crate::files::load_text_strict(&load_path, load_rel)?
+        } else if pf.is_creation {
             String::new()
         } else {
             crate::files::load_text_strict(&load_path, load_rel)?
@@ -190,11 +223,27 @@ pub fn apply_patch_file(
             original: String,
             new_content: String,
         },
+        CopyFile {
+            from: std::path::PathBuf,
+            to: std::path::PathBuf,
+            display: String,
+            original: String,
+            new_content: String,
+        },
     }
 
     let mut staged: Vec<StageOp> = Vec::new();
     for pf in &patch_files {
-        let load_rel = pf.rename_from.as_deref().unwrap_or(pf.path.as_str());
+        if let Some(reason) = pf.unsupported.as_deref() {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: crate::ops::patch::unsupported_git_meta_msg(&pf.path, reason),
+            }));
+        }
+        let load_rel = pf
+            .copy_from
+            .as_deref()
+            .or(pf.rename_from.as_deref())
+            .unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
         if let Some(from) = pf.rename_from.as_deref()
@@ -207,6 +256,46 @@ pub fn apply_patch_file(
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                 msg: crate::ops::patch::rename_dest_exists_msg(&pf.path),
             }));
+        }
+        if pf.copy_from.is_some() && crate::ops::file::path_entry_exists(&write_path) {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: crate::ops::patch::copy_dest_exists_msg(&pf.path),
+            }));
+        }
+        if pf.is_creation
+            && pf.hunks.is_empty()
+            && pf.copy_from.is_none()
+            && crate::ops::file::path_entry_exists(&write_path)
+        {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                msg: crate::ops::patch::create_dest_exists_msg(&pf.path),
+            }));
+        }
+
+        if let Some(from) = pf.copy_from.as_ref() {
+            let from_path = cwd.join(from);
+            if !crate::ops::file::path_entry_exists(&from_path) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("file not found: {from}"),
+                )
+                .into());
+            }
+            let original = match crate::files::load_text_strict(&from_path, from) {
+                Ok(s) => s,
+                Err(e) if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) => {
+                    String::new()
+                }
+                Err(e) => return Err(e),
+            };
+            staged.push(StageOp::CopyFile {
+                from: from_path,
+                to: write_path,
+                display: pf.path.clone(),
+                original: original.clone(),
+                new_content: original,
+            });
+            continue;
         }
 
         if pf.is_deletion {
@@ -288,6 +377,10 @@ pub fn apply_patch_file(
                     super::ensure_contained_entry(guard, from)?;
                     super::ensure_contained_entry(guard, to)?;
                 }
+                StageOp::CopyFile { from, to, .. } => {
+                    super::ensure_contained(guard, from)?;
+                    super::ensure_contained(guard, to)?;
+                }
             }
         }
         let mut backup = crate::backup::BackupSession::new(cwd)?;
@@ -312,6 +405,9 @@ pub fn apply_patch_file(
                     if to != from {
                         backup.save_before_write(to)?;
                     }
+                }
+                StageOp::CopyFile { to, .. } => {
+                    backup.save_before_write(to)?;
                 }
             }
         }
@@ -361,6 +457,22 @@ pub fn apply_patch_file(
                         if new_content != original {
                             crate::write::atomic_write(to, new_content, &policy)?;
                         }
+                    }
+                    StageOp::CopyFile { from, to, .. } => {
+                        if let Some(parent) = to.parent()
+                            && !parent.as_os_str().is_empty()
+                            && !parent.exists()
+                        {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        // Byte copy; source stays. (#2171)
+                        std::fs::copy(from, to).map_err(|e| {
+                            anyhow::anyhow!(
+                                "patch copy: failed to copy {} -> {}: {e}",
+                                from.display(),
+                                to.display()
+                            )
+                        })?;
                     }
                 }
             }
@@ -415,6 +527,23 @@ pub fn apply_patch_file(
                 e.changed = true;
                 e.path = from_display;
                 e.dest_path = Some(to_display);
+                e
+            }
+            StageOp::CopyFile {
+                display,
+                original,
+                new_content,
+                ..
+            } => {
+                let mut e = super::build_edit_result(
+                    &display,
+                    original,
+                    new_content,
+                    applied,
+                    "patch",
+                    None,
+                );
+                e.changed = true;
                 e
             }
         };

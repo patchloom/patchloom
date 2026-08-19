@@ -1343,10 +1343,280 @@ similarity index 100%
 copy from foo.rs
 copy to bar.rs
 ";
-        let err = parse_patch(diff).unwrap_err();
+        let files = parse_patch(diff).expect("100% copy must parse");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "bar.rs");
+        assert_eq!(files[0].copy_from.as_deref(), Some("foo.rs"));
         assert!(
-            err.contains("no files") || err.contains("no hunks"),
-            "copy must not become a rename file entry, got: {err}"
+            files[0].rename_from.is_none(),
+            "copy must not become rename, got {:?}",
+            files[0].rename_from
+        );
+        assert!(files[0].is_creation);
+        assert!(files[0].hunks.is_empty());
+    }
+
+    #[test]
+    fn unquote_git_c_string_octal_and_letters() {
+        assert_eq!(unquote_git_c_string("056env"), "056env");
+        assert_eq!(unquote_git_c_string("\\056env"), ".env");
+        assert_eq!(unquote_git_c_string("my\\040file"), "my file");
+        assert_eq!(unquote_git_c_string("say\\\"hi"), "say\"hi");
+        assert_eq!(unquote_git_c_string("a\\\\b"), "a\\b");
+        assert_eq!(unquote_git_c_string("caf\\303\\251"), "café");
+        assert_eq!(unquote_git_c_string("\\a\\b\\f\\v"), "\u{7}\u{8}\u{c}\u{b}");
+    }
+
+    #[test]
+    fn parse_diff_file_path_tokens() {
+        assert_eq!(parse_diff_file_path(r#"+++ "b/\056env""#), ".env");
+        assert_eq!(parse_diff_file_path(r#"rename to "\056env""#), ".env");
+        assert_eq!(parse_diff_file_path(r#"copy to "\056env""#), ".env");
+        assert_eq!(parse_diff_file_path("+++ b/foo.rs"), "foo.rs");
+        assert_eq!(
+            parse_diff_file_path(r#"+++ "b/foo\abar.rs""#),
+            format!("foo{}bar.rs", '\u{7}')
+        );
+    }
+
+    #[test]
+    fn parse_diff_git_paths_quoted_space_and_mixed() {
+        let both = parse_diff_git_paths(r#"diff --git "a/my file.rs" "b/other file.rs""#)
+            .expect("both quoted");
+        assert_eq!(both, ("my file.rs".into(), "other file.rs".into()));
+        let dest_quoted =
+            parse_diff_git_paths(r#"diff --git a/ok.rs "b/my file.rs""#).expect("dest quoted");
+        assert_eq!(dest_quoted, ("ok.rs".into(), "my file.rs".into()));
+        let src_quoted =
+            parse_diff_git_paths(r#"diff --git "a/my file.rs" b/ok.rs"#).expect("src quoted");
+        assert_eq!(src_quoted, ("my file.rs".into(), "ok.rs".into()));
+        let env_secret = parse_diff_git_paths(r#"diff --git "a/notes.txt" "b/.env secret""#)
+            .expect("env secret");
+        assert_eq!(env_secret, ("notes.txt".into(), ".env secret".into()));
+        let unquoted = parse_diff_git_paths("diff --git a/ok.rs b/.env").expect("unquoted");
+        assert_eq!(unquoted, ("ok.rs".into(), ".env".into()));
+    }
+
+    #[test]
+    fn patch_declared_paths_copy_and_octal() {
+        let paths = patch_declared_paths(
+            "\
+diff --git a/foo.rs b/bar.rs
+similarity index 100%
+copy from foo.rs
+copy to bar.rs
+",
+        )
+        .expect("copy dests");
+        assert!(paths.contains(&"bar.rs".into()), "{paths:?}");
+        assert!(paths.contains(&"foo.rs".into()), "{paths:?}");
+
+        let octal = patch_declared_paths(
+            r#"diff --git "a/ok.txt" "b/\056env"
+new file mode 100644
+index 0000000..e69de29
+"#,
+        )
+        .expect("octal empty create");
+        assert!(octal.contains(&".env".into()), "{octal:?}");
+    }
+
+    #[test]
+    fn mixed_copy_plus_hunk_lists_copy_dest() {
+        let diff = "\
+diff --git a/foo.rs b/bar.rs
+similarity index 100%
+copy from foo.rs
+copy to bar.rs
+diff --git a/notes.txt b/notes.txt
+--- a/notes.txt
++++ b/notes.txt
+@@ -1 +1 @@
+-old
++new
+";
+        let files = parse_patch(diff).expect("mixed copy+hunk");
+        assert_eq!(files.len(), 2, "{files:?}");
+        assert!(
+            files
+                .iter()
+                .any(|f| f.path == "bar.rs" && f.copy_from.is_some()),
+            "copy dest must be listed: {files:?}"
+        );
+        assert!(
+            files.iter().any(|f| f.path == "notes.txt"),
+            "hunked dest must remain: {files:?}"
+        );
+    }
+
+    #[test]
+    fn mixed_binary_plus_hunk_lists_binary_dest() {
+        let diff = "\
+diff --git a/ok.txt b/secret.bin
+index 1111111..2222222
+GIT binary patch
+literal 12
+zcmV-30c%W6N;csHwEFcP0000N
+
+diff --git a/notes.txt b/notes.txt
+--- a/notes.txt
++++ b/notes.txt
+@@ -1 +1 @@
+-old
++new
+";
+        let files = parse_patch(diff).expect("mixed binary+hunk");
+        assert!(
+            files
+                .iter()
+                .any(|f| f.path == "secret.bin" && f.unsupported.is_some()),
+            "binary dest must be listed: {files:?}"
+        );
+        assert!(files.iter().any(|f| f.path == "notes.txt"));
+    }
+
+    #[test]
+    fn mixed_binary_files_differ_plus_hunk_lists_dest() {
+        let diff = "\
+diff --git a/ok.txt b/secret.bin
+index 1111111..2222222
+Binary files a/ok.txt and b/secret.bin differ
+diff --git a/notes.txt b/notes.txt
+--- a/notes.txt
++++ b/notes.txt
+@@ -1 +1 @@
+-old
++new
+";
+        let files = parse_patch(diff).expect("Binary files differ");
+        assert!(
+            files.iter().any(|f| f.path == "secret.bin"
+                && f.unsupported.as_deref() == Some("Binary files differ")),
+            "{files:?}"
+        );
+    }
+
+    #[test]
+    fn mixed_empty_create_plus_hunk_lists_empty_dest() {
+        let diff = "\
+diff --git a/ok.txt b/.env
+new file mode 100644
+index 0000000..e69de29
+diff --git a/notes.txt b/notes.txt
+--- a/notes.txt
++++ b/notes.txt
+@@ -1 +1 @@
+-old
++new
+";
+        let files = parse_patch(diff).expect("mixed empty create");
+        assert!(
+            files
+                .iter()
+                .any(|f| f.path == ".env" && f.is_creation && f.hunks.is_empty()),
+            "{files:?}"
+        );
+    }
+
+    #[test]
+    fn binary_only_patch_is_not_empty_ok() {
+        let diff = "\
+diff --git a/ok.txt b/secret.bin
+index 1111111..2222222
+GIT binary patch
+literal 12
+zcmV-30c%W6N;csHwEFcP0000N
+";
+        let files = parse_patch(diff).expect("binary-only must list dest");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "secret.bin");
+        assert!(files[0].unsupported.is_some());
+    }
+
+    #[test]
+    fn mode_only_chmod_lists_dest() {
+        let diff = "\
+diff --git a/ok.rs b/ok.rs
+old mode 100644
+new mode 100755
+";
+        let files = parse_patch(diff).expect("mode-only must list dest");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "ok.rs");
+        assert_eq!(files[0].unsupported.as_deref(), Some("mode-only chmod"));
+        let paths = patch_declared_paths(diff).expect("mode dest");
+        assert!(paths.contains(&"ok.rs".into()), "{paths:?}");
+    }
+
+    #[test]
+    fn copy_to_c_quoted_octal() {
+        let diff = "\
+diff --git \"a/foo.rs\" \"b/\\056env\"
+similarity index 100%
+copy from foo.rs
+copy to \"\\056env\"
+";
+        let files = parse_patch(diff).expect("C-quoted copy dest");
+        assert_eq!(files[0].path, ".env");
+        assert_eq!(files[0].copy_from.as_deref(), Some("foo.rs"));
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn apply_pure_copy_keeps_source() {
+        use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
+        let mut files = std::collections::HashMap::new();
+        files.insert("foo.rs".to_string(), "body\n".to_string());
+        let results = apply_patch_with_loader(
+            "\
+diff --git a/foo.rs b/bar.rs
+similarity index 100%
+copy from foo.rs
+copy to bar.rs
+",
+            |path| {
+                files
+                    .get(path)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("missing {path}"))
+            },
+            ApplyHunksOptions::default(),
+        )
+        .expect("apply copy");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "bar.rs");
+        assert_eq!(results[0].copy_from.as_deref(), Some("foo.rs"));
+        assert!(results[0].rename_from.is_none());
+        assert_eq!(results[0].content, "body\n");
+        assert!(results[0].is_creation);
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn apply_mixed_binary_refuses() {
+        use crate::ops::patch::{ApplyHunksOptions, apply_patch_with_loader};
+        let err = apply_patch_with_loader(
+            "\
+diff --git a/ok.txt b/secret.bin
+index 1111111..2222222
+GIT binary patch
+literal 12
+zcmV-30c%W6N;csHwEFcP0000N
+diff --git a/notes.txt b/notes.txt
+--- a/notes.txt
++++ b/notes.txt
+@@ -1 +1 @@
+-old
++new
+",
+            |_| Ok("old\n".into()),
+            ApplyHunksOptions::default(),
+        )
+        .expect_err("mixed binary must refuse apply");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("secret.bin") && msg.contains("unsupported"),
+            "{msg}"
         );
     }
 
