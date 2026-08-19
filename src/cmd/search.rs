@@ -83,6 +83,10 @@ pub struct SearchArgs {
     /// `truncated: true` when a list was cut.
     #[arg(long, default_value_t = 0)]
     pub max_results: usize,
+    /// Hidden reject so clap does not tip `--quiet` for `--unique` (#2196).
+    /// `--unique` is a replace flag (fail when the old string matches more than once).
+    #[arg(long, hide = true)]
+    pub unique: bool,
 }
 
 impl SearchArgs {
@@ -516,6 +520,11 @@ pub(crate) fn format_results(
 }
 
 pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
+    if args.unique {
+        let msg = "search does not take --unique; use replace --unique to fail when the old string matches more than once";
+        global.emit_error_json_kind(Some("invalid_input"), msg)?;
+        return Ok(exit::FAILURE);
+    }
     if args.pattern.is_empty() {
         let msg = "search pattern must not be empty";
         global.emit_error_json_kind(Some("invalid_input"), msg)?;
@@ -764,6 +773,7 @@ mod tests {
             case_insensitive: false,
             assert_count: None,
             max_results: 0,
+            unique: false,
         }
     }
 
@@ -771,6 +781,15 @@ mod tests {
     fn empty_pattern_rejected() {
         let dir = make_test_dir();
         let args = make_args("", vec![dir.path().to_string_lossy().into_owned()]);
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
+    #[test]
+    fn unique_flag_is_invalid_input() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.unique = true;
         let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::FAILURE);
     }

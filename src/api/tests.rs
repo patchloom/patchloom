@@ -3042,6 +3042,7 @@ fn search_parity_custom_ignore_across_api_cli_and_plan() {
             case_insensitive: false,
             assert_count: None,
             max_results: opts.max_results,
+            unique: false,
         };
         let cli_results = crate::cmd::search::collect_matches(&cli_args, &g).unwrap();
         cli_results.file_match_counts.values().sum()

@@ -294,6 +294,7 @@ impl PatchloomService {
                 case_insensitive: p.case_insensitive,
                 assert_count: p.assert_count,
                 max_results: p.max_results,
+                unique: false,
             };
             let mut global = GlobalFlags::with_cwd_and_json(svc.cwd());
             global.glob = p.globs;
