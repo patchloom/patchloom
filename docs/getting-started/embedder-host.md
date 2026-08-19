@@ -172,8 +172,9 @@ Prefer this (or plan/`execute_plan` patch ops) over looping single-file
 enables `files`). It does **not** require `cli`. Call
 `api::expand_for_each(&mut plan, cwd)` before walking
 `Operation::declared_paths()`, or rely on `execute_plan`, which expands
-before PathGuard (#2169). Zero-match globs are `NoMatch`. Do not combine
-`plan.cwd` with `for_each`.
+before PathGuard (#2169). Zero-match globs are `NoMatch`. Unparseable
+`glob`/`exclude` and a `filter` other than `has_symbol(NAME)` are
+`InvalidInput`. Do not combine `plan.cwd` with `for_each`.
 
 Plan `format` / `validate` steps are raw shell (`sh -c` / `cmd /C`). MCP
 `execute_plan` still strips them (#1142). Library hosts that pass

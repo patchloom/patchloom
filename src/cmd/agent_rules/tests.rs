@@ -413,6 +413,10 @@ fn agent_rules_documents_for_each_plan_json_shape() {
         out.contains("plan-level field") || out.contains("#1842"),
         "must say for_each is plan-level not an op"
     );
+    assert!(
+        out.contains("unparseable") && out.contains("has_symbol"),
+        "must document invalid glob and filter as invalid_input: {out}"
+    );
 }
 
 #[test]
