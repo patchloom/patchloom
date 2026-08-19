@@ -361,6 +361,11 @@ fn test_ast_validate_json_exit_code_on_invalid_file() {
     let arr = v.as_array().expect("validate --json must be array");
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["valid"], serde_json::json!(false));
+    let text_field = arr[0]["errors"][0]["text"].as_str().unwrap_or_default();
+    assert!(
+        !text_field.trim().is_empty(),
+        "validate JSON error text must be non-empty: {arr:?}"
+    );
 }
 
 /// Multi-file validate --json must be one array, not multi-document JSON.

@@ -3936,6 +3936,15 @@ async fn test_mcp_ast_validate_syntax_error() {
         results.iter().any(|r| r["valid"] == false),
         "broken code should fail validation: {val}"
     );
+    let texts: Vec<&str> = results
+        .iter()
+        .flat_map(|r| r["errors"].as_array().into_iter().flatten())
+        .filter_map(|e| e["text"].as_str())
+        .collect();
+    assert!(
+        texts.iter().any(|t| !t.trim().is_empty()),
+        "ast_validate error text must be non-empty: {val}"
+    );
     client.cancel().await.unwrap();
 }
 

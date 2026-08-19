@@ -13,7 +13,8 @@ pub struct SyntaxError {
     pub line: usize,
     /// 0-based column.
     pub column: usize,
-    /// The problematic source text (truncated).
+    /// Problematic source slice, or `missing <kind>` / `invalid <kind>`
+    /// when the tree-sitter node has a zero-width span.
     pub text: String,
 }
 
@@ -62,18 +63,31 @@ pub fn validate_file(path: &Path, lang_hint: Option<Language>) -> anyhow::Result
     })
 }
 
+fn error_node_text(node: tree_sitter_lib::Node, source: &str) -> String {
+    let start = node.start_byte();
+    let mut end = node.end_byte().min(start + 50);
+    while end > start && !source.is_char_boundary(end) {
+        end -= 1;
+    }
+    let span = source.get(start..end).unwrap_or("").trim();
+    if !span.is_empty() {
+        return span.to_string();
+    }
+    // MISSING / zero-width ERROR nodes have start==end. Use the grammar
+    // kind so --json agents get a non-empty text field (fixrealloop R31).
+    if node.is_missing() {
+        format!("missing {}", node.kind())
+    } else {
+        format!("invalid {}", node.kind())
+    }
+}
+
 fn collect_errors(node: tree_sitter_lib::Node, source: &str, errors: &mut Vec<SyntaxError>) {
     if node.is_error() || node.is_missing() {
-        let start = node.start_byte();
-        let mut end = node.end_byte().min(start + 50);
-        while end > start && !source.is_char_boundary(end) {
-            end -= 1;
-        }
-        let text = source[start..end].to_string();
         errors.push(SyntaxError {
             line: node.start_position().row + 1,
             column: node.start_position().column,
-            text,
+            text: error_node_text(node, source),
         });
         return; // Don't recurse into error nodes
     }
@@ -133,5 +147,27 @@ mod tests {
         assert!(!result.errors.is_empty());
         // Error should be on line 1 or 2
         assert!(result.errors[0].line <= 2);
+    }
+
+    #[test]
+    fn empty_span_error_has_nonempty_text() {
+        // MISSING / zero-width ERROR nodes have start==end, so a raw
+        // source slice is empty. Agents need a non-empty text field.
+        let source = "fn bad( {}\n";
+        let result = validate_source(source, Language::Rust).unwrap();
+        assert!(!result.valid);
+        assert!(
+            result.errors.iter().all(|e| !e.text.trim().is_empty()),
+            "empty error text: {:?}",
+            result.errors
+        );
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.text.starts_with("missing ") || e.text.starts_with("invalid ")),
+            "expected kind fallback text: {:?}",
+            result.errors
+        );
     }
 }
