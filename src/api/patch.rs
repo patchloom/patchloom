@@ -97,30 +97,8 @@ fn patch_write(
             .unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
-        if pf.copy_from.is_some() && crate::ops::file::path_entry_exists(&write_path) {
-            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
-                msg: crate::ops::patch::copy_dest_exists_msg(&pf.path),
-            }));
-        }
-        if pf.is_creation
-            && pf.hunks.is_empty()
-            && pf.copy_from.is_none()
-            && crate::ops::file::path_entry_exists(&write_path)
-        {
-            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
-                msg: crate::ops::patch::create_dest_exists_msg(&pf.path),
-            }));
-        }
-        if let Some(from) = pf.rename_from.as_deref()
-            && crate::ops::patch::rename_would_clobber_dest(
-                from,
-                &pf.path,
-                crate::ops::file::path_entry_exists(&write_path),
-            )
-        {
-            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
-                msg: crate::ops::patch::rename_dest_exists_msg(&pf.path),
-            }));
+        if let Some(msg) = pf.dest_clobber_msg(crate::ops::file::path_entry_exists(&write_path)) {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError { msg }));
         }
         if pf.copy_from.is_some() && !crate::ops::file::path_entry_exists(&load_path) {
             return Err(std::io::Error::new(
@@ -187,7 +165,8 @@ fn patch_write(
 ///
 /// **Atomic Apply:** all files are load+hunk preflighted first; on Apply a
 /// single backup session covers every path. Any write failure restores the
-/// whole batch (no half-applied multi-file patch).
+/// whole batch (no half-applied multi-file patch). Empty-create dests report
+/// `changed: true` even when original and new content are both empty.
 pub fn apply_patch_file(
     patch_text: &str,
     cwd: &Path,
@@ -247,30 +226,8 @@ pub fn apply_patch_file(
             .unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
-        if let Some(from) = pf.rename_from.as_deref()
-            && crate::ops::patch::rename_would_clobber_dest(
-                from,
-                &pf.path,
-                crate::ops::file::path_entry_exists(&write_path),
-            )
-        {
-            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
-                msg: crate::ops::patch::rename_dest_exists_msg(&pf.path),
-            }));
-        }
-        if pf.copy_from.is_some() && crate::ops::file::path_entry_exists(&write_path) {
-            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
-                msg: crate::ops::patch::copy_dest_exists_msg(&pf.path),
-            }));
-        }
-        if pf.is_creation
-            && pf.hunks.is_empty()
-            && pf.copy_from.is_none()
-            && crate::ops::file::path_entry_exists(&write_path)
-        {
-            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
-                msg: crate::ops::patch::create_dest_exists_msg(&pf.path),
-            }));
+        if let Some(msg) = pf.dest_clobber_msg(crate::ops::file::path_entry_exists(&write_path)) {
+            return Err(anyhow::Error::new(crate::exit::AlreadyExistsError { msg }));
         }
 
         if let Some(from) = pf.copy_from.as_ref() {

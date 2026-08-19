@@ -113,7 +113,9 @@ Preflight: `api::lifecycle_cmds(plan)` + `api::refuse_lifecycle_shell_metas(cmd)
 before `apply_patch_file` must use `api::unquote_git_c_string` / `api::parse_diff_file_path` \
 / `api::parse_diff_git_paths` / `api::patch_declared_paths` (or `parse_unified_diff` + \
 `path`/`rename_from`/`copy_from`). Do not quote-peel only and do not whitespace-split \
-`diff --git`. Git 100% `copy from`/`copy to` creates dest and keeps source. Git-meta \
+`diff --git`. `parse_diff_git_paths` accepts the full line or the pair after \
+`diff --git `. Git 100% `copy from`/`copy to` creates dest and keeps source. \
+Empty-create apply writes an empty dest and reports `changed: true`. Git-meta \
 binary / mode-only dests are listed then apply refuses (no silent skip on mixed patches).\n\n\
              **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback \
 replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \

@@ -104,6 +104,43 @@ pub fn create_dest_exists_msg(to: &str) -> String {
     format!("destination already exists: {to} (patch create refuses overwrite; remove dest)")
 }
 
+/// Already-exists message when dest must not be overwritten.
+///
+/// Covers rename clobber, git copy dest, and empty-create dest. Case-only
+/// rename returns `None` even when dest exists.
+pub(crate) fn dest_clobber_msg(
+    path: &str,
+    dest_exists: bool,
+    rename_from: Option<&str>,
+    is_copy: bool,
+    is_empty_create: bool,
+) -> Option<String> {
+    if let Some(from) = rename_from
+        && rename_would_clobber_dest(from, path, dest_exists)
+    {
+        return Some(rename_dest_exists_msg(path));
+    }
+    if is_copy && dest_exists {
+        return Some(copy_dest_exists_msg(path));
+    }
+    if is_empty_create && dest_exists {
+        return Some(create_dest_exists_msg(path));
+    }
+    None
+}
+
+impl PatchFile {
+    pub(crate) fn dest_clobber_msg(&self, dest_exists: bool) -> Option<String> {
+        dest_clobber_msg(
+            &self.path,
+            dest_exists,
+            self.rename_from.as_deref(),
+            self.copy_from.is_some(),
+            self.is_creation && self.hunks.is_empty() && self.copy_from.is_none(),
+        )
+    }
+}
+
 /// Apply-refuse message for a dest listed from git-meta that we do not write.
 pub fn unsupported_git_meta_msg(path: &str, reason: &str) -> String {
     format!(

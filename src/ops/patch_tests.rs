@@ -1721,6 +1721,22 @@ rename to \"caf\\303\\251-new.rs\"
     }
 
     #[test]
+    fn dest_clobber_msg_covers_rename_copy_and_empty_create() {
+        let rename =
+            dest_clobber_msg("new.rs", true, Some("old.rs"), false, false).expect("rename dest");
+        assert!(rename.contains("patch rename"), "{rename}");
+        assert!(
+            dest_clobber_msg("OLD.rs", true, Some("old.rs"), false, false).is_none(),
+            "case-only rename must not clobber"
+        );
+        let copy = dest_clobber_msg("bar.rs", true, None, true, false).expect("copy dest");
+        assert!(copy.contains("patch copy"), "{copy}");
+        let create = dest_clobber_msg("new.rs", true, None, false, true).expect("empty create");
+        assert!(create.contains("patch create"), "{create}");
+        assert!(dest_clobber_msg("new.rs", false, Some("old.rs"), true, true).is_none());
+    }
+
+    #[test]
     fn parse_pure_git_rename_c_quoted_paths_with_spaces() {
         // Git C-quotes paths with spaces on pure renames (no hunks).
         let diff = "\
