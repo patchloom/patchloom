@@ -9843,6 +9843,39 @@ fn test_tx_apply_fragment_after_strips_markers() {
     );
 }
 
+/// #2204: copy-pasted indented `after` still indents a bare fragment (tx).
+#[test]
+fn test_tx_apply_fragment_after_anchor_includes_indent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("m.rs");
+    fs::write(&file, "fn main() {\n    let x = 1;\n}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "apply.fragment",
+            "path": portable_path_str(&file),
+            "after": "    let x = 1;",
+            "fragment": "let y = 2;"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn main() {\n    let x = 1;\n    let y = 2;\n}\n"
+    );
+}
+
 /// #2018: apply.fragment without placement anchors is invalid_input (exit 1).
 #[test]
 fn test_tx_apply_fragment_requires_anchor() {
