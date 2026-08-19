@@ -228,7 +228,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for LLM agents: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .agentignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".agentignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
+        description = "Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for LLM agents: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .agentignore), max_results. Other options: files_with_matches, files_without_match, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".agentignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
     )]
     async fn search_files(
         &self,
@@ -238,6 +238,18 @@ impl PatchloomService {
             if p.files_with_matches && p.count {
                 return Err(McpError::invalid_params(
                     "files_with_matches and count cannot be combined",
+                    None,
+                ));
+            }
+            if p.files_with_matches && p.files_without_match {
+                return Err(McpError::invalid_params(
+                    "files_with_matches and files_without_match cannot be combined",
+                    None,
+                ));
+            }
+            if p.files_without_match && p.count {
+                return Err(McpError::invalid_params(
+                    "files_without_match and count cannot be combined",
                     None,
                 ));
             }
@@ -275,6 +287,7 @@ impl PatchloomService {
                 before_context: p.before_context,
                 after_context: p.after_context,
                 files_with_matches: p.files_with_matches,
+                files_without_match: p.files_without_match,
                 count: p.count,
                 invert_match: p.invert_match,
                 multiline: p.multiline,
@@ -387,7 +400,7 @@ impl PatchloomService {
                 return exit_code_to_result(code, &output.to_string(), "");
             }
 
-            let has_matches = if search_args.count || search_args.files_with_matches {
+            let has_matches = if search_args.file_inventory_mode() {
                 !results.file_match_counts.is_empty()
             } else {
                 results.has_matches()

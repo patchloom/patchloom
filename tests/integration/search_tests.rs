@@ -731,6 +731,195 @@ fn test_search_count_and_files_with_matches_are_rejected_together() {
 }
 
 #[test]
+fn test_search_files_without_match_lists_only_miss() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+    fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["search", "needle", ".", "--files-without-match"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("miss.txt"), "must list miss.txt: {stdout}");
+    assert!(
+        !stdout.contains("hit.txt"),
+        "must not list hit.txt: {stdout}"
+    );
+    let paths: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(paths.len(), 1, "exactly one path: {stdout}");
+}
+
+#[test]
+fn test_search_files_with_and_without_match_are_rejected_together() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("-l")
+        .arg("-L")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .and(
+                    predicate::str::contains("-l")
+                        .or(predicate::str::contains("--files-with-matches")),
+                )
+                .and(
+                    predicate::str::contains("-L")
+                        .or(predicate::str::contains("--files-without-match")),
+                ),
+        );
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "-l", "-L", "hello"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false);
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "combining -l and -L should set error_kind: {parsed}"
+    );
+}
+
+#[test]
+fn test_search_help_documents_files_without_match() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["search", "--help"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("--files-without-match").and(predicate::str::contains("-L")),
+        );
+}
+
+#[test]
+fn test_search_json_files_without_match_includes_miss_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+    fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "needle", ".", "--files-without-match"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["matches"].as_array().unwrap().len(), 0, "{v}");
+    assert_eq!(v["file_count"], 1, "{v}");
+    let files = v["files"].as_array().expect("files array");
+    assert_eq!(files.len(), 1, "{v}");
+    assert!(
+        files[0]["path"].as_str().unwrap().contains("miss.txt"),
+        "{v}"
+    );
+    assert!(files[0].get("count").is_none(), "{v}");
+}
+
+#[test]
+fn test_search_jsonl_files_without_match_includes_miss_path() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+    fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--jsonl", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "needle", ".", "--files-without-match"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.lines().next().unwrap()).unwrap();
+    assert!(
+        parsed["path"].as_str().unwrap().contains("miss.txt"),
+        "should contain miss.txt: {parsed}"
+    );
+    assert!(parsed.get("count").is_none(), "{parsed}");
+    assert!(
+        !stdout.contains("hit.txt"),
+        "must not list hit.txt: {stdout}"
+    );
+}
+
+#[test]
+fn test_search_files_without_match_all_hits_exits_3() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["search", "needle", ".", "--files-without-match"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn test_search_short_alias_files_without_match() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+    fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["search", "needle", ".", "-L"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::contains("miss.txt").and(predicate::str::contains("hit.txt").not()),
+        );
+}
+
+#[test]
+fn test_search_count_and_files_without_match_are_rejected_together() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("search")
+        .arg("--count")
+        .arg("--files-without-match")
+        .arg("hello")
+        .arg(dir.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("cannot be used with")
+                .and(predicate::str::contains("--count"))
+                .and(predicate::str::contains("--files-without-match")),
+        );
+}
+
+#[test]
 fn test_search_literal_and_regex_are_rejected_together() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
@@ -1738,6 +1927,41 @@ fn test_search_files_with_matches_max_results_caps_files() {
     assert_eq!(out.status.code(), Some(0));
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["file_count"], 3, "full inventory: {v}");
+    assert_eq!(
+        v["files"].as_array().unwrap().len(),
+        1,
+        "files list capped: {v}"
+    );
+    assert_eq!(v["truncated"], true, "{v}");
+}
+
+/// #2184: --files-without-match + --max-results caps the files list.
+#[test]
+fn test_search_files_without_match_max_results_caps_files() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "other\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "other\n").unwrap();
+    fs::write(dir.path().join("c.txt"), "other\n").unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "search",
+            "needle",
+            ".",
+            "--files-without-match",
+            "--max-results",
+            "1",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(out.status.code(), Some(0));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["file_count"], 3, "full miss inventory: {v}");
     assert_eq!(
         v["files"].as_array().unwrap().len(),
         1,

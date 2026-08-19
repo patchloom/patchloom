@@ -146,11 +146,18 @@ pub struct SearchFileParams {
     pub invert_match: bool,
     pub count_only: bool,
     pub files_with_matches: bool,
+    pub files_without_match: bool,
     pub assert_count: Option<usize>,
     pub before_context: Option<usize>,
     pub after_context: Option<usize>,
     pub context: Option<usize>,
     pub quiet: bool,
+}
+
+/// Path-only modes can stop after the first hit (membership is enough).
+/// `assert_count` still needs a full occurrence total.
+fn stop_after_first_hit(params: &SearchFileParams) -> bool {
+    (params.files_with_matches || params.files_without_match) && params.assert_count.is_none()
 }
 
 /// Compute a 1-based (line, column) pair from a byte offset into content.
@@ -190,10 +197,7 @@ pub fn search_one_file(
 
     if params.multiline {
         if params.count_only {
-            count = matcher.count_matches(
-                &content,
-                params.files_with_matches && params.assert_count.is_none(),
-            );
+            count = matcher.count_matches(&content, stop_after_first_hit(params));
         } else {
             let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
             for (start, end) in matcher.find_iter_positions(&content) {
@@ -217,18 +221,15 @@ pub fn search_one_file(
             if params.invert_match {
                 if matcher.find(line).is_none() {
                     count += 1;
-                    if params.files_with_matches && params.assert_count.is_none() {
+                    if stop_after_first_hit(params) {
                         break;
                     }
                 }
             } else {
-                let n = matcher.count_matches(
-                    line,
-                    params.files_with_matches && params.assert_count.is_none(),
-                );
+                let n = matcher.count_matches(line, stop_after_first_hit(params));
                 if n > 0 {
                     count += n;
-                    if params.files_with_matches && params.assert_count.is_none() {
+                    if stop_after_first_hit(params) {
                         break;
                     }
                 }
@@ -298,7 +299,18 @@ pub fn search_one_file(
         }
     }
 
-    if count > 0 {
+    if params.files_without_match {
+        // Keep scanned files with zero hits so `-L` can list them.
+        if count == 0 {
+            Some(FileResult {
+                path_str,
+                matches: file_matches,
+                count: 0,
+            })
+        } else {
+            None
+        }
+    } else if count > 0 {
         Some(FileResult {
             path_str,
             matches: file_matches,
@@ -513,6 +525,7 @@ mod tests {
             invert_match: false,
             count_only: false,
             files_with_matches: false,
+            files_without_match: false,
             assert_count: None,
             before_context: None,
             after_context: None,
@@ -538,6 +551,7 @@ mod tests {
             invert_match: false,
             count_only: false,
             files_with_matches: false,
+            files_without_match: false,
             assert_count: None,
             before_context: None,
             after_context: None,
@@ -571,6 +585,7 @@ mod tests {
             invert_match: false,
             count_only: true,
             files_with_matches: false,
+            files_without_match: false,
             assert_count: None,
             before_context: None,
             after_context: None,

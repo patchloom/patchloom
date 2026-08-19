@@ -91,7 +91,7 @@ mod basic {
         assert_eq!(
             descriptions.get("search_files"),
             Some(
-                &"Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for LLM agents: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .agentignore), max_results. Other options: files_with_matches, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".agentignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
+                &"Search text files for a pattern (regex by default, use literal=true for exact match). Supports advanced layered ignores for LLM agents: globs (include), exclude_patterns, custom_ignore_filenames (e.g. .agentignore), max_results. Other options: files_with_matches, files_without_match, count, case_insensitive, multiline, invert_match, assert_count, before/after_context. Canonical multi-root field is paths (array); singular path is accepted as an alias for one root (same as paths:[path]). Example: {\"pattern\": \"TODO\", \"paths\": [\"src/\"], \"literal\": true, \"custom_ignore_filenames\": [\".agentignore\"], \"exclude_patterns\": [\"target/**\"], \"max_results\": 20}"
             ),
             "search_files description drifted"
         );
@@ -534,8 +534,14 @@ mod basic {
             Check {
                 op_name: "search",
                 mcp_keys: schema_keys_for::<SearchParams>(),
-                // path is shared with Operation; paths/files_with_matches/count/literal are MCP-shaped
-                mcp_only_allowed: &["paths", "files_with_matches", "count", "literal"],
+                // path is shared with Operation; paths/files_with_matches/files_without_match/count/literal are MCP-shaped
+                mcp_only_allowed: &[
+                    "paths",
+                    "files_with_matches",
+                    "files_without_match",
+                    "count",
+                    "literal",
+                ],
                 op_only_allowed: &["regex"],
             },
         ];

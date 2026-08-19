@@ -161,6 +161,9 @@ pub(crate) struct SearchParams {
     /// Only return file paths with matches (not match details).
     #[serde(default)]
     pub files_with_matches: bool,
+    /// Only return file paths with no matches (grep -L).
+    #[serde(default)]
+    pub files_without_match: bool,
     /// Only return match counts per file.
     #[serde(default)]
     pub count: bool,

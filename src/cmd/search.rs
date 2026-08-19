@@ -37,11 +37,27 @@ pub struct SearchArgs {
     pub after_context: Option<usize>,
     // ref:search-mode:files-with-matches
     /// Only print file paths with matches.
-    #[arg(long, short = 'l', conflicts_with = "count")]
+    #[arg(
+        long,
+        short = 'l',
+        conflicts_with_all = ["count", "files_without_match"]
+    )]
     pub files_with_matches: bool,
+    // ref:search-mode:files-without-match
+    /// Only print file paths with no matches (grep -L).
+    #[arg(
+        long,
+        short = 'L',
+        conflicts_with_all = ["files_with_matches", "count"]
+    )]
+    pub files_without_match: bool,
     // ref:search-mode:count
     /// Only print match counts per file (occurrence counts, same total as replace).
-    #[arg(long, short = 'c', conflicts_with = "files_with_matches")]
+    #[arg(
+        long,
+        short = 'c',
+        conflicts_with_all = ["files_with_matches", "files_without_match"]
+    )]
     pub count: bool,
     // ref:search-mode:invert-match
     /// Show lines that do NOT match the pattern.
@@ -61,11 +77,24 @@ pub struct SearchArgs {
     pub assert_count: Option<usize>,
 
     /// Maximum number of detailed match results to return (0 = unlimited).
-    /// Also caps the file list in `--count` / `--files-with-matches` (#1798).
+    /// Also caps the file list in `--count` / `--files-with-matches` /
+    /// `--files-without-match` (#1798).
     /// `match_count` / total file inventory counts stay full; JSON sets
     /// `truncated: true` when a list was cut.
     #[arg(long, default_value_t = 0)]
     pub max_results: usize,
+}
+
+impl SearchArgs {
+    /// Path-only listing (`-l` / `-L`): emit file paths, not match lines.
+    pub(crate) fn file_path_list_mode(&self) -> bool {
+        self.files_with_matches || self.files_without_match
+    }
+
+    /// Count or path-only modes share the file inventory JSON/JSONL shape.
+    pub(crate) fn file_inventory_mode(&self) -> bool {
+        self.count || self.file_path_list_mode()
+    }
 }
 
 /// Explicit path refused for non-pattern reasons (parity with replace `refused[]`).
@@ -169,7 +198,7 @@ pub(crate) fn collect_matches_with_list(
     // Empty --files-from is invalid_input, not pattern no_matches (#1796).
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
-    let count_only = args.count || args.files_with_matches;
+    let count_only = args.count || args.files_with_matches || args.files_without_match;
 
     // Process files in parallel (#167).
     let cwd_ref = &cwd;
@@ -178,6 +207,7 @@ pub(crate) fn collect_matches_with_list(
         invert_match: args.invert_match,
         count_only,
         files_with_matches: args.files_with_matches,
+        files_without_match: args.files_without_match,
         assert_count: args.assert_count,
         before_context: args.before_context,
         after_context: args.after_context,
@@ -262,9 +292,9 @@ pub(crate) fn format_results(
     if global.json {
         let match_count: usize = results.file_match_counts.values().sum();
         let full_file_count = results.file_match_counts.len();
-        // Cap file lists in count / files-with-matches when --max-results > 0
+        // Cap file lists in count / path-only modes when --max-results > 0
         // so agents get one pagination budget across modes (#1798).
-        let mut files: Vec<SearchFileEntry> = if args.files_with_matches {
+        let mut files: Vec<SearchFileEntry> = if args.file_path_list_mode() {
             results
                 .file_match_counts
                 .keys()
@@ -286,18 +316,17 @@ pub(crate) fn format_results(
             Vec::new()
         };
         files.sort_by(|a, b| a.path.cmp(&b.path));
-        let files_truncated = if args.max_results > 0
-            && (args.count || args.files_with_matches)
-            && files.len() > args.max_results
-        {
-            files.truncate(args.max_results);
-            true
-        } else {
-            false
-        };
+        let files_truncated =
+            if args.max_results > 0 && args.file_inventory_mode() && files.len() > args.max_results
+            {
+                files.truncate(args.max_results);
+                true
+            } else {
+                false
+            };
         // match_count is always full; detailed matches may be capped by
         // --max-results. Count modes set truncated when the file list was cut.
-        let truncated = if args.count || args.files_with_matches {
+        let truncated = if args.file_inventory_mode() {
             files_truncated
         } else {
             args.max_results > 0 && results.matches.len() < match_count
@@ -318,7 +347,7 @@ pub(crate) fn format_results(
         out = serde_json::to_string_pretty(&payload)?;
         out.push('\n');
     } else if global.jsonl {
-        if args.files_with_matches || args.count {
+        if args.file_inventory_mode() {
             // Cap file streams under --max-results (#1798) and trailer when cut.
             let mut paths: Vec<(String, usize)> = results
                 .file_match_counts
@@ -332,7 +361,7 @@ pub(crate) fn format_results(
                 paths.truncate(args.max_results);
             }
             for (path, count) in &paths {
-                if args.files_with_matches {
+                if args.file_path_list_mode() {
                     out.push_str(&serde_json::to_string(&serde_json::json!({"path": path}))?);
                 } else {
                     out.push_str(&serde_json::to_string(
@@ -383,7 +412,7 @@ pub(crate) fn format_results(
                 out.push('\n');
             }
         }
-    } else if args.files_with_matches {
+    } else if args.file_path_list_mode() {
         let color = global.should_color();
         for path in results.file_match_counts.keys() {
             if color {
@@ -611,7 +640,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(code);
     }
 
-    let has_matches = if args.count || args.files_with_matches {
+    let has_matches = if args.file_inventory_mode() {
         !results.file_match_counts.is_empty()
     } else {
         !results.matches.is_empty()
@@ -728,6 +757,7 @@ mod tests {
             before_context: None,
             after_context: None,
             files_with_matches: false,
+            files_without_match: false,
             count: false,
             invert_match: false,
             multiline: false,
@@ -899,6 +929,54 @@ mod tests {
             "files_with_matches should not build SearchMatch objects"
         );
         assert_eq!(results.file_match_counts.len(), 1);
+    }
+
+    #[test]
+    fn files_without_match_output() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+        fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+        let mut args = make_args("needle", vec![dir.path().to_string_lossy().into_owned()]);
+        args.files_without_match = true;
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        let output =
+            format_results(results, &args, &GlobalFlags::test_default(), None, None).unwrap();
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines.len(), 1);
+        assert!(
+            lines[0].ends_with("miss.txt"),
+            "expected miss.txt only, got: {}",
+            lines[0]
+        );
+        assert!(!output.contains("hit.txt"));
+    }
+
+    #[test]
+    fn files_without_match_skips_match_construction() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+        fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+        let mut args = make_args("needle", vec![dir.path().to_string_lossy().into_owned()]);
+        args.files_without_match = true;
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        assert!(
+            results.matches.is_empty(),
+            "files_without_match should not build SearchMatch objects"
+        );
+        assert_eq!(results.file_match_counts.len(), 1);
+        let path = results.file_match_counts.keys().next().unwrap();
+        assert!(path.ends_with("miss.txt"), "expected miss.txt, got: {path}");
+        assert_eq!(results.file_match_counts[path], 0);
+    }
+
+    #[test]
+    fn files_without_match_all_hits_returns_exit_code_3() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+        let mut args = make_args("needle", vec![dir.path().to_string_lossy().into_owned()]);
+        args.files_without_match = true;
+        let code = run(args, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
     }
 
     #[test]
@@ -1091,6 +1169,28 @@ mod tests {
     }
 
     #[test]
+    fn json_files_without_match_lists_file_paths() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+        fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+        let mut args = make_args("needle", vec![dir.path().to_string_lossy().into_owned()]);
+        args.files_without_match = true;
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+        let results = collect_matches(&args, &global).unwrap();
+        let output = format_results(results, &args, &global, None, None).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&output).expect("valid JSON");
+        assert_eq!(v["ok"], serde_json::json!(true));
+        assert_eq!(v["file_count"], serde_json::json!(1));
+        assert_eq!(v["match_count"], serde_json::json!(0));
+        assert_eq!(v["matches"].as_array().unwrap().len(), 0);
+        let files = v["files"].as_array().expect("files array must be present");
+        assert_eq!(files.len(), 1);
+        assert!(files[0]["path"].as_str().unwrap().ends_with("miss.txt"));
+        assert!(files[0].get("count").is_none());
+    }
+
+    #[test]
     fn json_count_lists_file_counts() {
         let dir = make_test_dir();
         let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
@@ -1156,6 +1256,25 @@ mod tests {
         assert!(results.matches.is_empty());
         // Both files have non-matching lines.
         assert_eq!(results.file_match_counts.len(), 2);
+    }
+
+    #[test]
+    fn invert_match_files_without_match_lists_files_with_no_non_matching_lines() {
+        // -L is file-level: files with zero inverted hits (every line matches).
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("all_hit.txt"), "Hello\nHello again\n").unwrap();
+        fs::write(dir.path().join("mixed.txt"), "Hello\nkeep\n").unwrap();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.invert_match = true;
+        args.files_without_match = true;
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        assert!(results.matches.is_empty());
+        assert_eq!(results.file_match_counts.len(), 1);
+        let path = results.file_match_counts.keys().next().unwrap();
+        assert!(
+            path.ends_with("all_hit.txt"),
+            "expected all_hit.txt, got: {path}"
+        );
     }
 
     #[test]
