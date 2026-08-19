@@ -1725,15 +1725,33 @@ rename to \"caf\\303\\251-new.rs\"
         let rename =
             dest_clobber_msg("new.rs", true, Some("old.rs"), false, false).expect("rename dest");
         assert!(rename.contains("patch rename"), "{rename}");
+        assert!(rename.contains("new.rs"), "{rename}");
         assert!(
             dest_clobber_msg("OLD.rs", true, Some("old.rs"), false, false).is_none(),
             "case-only rename must not clobber"
         );
         let copy = dest_clobber_msg("bar.rs", true, None, true, false).expect("copy dest");
         assert!(copy.contains("patch copy"), "{copy}");
+        assert!(copy.contains("bar.rs"), "{copy}");
         let create = dest_clobber_msg("new.rs", true, None, false, true).expect("empty create");
         assert!(create.contains("patch create"), "{create}");
-        assert!(dest_clobber_msg("new.rs", false, Some("old.rs"), true, true).is_none());
+        assert!(create.contains("new.rs"), "{create}");
+        assert!(
+            dest_clobber_msg("new.rs", false, Some("old.rs"), true, true).is_none(),
+            "missing dest must not clobber even if copy+create flags are set"
+        );
+
+        let pf = PatchFile {
+            path: "dst.rs".into(),
+            hunks: Vec::new(),
+            is_creation: false,
+            is_deletion: false,
+            rename_from: None,
+            copy_from: Some("src.rs".into()),
+            unsupported: None,
+        };
+        let via_file = pf.dest_clobber_msg(true).expect("PatchFile copy dest");
+        assert_eq!(via_file, copy_dest_exists_msg("dst.rs"));
     }
 
     #[test]
