@@ -908,13 +908,32 @@ fn test_search_files_without_match_all_hits_exits_3() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
 
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
-        .args(["--cwd"])
+        .args(["--json", "--cwd"])
         .arg(dir.path())
         .args(["search", "needle", ".", "--files-without-match"])
-        .assert()
-        .code(3);
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("hit.txt"),
+        "-L must not list a hit as a miss: {stdout}"
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+    assert_eq!(v["file_count"], 0, "{v}");
+    if let Some(files) = v["files"].as_array() {
+        assert!(files.is_empty(), "files must be empty on all-hits -L: {v}");
+    }
 }
 
 #[test]
