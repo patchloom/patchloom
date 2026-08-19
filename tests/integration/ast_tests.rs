@@ -592,6 +592,41 @@ fn test_ast_search_invalid_query_exits_4() {
     assert_eq!(json["error_kind"], "parse_error", "{json}");
 }
 
+/// Pattern-mode literals must not act as wildcards (`fn compute() {}` ≠ `fn other()`).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_search_pattern_literal_name_is_not_wildcard() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "fn compute() {}\nfn other() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "ast",
+            "search",
+            "--pattern",
+            "fn compute() {}",
+            "--lang",
+            "rust",
+            "lib.rs",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let arr = json.as_array().expect("search --json is an array");
+    assert_eq!(arr.len(), 1, "{json}");
+    let blob = json.to_string();
+    assert!(blob.contains("compute"), "{json}");
+    assert!(!blob.contains("other"), "{json}");
+}
+
 /// Pattern mode must fail closed on compile errors (not soft no_matches).
 #[test]
 #[cfg(feature = "ast")]
