@@ -706,6 +706,36 @@ fn test_tx_success_applies_all() {
     assert_eq!(v["version"], serde_json::json!(2));
 }
 
+/// #2197: plan `doc.set` with selector `.` replaces the document root.
+#[test]
+fn test_tx_doc_set_dot_replaces_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("d.json");
+    fs::write(&file, r#"{"a":1}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "doc.set", "path": "d.json", "selector": ".", "value": {"b": 2}}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v, serde_json::json!({"b": 2}));
+}
+
 #[test]
 fn test_tx_check_mode_reports_changes_without_writing() {
     let dir = TempDir::new().unwrap();

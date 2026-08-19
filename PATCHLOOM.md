@@ -481,13 +481,15 @@ All `doc` operations use selector paths to address values inside JSON, YAML, and
 | Syntax | Meaning | Example |
 |--------|---------|---------|
 | `name` | Object key | `database.host` |
+| `.` | Document root | `doc keys FILE .`; `doc set FILE . VALUE` replaces the whole document |
 | `[N]` | Array index (zero-based) | `servers[0].port` |
 | `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |
 | `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |
 
-Segments are separated by `.` or adjacent brackets. A single leading `/` is treated as "from root" and stripped (JSON Pointer habit), so `/feature_flag` sets key `feature_flag`, not a key literally named `/feature_flag` (#1794). Only one leading slash is special; `//a` keeps a key named `/a`. Prefer bare keys in prompts (`feature_flag`, `server.port`). Examples:
+Segments are separated by `.` or adjacent brackets. A single leading `/` is treated as "from root" and stripped (JSON Pointer habit), so `/feature_flag` sets key `feature_flag`, not a key literally named `/feature_flag` (#1794). Only one leading slash is special; `//a` keeps a key named `/a`. Prefer bare keys in prompts (`feature_flag`, `server.port`). A lone `.` (or empty / `/`) is the document root: `doc keys FILE .` lists top-level keys, and `doc set FILE . VALUE` replaces the whole document. Examples:
 
 ```text
+.                               # document root (keys / whole-document set)
 scripts.test                    # simple selector path
 /feature_flag                   # same as feature_flag (leading slash stripped)
 jobs[0].steps[*].name           # index + wildcard

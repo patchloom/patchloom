@@ -123,10 +123,10 @@ pub fn set_at_path(
     segments: &[selector::Segment],
     value: serde_json::Value,
 ) -> anyhow::Result<()> {
+    // `.`, ``, and `/` parse to no segments. Same root as `doc keys FILE .`.
     if segments.is_empty() {
-        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: "empty selector".into(),
-        }));
+        *root = value;
+        return Ok(());
     }
     let (parent_path, last) = split_last(segments);
     let parent = navigate_mut(root, parent_path, true, "doc.set")?;
@@ -904,13 +904,13 @@ mod tests {
     }
 
     #[test]
-    fn set_at_path_empty_selector_errors() {
-        let mut root = json!({});
-        let err = set_at_path(&mut root, &[], json!(1)).expect_err("expected error");
-        assert!(
-            crate::exit::is_invalid_input(&err),
-            "empty selector should be invalid_input: {err}"
-        );
+    fn set_at_path_empty_selector_replaces_root() {
+        // `.` / `` / `/` parse to no segments. Same meaning as `doc keys FILE .`.
+        let mut root = json!({"a": 1});
+        set_at_path(&mut root, &[], json!({"b": 2})).unwrap();
+        assert_eq!(root, json!({"b": 2}));
+        set_at_path(&mut root, &segs("."), json!({"c": 3})).unwrap();
+        assert_eq!(root, json!({"c": 3}));
     }
 
     #[test]

@@ -3407,6 +3407,51 @@ fn test_doc_set_leading_slash_selector_strips_root() {
     assert_eq!(v2, serde_json::json!({"server": {"port": 8080}}));
 }
 
+/// #2197: `doc set FILE . VALUE` replaces the document root (same as `doc keys FILE .`).
+#[test]
+fn test_doc_set_dot_replaces_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("d.json");
+    fs::write(&file, "{\"a\":1}\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["doc", "set", "d.json", ".", "{\"b\":2}", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["applied"], true, "{v}");
+    assert_ne!(
+        v["error_kind"], "invalid_input",
+        "must not call `.` an empty selector: {v}"
+    );
+    let on_disk: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(on_disk, serde_json::json!({"b": 2}));
+
+    // `doc keys FILE .` still lists root keys.
+    let keys = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["doc", "keys", "d.json", "."])
+        .output()
+        .unwrap();
+    assert_eq!(keys.status.code(), Some(0));
+    let kv: serde_json::Value = serde_json::from_slice(&keys.stdout).unwrap();
+    assert_eq!(kv["value"], serde_json::json!(["b"]), "{kv}");
+}
+
 /// #1810: doc set preview sets applied:false (changed means would-change).
 #[test]
 fn test_doc_set_preview_applied_false() {

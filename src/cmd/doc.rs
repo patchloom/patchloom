@@ -54,6 +54,7 @@ pub enum DocAction {
         /// File path (JSON, YAML, or TOML).
         file: String,
         /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Use `.` to replace the whole document (same root as `doc keys FILE .`).
         /// Single concrete path only (keys and indexes). Not for
         /// predicates or wildcards (`items[name=foo].v`, `items[*].v`);
         /// use `doc update` for multi-match writes.
