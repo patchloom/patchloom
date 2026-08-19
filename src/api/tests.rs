@@ -8660,6 +8660,50 @@ fn apply_fragment_to_file_after_strips_markers() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn apply_fragment_to_file_after_anchor_includes_indent() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("m.rs");
+    fs::write(&path, "fn main() {\n    let x = 1;\n}\n").unwrap();
+    let r = apply_fragment_to_file(
+        &path,
+        "let y = 2;",
+        FragmentPlacement::After("    let x = 1;".into()),
+        true,
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("after indented anchor");
+    assert!(r.applied);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn main() {\n    let x = 1;\n    let y = 2;\n}\n"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_fragment_to_file_before_anchor_includes_indent() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("m.rs");
+    fs::write(&path, "fn main() {\n    let x = 1;\n}\n").unwrap();
+    let r = apply_fragment_to_file(
+        &path,
+        "let y = 2;",
+        FragmentPlacement::Before("    let x = 1;".into()),
+        true,
+        ApplyMode::Apply,
+        None,
+    )
+    .expect("before indented anchor");
+    assert!(r.applied);
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "fn main() {\n    let y = 2;\n    let x = 1;\n}\n"
+    );
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn apply_fragment_to_file_requires_unique_anchor() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("t.rs");

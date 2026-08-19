@@ -219,6 +219,34 @@ async fn test_mcp_apply_fragment_after_anchor_includes_indent() {
     client.cancel().await.unwrap();
 }
 
+/// #2204: copy-pasted indented `before` still indents a bare fragment (MCP).
+#[tokio::test]
+async fn test_mcp_apply_fragment_before_anchor_includes_indent() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("m.rs"), "fn main() {\n    let x = 1;\n}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_fragment",
+        serde_json::json!({
+            "path": "m.rs",
+            "before": "    let x = 1;",
+            "fragment": "let y = 2;"
+        }),
+    )
+    .await;
+    assert!(!is_error, "apply_fragment should succeed: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("m.rs")).unwrap(),
+        "fn main() {\n    let y = 2;\n    let x = 1;\n}\n"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// #2018: MCP apply_fragment without anchors fails closed.
 #[tokio::test]
 async fn test_mcp_apply_fragment_requires_anchor() {
