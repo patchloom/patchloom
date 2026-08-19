@@ -205,7 +205,12 @@ pub fn normalize_line_insert(
             if looks_like_new_line_payload(insert_content)
                 || anchor_is_whole_line(file_content, anchor)
             {
-                format!("{eol}{insert_content}")
+                let indent = if insert_content.starts_with([' ', '\t']) {
+                    ""
+                } else {
+                    indent_before_first_anchor(file_content, anchor)
+                };
+                format!("{eol}{indent}{insert_content}")
             } else {
                 insert_content.to_string()
             }
@@ -247,7 +252,12 @@ pub fn normalize_line_insert_ci(
             if looks_like_new_line_payload(insert_content)
                 || anchor_is_whole_line_ci(file_content, anchor, true)
             {
-                format!("{eol}{insert_content}")
+                let indent = if insert_content.starts_with([' ', '\t']) {
+                    ""
+                } else {
+                    indent_before_first_anchor_ci(file_content, anchor, true)
+                };
+                format!("{eol}{indent}{insert_content}")
             } else {
                 insert_content.to_string()
             }
@@ -318,10 +328,13 @@ pub fn anchor_is_whole_line_ci(file_content: &str, anchor: &str, case_insensitiv
         let mut any = false;
         for (i, _) in file_content.match_indices(anchor) {
             any = true;
-            let before_ok = i == 0 || is_line_boundary_byte(bytes[i - 1]);
-            let end = i + anchor.len();
-            let after_ok = end == file_content.len()
-                || bytes.get(end).copied().is_some_and(is_line_boundary_byte);
+            // Indent / trailing spaces on the same line still count as whole-line
+            // (#2200): `    let x = 1;` is the line for anchor `let x = 1;`.
+            let bol = skip_horiz_back(bytes, i);
+            let before_ok = bol == 0 || is_line_boundary_byte(bytes[bol - 1]);
+            let after = skip_horiz_fwd(bytes, i + anchor.len());
+            let after_ok = after == file_content.len()
+                || bytes.get(after).copied().is_some_and(is_line_boundary_byte);
             if !(before_ok && after_ok) {
                 return false;
             }
@@ -341,13 +354,13 @@ pub fn anchor_is_whole_line_ci(file_content: &str, anchor: &str, case_insensitiv
             .map(|i| start + i)
             .unwrap_or(file_content.len());
         let line = &file_content[start..line_end];
-        if line.to_ascii_lowercase() == needle {
+        let trimmed = line.trim_matches([' ', '\t']);
+        if trimmed.to_ascii_lowercase() == needle {
             any = true;
-            // whole line by construction (line == match span)
         } else if !line.is_empty() {
             // Mid-line occurrence of the pattern is not whole-line.
             let lower = line.to_ascii_lowercase();
-            if lower.contains(&needle) && lower != needle {
+            if lower.contains(&needle) && trimmed.to_ascii_lowercase() != needle {
                 return false;
             }
         }
@@ -369,6 +382,46 @@ pub fn anchor_is_whole_line_ci(file_content: &str, anchor: &str, case_insensitiv
 #[inline]
 fn is_line_boundary_byte(b: u8) -> bool {
     b == b'\n' || b == b'\r'
+}
+
+#[inline]
+fn skip_horiz_back(bytes: &[u8], mut i: usize) -> usize {
+    while i > 0 && (bytes[i - 1] == b' ' || bytes[i - 1] == b'\t') {
+        i -= 1;
+    }
+    i
+}
+
+#[inline]
+fn skip_horiz_fwd(bytes: &[u8], mut i: usize) -> usize {
+    while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    i
+}
+
+/// Horizontal indent immediately before the first `anchor` match, if that
+/// whitespace is the line indent (not mid-line spaces).
+fn indent_before_first_anchor<'a>(file_content: &'a str, anchor: &str) -> &'a str {
+    indent_before_first_anchor_ci(file_content, anchor, false)
+}
+
+fn indent_before_first_anchor_ci<'a>(
+    file_content: &'a str,
+    anchor: &str,
+    case_insensitive: bool,
+) -> &'a str {
+    let i = if case_insensitive {
+        let needle = anchor.to_ascii_lowercase();
+        file_content.to_ascii_lowercase().find(&needle)
+    } else {
+        file_content.find(anchor)
+    };
+    let Some(i) = i else {
+        return "";
+    };
+    let start = leading_line_indent_start(file_content, i);
+    &file_content[start..i]
 }
 
 /// Parameters for [`build_replacement_text`].
@@ -784,7 +837,12 @@ pub fn replace_insert_before<'a>(
             // Detect whole-line using `from` (the pattern), not `matched`.
             let normalized =
                 normalize_line_insert_ci(&out, from, insert, InsertSide::Before, case_insensitive);
-            (indent_start, format!("{normalized}{indent}{matched}"))
+            let insert_out = if insert.starts_with([' ', '\t']) {
+                normalized
+            } else {
+                format!("{indent}{normalized}")
+            };
+            (indent_start, format!("{insert_out}{indent}{matched}"))
         } else {
             (hit.start, format!("{insert}{matched}"))
         };

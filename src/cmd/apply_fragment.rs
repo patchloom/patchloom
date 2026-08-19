@@ -23,12 +23,16 @@ EXAMPLES:
 NOTES:
   Exactly one of --after, --before, or --old is required (no anchor-less Morph merge).
   Lazy marker lines such as // ... existing code ... are stripped from --fragment.
+  A fragment without a trailing newline is still placed on its own line next to a
+  whole-line (or indented whole-line) anchor; the anchor's indent is copied.
   Dry-run by default (exit 2 when changes would apply). See docs/plans/morph-gap-matrix.md."
 )]
 pub struct ApplyFragmentArgs {
     /// Path of the file to edit.
     pub file: String,
     /// New text or Morph-style snippet (lazy marker lines stripped).
+    /// Without a trailing newline, still inserted as its own line next to a
+    /// whole-line / indented whole-line anchor.
     #[arg(long)]
     pub fragment: Option<String>,
     /// Read fragment from stdin.
@@ -281,6 +285,58 @@ mod tests {
         assert_eq!(code, crate::exit::SUCCESS);
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(body.contains("  pre();\n  a();"), "{body}");
+    }
+
+    /// #2200: `--before` / `--after` with a fragment that has no trailing
+    /// newline still land on their own indented line.
+    #[test]
+    fn apply_fragment_before_bare_fragment_is_own_indented_line() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(&path, "fn main() {\n    let x = 1;\n}\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("let y = 2;".into()),
+                stdin: false,
+                instruction: None,
+                after: None,
+                before: Some("let x = 1;".into()),
+                old: None,
+                allow_non_unique: false,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, "fn main() {\n    let y = 2;\n    let x = 1;\n}\n");
+    }
+
+    #[test]
+    fn apply_fragment_after_bare_fragment_is_own_indented_line() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(&path, "fn main() {\n    let x = 1;\n}\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("let y = 2;".into()),
+                stdin: false,
+                instruction: None,
+                after: Some("let x = 1;".into()),
+                before: None,
+                old: None,
+                allow_non_unique: false,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, "fn main() {\n    let x = 1;\n    let y = 2;\n}\n");
     }
 
     #[test]
