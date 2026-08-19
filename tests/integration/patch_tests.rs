@@ -457,6 +457,27 @@ fn test_patch_rename_refuses_existing_dest() {
     );
 }
 
+fn patch_check_json(dir: &TempDir, patch: &std::path::Path) -> (i32, serde_json::Value) {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(patch)
+        .output()
+        .unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON (exit {code}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    (code, json)
+}
+
 #[test]
 fn test_patch_check_copy_and_empty_create_dest_honesty() {
     let dir = TempDir::new().unwrap();
@@ -473,17 +494,20 @@ fn test_patch_check_copy_and_empty_create_dest_honesty() {
          copy to dst.rs\n",
     )
     .unwrap();
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("--json")
-        .arg("patch")
-        .arg("check")
-        .arg(&copy_patch)
-        .assert()
-        .code(1)
-        .stdout(predicates::str::contains("already_exists"));
+    let (code, json) = patch_check_json(&dir, &copy_patch);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(json["applied"], false);
+    assert_eq!(json["files"][0]["status"], "already_exists");
+    assert_eq!(json["files"][0]["action"], "copied");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("dst.rs")).unwrap(),
+        "existing\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("src.rs")).unwrap(),
+        "keep\n"
+    );
 
     let create_exists = dir.path().join("create-exists.patch");
     fs::write(
@@ -493,17 +517,14 @@ fn test_patch_check_copy_and_empty_create_dest_honesty() {
          index 0000000..e69de29\n",
     )
     .unwrap();
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("--json")
-        .arg("patch")
-        .arg("check")
-        .arg(&create_exists)
-        .assert()
-        .code(1)
-        .stdout(predicates::str::contains("already_exists"));
+    let (code, json) = patch_check_json(&dir, &create_exists);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(json["files"][0]["status"], "already_exists");
+    assert_eq!(
+        fs::read_to_string(dir.path().join(".empty")).unwrap(),
+        "present\n"
+    );
 
     let create_new = dir.path().join("create-new.patch");
     fs::write(
@@ -513,17 +534,11 @@ fn test_patch_check_copy_and_empty_create_dest_honesty() {
          index 0000000..e69de29\n",
     )
     .unwrap();
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("--json")
-        .arg("patch")
-        .arg("check")
-        .arg(&create_new)
-        .assert()
-        .code(2)
-        .stdout(predicates::str::contains("would_change"));
+    let (code, json) = patch_check_json(&dir, &create_new);
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(json["files"][0]["status"], "would_change", "{json}");
+    assert_eq!(json["applied"], false);
+    assert!(!dir.path().join(".brand-new").exists());
 
     let binary_meta = dir.path().join("bin.patch");
     fs::write(
@@ -534,17 +549,11 @@ fn test_patch_check_copy_and_empty_create_dest_honesty() {
          xxx\n",
     )
     .unwrap();
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .arg("--cwd")
-        .arg(dir.path())
-        .arg("--json")
-        .arg("patch")
-        .arg("check")
-        .arg(&binary_meta)
-        .assert()
-        .code(1)
-        .stdout(predicates::str::contains("invalid_input"));
+    let (code, json) = patch_check_json(&dir, &binary_meta);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert_eq!(json["files"][0]["status"], "error");
+    assert!(!dir.path().join("secret.bin").exists());
 }
 
 #[test]
