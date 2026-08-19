@@ -5,7 +5,7 @@ use clap::Args;
 #[derive(Debug, Args)]
 #[command(after_help = "\
 EXAMPLES:
-  patchloom prepend src/main.rs --content '// Copyright 2026\\n' --apply
+  patchloom prepend src/main.rs --content '// Copyright 2026' --apply
   echo '# Header' | patchloom prepend README.md --stdin --apply")]
 pub struct PrependArgs {
     /// Path of the file to prepend to.
@@ -110,6 +110,26 @@ mod tests {
 
         let code = run(args, &GlobalFlags::default()).unwrap();
         assert_eq!(code, exit::FAILURE);
+    }
+
+    #[test]
+    fn prepend_help_example_does_not_advertise_backslash_n_escape() {
+        // `--content` is literal; bash single quotes do not decode `\n`,
+        // and patchloom does not interpret C-escapes (#2192).
+        use clap::CommandFactory;
+        let cmd = crate::cli::Cli::command();
+        let prepend = cmd.find_subcommand("prepend").expect("prepend");
+        let mut buf = Vec::new();
+        prepend.clone().write_long_help(&mut buf).unwrap();
+        let help = String::from_utf8(buf).unwrap();
+        assert!(
+            !help.contains("--content '// Copyright 2026\\n'"),
+            "help example must not show a \\n escape inside single quotes:\n{help}"
+        );
+        assert!(
+            help.contains("--content '// Copyright 2026'"),
+            "help should still show the copyright prepend example:\n{help}"
+        );
     }
 
     #[test]
