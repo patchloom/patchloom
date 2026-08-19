@@ -1044,6 +1044,21 @@ async fn test_mcp_search_rejects_conflicting_modes() {
         result.is_err(),
         "search with both files_with_matches and count should be rejected"
     );
+
+    let params = rmcp::model::CallToolRequestParams::new("search_files".to_string())
+        .with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "pattern": "hello",
+                "files_with_matches": true,
+                "files_without_match": true
+            }))
+            .unwrap(),
+        );
+    let result = client.peer().call_tool(params).await;
+    assert!(
+        result.is_err(),
+        "search with both files_with_matches and files_without_match should be rejected"
+    );
     client.cancel().await.unwrap();
 }
 

@@ -459,6 +459,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** You need a path list to feed into another tool or command instead of the matching lines themselves.
 - **Prefer instead:** Use `search --count` when per-file match totals matter, or plain `search` when the matching lines matter.
 
+<!-- ref:search-mode:files-without-match -->
+### `search --files-without-match`
+
+- **What it does:** Emits only file paths that contain no matches (`-L`, same as grep `-L`). Combining with `--files-with-matches` (`-l`) or `--count` (`-c`) is `invalid_input`.
+- **Use when:** You need the complement of `--files-with-matches`: files in the scan that do not contain the pattern.
+- **Prefer instead:** Use `--files-with-matches` when you want files that hit, or `--invert-match` when you want non-matching *lines* rather than files with zero hits.
+
 <!-- ref:search-mode:count -->
 ### `search --count`
 
@@ -511,7 +518,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:search-mode:max-results -->
 ### `search --max-results`
 
-- **What it does:** Caps the detailed `matches` array under `--json` (and line-oriented output) while `match_count` stays the full total. Also caps the `files` list in `--count` and `--files-with-matches` modes (`file_count` stays full). When a list is capped, JSON sets `truncated: true` (omitted when complete). Tx plan search results use the same `truncated` field for content matches.
+- **What it does:** Caps the detailed `matches` array under `--json` (and line-oriented output) while `match_count` stays the full total. Also caps the `files` list in `--count`, `--files-with-matches`, and `--files-without-match` modes (`file_count` stays full). When a list is capped, JSON sets `truncated: true` (omitted when complete). Tx plan search results use the same `truncated` field for content matches.
 - **Use when:** Agents need a bounded sample of hits or file paths without discarding the true total for budgeting or pagination (#1798).
 - **Prefer instead:** Omit `--max-results` when you need every match line or the full file inventory.
 

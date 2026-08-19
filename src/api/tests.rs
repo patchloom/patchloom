@@ -3035,6 +3035,7 @@ fn search_parity_custom_ignore_across_api_cli_and_plan() {
             before_context: None,
             after_context: None,
             files_with_matches: false,
+            files_without_match: false,
             count: false,
             invert_match: false,
             multiline: false,
