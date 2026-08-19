@@ -1540,7 +1540,11 @@ zcmV-30c%W6N;csHwEFcP0000N
         let files = parse_patch(diff).expect("binary-only must list dest");
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].path, "secret.bin");
-        assert!(files[0].unsupported.is_some());
+        assert_eq!(
+            files[0].unsupported.as_deref(),
+            Some("GIT binary patch"),
+            "binary-only dest must name the git-meta reason (not only Some)"
+        );
     }
 
     #[test]

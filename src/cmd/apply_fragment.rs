@@ -247,7 +247,7 @@ mod tests {
                 instruction: None,
                 after: None,
                 before: None,
-                old: Some("return 0;".into()),
+                old: Some("return 0;\n".into()),
                 allow_non_unique: false,
                 write: Default::default(),
             },
@@ -256,10 +256,7 @@ mod tests {
         .unwrap();
         assert_eq!(code, crate::exit::SUCCESS);
         let body = std::fs::read_to_string(&path).unwrap();
-        assert!(
-            body.starts_with("return 1;"),
-            "expected replace to return 1; got {body:?}"
-        );
+        assert_eq!(body, "return 1;\n");
     }
 
     #[test]
