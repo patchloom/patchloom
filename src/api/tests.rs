@@ -8712,17 +8712,17 @@ fn apply_fragment_to_file_replace_old() {
     let r = apply_fragment_to_file(
         &path,
         "return 1;\n",
-        FragmentPlacement::Replace("return 0;".into()),
+        FragmentPlacement::Replace("return 0;\n".into()),
         true,
         ApplyMode::Apply,
         None,
     )
     .expect("replace old");
     assert!(r.applied);
-    let body = fs::read_to_string(&path).unwrap();
-    assert!(
-        body.starts_with("return 1;"),
-        "replace old result: {body:?}"
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "return 1;\n",
+        "replace must swap the whole old line, not prepend"
     );
 }
 

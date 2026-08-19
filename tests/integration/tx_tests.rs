@@ -9942,13 +9942,32 @@ fn test_tx_apply_fragment_unique_ambiguous_exit_5() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let out = Command::cargo_bin("patchloom")
         .unwrap()
-        .arg("tx")
+        .args(["--json", "tx"])
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
-        .assert()
-        .code(5); // AMBIGUOUS
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout: {}",
+            String::from_utf8_lossy(&out.stdout)
+        )
+    });
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("allow-non-unique"),
+        "ambiguous hint must name --allow-non-unique (not only replace --nth): {v}"
+    );
     assert_eq!(fs::read_to_string(&file).unwrap(), "dup\ndup\n");
 }
 
@@ -9964,8 +9983,8 @@ fn test_tx_apply_fragment_replace_old() {
         "operations": [{
             "op": "apply.fragment",
             "path": portable_path_str(&file),
-            "old": "return 0;",
-            "fragment": "return 1;"
+            "old": "return 0;\n",
+            "fragment": "return 1;\n"
         }]
     });
     let plan_file = dir.path().join("plan.json");
@@ -9979,10 +9998,10 @@ fn test_tx_apply_fragment_replace_old() {
         .assert()
         .code(0);
 
-    let body = fs::read_to_string(&file).unwrap();
-    assert!(
-        body.starts_with("return 1;"),
-        "expected replace to return 1; got {body:?}"
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "return 1;\n",
+        "replace must swap the whole old line, not prepend"
     );
 }
 
