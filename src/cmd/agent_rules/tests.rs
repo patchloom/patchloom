@@ -40,6 +40,10 @@ fn default_includes_all_sections() {
             || out.contains("still a number"),
         "batch value note must warn that double-quoted 2.0 stays a JSON number: {out}"
     );
+    assert!(
+        out.contains("doc set FILE . VALUE") && out.contains("replaces the whole document"),
+        "selector table must say `.` is root for doc set: {out}"
+    );
 }
 
 #[test]

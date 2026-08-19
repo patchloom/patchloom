@@ -11,12 +11,14 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
          | Syntax | Meaning | Example |\n\
          |--------|---------|---------|\n\
          | `name` | Object key | `database.host` |\n\
+         | `.` | Document root | `doc keys FILE .`; `doc set FILE . VALUE` replaces the whole document |\n\
          | `[N]` | Array index (zero-based) | `servers[0].port` |\n\
          | `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |\n\
          | `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |\n\n\
          Segments are separated by `.` or adjacent brackets. A single leading `/` is treated as \
-\"from root\" and stripped (JSON Pointer habit), so `/feature_flag` sets key `feature_flag`, not a key literally named `/feature_flag` (#1794). Only one leading slash is special; `//a` keeps a key named `/a`. Prefer bare keys in prompts (`feature_flag`, `server.port`). Examples:\n\n\
+\"from root\" and stripped (JSON Pointer habit), so `/feature_flag` sets key `feature_flag`, not a key literally named `/feature_flag` (#1794). Only one leading slash is special; `//a` keeps a key named `/a`. Prefer bare keys in prompts (`feature_flag`, `server.port`). A lone `.` (or empty / `/`) is the document root: `doc keys FILE .` lists top-level keys, and `doc set FILE . VALUE` replaces the whole document. Examples:\n\n\
          ```text\n\
+         .                               # document root (keys / whole-document set)\n\
          scripts.test                    # simple selector path\n\
          /feature_flag                   # same as feature_flag (leading slash stripped)\n\
          jobs[0].steps[*].name           # index + wildcard\n\

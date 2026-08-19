@@ -33,6 +33,30 @@ async fn test_mcp_doc_set_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// #2197: MCP `doc_set` selector `.` replaces the document root.
+#[tokio::test]
+async fn test_mcp_doc_set_dot_replaces_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("d.json"), r#"{"a":1}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({"path": "d.json", "selector": ".", "value": {"b": 2}}),
+    )
+    .await;
+    assert!(!is_error, "doc_set `.` should succeed: {val}");
+    assert_eq!(val["ok"], true, "{val}");
+    let content = fs::read_to_string(dir.path().join("d.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+    assert_eq!(v, serde_json::json!({"b": 2}), "{content}");
+    client.cancel().await.unwrap();
+}
+
 /// #1696: registry MCP accepts LLM-prior `key` as alias for `selector`.
 #[tokio::test]
 async fn test_mcp_doc_delete_accepts_key_alias() {

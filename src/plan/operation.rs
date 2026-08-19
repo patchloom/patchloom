@@ -111,6 +111,7 @@ pub enum Operation {
         /// Path to the JSON, YAML, or TOML file.
         path: String,
         /// Dot-notation selector path (e.g. "server.port", "env.0.value").
+        /// `.` (or empty / `/`) is the document root and replaces the whole value.
         /// Alias `key` accepted because agents often emit that name (LLM prior).
         #[serde(alias = "key")]
         selector: String,

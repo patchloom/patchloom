@@ -777,6 +777,7 @@ Use these when the top level `doc` command is right, but you need a specific str
 - **Prefer instead:** Use `doc merge` for multi field updates, or `doc ensure` when existing values should be preserved. Use `doc update` for predicate or wildcard multi-match (`items[name=a].v`, `items[*].enabled`).
 - **Failure behavior:** Predicate or wildcard selectors fail closed (exit 1) with `error_kind: "invalid_input"` and machine-stable `suggested_op: "doc.update"` under `--json` / plan / MCP (#2133). The same mapping applies when the predicate is an **intermediate** parent segment (e.g. `items[id=a].val`), not only a leaf (#2138).
 - **Leading slash:** A single leading `/` is stripped (JSON Pointer habit). `/feature_flag` sets key `feature_flag`, not a key named `/feature_flag` (#1794). Prefer bare keys in agent prompts.
+- **Root selector:** `.` (also empty or `/`) is the document root. `doc keys FILE .` lists top-level keys. `doc set FILE . VALUE` replaces the whole document.
 
 <!-- ref:doc-action:delete -->
 ### `doc delete`
