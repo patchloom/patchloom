@@ -340,6 +340,56 @@ mod tests {
     }
 
     #[test]
+    fn apply_fragment_after_anchor_that_includes_indent_is_own_indented_line() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(&path, "fn main() {\n    let x = 1;\n}\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("let y = 2;".into()),
+                stdin: false,
+                instruction: None,
+                after: Some("    let x = 1;".into()),
+                before: None,
+                old: None,
+                allow_non_unique: false,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, "fn main() {\n    let x = 1;\n    let y = 2;\n}\n");
+    }
+
+    #[test]
+    fn apply_fragment_before_anchor_that_includes_indent_is_own_indented_line() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("t.rs");
+        std::fs::write(&path, "fn main() {\n    let x = 1;\n}\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("let y = 2;".into()),
+                stdin: false,
+                instruction: None,
+                after: None,
+                before: Some("    let x = 1;".into()),
+                old: None,
+                allow_non_unique: false,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(body, "fn main() {\n    let y = 2;\n    let x = 1;\n}\n");
+    }
+
+    #[test]
     fn apply_fragment_anchor_miss_no_matches() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("t.rs");

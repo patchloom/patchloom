@@ -400,8 +400,11 @@ fn skip_horiz_fwd(bytes: &[u8], mut i: usize) -> usize {
     i
 }
 
-/// Horizontal indent immediately before the first `anchor` match, if that
-/// whitespace is the line indent (not mid-line spaces).
+/// Horizontal indent of the line that contains the first `anchor` match.
+///
+/// Uses the line indent even when `anchor` itself starts with those spaces
+/// (copy-paste of `    let x = 1;` as `--after` / `--before`). Mid-line
+/// matches still return empty.
 fn indent_before_first_anchor<'a>(file_content: &'a str, anchor: &str) -> &'a str {
     indent_before_first_anchor_ci(file_content, anchor, false)
 }
@@ -420,8 +423,15 @@ fn indent_before_first_anchor_ci<'a>(
     let Some(i) = i else {
         return "";
     };
-    let start = leading_line_indent_start(file_content, i);
-    &file_content[start..i]
+    line_indent_at(file_content, i)
+}
+
+/// Indent of the line containing `match_start`, or empty when the match is
+/// mid-line (not preceded only by spaces/tabs back to a line boundary).
+fn line_indent_at(file_content: &str, match_start: usize) -> &str {
+    let start = leading_line_indent_start(file_content, match_start);
+    let end = skip_horiz_fwd(file_content.as_bytes(), start);
+    &file_content[start..end]
 }
 
 /// Parameters for [`build_replacement_text`].
@@ -833,7 +843,7 @@ pub fn replace_insert_before<'a>(
         let line_oriented = insert_before_is_line_oriented(&out, from, insert, case_insensitive);
         let (span_start, replacement) = if line_oriented {
             let indent_start = leading_line_indent_start(&out, hit.start);
-            let indent = out[indent_start..hit.start].to_string();
+            let indent = line_indent_at(&out, hit.start).to_string();
             // Detect whole-line using `from` (the pattern), not `matched`.
             let normalized =
                 normalize_line_insert_ci(&out, from, insert, InsertSide::Before, case_insensitive);
@@ -842,7 +852,14 @@ pub fn replace_insert_before<'a>(
             } else {
                 format!("{indent}{normalized}")
             };
-            (indent_start, format!("{insert_out}{indent}{matched}"))
+            // When the match already includes the line indent, do not
+            // prefix it again (copy-paste `--before '    let x = 1;'`).
+            let keep_indent = if hit.start == indent_start {
+                ""
+            } else {
+                indent.as_str()
+            };
+            (indent_start, format!("{insert_out}{keep_indent}{matched}"))
         } else {
             (hit.start, format!("{insert}{matched}"))
         };
