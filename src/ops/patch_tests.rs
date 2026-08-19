@@ -1365,6 +1365,11 @@ copy to bar.rs
         assert_eq!(unquote_git_c_string("a\\\\b"), "a\\b");
         assert_eq!(unquote_git_c_string("caf\\303\\251"), "café");
         assert_eq!(unquote_git_c_string("\\a\\b\\f\\v"), "\u{7}\u{8}\u{c}\u{b}");
+        // Octal can spell `..`; PathGuard / --contain still own sandboxing.
+        assert_eq!(
+            unquote_git_c_string("\\056\\056/etc/passwd"),
+            "../etc/passwd"
+        );
     }
 
     #[test]

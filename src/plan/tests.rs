@@ -660,6 +660,32 @@ fn for_each_invalid_glob_is_invalid_input() {
 
 #[cfg(feature = "files")]
 #[test]
+fn for_each_invalid_exclude_glob_is_invalid_input() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.txt", "exclude": ["["] },
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError for bad exclude glob, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("invalid exclude glob"),
+        "message should name the exclude glob failure: {msg}"
+    );
+}
+
+#[cfg(feature = "files")]
+#[test]
 fn for_each_unsupported_filter_is_invalid_input() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
