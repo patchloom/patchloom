@@ -1258,7 +1258,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Searches a file for a pattern inside a transaction and includes match results in the JSON output without writing anything.
 - **Use when:** An agent needs to locate patterns before replacing them in the same plan, enabling locate-then-edit in a single call.
-- **Optional fields:** `literal`, `regex`, `case_insensitive`, `multiline`, `invert_match`, `context`/`before_context`/`after_context`, `globs`, `exclude_patterns`, `custom_ignore_filenames` (for agent/tool ignore layering), `max_results`, `assert_count`. These provide full parity with the top-level `search` command and library `SearchOptions`.
+- **Optional fields:** `literal`, `regex`, `case_insensitive`, `multiline`, `invert_match`, `context`/`before_context`/`after_context`, `globs`, `exclude_patterns`, `custom_ignore_filenames` (for agent/tool ignore layering), `max_results`, `assert_count`. Match and ignore options match the top-level `search` command. File-list modes (`--files-with-matches` / `--files-without-match` / `--count`) are CLI and MCP `search_files` only.
 - **Related:** top level `search`
 
 <!-- ref:tx-op:read -->

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn test_mcp_setup_documents_search_files_modes() {
     let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
-    assert!(doc.contains("literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes"));
+    assert!(doc.contains("literal, case-insensitive, count, file-only (`files_with_matches` / `files_without_match`), multiline, invert-match, and assert-count modes"));
 }
 
 #[test]

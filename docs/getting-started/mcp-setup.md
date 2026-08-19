@@ -202,7 +202,7 @@ AST tools so `list_tools` stays honest about what is callable.
 | `doc_get` | Read a value by selector path (read-only) |
 | `doc_query` | Query a structured file: has, keys, len, select, or flatten (read-only) |
 | `doc_diff` | Compare two structured files (read-only) |
-| `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only, multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |
+| `search_files` | Search text files for a pattern, including literal, case-insensitive, count, file-only (`files_with_matches` / `files_without_match`), multiline, invert-match, and assert-count modes. Binary and invalid UTF-8 files are skipped (read-only) |
 | `list_files` | Bounded directory inventory with the same ignore/exclude/glob rules as search (read-only). Prefer this over a second generic filesystem MCP for list/tree. Optional `max_depth` prunes the walk per root (does not enter deeper dirs). `max_results` (default 500) still counts all in-depth matches then truncates and sets `truncated` / `total_matched` |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |
 | `server_info` | Return server identity and workspace root: `cwd`, `surface` (`full`\|`core`), `tool_count`, package `version`, and MCP `protocol_version` (read-only). Use `cwd` before relative path ops |

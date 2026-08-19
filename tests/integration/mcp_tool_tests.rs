@@ -191,6 +191,34 @@ async fn test_mcp_apply_fragment_after_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// #2204: copy-pasted indented `after` still indents a bare fragment (MCP).
+#[tokio::test]
+async fn test_mcp_apply_fragment_after_anchor_includes_indent() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("m.rs"), "fn main() {\n    let x = 1;\n}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_fragment",
+        serde_json::json!({
+            "path": "m.rs",
+            "after": "    let x = 1;",
+            "fragment": "let y = 2;"
+        }),
+    )
+    .await;
+    assert!(!is_error, "apply_fragment should succeed: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("m.rs")).unwrap(),
+        "fn main() {\n    let x = 1;\n    let y = 2;\n}\n"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// #2018: MCP apply_fragment without anchors fails closed.
 #[tokio::test]
 async fn test_mcp_apply_fragment_requires_anchor() {
@@ -1083,6 +1111,41 @@ async fn test_mcp_search_rejects_conflicting_modes() {
         result.is_err(),
         "search with both files_with_matches and files_without_match should be rejected"
     );
+    client.cancel().await.unwrap();
+}
+
+/// #2184: MCP `files_without_match` lists only miss paths (CLI -L sibling).
+#[tokio::test]
+async fn test_mcp_search_files_without_match_lists_miss() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+    fs::write(dir.path().join("miss.txt"), "nothing here\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "needle",
+            "literal": true,
+            "files_without_match": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "files_without_match search should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "{val}");
+    assert_eq!(val["file_count"], 1, "{val}");
+    let files = val["files"].as_array().expect("files array");
+    assert_eq!(files.len(), 1, "{val}");
+    let path = files[0]["path"].as_str().unwrap_or("");
+    assert!(path.contains("miss.txt"), "should list miss.txt: {val}");
+    assert!(!path.contains("hit.txt"), "must not list hit.txt: {val}");
     client.cancel().await.unwrap();
 }
 
