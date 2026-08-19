@@ -44,6 +44,13 @@ fn default_includes_all_sections() {
         out.contains("doc set FILE . VALUE") && out.contains("replaces the whole document"),
         "selector table must say `.` is root for doc set: {out}"
     );
+    assert!(
+        out.contains("file.append")
+            && out.contains("line ending first")
+            && out.contains("file.prepend")
+            && out.contains("line ending after"),
+        "catalogue must name append/prepend separator newlines (#2199): {out}"
+    );
 }
 
 #[test]

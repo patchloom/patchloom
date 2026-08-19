@@ -528,8 +528,8 @@ dependencies[name=react].version # predicate filter
 
 - `replace`: Replace text in a file using literal string matching. Optional require_change (fail closed on zero matches), command_position (shell invocable tokens only; peels sudo/timeout/busybox/flock/runuser/run0/gosu/unshare/nsenter/taskset/systemd-run/firejail/chpst/softlimit/envdir/setlock wrappers, not uv pip), and fuzzy (similarity fallback when exact match fails). When exact old is absent, fuzzy refuses by default even above min_fuzzy_score; set allow_absent_old for deliberate approximate recovery (#1758). Prefer ast.rename for identifiers.
 - `apply.fragment`: Constrained freeform fragment apply (#2018). Strips Morph-style // ... existing code ... marker lines from fragment, then inserts or replaces at a required unique anchor (exactly one of after, before, old). Fail-closed: no anchor-less Morph model merge. Prefer for lazy-snippet agent output when anchors are known; use replace/ast for precise edits.
-- `file.append`: Append content to an existing file.
-- `file.prepend`: Prepend content to an existing file.
+- `file.append`: Append content to an existing file. Inserts the file's line ending first when the file does not already end with one.
+- `file.prepend`: Prepend content to an existing file. Inserts the file's line ending after the new text when that text does not already end with one.
 - `file.create`: Create a new file with specified content.
 - `file.delete`: Delete a file.
 - `file.rename`: Rename (move) a file.

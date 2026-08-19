@@ -8,11 +8,17 @@ use serde::Serialize;
 #[command(after_help = "\
 EXAMPLES:
   patchloom append tests/integration.rs --content 'fn new_test() {}' --apply
-  echo 'new content' | patchloom append tests/integration.rs --stdin --apply")]
+  echo 'new content' | patchloom append tests/integration.rs --stdin --apply
+
+NOTES:
+  If the file does not already end with a newline, append inserts the file's
+  line ending before --content so the new text starts on its own line.")]
 pub struct AppendArgs {
     /// Path of the file to append to.
     pub file: String,
     /// Content to append (alternative to --stdin).
+    /// If the file does not already end with a newline, the file's line ending
+    /// is inserted first.
     #[arg(long)]
     pub content: Option<String>,
     /// Read content from stdin.
@@ -173,6 +179,20 @@ mod tests {
 
         let content = fs::read_to_string(&file).unwrap();
         assert_eq!(content, "line one\nline two\n");
+    }
+
+    #[test]
+    fn append_help_mentions_separator_newline() {
+        use clap::CommandFactory;
+        let cmd = crate::cli::Cli::command();
+        let append = cmd.find_subcommand("append").expect("append");
+        let mut buf = Vec::new();
+        append.clone().write_long_help(&mut buf).unwrap();
+        let help = String::from_utf8(buf).unwrap();
+        assert!(
+            help.contains("line ending") && help.contains("newline"),
+            "append --help must mention the separator newline (#2199):\n{help}"
+        );
     }
 
     #[test]

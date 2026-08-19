@@ -6,11 +6,17 @@ use clap::Args;
 #[command(after_help = "\
 EXAMPLES:
   patchloom prepend src/main.rs --content '// Copyright 2026' --apply
-  echo '# Header' | patchloom prepend README.md --stdin --apply")]
+  echo '# Header' | patchloom prepend README.md --stdin --apply
+
+NOTES:
+  If --content does not already end with a newline, prepend inserts the file's
+  line ending after it so existing text starts on the next line.")]
 pub struct PrependArgs {
     /// Path of the file to prepend to.
     pub file: String,
     /// Content to prepend (alternative to --stdin).
+    /// If this text does not already end with a newline, the file's line ending
+    /// is inserted after it.
     #[arg(long)]
     pub content: Option<String>,
     /// Read content from stdin.
@@ -129,6 +135,10 @@ mod tests {
         assert!(
             help.contains("--content '// Copyright 2026'"),
             "help should still show the copyright prepend example:\n{help}"
+        );
+        assert!(
+            help.contains("line ending") && help.contains("newline"),
+            "help must mention the separator newline (#2199):\n{help}"
         );
     }
 
