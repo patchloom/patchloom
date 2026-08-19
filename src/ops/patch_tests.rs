@@ -1395,6 +1395,11 @@ copy to bar.rs
         assert_eq!(env_secret, ("notes.txt".into(), ".env secret".into()));
         let unquoted = parse_diff_git_paths("diff --git a/ok.rs b/.env").expect("unquoted");
         assert_eq!(unquoted, ("ok.rs".into(), ".env".into()));
+        let no_prefix =
+            parse_diff_git_paths(r#""a/notes.txt" "b/.env secret""#).expect("no prefix");
+        assert_eq!(no_prefix, ("notes.txt".into(), ".env secret".into()));
+        let no_prefix_plain = parse_diff_git_paths("a/ok.rs b/.env").expect("no prefix plain");
+        assert_eq!(no_prefix_plain, ("ok.rs".into(), ".env".into()));
     }
 
     #[test]
@@ -1546,6 +1551,22 @@ new mode 100755
         assert_eq!(files[0].unsupported.as_deref(), Some("mode-only chmod"));
         let paths = patch_declared_paths(diff).expect("mode dest");
         assert!(paths.contains(&"ok.rs".into()), "{paths:?}");
+    }
+
+    #[test]
+    fn deleted_file_mode_lists_source() {
+        let diff = "\
+diff --git a/gone.rs b/gone.rs
+deleted file mode 100644
+index e69de29..0000000
+";
+        let files = parse_patch(diff).expect("deleted-file-mode must list dest");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "gone.rs");
+        assert!(files[0].is_deletion);
+        assert!(files[0].unsupported.is_none());
+        let paths = patch_declared_paths(diff).expect("delete dest");
+        assert!(paths.contains(&"gone.rs".into()), "{paths:?}");
     }
 
     #[test]

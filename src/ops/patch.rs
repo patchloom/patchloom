@@ -163,11 +163,15 @@ fn unquote_git_path_meta(s: &str) -> String {
 
 /// Parse `diff --git a/old b/new` into (old, new) relative paths.
 ///
+/// Accepts the full line or the path pair after `diff --git `.
 /// Handles C-quoted paths and mixed quoting (`"a/my file.rs" b/ok.rs`).
 /// Do not split `diff --git` on whitespace in hosts; use this helper. (#2176)
 #[must_use]
 pub fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
-    let rest = line.strip_prefix("diff --git ")?;
+    let rest = line.strip_prefix("diff --git ").unwrap_or(line).trim();
+    if rest.is_empty() {
+        return None;
+    }
     let (raw_a, raw_b) = split_two_git_path_tokens(rest)?;
     // Tokenizer already dropped surrounding quotes; still C-unescape the body
     // (`b/\056env` → `b/.env`).

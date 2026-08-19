@@ -1400,6 +1400,40 @@ index 0000000..e69de29\n";
     );
 }
 
+#[test]
+fn apply_patch_file_empty_create_writes_empty_dest() {
+    let dir = TempDir::new().unwrap();
+    let patch = "\
+diff --git a/ok.txt b/.empty\n\
+new file mode 100644\n\
+index 0000000..e69de29\n";
+    let preview = apply_patch_file(patch, dir.path(), ApplyMode::Preview, None).unwrap();
+    assert!(
+        preview[0].changed,
+        "empty-create Preview must set changed=true"
+    );
+    assert!(!dir.path().join(".empty").exists());
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].path, ".empty");
+    assert!(results[0].changed);
+    assert_eq!(fs::read_to_string(dir.path().join(".empty")).unwrap(), "");
+}
+
+#[test]
+fn apply_patch_file_deleted_file_mode_unlinks() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("gone.rs"), "").unwrap();
+    let patch = "\
+diff --git a/gone.rs b/gone.rs\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    assert!(!dir.path().join("gone.rs").exists());
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn execute_plan_empty_create_refuses_existing_dest() {

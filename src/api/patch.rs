@@ -209,6 +209,7 @@ pub fn apply_patch_file(
             display: String,
             original: String,
             new_content: String,
+            is_creation: bool,
         },
         Delete {
             path: std::path::PathBuf,
@@ -361,6 +362,7 @@ pub fn apply_patch_file(
                 display: pf.path.clone(),
                 original,
                 new_content,
+                is_creation: pf.is_creation,
             });
         }
     }
@@ -493,8 +495,22 @@ pub fn apply_patch_file(
                 display,
                 original,
                 new_content,
+                is_creation,
                 ..
-            } => super::build_edit_result(&display, original, new_content, applied, "patch", None),
+            } => {
+                let mut e = super::build_edit_result(
+                    &display,
+                    original,
+                    new_content,
+                    applied,
+                    "patch",
+                    None,
+                );
+                if is_creation {
+                    e.changed = true;
+                }
+                e
+            }
             StageOp::Delete {
                 display, original, ..
             } => {
