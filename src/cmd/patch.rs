@@ -395,12 +395,7 @@ fn patch_problem_kind(results: &[PatchFileResult]) -> (&'static str, String, u8)
     let has_missing = results.iter().any(|r| r.status == "missing");
     let has_error = results.iter().any(|r| r.status == "error");
     let has_conflict = results.iter().any(|r| r.status == "conflict");
-    let has_already_exists = results.iter().any(|r| {
-        r.status == "already_exists"
-            || r.error
-                .as_deref()
-                .is_some_and(|e| e.contains("destination already exists"))
-    });
+    let has_already_exists = results.iter().any(|r| r.status == "already_exists");
     if has_conflict {
         (
             "conflicts",
@@ -998,6 +993,36 @@ mod tests {
     use super::*;
     use crate::cli::global::GlobalFlags;
     use tempfile::TempDir;
+
+    fn file_result(status: &'static str, error: Option<&str>) -> PatchFileResult {
+        PatchFileResult {
+            path: "dst.rs".into(),
+            status,
+            error: error.map(str::to_string),
+            conflicts: None,
+            from: None,
+            to: None,
+            action: None,
+        }
+    }
+
+    #[test]
+    fn patch_problem_kind_uses_already_exists_status_not_english() {
+        let (kind, _, code) = patch_problem_kind(&[file_result("already_exists", None)]);
+        assert_eq!(kind, "already_exists");
+        assert_eq!(code, exit::FAILURE);
+
+        // Dest-clobber always sets status. Do not scrape "destination already
+        // exists" English; a message-only row is not already_exists.
+        let (kind, _, _) = patch_problem_kind(&[file_result(
+            "error",
+            Some("destination already exists: dst.rs (patch copy refuses overwrite; remove dest)"),
+        )]);
+        assert_ne!(
+            kind, "already_exists",
+            "must classify from status, not English dest-clobber text"
+        );
+    }
 
     #[test]
     fn merge_check_reports_conflict_without_writing() {
