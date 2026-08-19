@@ -445,6 +445,21 @@ fn test_batch_bare_create_suggests_file_create() {
         .stderr(predicates::str::contains("did you mean: file.create?"));
 }
 
+/// Bare 1-char typo of a leaf (`creat`) should still suggest `file.create` (#2189).
+#[test]
+fn test_batch_bare_creat_typo_suggests_file_create() {
+    let dir = TempDir::new().unwrap();
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg("--apply")
+        .write_stdin("creat new.txt \"hi\"\n")
+        .assert()
+        .code(4) // PARSE_ERROR
+        .stderr(
+            predicates::str::contains("did you mean").and(predicates::str::contains("file.create")),
+        );
+}
+
 /// Typo of a known op should offer fuzzy neighbors.
 #[test]
 fn test_batch_typo_file_create_suggests_neighbors() {
