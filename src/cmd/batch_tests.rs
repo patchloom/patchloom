@@ -949,6 +949,16 @@ mod error_handling {
         );
     }
 
+    #[test]
+    fn parse_line_suggests_file_create_for_bare_creat_typo() {
+        let err = parse_line(r#"creat path.txt "hi""#, 1).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("did you mean") && msg.contains("file.create"),
+            "expected leaf-typo suggestion, got: {msg}"
+        );
+    }
+
     /// Agents invent `file.replace` from `file.create` / `file.delete`.
     /// Suggest bare `replace`, not JW neighbors like `file.rename`.
     #[test]

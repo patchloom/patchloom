@@ -470,10 +470,17 @@ fn suggest_batch_op(op: &str) -> Option<String> {
         return Some(suffix.join(", "));
     }
 
+    // Score full names (`file.creat` → `file.create`) and leaves
+    // (`creat` → `create` → `file.create`). Bare JW vs `file.create`
+    // stays below 0.86 (#2189).
     let mut scored: Vec<(&str, f64)> = KNOWN_BATCH_OPS
         .iter()
         .copied()
-        .map(|k| (k, strsim::jaro_winkler(op, k)))
+        .map(|k| {
+            let leaf = k.rsplit_once('.').map(|(_, l)| l).unwrap_or(k);
+            let score = strsim::jaro_winkler(op, k).max(strsim::jaro_winkler(op, leaf));
+            (k, score)
+        })
         .filter(|(_, score)| *score >= 0.86)
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
