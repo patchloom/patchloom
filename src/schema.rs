@@ -217,7 +217,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "file.append",
-        description: "Append content to an existing file.",
+        description: "Append content to an existing file. Inserts the file's line ending first when the file does not already end with one.",
         tier: Tier::Weak,
         examples: &[(
             "Append a test function to a test file",
@@ -226,7 +226,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "file.prepend",
-        description: "Prepend content to an existing file.",
+        description: "Prepend content to an existing file. Inserts the file's line ending after the new text when that text does not already end with one.",
         tier: Tier::Weak,
         examples: &[(
             "Prepend a license header",
