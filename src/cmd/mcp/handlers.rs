@@ -1068,7 +1068,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Structural search using AST queries. Use S-expression syntax or set pattern=true for code patterns with meta-variables ($VAR, $$$MULTI). Example: {\"query\": \"(function_item name: (identifier) @name)\", \"path\": \"src/\"}"
+        description = "Structural search using AST queries. Use S-expression syntax or set pattern=true for code patterns with $VAR meta-variables (pattern must be valid source after substitution, e.g. fn $NAME() {}). Literal tokens match exactly. $$$MULTI is not implemented. Example: {\"query\": \"(function_item name: (identifier) @name)\", \"path\": \"src/\"}"
     )]
     async fn ast_search(
         &self,

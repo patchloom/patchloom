@@ -120,6 +120,7 @@ pub fn search_file(
 /// Pattern mode: the pattern is parsed as source code for the target language,
 /// and its AST node kinds are converted into an S-expression query.
 /// `$NAME` meta-variables become `@name` captures on identifier nodes.
+/// Literal tokens (identifiers, numbers, strings) match that text via `#eq?`.
 ///
 /// Before parsing, meta-variables (`$NAME`) are replaced with valid placeholder
 /// identifiers (`_pl_NAME_`) so tree-sitter can parse the pattern without errors.
@@ -208,8 +209,19 @@ fn build_query_from_node(
     }
 
     if node.child_count() == 0 {
-        // Leaf node: match exact text
-        query.push_str(&format!("({kind}) @cap{capture_idx}"));
+        // Named leaf: constrain token text. Without #eq?, `(identifier) @cap`
+        // matches any identifier, so `fn compute() {}` also hits `fn other() {}`.
+        // Skip empty text: `class $NAME:` parses an empty `block` leaf that
+        // must still match classes with a body.
+        let cap = format!("cap{capture_idx}");
+        if text.is_empty() {
+            query.push_str(&format!("({kind}) @{cap}"));
+        } else {
+            query.push_str(&format!(
+                "(({kind}) @{cap} (#eq? @{cap} \"{}\"))",
+                escape_ts_string(text)
+            ));
+        }
         *capture_idx += 1;
         return;
     }
@@ -224,6 +236,21 @@ fn build_query_from_node(
         build_query_from_node(child, source, query, capture_idx, placeholders);
     }
     query.push(')');
+}
+
+fn escape_ts_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -311,6 +338,44 @@ fn main() {
         let results = search_query(source, &query, Language::Rust, None).unwrap();
         // Should match main and helper (no params), may or may not match process
         assert!(!results.is_empty(), "expected matches for fn pattern");
+    }
+
+    #[test]
+    fn compile_pattern_literal_identifier_is_not_wildcard() {
+        let query = compile_pattern_query("fn compute() {}", Language::Rust).unwrap();
+        let source = "fn compute() {}\nfn other() {}\n";
+        let results = search_query(source, &query, Language::Rust, None).unwrap();
+        let names: Vec<&str> = results
+            .iter()
+            .flat_map(|r| r.captures.iter())
+            .filter(|c| c.text == "compute" || c.text == "other")
+            .map(|c| c.text.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["compute"],
+            "literal `compute` must not match `other`; query={query}"
+        );
+        assert_eq!(results.len(), 1, "expected one match, query={query}");
+    }
+
+    #[test]
+    fn compile_pattern_dollar_name_still_matches_any_zero_arg_fn() {
+        let query = compile_pattern_query("fn $NAME() {}", Language::Rust).unwrap();
+        let source = "fn compute() {}\nfn other() {}\n";
+        let results = search_query(source, &query, Language::Rust, None).unwrap();
+        let names: Vec<&str> = results
+            .iter()
+            .flat_map(|r| r.captures.iter())
+            .filter(|c| c.name == "NAME")
+            .map(|c| c.text.as_str())
+            .collect();
+        assert_eq!(names, ["compute", "other"], "query={query}");
+    }
+
+    #[test]
+    fn escape_ts_string_quotes_and_backslash() {
+        assert_eq!(escape_ts_string(r#"a"b\c"#), r#"a\"b\\c"#);
     }
 
     #[test]

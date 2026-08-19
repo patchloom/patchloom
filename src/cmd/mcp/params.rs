@@ -435,7 +435,9 @@ pub(crate) struct AstSearchParams {
     pub query: String,
     /// File or directory to search (relative to working directory).
     pub path: String,
-    /// Treat the query as a code pattern with meta-variables ($VAR, $$$MULTI).
+    /// Treat the query as a code pattern with `$VAR` meta-variables.
+    /// The pattern must be valid source after substituting `$VAR`.
+    /// Literal tokens match exactly. `$$$MULTI` is not implemented.
     #[serde(default)]
     pub pattern: bool,
     /// Language hint (required for pattern mode).
