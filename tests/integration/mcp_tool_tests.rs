@@ -1350,6 +1350,42 @@ rename to new.rs\n";
     client.cancel().await.unwrap();
 }
 
+/// Git 100% copy must refuse an existing dest (CLI dest-exists parity, #2178).
+#[tokio::test]
+async fn test_mcp_apply_patch_copy_refuses_existing_dest() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "source\n").unwrap();
+    fs::write(dir.path().join("dst.rs"), "dest-existing\n").unwrap();
+
+    let diff = "\
+diff --git a/src.rs b/dst.rs\n\
+similarity index 100%\n\
+copy from src.rs\n\
+copy to dst.rs\n";
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(is_error, "overwrite dest via git copy must fail: {val}");
+    let s = val.to_string();
+    assert!(
+        s.contains("already_exists") || s.contains("already exists"),
+        "expected already_exists honesty, got: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("src.rs")).unwrap(),
+        "source\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("dst.rs")).unwrap(),
+        "dest-existing\n"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// Pure rename of a workspace symlink whose *target* is outside must succeed
 /// with entry-mode PathGuard (follow mode rejected the link; #2120 apply_patch
 /// parity with execute_plan).
@@ -4708,6 +4744,45 @@ async fn test_mcp_execute_plan_rejects_cwd_with_for_each() {
     );
     // File must be unchanged (plan rejected before apply).
     assert_eq!(fs::read_to_string(nested.join("a.txt")).unwrap(), "old\n");
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_execute_plan_for_each_unsupported_filter() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "execute_plan",
+        serde_json::json!({
+            "plan": {
+                "version": 1,
+                "for_each": {"glob": "*.txt", "filter": "contains(hello)"},
+                "operations": [{
+                    "op": "replace",
+                    "path": "{path}",
+                    "old": "old",
+                    "new": "new"
+                }]
+            }
+        }),
+    )
+    .await;
+    assert!(is_error, "unsupported for_each filter must fail: {val}");
+    let text = val.to_string();
+    assert!(
+        text.contains("unsupported filter") && text.contains("contains(hello)"),
+        "error should name the filter: {text}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "old\n"
+    );
     client.cancel().await.unwrap();
 }
 

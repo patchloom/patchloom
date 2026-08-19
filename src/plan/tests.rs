@@ -632,6 +632,86 @@ fn for_each_unknown_path_template_is_invalid_input() {
 
 #[cfg(feature = "files")]
 #[test]
+fn for_each_invalid_glob_is_invalid_input() {
+    // Unclosed character class is a globset parse error. Agents must see
+    // invalid_input (exit 1), not an untyped parse_error remap (exit 4).
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "[" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError for bad glob, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("invalid glob"),
+        "message should name the glob failure: {msg}"
+    );
+}
+
+#[cfg(feature = "files")]
+#[test]
+fn for_each_invalid_exclude_glob_is_invalid_input() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.txt", "exclude": ["["] },
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError for bad exclude glob, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("invalid exclude glob"),
+        "message should name the exclude glob failure: {msg}"
+    );
+}
+
+#[cfg(feature = "files")]
+#[test]
+fn for_each_unsupported_filter_is_invalid_input() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.txt", "filter": "contains(hello)" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError for unknown filter, got: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("unsupported filter") && msg.contains("contains(hello)"),
+        "message should name the filter expression: {msg}"
+    );
+}
+
+#[cfg(feature = "files")]
+#[test]
 fn for_each_unescaped_braces_still_substitute() {
     // Verify that normal (unescaped) template variables still work.
     let dir = tempfile::tempdir().unwrap();

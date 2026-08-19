@@ -8166,6 +8166,103 @@ fn test_tx_for_each_rejects_plan_cwd() {
 }
 
 #[test]
+fn test_tx_for_each_invalid_glob_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "x\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "for_each": { "glob": "[" },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "old": "x",
+            "new": "y"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "bad for_each glob must be invalid_input exit 1; stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON: {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "CLI must not remap bad glob to parse_error: {json}"
+    );
+    assert_eq!(json["applied"], false, "{json}");
+    assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "x\n");
+}
+
+#[test]
+fn test_tx_for_each_unsupported_filter_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "x\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "for_each": { "glob": "*.txt", "filter": "contains(hello)" },
+        "operations": [{
+            "op": "replace",
+            "path": "{path}",
+            "old": "x",
+            "new": "y"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "unsupported for_each filter must be invalid_input exit 1; stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON: {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "CLI must not remap unknown filter to parse_error: {json}"
+    );
+    assert_eq!(json["applied"], false, "{json}");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("unsupported filter") && combined.contains("contains(hello)"),
+        "expected named filter in error, got: {combined}"
+    );
+    assert_eq!(fs::read_to_string(dir.path().join("a.txt")).unwrap(), "x\n");
+}
+
+#[test]
 fn test_tx_for_each_rejects_fixed_path_multi_match() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();

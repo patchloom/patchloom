@@ -1049,7 +1049,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **Use when:** The same structural transform (extract tests, add headers, reorder symbols) must be applied to many files matching a glob pattern.
 - **Field value:** Object with `glob` (required), `exclude` (optional array of glob patterns), and `filter` (optional, e.g. `has_symbol(tests)`).
 - **MCP:** Do not set `for_each` together with `plan.cwd` (rejected). Use workspace-relative `{path}` templates without `cwd`.
-- **Failure behavior:** A zero-match glob is `no_matches` (exit 3 / `EditErrorKind::NoMatch`), not a successful empty apply. Combining `plan.cwd` with `for_each` is `invalid_input`. If any expanded operation fails, the entire batch rolls back atomically.
+- **Failure behavior:** A zero-match glob is `no_matches` (exit 3 / `EditErrorKind::NoMatch`), not a successful empty apply. Combining `plan.cwd` with `for_each` is `invalid_input`. A glob (or exclude glob) that globset cannot parse, and a `filter` other than `has_symbol(NAME)`, are `invalid_input` (exit 1), not `parse_error` (exit 4). If any expanded operation fails, the entire batch rolls back atomically.
 
 ### Transaction operations
 

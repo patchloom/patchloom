@@ -552,12 +552,19 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
     }
 
     // 1. Collect matching files.
-    let glob_set =
-        crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob))?.ok_or_else(|| {
-            anyhow::Error::new(crate::exit::InvalidInputError {
+    let glob_set = match crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob)) {
+        Ok(Some(set)) => set,
+        Ok(None) => {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: "for_each: invalid glob pattern".into(),
-            })
-        })?;
+            }));
+        }
+        Err(e) => {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("for_each: invalid glob pattern: {e}"),
+            }));
+        }
+    };
 
     let all_files = crate::files::collect_file_paths(cwd, false)?;
     let mut matched: Vec<std::path::PathBuf> = all_files
@@ -571,7 +578,11 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
 
     // 2. Apply exclude patterns.
     if !fe.exclude.is_empty() {
-        let excl = crate::files::build_glob_matcher(&fe.exclude)?;
+        let excl = crate::files::build_glob_matcher(&fe.exclude).map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("for_each: invalid exclude glob: {e}"),
+            })
+        })?;
         if let Some(excl_set) = excl {
             matched.retain(|p| {
                 let rel = p.strip_prefix(cwd).unwrap_or(p);
