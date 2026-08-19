@@ -685,6 +685,114 @@ pub fn replace_content<'a>(
     }
 }
 
+/// Start of horizontal whitespace before `start` when that whitespace is the
+/// whole indent of the line. Mid-line spaces (e.g. `xx foo`) are not indent.
+pub fn leading_line_indent_start(content: &str, start: usize) -> usize {
+    let bytes = content.as_bytes();
+    let mut i = start;
+    while i > 0 && (bytes[i - 1] == b' ' || bytes[i - 1] == b'\t') {
+        i -= 1;
+    }
+    if i == 0 || matches!(bytes[i - 1], b'\n' | b'\r') {
+        i
+    } else {
+        start
+    }
+}
+
+fn insert_before_is_line_oriented(
+    file_content: &str,
+    anchor: &str,
+    insert: &str,
+    case_insensitive: bool,
+) -> bool {
+    if ends_with_line_ending(insert) || starts_with_line_ending(anchor) {
+        return looks_like_new_line_payload(insert)
+            || anchor_is_whole_line_ci(file_content, anchor, case_insensitive);
+    }
+    looks_like_new_line_payload(insert)
+        || anchor_is_whole_line_ci(file_content, anchor, case_insensitive)
+}
+
+/// Insert `insert` before each match of `from`, keeping line indent on the
+/// original anchor when the insert is line-oriented (#2187).
+///
+/// `fn compute() {}` style `--before 'let x = 1;'` on an indented line must
+/// not steal the indent onto the new line and leave `let x` at column 0.
+pub fn replace_insert_before<'a>(
+    content: &'a str,
+    from: &str,
+    insert: &str,
+    compiled_re: Option<&Regex>,
+    nth: Option<usize>,
+    case_insensitive: bool,
+) -> (std::borrow::Cow<'a, str>, usize) {
+    use std::borrow::Cow;
+
+    struct Hit {
+        start: usize,
+        end: usize,
+    }
+
+    let mut hits: Vec<Hit> = Vec::new();
+    if let Some(re) = compiled_re {
+        let content_len = content.len();
+        for caps in re.captures_iter(content) {
+            let Some(m) = caps.get(0) else {
+                continue;
+            };
+            if m.start() == content_len && m.end() == content_len {
+                continue;
+            }
+            hits.push(Hit {
+                start: m.start(),
+                end: m.end(),
+            });
+        }
+    } else if !from.is_empty() {
+        for (start, _) in content.match_indices(from) {
+            hits.push(Hit {
+                start,
+                end: start + from.len(),
+            });
+        }
+    }
+
+    let selected: Vec<Hit> = if let Some(n) = nth {
+        hits.into_iter()
+            .nth(n.saturating_sub(1))
+            .into_iter()
+            .collect()
+    } else {
+        hits
+    };
+    if selected.is_empty() {
+        return (Cow::Borrowed(content), 0);
+    }
+
+    let count = selected.len();
+    let mut out = content.to_string();
+    for hit in selected.into_iter().rev() {
+        let matched = out[hit.start..hit.end].to_string();
+        // Whole-line detection uses the search pattern (`from`), not the
+        // matched text. A regex `b+` that matches a whole line `bbb` must
+        // stay byte-exact (legacy `Xbbb`), same as build_replacement_text.
+        let line_oriented = insert_before_is_line_oriented(&out, from, insert, case_insensitive);
+        let (span_start, replacement) = if line_oriented {
+            let indent_start = leading_line_indent_start(&out, hit.start);
+            let indent = out[indent_start..hit.start].to_string();
+            // Detect whole-line using `from` (the pattern), not `matched`.
+            let normalized =
+                normalize_line_insert_ci(&out, from, insert, InsertSide::Before, case_insensitive);
+            (indent_start, format!("{normalized}{indent}{matched}"))
+        } else {
+            (hit.start, format!("{insert}{matched}"))
+        };
+        out.replace_range(span_start..hit.end, &replacement);
+    }
+    (Cow::Owned(out), count)
+}
+
 /// Score how well a content fragment matches a context fragment.
 ///
 /// Uses Jaro-Winkler (full-string similarity) and substring containment.

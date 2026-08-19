@@ -3510,6 +3510,31 @@ fn test_apply_fragment_cli_after_strips_markers() {
     );
 }
 
+/// #2187: --before must keep indent on the original anchor line.
+#[test]
+fn test_apply_fragment_cli_before_preserves_anchor_indent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("m.rs");
+    fs::write(&file, "fn main() {\n    let x = 1;\n}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("apply-fragment")
+        .arg(file.to_str().unwrap())
+        .arg("--before")
+        .arg("let x = 1;")
+        .arg("--fragment")
+        .arg("    let y = 0;")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn main() {\n    let y = 0;\n    let x = 1;\n}\n"
+    );
+}
+
 /// #2018: CLI apply-fragment dry-run preview is exit 2 and leaves file unchanged.
 #[test]
 fn test_apply_fragment_cli_preview_exit_2() {

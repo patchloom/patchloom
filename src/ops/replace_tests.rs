@@ -318,6 +318,30 @@ mod replace_tests {
         }
 
         #[test]
+        fn leading_line_indent_start_line_start_vs_mid_line() {
+            assert_eq!(leading_line_indent_start("    let x = 1;\n", 4), 0);
+            assert_eq!(leading_line_indent_start("xx foo yy", 3), 3);
+            assert_eq!(leading_line_indent_start("a\n    b", 6), 2);
+        }
+
+        #[test]
+        fn replace_insert_before_keeps_indent_on_anchor() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let (out, n) =
+                replace_insert_before(file, "let x = 1;", "    let y = 0;", None, None, false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "fn main() {\n    let y = 0;\n    let x = 1;\n}\n");
+        }
+
+        #[test]
+        fn replace_insert_before_midline_stays_byte_exact() {
+            let file = "xx foo yy\n";
+            let (out, n) = replace_insert_before(file, "foo", "X", None, None, false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "xx Xfoo yy\n");
+        }
+
+        #[test]
         fn normalize_line_insert_already_has_newline_unchanged() {
             let file = "fn f() {\n}\n";
             let after = normalize_line_insert(file, "fn f() {", "\n// c\n", InsertSide::After);

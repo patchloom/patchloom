@@ -256,7 +256,16 @@ fn replace_write(
             (start, end)
         });
 
-        let (new_content, count) = if whole_line {
+        let (new_content, count) = if let Some(ib) = insert_before.as_deref() {
+            ops::replace::replace_insert_before(
+                &original,
+                &old,
+                ib,
+                compiled_re.as_ref(),
+                nth,
+                case_insensitive,
+            )
+        } else if whole_line {
             ops::replace::replace_whole_lines(
                 &original,
                 &old,
@@ -661,7 +670,16 @@ fn replace_in_content_inner(
 
     let parsed_range = opts.range;
 
-    let (new_content, count) = if opts.whole_line {
+    let (new_content, count) = if let Some(ib) = opts.insert_before.as_deref() {
+        ops::replace::replace_insert_before(
+            content,
+            from,
+            ib,
+            compiled_re.as_ref(),
+            opts.nth,
+            opts.case_insensitive,
+        )
+    } else if opts.whole_line {
         ops::replace::replace_whole_lines(
             content,
             from,

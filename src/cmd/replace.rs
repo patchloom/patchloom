@@ -362,6 +362,15 @@ fn collect_replacements_with_list(
                 let (out, n) =
                     crate::ops::shell_token::replace_command_position(&content, from, to);
                 (std::borrow::Cow::Owned(out), n)
+            } else if let Some(ib) = insert_before.as_deref() {
+                crate::ops::replace::replace_insert_before(
+                    &content,
+                    from,
+                    ib,
+                    compiled_re.as_ref(),
+                    nth,
+                    case_insensitive,
+                )
             } else if whole_line {
                 replace_whole_lines(
                     &content,
