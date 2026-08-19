@@ -242,6 +242,13 @@ mod replace_tests {
         }
 
         #[test]
+        fn normalize_line_insert_after_indented_anchor_copies_indent() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let out = normalize_line_insert(file, "let x = 1;", "let y = 2;", InsertSide::After);
+            assert_eq!(out, "\n    let y = 2;");
+        }
+
+        #[test]
         fn normalize_line_insert_after_whole_line_crlf_bare_payload() {
             // CRLF after anchor must still count as a line boundary, and the
             // separator must be CRLF so the file does not get mixed LF (fixrealloop).
@@ -331,6 +338,25 @@ mod replace_tests {
                 replace_insert_before(file, "let x = 1;", "    let y = 0;", None, None, false);
             assert_eq!(n, 1);
             assert_eq!(out, "fn main() {\n    let y = 0;\n    let x = 1;\n}\n");
+        }
+
+        /// #2200: fragment without indent or trailing NL is still its own indented line.
+        #[test]
+        fn replace_insert_before_bare_fragment_gets_indent_and_newline() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let (out, n) =
+                replace_insert_before(file, "let x = 1;", "let y = 2;", None, None, false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "fn main() {\n    let y = 2;\n    let x = 1;\n}\n");
+        }
+
+        #[test]
+        fn replace_insert_before_bare_fragment_with_trailing_nl_keeps_indent() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let (out, n) =
+                replace_insert_before(file, "let x = 1;", "let y = 2;\n", None, None, false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "fn main() {\n    let y = 2;\n    let x = 1;\n}\n");
         }
 
         #[test]
