@@ -801,6 +801,33 @@ fn test_search_files_with_and_without_match_are_rejected_together() {
 }
 
 #[test]
+fn test_search_unique_is_invalid_input_mentions_replace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.txt"), "needle\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "needle", ".", "--unique"])
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let parsed: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|_| serde_json::from_slice(&out.stderr).unwrap_or(serde_json::json!({})));
+    let blob = format!("{parsed}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        parsed.get("error_kind").and_then(|v| v.as_str()) == Some("invalid_input")
+            || blob.contains("invalid_input"),
+        "expected invalid_input: {blob}"
+    );
+    assert!(
+        blob.contains("replace") && blob.contains("--unique"),
+        "should point at replace --unique: {blob}"
+    );
+    assert!(!blob.contains("--quiet"), "must not tip --quiet: {blob}");
+}
+
+#[test]
 fn test_search_help_documents_files_without_match() {
     Command::cargo_bin("patchloom")
         .unwrap()
