@@ -104,6 +104,43 @@ pub fn create_dest_exists_msg(to: &str) -> String {
     format!("destination already exists: {to} (patch create refuses overwrite; remove dest)")
 }
 
+/// Already-exists message when dest must not be overwritten.
+///
+/// Covers rename clobber, git copy dest, and empty-create dest. Case-only
+/// rename returns `None` even when dest exists.
+pub(crate) fn dest_clobber_msg(
+    path: &str,
+    dest_exists: bool,
+    rename_from: Option<&str>,
+    is_copy: bool,
+    is_empty_create: bool,
+) -> Option<String> {
+    if let Some(from) = rename_from
+        && rename_would_clobber_dest(from, path, dest_exists)
+    {
+        return Some(rename_dest_exists_msg(path));
+    }
+    if is_copy && dest_exists {
+        return Some(copy_dest_exists_msg(path));
+    }
+    if is_empty_create && dest_exists {
+        return Some(create_dest_exists_msg(path));
+    }
+    None
+}
+
+impl PatchFile {
+    pub(crate) fn dest_clobber_msg(&self, dest_exists: bool) -> Option<String> {
+        dest_clobber_msg(
+            &self.path,
+            dest_exists,
+            self.rename_from.as_deref(),
+            self.copy_from.is_some(),
+            self.is_creation && self.hunks.is_empty() && self.copy_from.is_none(),
+        )
+    }
+}
+
 /// Apply-refuse message for a dest listed from git-meta that we do not write.
 pub fn unsupported_git_meta_msg(path: &str, reason: &str) -> String {
     format!(
@@ -163,11 +200,15 @@ fn unquote_git_path_meta(s: &str) -> String {
 
 /// Parse `diff --git a/old b/new` into (old, new) relative paths.
 ///
+/// Accepts the full line or the path pair after `diff --git `.
 /// Handles C-quoted paths and mixed quoting (`"a/my file.rs" b/ok.rs`).
 /// Do not split `diff --git` on whitespace in hosts; use this helper. (#2176)
 #[must_use]
 pub fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
-    let rest = line.strip_prefix("diff --git ")?;
+    let rest = line.strip_prefix("diff --git ").unwrap_or(line).trim();
+    if rest.is_empty() {
+        return None;
+    }
     let (raw_a, raw_b) = split_two_git_path_tokens(rest)?;
     // Tokenizer already dropped surrounding quotes; still C-unescape the body
     // (`b/\056env` → `b/.env`).

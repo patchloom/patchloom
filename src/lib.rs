@@ -221,7 +221,7 @@
 //! | Buffer multi-op over-wide fuzzy refuse | [`api::refuse_batch_if_suspicious_fuzzy`] (#2064) |
 //! | Plan `for_each` glob expand (needs `files`, not `cli`) | `api::expand_for_each` / `api::execute_plan` (#2169) |
 //! | Plan format/validate shell preflight | [`api::lifecycle_cmds`] + [`api::refuse_lifecycle_shell_metas`]; `execute_plan(..., Some(guard))` refuses metas (#2168) |
-//! | Patch dest preflight (C-unescape, copy, dest list) | [`api::unquote_git_c_string`] / [`api::parse_diff_file_path`] / [`api::parse_diff_git_paths`] / [`api::patch_declared_paths`] (#2170–#2176). Do not quote-peel or whitespace-split `diff --git`. |
+//! | Patch dest preflight (C-unescape, copy, dest list) | [`api::unquote_git_c_string`] / [`api::parse_diff_file_path`] / [`api::parse_diff_git_paths`] / [`api::patch_declared_paths`] (#2170–#2176). Do not quote-peel or whitespace-split `diff --git`. `parse_diff_git_paths` accepts the full line or the pair after that prefix. Empty-create apply reports `changed: true`. |
 //! | Plan/tx multi-path worst-case span | [`prefer_widest_matched_text`] / top-level `matched_text` (#2007) |
 //! | File multi-op pre-write span refuse | [`apply_content_edits_to_file_with_span_policy`] + [`FuzzySpanPolicy`] (#2008) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |

@@ -458,6 +458,96 @@ fn test_patch_rename_refuses_existing_dest() {
 }
 
 #[test]
+fn test_patch_check_copy_and_empty_create_dest_honesty() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "keep\n").unwrap();
+    fs::write(dir.path().join("dst.rs"), "existing\n").unwrap();
+    fs::write(dir.path().join(".empty"), "present\n").unwrap();
+
+    let copy_patch = dir.path().join("copy.patch");
+    fs::write(
+        &copy_patch,
+        "diff --git a/src.rs b/dst.rs\n\
+         similarity index 100%\n\
+         copy from src.rs\n\
+         copy to dst.rs\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&copy_patch)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("already_exists"));
+
+    let create_exists = dir.path().join("create-exists.patch");
+    fs::write(
+        &create_exists,
+        "diff --git a/.empty b/.empty\n\
+         new file mode 100644\n\
+         index 0000000..e69de29\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&create_exists)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("already_exists"));
+
+    let create_new = dir.path().join("create-new.patch");
+    fs::write(
+        &create_new,
+        "diff --git a/.brand-new b/.brand-new\n\
+         new file mode 100644\n\
+         index 0000000..e69de29\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&create_new)
+        .assert()
+        .code(2)
+        .stdout(predicates::str::contains("would_change"));
+
+    let binary_meta = dir.path().join("bin.patch");
+    fs::write(
+        &binary_meta,
+        "diff --git a/ok.txt b/secret.bin\n\
+         GIT binary patch\n\
+         literal 4\n\
+         xxx\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("check")
+        .arg(&binary_meta)
+        .assert()
+        .code(1)
+        .stdout(predicates::str::contains("invalid_input"));
+}
+
+#[test]
 fn test_patch_check_pure_rename_c_quoted_paths() {
     // Git C-quotes paths with spaces; check/apply must unquote and move.
     let dir = TempDir::new().unwrap();

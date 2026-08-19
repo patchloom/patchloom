@@ -1395,6 +1395,11 @@ copy to bar.rs
         assert_eq!(env_secret, ("notes.txt".into(), ".env secret".into()));
         let unquoted = parse_diff_git_paths("diff --git a/ok.rs b/.env").expect("unquoted");
         assert_eq!(unquoted, ("ok.rs".into(), ".env".into()));
+        let no_prefix =
+            parse_diff_git_paths(r#""a/notes.txt" "b/.env secret""#).expect("no prefix");
+        assert_eq!(no_prefix, ("notes.txt".into(), ".env secret".into()));
+        let no_prefix_plain = parse_diff_git_paths("a/ok.rs b/.env").expect("no prefix plain");
+        assert_eq!(no_prefix_plain, ("ok.rs".into(), ".env".into()));
     }
 
     #[test]
@@ -1549,6 +1554,22 @@ new mode 100755
     }
 
     #[test]
+    fn deleted_file_mode_lists_source() {
+        let diff = "\
+diff --git a/gone.rs b/gone.rs
+deleted file mode 100644
+index e69de29..0000000
+";
+        let files = parse_patch(diff).expect("deleted-file-mode must list dest");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "gone.rs");
+        assert!(files[0].is_deletion);
+        assert!(files[0].unsupported.is_none());
+        let paths = patch_declared_paths(diff).expect("delete dest");
+        assert!(paths.contains(&"gone.rs".into()), "{paths:?}");
+    }
+
+    #[test]
     fn copy_to_c_quoted_octal() {
         let diff = "\
 diff --git \"a/foo.rs\" \"b/\\056env\"
@@ -1697,6 +1718,22 @@ rename to \"caf\\303\\251-new.rs\"
         assert!(!rename_would_clobber_dest("dir/a.rs", "dir/A.rs", true));
         // Different basenames still clobber.
         assert!(rename_would_clobber_dest("dir/a.rs", "dir/b.rs", true));
+    }
+
+    #[test]
+    fn dest_clobber_msg_covers_rename_copy_and_empty_create() {
+        let rename =
+            dest_clobber_msg("new.rs", true, Some("old.rs"), false, false).expect("rename dest");
+        assert!(rename.contains("patch rename"), "{rename}");
+        assert!(
+            dest_clobber_msg("OLD.rs", true, Some("old.rs"), false, false).is_none(),
+            "case-only rename must not clobber"
+        );
+        let copy = dest_clobber_msg("bar.rs", true, None, true, false).expect("copy dest");
+        assert!(copy.contains("patch copy"), "{copy}");
+        let create = dest_clobber_msg("new.rs", true, None, false, true).expect("empty create");
+        assert!(create.contains("patch create"), "{create}");
+        assert!(dest_clobber_msg("new.rs", false, Some("old.rs"), true, true).is_none());
     }
 
     #[test]

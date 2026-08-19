@@ -208,12 +208,16 @@ use patchloom::api::{
 
 assert_eq!(unquote_git_c_string(r"\056env"), ".env");
 assert_eq!(parse_diff_file_path(r#"+++ "b/\056env""#), ".env");
+// Full line or the pair after `diff --git ` (prefix optional).
+let (a, b) = parse_diff_git_paths(r#""a/notes.txt" "b/.env secret""#).unwrap();
+assert_eq!((a.as_str(), b.as_str()), ("notes.txt", ".env secret"));
 let dests = patch_declared_paths(diff_text)?;
 ```
 
 Git 100% `copy from` / `copy to` creates the dest and keeps the source.
 Dest-exists without force peels `AlreadyExists`. Mixed patches no longer
-drop copy / binary / empty-create dests.
+drop copy / binary / empty-create dests. Empty-create apply writes an
+empty dest and reports `changed: true` (empty-to-empty is still a create).
 
 ## Related
 
