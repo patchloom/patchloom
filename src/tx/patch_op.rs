@@ -74,6 +74,26 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                     tx.deletions.insert(from_path);
                 } else {
                     let file_path = tx.cwd.join(&result.path);
+                    let dest_exists = (tx.pending.contains_key(&file_path)
+                        && !tx.deletions.contains(&file_path))
+                        || (!tx.deletions.contains(&file_path)
+                            && crate::ops::file::path_entry_exists(&file_path));
+                    if result.copy_from.is_some() && dest_exists {
+                        return Err(crate::exit::AlreadyExistsError {
+                            msg: crate::ops::patch::copy_dest_exists_msg(&result.path),
+                        }
+                        .into());
+                    }
+                    if result.is_creation
+                        && result.copy_from.is_none()
+                        && result.content.is_empty()
+                        && dest_exists
+                    {
+                        return Err(crate::exit::AlreadyExistsError {
+                            msg: crate::ops::patch::create_dest_exists_msg(&result.path),
+                        }
+                        .into());
+                    }
                     tx.write_file(&file_path, result.content);
                 }
             }

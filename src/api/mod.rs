@@ -213,7 +213,10 @@ use std::path::Path;
 use crate::backup::BackupSession;
 use crate::containment::PathGuard;
 use crate::diff::{DiffResult, format_diff_result, unified_diff};
-pub use crate::ops::patch::{Hunk, PatchFile, PatchLine};
+pub use crate::ops::patch::{
+    Hunk, PatchFile, PatchLine, parse_diff_file_path, parse_diff_git_paths, patch_declared_paths,
+    unquote_git_c_string,
+};
 use crate::write::{EolMode, WritePolicy, atomic_write};
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -684,6 +687,10 @@ pub fn text_diff(original: &str, modified: &str, path: Option<&str>) -> String {
 ///
 /// Returns one [`PatchFile`] per file in the diff, each containing
 /// [`Hunk`]s with [`PatchLine`]s for context, added, and removed lines.
+/// Also parses 100% git copy (`copy from`/`copy to`) and lists git-meta
+/// dests that apply refuses (binary / mode-only). Hosts that preflight
+/// dests should use [`patch_declared_paths`] or walk `path` / `rename_from`
+/// / `copy_from` here. Do not whitespace-split `diff --git` (#2170–#2173).
 ///
 /// This complements [`text_diff`] (which generates diffs) and
 /// `apply_patch` (which applies diffs to files) by providing a

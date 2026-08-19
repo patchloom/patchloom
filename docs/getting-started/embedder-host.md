@@ -192,6 +192,29 @@ for cmd in lifecycle_cmds(&plan) {
 `true`, `cargo fmt`, and `rustfmt` with no metas still run. This is not a
 POSIX shell parser.
 
+## Patch dest preflight
+
+`parse_unified_diff` C-unescapes `---` / `+++` / rename / copy dests and
+lists git-meta dests that apply refuses (binary payload, `Binary files
+differ`, mode-only chmod). Hosts that deny secret names (`.env`) before
+`apply_patch_file` must use the shared helpers, not quote-peel or
+whitespace-split `diff --git`:
+
+```rust
+use patchloom::api::{
+    parse_diff_file_path, parse_diff_git_paths, patch_declared_paths,
+    unquote_git_c_string,
+};
+
+assert_eq!(unquote_git_c_string(r"\056env"), ".env");
+assert_eq!(parse_diff_file_path(r#"+++ "b/\056env""#), ".env");
+let dests = patch_declared_paths(diff_text)?;
+```
+
+Git 100% `copy from` / `copy to` creates the dest and keeps the source.
+Dest-exists without force peels `AlreadyExists`. Mixed patches no longer
+drop copy / binary / empty-create dests.
+
 ## Related
 
 - [Comparisons](comparisons.md) (Morph, filesystem MCP, yq, ast-grep)
