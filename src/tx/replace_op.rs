@@ -8,7 +8,7 @@ use crate::api::MatchMode;
 use crate::ops::replace::{
     InsertSide, ReplacementTextParams, build_replacement_text, compile_replace_regex,
     context_filtered_span_with_re, expand_match_anchor_template, normalize_line_insert,
-    replace_content, replace_whole_lines,
+    replace_content, replace_insert_before, replace_whole_lines,
 };
 use crate::plan::Operation;
 use crate::tx::output::merge_match_modes;
@@ -238,6 +238,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             let to = new_text.as_deref().unwrap_or("");
             let (out, n) = crate::ops::shell_token::replace_command_position(content, old, to);
             (std::borrow::Cow::Owned(out), n)
+        } else if let Some(ib) = insert_before.as_deref() {
+            crate::ops::replace::replace_insert_before(
+                content,
+                old,
+                ib,
+                compiled_re.as_ref(),
+                *nth,
+                *case_insensitive,
+            )
         } else if *whole_line {
             replace_whole_lines(
                 content,
@@ -389,14 +398,23 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             Some("exact_old_absent"),
                         );
                     } else {
+                        let match_end = anchor.start_offset + anchor.matched_text.len();
+                        let mut span_start = anchor.start_offset;
                         let to_text = if let Some(ib) = insert_before {
-                            let ib = normalize_line_insert(
-                                content,
-                                &anchor.matched_text,
-                                ib,
-                                InsertSide::Before,
-                            );
-                            format!("{}{}", ib, anchor.matched_text)
+                            let matched = &anchor.matched_text;
+                            let normalized =
+                                normalize_line_insert(content, matched, ib, InsertSide::Before);
+                            let indent_start =
+                                crate::ops::replace::leading_line_indent_start(content, span_start);
+                            if indent_start < span_start
+                                && (normalized.ends_with('\n') || normalized.ends_with('\r'))
+                            {
+                                let indent = &content[indent_start..span_start];
+                                span_start = indent_start;
+                                format!("{normalized}{indent}{matched}")
+                            } else {
+                                format!("{normalized}{matched}")
+                            }
                         } else if let Some(ia) = insert_after {
                             let ia = normalize_line_insert(
                                 content,
@@ -410,9 +428,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         };
                         let new_content = format!(
                             "{}{}{}",
-                            &content[..anchor.start_offset],
+                            &content[..span_start],
                             to_text,
-                            &content[anchor.start_offset + anchor.matched_text.len()..]
+                            &content[match_end..]
                         );
                         tx.write_file(&file_path, new_content);
                         record_replace_match(
@@ -559,6 +577,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 let to = new_text.as_deref().unwrap_or("");
                 let (out, n) = crate::ops::shell_token::replace_command_position(&content, old, to);
                 (std::borrow::Cow::Owned(out), n)
+            } else if let Some(ib) = insert_before.as_deref() {
+                replace_insert_before(
+                    &content,
+                    old,
+                    ib,
+                    compiled_re.as_ref(),
+                    *nth,
+                    *case_insensitive,
+                )
             } else if *whole_line {
                 replace_whole_lines(
                     &content,
@@ -721,15 +748,24 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             );
                             continue;
                         }
+                        let match_end = anchor.start_offset + anchor.matched_text.len();
+                        let mut span_start = anchor.start_offset;
                         let to_text = if let Some(ib) = insert_before {
-                            // Parity with path arm: normalize line insert EOL.
-                            let ib = normalize_line_insert(
-                                &content,
-                                &anchor.matched_text,
-                                ib,
-                                InsertSide::Before,
+                            let matched = &anchor.matched_text;
+                            let normalized =
+                                normalize_line_insert(&content, matched, ib, InsertSide::Before);
+                            let indent_start = crate::ops::replace::leading_line_indent_start(
+                                &content, span_start,
                             );
-                            format!("{}{}", ib, anchor.matched_text)
+                            if indent_start < span_start
+                                && (normalized.ends_with('\n') || normalized.ends_with('\r'))
+                            {
+                                let indent = &content[indent_start..span_start];
+                                span_start = indent_start;
+                                format!("{normalized}{indent}{matched}")
+                            } else {
+                                format!("{normalized}{matched}")
+                            }
                         } else if let Some(ia) = insert_after {
                             let ia = normalize_line_insert(
                                 &content,
@@ -743,9 +779,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                         };
                         let new_content = format!(
                             "{}{}{}",
-                            &content[..anchor.start_offset],
+                            &content[..span_start],
                             to_text,
-                            &content[anchor.start_offset + anchor.matched_text.len()..]
+                            &content[match_end..]
                         );
                         tx.write_file(&file_path, new_content);
                         record_replace_match(
