@@ -8132,21 +8132,31 @@ fn test_tx_for_each_rejects_plan_cwd() {
         .arg("--apply")
         .output()
         .unwrap();
-    assert_ne!(
+    assert_eq!(
         output.status.code(),
-        Some(0),
-        "cwd+for_each must fail; stdout={}",
+        Some(1),
+        "cwd+for_each must be invalid_input exit 1; stdout={}",
         String::from_utf8_lossy(&output.stdout)
     );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON: {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "CLI must not remap cwd+for_each to parse_error: {json}"
+    );
+    assert_eq!(json["applied"], false, "{json}");
     let combined = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        combined.contains("plan.cwd cannot be combined with for_each")
-            || combined.contains("invalid_input"),
-        "expected invalid_input / cwd+for_each message, got: {combined}"
+        combined.contains("plan.cwd cannot be combined with for_each"),
+        "expected cwd+for_each message, got: {combined}"
     );
     // File must remain unchanged (no partial apply).
     assert_eq!(
@@ -9577,12 +9587,12 @@ fn test_tx_for_each_item_alias_and_unknown_placeholder() {
         .unwrap();
     assert_eq!(
         out.status.code(),
-        Some(4),
+        Some(1),
         "stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(v["error_kind"], "parse_error", "{v}");
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
     assert!(v["error"].as_str().unwrap_or("").contains("{file}"), "{v}");
 }
 

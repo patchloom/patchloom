@@ -394,9 +394,14 @@ pub(crate) fn run_parsed_plan(
         && let Err(e) = crate::plan::expand_for_each(&mut plan, &base_cwd)
     {
         let msg = e.to_string();
-        // Zero matches is no_matches (exit 3); other expand failures stay parse_error.
+        // Zero-match is no_matches (exit 3). cwd+for_each / bad glob / bad
+        // templates are InvalidInputError (library peels invalid_input; do not
+        // collapse those to parse_error). Remaining untyped expand errors stay
+        // parse_error (fixrealloop R9).
         let (kind, code) = if crate::exit::is_no_match(&e) {
             ("no_matches", exit::NO_MATCHES)
+        } else if let Some((k, c)) = exit::classify_typed_error(&e) {
+            (k, c)
         } else {
             ("parse_error", exit::PARSE_ERROR)
         };
