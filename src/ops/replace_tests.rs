@@ -248,6 +248,15 @@ mod replace_tests {
             assert_eq!(out, "\n    let y = 2;");
         }
 
+        /// Copy-paste of the indented line as `--after` must still indent the insert.
+        #[test]
+        fn normalize_line_insert_after_anchor_that_includes_indent_copies_line_indent() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let out =
+                normalize_line_insert(file, "    let x = 1;", "let y = 2;", InsertSide::After);
+            assert_eq!(out, "\n    let y = 2;");
+        }
+
         #[test]
         fn normalize_line_insert_after_whole_line_crlf_bare_payload() {
             // CRLF after anchor must still count as a line boundary, and the
@@ -346,6 +355,15 @@ mod replace_tests {
             let file = "fn main() {\n    let x = 1;\n}\n";
             let (out, n) =
                 replace_insert_before(file, "let x = 1;", "let y = 2;", None, None, false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "fn main() {\n    let y = 2;\n    let x = 1;\n}\n");
+        }
+
+        #[test]
+        fn replace_insert_before_anchor_that_includes_indent_does_not_double_indent() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let (out, n) =
+                replace_insert_before(file, "    let x = 1;", "let y = 2;", None, None, false);
             assert_eq!(n, 1);
             assert_eq!(out, "fn main() {\n    let y = 2;\n    let x = 1;\n}\n");
         }
