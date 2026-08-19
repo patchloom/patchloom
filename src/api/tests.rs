@@ -1463,24 +1463,34 @@ copy to bar.rs
 }
 
 #[test]
-fn apply_patch_file_c_quoted_bel_dest_writes_bel_name() {
-    // #2175: `\a` is BEL (0x07), not the letter `a`.
-    let dir = TempDir::new().unwrap();
+fn apply_patch_file_c_quoted_bel_dest_is_not_letter_a() {
+    // #2175: `\a` is BEL (0x07), not the letter `a`. Windows rejects
+    // control characters in filenames, so persist is Unix-only.
     let dest_name = format!("foo{}bar.rs", '\u{7}');
+    assert_eq!(parse_diff_file_path(r#"+++ "b/foo\abar.rs""#), dest_name);
+    let dir = TempDir::new().unwrap();
     let patch = "\
 --- /dev/null
 +++ \"b/foo\\abar.rs\"
 @@ -0,0 +1 @@
 +secret
 ";
-    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].path, dest_name);
-    assert_eq!(
-        fs::read_to_string(dir.path().join(&dest_name)).unwrap(),
-        "secret\n"
-    );
-    assert!(!dir.path().join("fooabar.rs").exists());
+    #[cfg(unix)]
+    {
+        let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, dest_name);
+        assert_eq!(
+            fs::read_to_string(dir.path().join(&dest_name)).unwrap(),
+            "secret\n"
+        );
+        assert!(!dir.path().join("fooabar.rs").exists());
+    }
+    #[cfg(windows)]
+    {
+        let _ = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None);
+        assert!(!dir.path().join("fooabar.rs").exists());
+    }
 }
 
 /// Pure rename Preview: content may be unchanged, but path moves so `changed`
