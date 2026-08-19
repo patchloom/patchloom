@@ -150,6 +150,63 @@ pub struct FormatStep {
     pub timeout: Option<u64>,
 }
 
+/// Iterate plan `format` then `validate` command strings (library host preflight).
+///
+/// MCP strips these steps (#1142). CLI without a PathGuard still runs them as
+/// raw shell. Hosts that pass a guard, or that call
+/// [`refuse_lifecycle_shell_metas`] first, should walk this iterator.
+pub fn lifecycle_cmds(plan: &Plan) -> impl Iterator<Item = &str> {
+    let format = plan.format.iter().flatten().map(|s| s.cmd.as_str());
+    let validate = plan.validate.iter().flatten().map(|s| s.cmd.as_str());
+    format.chain(validate)
+}
+
+/// Shell metacharacters that can read or write paths PathGuard never sees.
+/// Substring scan (no POSIX parser). Quoted metas still match.
+const LIFECYCLE_SHELL_METAS: &[char] = &['|', ';', '&', '>', '<', '`', '$', '\n', '\r'];
+
+/// Refuse a format/validate command that needs a shell for redirects,
+/// pipelines, or substitutions (#2168).
+///
+/// `true`, `cargo fmt`, and `rustfmt` (no metas) succeed. Fail-closed kind is
+/// [`crate::fallback::EditErrorKind::InvalidInput`]. `execute_plan` with a
+/// PathGuard maps the same cmds to `GuardRejected` before commit.
+pub fn refuse_lifecycle_shell_metas(cmd: &str) -> anyhow::Result<()> {
+    if let Some(ch) = cmd.chars().find(|c| LIFECYCLE_SHELL_METAS.contains(c)) {
+        return Err(crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::InvalidInput,
+            format!(
+                "lifecycle command contains shell metacharacter {ch:?}; \
+                 redirects, pipelines, and substitutions are refused. \
+                 Use a single command such as `true` or `cargo fmt`"
+            ),
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// When a PathGuard is present, refuse format/validate cmds that need a shell
+/// for redirects, pipelines, or substitutions (#2168).
+pub(crate) fn refuse_lifecycle_if_guarded(
+    plan: &Plan,
+    guard: Option<&crate::containment::PathGuard>,
+) -> anyhow::Result<()> {
+    if guard.is_none() {
+        return Ok(());
+    }
+    for cmd in lifecycle_cmds(plan) {
+        if let Err(e) = refuse_lifecycle_shell_metas(cmd) {
+            return Err(crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::GuardRejected,
+                format!("plan format/validate command refused under PathGuard: {cmd:?} ({e})"),
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
 mod operation;
 pub use operation::Operation;
 #[cfg(feature = "ast")]
@@ -428,7 +485,7 @@ pub fn parse_plan_auto(
 /// text contains JSON-special characters (backslash, quote, newline, etc.),
 /// the resulting JSON would be malformed. This function applies the same
 /// escaping that `serde_json::to_string` would use for string content.
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 fn json_escape(s: &str) -> String {
     // Use serde_json to produce `"escaped"`, then strip the surrounding quotes.
     let quoted = serde_json::to_string(s).unwrap_or_else(|_| format!("\"{s}\""));
@@ -439,7 +496,7 @@ fn json_escape(s: &str) -> String {
 /// replacing each known placeholder from the original text. This prevents
 /// cross-contamination where the replacement value of one placeholder
 /// contains another placeholder name as a literal substring.
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 fn substitute_single_pass(template: &str, vars: &[(&str, String)]) -> String {
     let mut result = String::with_capacity(template.len());
     let mut i = 0;
@@ -484,7 +541,7 @@ fn substitute_single_pass(template: &str, vars: &[(&str, String)]) -> String {
 /// Doubled braces (`{{` / `}}`) are treated as escape sequences and produce
 /// literal `{` / `}` in the output. For example, `{{path}}` becomes the
 /// literal string `{path}` rather than being substituted with the file path.
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result<()> {
     let fe = match plan.for_each.take() {
         Some(fe) => fe,
@@ -670,7 +727,7 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
 
 /// True when the protected for_each template JSON still contains a match
 /// variable (not escaped as `{{…}}`).
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 fn template_uses_match_var(protected_template: &str) -> bool {
     const VARS: &[&str] = &["{path}", "{item}", "{dir}", "{stem}", "{ext}", "{name}"];
     VARS.iter().any(|v| protected_template.contains(v))
@@ -678,7 +735,7 @@ fn template_uses_match_var(protected_template: &str) -> bool {
 
 /// Detect `"path":"{placeholder}"` (and `from`/`to`) after for_each expansion.
 /// Returns the raw `{name}` token when found.
-#[cfg(feature = "cli")]
+#[cfg(feature = "files")]
 fn unsubstituted_path_template(ops_json: &str) -> Option<String> {
     // Match common path-like string fields that are still a single `{ident}`.
     // Keep the scan intentional and local: full JSON path walking is overkill.

@@ -166,6 +166,32 @@ write failure restores the whole session (no orphan creates or half-renames).
 Prefer this (or plan/`execute_plan` patch ops) over looping single-file
 `apply_patch` when a unified diff touches multiple files.
 
+## Plan `for_each` and lifecycle commands
+
+`for_each` expansion requires the `files` feature (the CLI feature already
+enables `files`). It does **not** require `cli`. Call
+`api::expand_for_each(&mut plan, cwd)` before walking
+`Operation::declared_paths()`, or rely on `execute_plan`, which expands
+before PathGuard (#2169). Zero-match globs are `NoMatch`. Do not combine
+`plan.cwd` with `for_each`.
+
+Plan `format` / `validate` steps are raw shell (`sh -c` / `cmd /C`). MCP
+`execute_plan` still strips them (#1142). Library hosts that pass
+`Some(&PathGuard)` get an automatic refuse of redirects, pipelines, and
+substitutions before commit (`EditErrorKind::GuardRejected`). Hosts that
+call `execute_plan` with `None` should preflight:
+
+```rust
+use patchloom::api::{lifecycle_cmds, refuse_lifecycle_shell_metas};
+
+for cmd in lifecycle_cmds(&plan) {
+    refuse_lifecycle_shell_metas(cmd)?; // InvalidInput on `|`, `>`, `$`, …
+}
+```
+
+`true`, `cargo fmt`, and `rustfmt` with no metas still run. This is not a
+POSIX shell parser.
+
 ## Related
 
 - [Comparisons](comparisons.md) (Morph, filesystem MCP, yq, ast-grep)

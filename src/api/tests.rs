@@ -930,6 +930,199 @@ fn execute_plan_rejects_on_guard() {
     assert!(fs::read_to_string(&file).unwrap().contains("content"));
 }
 
+/// #2169: library `ast,files` must expand for_each (not a silent no-op).
+#[test]
+#[cfg(feature = "files")]
+fn execute_plan_for_each_expands_without_cli() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "old\n").unwrap();
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "for_each": {"glob": "*.txt"},
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "old", "new": "new"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let report = execute_plan(plan, dir.path(), None).unwrap();
+    assert!(report.ok, "for_each execute_plan must succeed: {report:?}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "new\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("b.txt")).unwrap(),
+        "new\n"
+    );
+    assert!(
+        !dir.path().join("{path}").exists(),
+        "unexpanded {{path}} must not be written"
+    );
+}
+
+/// #2169: zero-match glob fails closed on the library execute_plan path.
+#[test]
+#[cfg(feature = "files")]
+fn execute_plan_for_each_zero_match_is_no_match() {
+    let dir = TempDir::new().unwrap();
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "for_each": {"glob": "*.nope"},
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "old", "new": "new"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let err = execute_plan(plan, dir.path(), None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch),
+        "zero-match for_each must peel no_matches: {err}"
+    );
+}
+
+/// #2169: after for_each expand, PathGuard still rejects `../escape`
+/// (order lock is execute_plan_direct: expand, then refuse_lifecycle, then ops).
+#[test]
+#[cfg(feature = "files")]
+fn execute_plan_for_each_expands_before_path_guard() {
+    let dir = TempDir::new().unwrap();
+    let ws = dir.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    fs::write(ws.join("ok.txt"), "old\n").unwrap();
+    let guard = PathGuard::new(ws.clone(), AbsolutePathPolicy::AllowIfContained).unwrap();
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "for_each": {"glob": "*.txt"},
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "old", "new": "new"},
+                {"op": "file.create", "path": "../escape.txt", "content": "leaked"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let err = execute_plan(plan, &ws, Some(&guard)).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "expanded plan must still PathGuard ../escape.txt: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(ws.join("ok.txt")).unwrap(),
+        "old\n",
+        "guard refuse must happen before commit"
+    );
+    assert!(
+        !dir.path().join("escape.txt").exists(),
+        "../escape.txt must not be created"
+    );
+    assert!(
+        !ws.join("{path}").exists(),
+        "unexpanded {{path}} must not be written"
+    );
+}
+
+/// #2169: plan.cwd + for_each is rejected on the library execute path.
+#[test]
+#[cfg(feature = "files")]
+fn execute_plan_for_each_rejects_plan_cwd() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "cwd": "nested",
+            "for_each": {"glob": "*.txt"},
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "old", "new": "new"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let err = execute_plan(plan, dir.path(), None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput),
+        "cwd+for_each must peel invalid_input: {err}"
+    );
+    assert!(
+        err.to_string().contains("for_each"),
+        "expected cwd+for_each diagnostic: {err}"
+    );
+}
+
+/// #2168: PathGuard refuses format redirects before commit.
+#[test]
+#[cfg(any(feature = "cli", feature = "files"))]
+fn execute_plan_guard_refuses_format_redirect() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "keep\n").unwrap();
+    let escape = dir.path().join("escape.env");
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let plan = parse_plan(&format!(
+        r#"{{
+            "version": 1,
+            "operations": [{{"op": "file.create", "path": "ok.txt", "content": "x", "force": true}}],
+            "format": [{{"cmd": "printf secret > {}"}}]
+        }}"#,
+        escape.display().to_string().replace('\\', "/")
+    ))
+    .unwrap();
+    let err = execute_plan(plan, dir.path(), Some(&guard)).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "format redirect under PathGuard must peel GuardRejected: {err}"
+    );
+    assert!(
+        !escape.exists(),
+        "redirect must not run when PathGuard is set"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("ok.txt")).unwrap(),
+        "keep\n"
+    );
+}
+
+/// #2168: `true` / `cargo fmt`-shaped cmds still run under a guard.
+#[test]
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+fn execute_plan_guard_allows_plain_true() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "old\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "operations": [
+                {"op": "replace", "path": "ok.txt", "old": "old", "new": "new"}
+            ],
+            "format": [{"cmd": "true"}]
+        }"#,
+    )
+    .unwrap();
+    let report = execute_plan(plan, dir.path(), Some(&guard)).unwrap();
+    assert!(report.ok, "plain true format step must run: {report:?}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("ok.txt")).unwrap(),
+        "new\n"
+    );
+}
+
 #[test]
 fn apply_patch_works() {
     let dir = TempDir::new().unwrap();

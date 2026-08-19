@@ -9,6 +9,14 @@ use crate::containment::PathGuard;
 #[cfg(any(feature = "cli", feature = "files"))]
 use super::PlanReport; // reexport alias from tx
 
+/// Expand `plan.for_each` globs (requires the `files` feature; #2169).
+#[cfg(feature = "files")]
+pub use crate::plan::expand_for_each;
+/// Iterate plan `format` then `validate` command strings (#2168).
+pub use crate::plan::lifecycle_cmds;
+/// Refuse format/validate cmds that need a shell for redirects or pipes (#2168).
+pub use crate::plan::refuse_lifecycle_shell_metas;
+
 /// Parse a transaction plan from a JSON string.
 pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
     crate::plan::parse_plan_auto(input, None, None)
@@ -35,6 +43,10 @@ pub fn parse_plan(input: &str) -> anyhow::Result<crate::plan::Plan> {
 ///
 /// Available with the `files` feature (for pure library use without the
 /// CLI) or the `cli` feature.
+///
+/// `for_each` expands under `files` before PathGuard (#2169). When `guard` is
+/// `Some`, format/validate commands that contain shell metas are refused as
+/// `GuardRejected` before commit (#2168). MCP still strips those steps.
 #[cfg(any(feature = "cli", feature = "files"))]
 pub fn execute_plan(
     plan: crate::plan::Plan,

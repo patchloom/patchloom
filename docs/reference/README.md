@@ -1049,7 +1049,7 @@ Use these when newline and whitespace correctness is the main concern.
 - **Use when:** The same structural transform (extract tests, add headers, reorder symbols) must be applied to many files matching a glob pattern.
 - **Field value:** Object with `glob` (required), `exclude` (optional array of glob patterns), and `filter` (optional, e.g. `has_symbol(tests)`).
 - **MCP:** Do not set `for_each` together with `plan.cwd` (rejected). Use workspace-relative `{path}` templates without `cwd`.
-- **Failure behavior:** If the glob matches zero files, the plan produces zero operations (success with no changes). If any expanded operation fails, the entire batch rolls back atomically.
+- **Failure behavior:** A zero-match glob is `no_matches` (exit 3 / `EditErrorKind::NoMatch`), not a successful empty apply. Combining `plan.cwd` with `for_each` is `invalid_input`. If any expanded operation fails, the entire batch rolls back atomically.
 
 ### Transaction operations
 
@@ -1368,6 +1368,8 @@ The operations below are the building blocks inside `operations`.
 | Need | API |
 |------|-----|
 | Fail-closed text replace | `ReplaceOptions.require_change` + `edit_error_kind` / `classify_error`; prefer `ReplaceOptions::for_agent()` for shared agent primary+fallback policy (`unique`, `require_change`, fuzzy @ `AGENT_MIN_FUZZY_SCORE` 0.90, `allow_absent_old: false`, `refuse_suspicious_fuzzy: true`; #1965 / #2005). Approximate recovery stays a one-line override (`allow_absent_old: true`), not a second constructor (#1980). Custom options: refuse over-wide spans with `api::fuzzy_span_suspicious` / `FuzzySpanPolicy` (#1981); multi-op use `op_honesty` (#2006) or `refuse_batch_if_suspicious_fuzzy` (#2064) |
+| Plan `for_each` without `cli` | `api::expand_for_each` / `execute_plan` (needs `files`; #2169). Expands before PathGuard. Zero-match is `NoMatch`. Do not combine with `plan.cwd`. |
+| Plan format/validate shell | Raw `sh -c` / `cmd /C`. MCP strips. `api::lifecycle_cmds` + `api::refuse_lifecycle_shell_metas`; `execute_plan(..., Some(guard))` refuses metas as `GuardRejected` (#2168). `true` / `cargo fmt` / `rustfmt` still run. |
 | Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks; `EditErrorKind::TypeError` for multi-doc / wrong-root doc navigation (CLI `error_kind: type_error`; #1883); `EditErrorKind::AlreadyExists` for create/rename dest-exists (#1947); `EditErrorKind::NotFound` / `Conflicts` / `ChangesDetected` for peels that previously collapsed to `OperationFailed`; `EditErrorKind::Binary` / `InvalidEncoding` for sole-path non-text loads (#1963) |
 | CLI-stable error kind strings | `api::error_kind_str(&err)` returns the same strings as CLI JSON (`already_exists`, `not_found`, `guard_rejected`, `binary`, `invalid_encoding`, …) without scraping Display (#1948); bool peels: `is_already_exists`, `is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_binary`, `is_invalid_encoding`, `is_load_text_strict_fail` (binary\|encoding\|invalid_input), `is_no_match`, `is_ambiguous` |
 | Path binary preflight | `api::is_binary_file` / `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884 / #1910); writers still enforce binary on apply |

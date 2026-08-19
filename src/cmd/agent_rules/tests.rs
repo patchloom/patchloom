@@ -527,8 +527,12 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
             && out.contains("apply_content_edits_to_file_with_span_policy")
             && out.contains("widest")
             && out.contains("embedder-host.md")
-            && out.contains("primary + fallback"),
-        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064)"
+            && out.contains("primary + fallback")
+            && out.contains("lifecycle_cmds")
+            && out.contains("refuse_lifecycle_shell_metas")
+            && out.contains("files")
+            && out.contains("#2168"),
+        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle (#2168/#2169)"
     );
     assert!(
         out.contains("Which surface to use")
