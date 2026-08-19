@@ -557,6 +557,50 @@ fn test_patch_check_copy_and_empty_create_dest_honesty() {
 }
 
 #[test]
+fn test_patch_apply_empty_create_lists_dest_in_json() {
+    // fixrealloop R9: apply wrote a 0-byte dest with applied:true but files[].
+    let dir = TempDir::new().unwrap();
+    let patch_file = dir.path().join("create-new.patch");
+    fs::write(
+        &patch_file,
+        "diff --git a/.brand-new b/.brand-new\n\
+         new file mode 100644\n\
+         index 0000000..e69de29\n",
+    )
+    .unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON (exit {code}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(code, 0, "{json}");
+    assert_eq!(json["applied"], true, "{json}");
+    assert_eq!(
+        json["files"][0]["path"], ".brand-new",
+        "empty-create apply must list dest: {json}"
+    );
+    assert_eq!(json["files"][0]["status"], "applied", "{json}");
+    assert_eq!(
+        fs::read(dir.path().join(".brand-new")).unwrap(),
+        b"",
+        "dest must be empty"
+    );
+}
+
+#[test]
 fn test_patch_check_pure_rename_c_quoted_paths() {
     // Git C-quotes paths with spaces; check/apply must unquote and move.
     let dir = TempDir::new().unwrap();

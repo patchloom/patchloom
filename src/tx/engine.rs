@@ -110,18 +110,35 @@ impl ExecutionResult {
             }
             let rel = crate::files::relative_display(path, &self.cwd);
             let path_str = rel.to_string_lossy();
-            let diff = crate::diff::unified_diff(&path_str, original, new_content);
+            let mut diff = crate::diff::unified_diff(&path_str, original, new_content);
+            // Empty-create: original == new == "" so unified_diff has no hunks,
+            // but the dest is a new file. Engine already counts this as a
+            // change; CLI `files[]` must list it (fixrealloop R9).
+            if !diff.has_changes
+                && !self.exec_result.existed_before.contains(path)
+                && original.is_empty()
+                && new_content.is_empty()
+            {
+                diff.has_changes = true;
+            }
             if diff.has_changes {
                 diffs.push(diff);
             }
         }
-        // Include diffs for deletions (content -> empty).
+        // Include diffs for deletions (content -> empty). Empty-file delete
+        // has no hunks; still list the dest (sibling of empty-create).
         for path in &self.exec_result.deletions {
-            if let Some((original, _)) = self.exec_result.pending.get(path)
-                && !original.is_empty()
-            {
+            if let Some((original, _)) = self.exec_result.pending.get(path) {
                 let rel = crate::files::relative_display(path, &self.cwd);
                 let path_str = rel.to_string_lossy();
+                if original.is_empty() {
+                    diffs.push(crate::diff::FileDiff {
+                        path: path_str.into_owned(),
+                        hunks: String::new(),
+                        has_changes: true,
+                    });
+                    continue;
+                }
                 let diff = crate::diff::unified_diff(&path_str, original, "");
                 if diff.has_changes {
                     diffs.push(diff);
@@ -756,6 +773,36 @@ mod tests {
         let diffs = result.build_diffs();
         assert!(!diffs.is_empty());
         assert!(diffs[0].has_changes);
+    }
+
+    #[test]
+    fn execute_single_empty_create_build_diffs_lists_dest() {
+        // Empty-to-empty unified_diff has no hunks, but creating a 0-byte
+        // dest is still a change (fixrealloop R9: patch apply files[]).
+        let dir = TempDir::new().unwrap();
+        let global = GlobalFlags::test_default();
+        let op = Operation::FileCreate {
+            path: "empty.txt".to_string(),
+            content: String::new(),
+            force: None,
+        };
+        let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
+        assert!(
+            result.has_changes,
+            "empty create must be an effective change"
+        );
+        let diffs = result.build_diffs();
+        assert_eq!(
+            diffs.len(),
+            1,
+            "empty create must appear in diffs: {diffs:?}"
+        );
+        assert!(diffs[0].has_changes, "{diffs:?}");
+        assert!(
+            diffs[0].path.ends_with("empty.txt"),
+            "dest path: {}",
+            diffs[0].path
+        );
     }
 
     #[test]
