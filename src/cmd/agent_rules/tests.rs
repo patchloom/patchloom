@@ -708,3 +708,31 @@ fn mcp_and_windows_compose_to_minimal() {
     assert!(!out.contains("batch ops.txt"));
     assert!(!out.contains("<<'EOF'"));
 }
+
+#[test]
+fn core_cli_differs_from_core_mcp() {
+    let cli = generate_agent_rules(&AgentRulesArgs {
+        mode: AgentMode::Cli,
+        platform: AgentPlatform::All,
+        surface: AgentRulesSurface::Core,
+    });
+    let mcp = generate_agent_rules(&AgentRulesArgs {
+        mode: AgentMode::Mcp,
+        platform: AgentPlatform::All,
+        surface: AgentRulesSurface::Core,
+    });
+    let all = generate_agent_rules(&AgentRulesArgs {
+        mode: AgentMode::All,
+        platform: AgentPlatform::All,
+        surface: AgentRulesSurface::Core,
+    });
+    assert_ne!(cli, mcp);
+    assert!(
+        !cli.contains("You have MCP tools"),
+        "CLI core must omit MCP lead-in: {cli}"
+    );
+    assert!(mcp.contains("You have MCP tools"));
+    assert!(cli.contains("patchloom batch") || cli.contains("Decision rule"));
+    assert!(all.contains("You have MCP tools")); // default All unchanged
+    assert!(cli.len() < 8_000 && mcp.len() < 8_000);
+}
