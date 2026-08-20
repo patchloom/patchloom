@@ -11,6 +11,36 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.29.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.28.1...patchloom-v0.29.0) (2026-08-20)
+
+
+### Features
+
+* **api:** export patch dest helpers and apply git copy ([#2178](https://github.com/patchloom/patchloom/issues/2178)) ([34ac879](https://github.com/patchloom/patchloom/commit/34ac879cdeb3ea195641db6ffa90d71b402a3eb7))
+* **api:** for_each on files and lifecycle shell preflight ([#2174](https://github.com/patchloom/patchloom/issues/2174)) ([af7ea82](https://github.com/patchloom/patchloom/commit/af7ea82a08cdc29d806245d905a5b15046b570b4))
+* **search:** add --files-without-match (-L) ([#2195](https://github.com/patchloom/patchloom/issues/2195)) ([26c6f8a](https://github.com/patchloom/patchloom/commit/26c6f8a87ae5c7af8321d58ab770381af0d11579)), closes [#2184](https://github.com/patchloom/patchloom/issues/2184)
+
+
+### Bug Fixes
+
+* **agent-rules:** honor --mode on --surface core ([#2193](https://github.com/patchloom/patchloom/issues/2193)) ([a250b8c](https://github.com/patchloom/patchloom/commit/a250b8c02e70b1a8b2ba5485e359bdd93be8842c)), closes [#2191](https://github.com/patchloom/patchloom/issues/2191)
+* **apply-fragment:** copy line indent when the anchor includes spaces ([#2204](https://github.com/patchloom/patchloom/issues/2204)) ([e0d8051](https://github.com/patchloom/patchloom/commit/e0d80515acb66936539b88a024dac59e8633aefa))
+* **apply-fragment:** place bare fragments on their own indented line ([#2202](https://github.com/patchloom/patchloom/issues/2202)) ([7d2ba16](https://github.com/patchloom/patchloom/commit/7d2ba16a623a40965984dfe603dc91e18764ec9c)), closes [#2200](https://github.com/patchloom/patchloom/issues/2200)
+* **ast:** give validate a message for zero-width parse errors ([#2183](https://github.com/patchloom/patchloom/issues/2183)) ([d81b8b7](https://github.com/patchloom/patchloom/commit/d81b8b7beaad9f269e0666a1af5caf5b608891d5))
+* **ast:** match literal tokens in --pattern search ([#2186](https://github.com/patchloom/patchloom/issues/2186)) ([9db4409](https://github.com/patchloom/patchloom/commit/9db4409ffb8cfd2e0c54f498ebf4caff8d124e03)), closes [#2185](https://github.com/patchloom/patchloom/issues/2185)
+* **batch:** suggest file.create for bare creat typo ([#2190](https://github.com/patchloom/patchloom/issues/2190)) ([0f5ee89](https://github.com/patchloom/patchloom/commit/0f5ee8993c55e17867d41d87ce56f9c795605271)), closes [#2189](https://github.com/patchloom/patchloom/issues/2189)
+* **cli:** list empty-create dests and peel for_each invalid_input ([#2181](https://github.com/patchloom/patchloom/issues/2181)) ([7777af7](https://github.com/patchloom/patchloom/commit/7777af7eeac799a8d613b1dae239180b6a39fecc))
+* dest-exists leftovers after patch dest helpers ([#2179](https://github.com/patchloom/patchloom/issues/2179)) ([9b9f27c](https://github.com/patchloom/patchloom/commit/9b9f27c2e9fecfcfd5156e4862169f300aefa918))
+* do not add a blank line after apply-fragment --after ([#2209](https://github.com/patchloom/patchloom/issues/2209)) ([42a7186](https://github.com/patchloom/patchloom/commit/42a7186b435febbc9556a76a86ab2b72b28ee13b)), closes [#2204](https://github.com/patchloom/patchloom/issues/2204)
+* **doc:** treat . as document root on set ([#2201](https://github.com/patchloom/patchloom/issues/2201)) ([40705cb](https://github.com/patchloom/patchloom/commit/40705cb93079260d51b5be2ff0f75a95eb616f51)), closes [#2197](https://github.com/patchloom/patchloom/issues/2197)
+* name search -L all-hits and lock insert-after wrap ([#2210](https://github.com/patchloom/patchloom/issues/2210)) ([50e2d5e](https://github.com/patchloom/patchloom/commit/50e2d5e16b2fb10647783003a770d573a1eee870))
+* peel for_each invalid globs as invalid_input ([#2182](https://github.com/patchloom/patchloom/issues/2182)) ([2b0a2fb](https://github.com/patchloom/patchloom/commit/2b0a2fbc691d0e3bfc79816668487aaa8fa1030a))
+* **prepend:** drop fake newline escape from --help example ([#2194](https://github.com/patchloom/patchloom/issues/2194)) ([6031272](https://github.com/patchloom/patchloom/commit/6031272495c1039df6347316c6fe570eb0b3c665)), closes [#2192](https://github.com/patchloom/patchloom/issues/2192)
+* **replace:** keep line indent on insert-before ([#2188](https://github.com/patchloom/patchloom/issues/2188)) ([795a332](https://github.com/patchloom/patchloom/commit/795a332594b3ff79eb4eaa696d230757300cdc58)), closes [#2187](https://github.com/patchloom/patchloom/issues/2187)
+* **search:** say replace --unique instead of tipping --quiet ([#2198](https://github.com/patchloom/patchloom/issues/2198)) ([d85b583](https://github.com/patchloom/patchloom/commit/d85b5830ad1c11a345f2fbb5a997c7c7b619a66e)), closes [#2196](https://github.com/patchloom/patchloom/issues/2196)
+* sort backup sessions by recency not filename ([#2215](https://github.com/patchloom/patchloom/issues/2215)) ([8c8de7f](https://github.com/patchloom/patchloom/commit/8c8de7f7edb535f45cea51ace0510bebdecf8365)), closes [#2214](https://github.com/patchloom/patchloom/issues/2214)
+* uniquify backup sessions across processes ([#2214](https://github.com/patchloom/patchloom/issues/2214)) ([0352309](https://github.com/patchloom/patchloom/commit/03523099e2992013fa7236724b2f7420c4aa5ab0))
+
 ## [0.28.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.28.0...patchloom-v0.28.1) (2026-08-13)
 
 
