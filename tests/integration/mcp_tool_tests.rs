@@ -5594,6 +5594,74 @@ async fn test_mcp_execute_plan_insert_after_line_oriented() {
     client.cancel().await.unwrap();
 }
 
+/// execute_plan insert_before is line-oriented over MCP (#2212 sibling).
+#[tokio::test]
+async fn test_mcp_execute_plan_insert_before_line_oriented() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("t.txt"), "alpha\nbeta\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": "t.txt",
+            "old": "beta",
+            "insert_before": "// prev"
+        }]
+    });
+    let (is_error, val) =
+        call_tool_value(&client, "execute_plan", serde_json::json!({"plan": plan})).await;
+    assert!(
+        !is_error,
+        "execute_plan insert_before should succeed: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.txt")).unwrap(),
+        "alpha\n// prev\nbeta\n",
+        "plan insert_before must be an exact sibling line"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// execute_plan insert_before trailing-NL wrap (#2213 sibling on plan/MCP).
+#[tokio::test]
+async fn test_mcp_execute_plan_insert_before_trailing_nl_does_not_add_blank_line() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("code.rs"),
+        "    /// Doc comment.\n    pub field: bool,\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let plan = serde_json::json!({
+        "operations": [{
+            "op": "replace",
+            "path": "code.rs",
+            "old": "    /// Doc comment.",
+            "insert_before": "    // marker\n"
+        }]
+    });
+    let (is_error, val) =
+        call_tool_value(&client, "execute_plan", serde_json::json!({"plan": plan})).await;
+    assert!(
+        !is_error,
+        "execute_plan insert_before trailing NL should succeed: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "    // marker\n    /// Doc comment.\n    pub field: bool,\n",
+        "plan insert_before trailing NL must not add a blank line"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// Sole binary path via MCP replace_text peels binary, not silent.
 #[tokio::test]
 async fn test_mcp_replace_text_sole_binary_refused() {

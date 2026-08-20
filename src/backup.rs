@@ -80,8 +80,21 @@ fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
 }
 
 /// Monotonic counter to disambiguate backup sessions created in the same
-/// nanosecond (e.g., from concurrent threads).
+/// nanosecond in one process (concurrent threads).
 static SESSION_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Session directory name: `{nanos}_{pid}_{seq}`.
+///
+/// `seq` is per-process. Parallel CLI subprocesses (integration tests
+/// using `cargo_bin` against the same project root) each start `seq` at 0,
+/// so nanos+seq alone can collide and overwrite another apply's backup.
+fn new_session_id() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let seq = SESSION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{}_{}_{}", now.as_nanos(), std::process::id(), seq)
+}
 
 /// An active backup session that collects originals before writes.
 pub struct BackupSession {
@@ -95,13 +108,7 @@ impl BackupSession {
     /// Start a new backup session. Creates the session directory and prunes
     /// stale backups older than 7 days.
     pub fn new(project_root: &Path) -> anyhow::Result<Self> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        // Include a monotonic counter to prevent collisions when multiple
-        // threads create backup sessions in the same nanosecond.
-        let seq = SESSION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let timestamp = format!("{}_{}", now.as_nanos(), seq);
+        let timestamp = new_session_id();
         let session_dir = project_root.join(BACKUP_DIR).join(&timestamp);
         std::fs::create_dir_all(&session_dir)
             .with_context(|| format!("failed to create backup dir {}", session_dir.display()))?;
@@ -779,8 +786,8 @@ pub fn prune_old_backups(project_root: &Path) -> anyhow::Result<usize> {
     for entry in std::fs::read_dir(&backup_dir)?.filter_map(|e| e.ok()) {
         let name = entry.file_name();
         let dir_name = name.to_string_lossy();
-        // Session directories are named "{nanos}_{seq}". Parse the
-        // nanos prefix to determine session age.
+        // Session directories are named "{nanos}_{pid}_{seq}" (older
+        // sessions were "{nanos}_{seq}"). Parse the nanos prefix.
         if let Some(nanos_str) = dir_name.split('_').next()
             && let Ok(nanos) = nanos_str.parse::<u128>()
         {
@@ -802,6 +809,21 @@ pub fn prune_old_backups(project_root: &Path) -> anyhow::Result<usize> {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn session_id_includes_pid_and_is_unique() {
+        let dir = TempDir::new().unwrap();
+        let a = BackupSession::new(dir.path()).unwrap();
+        let b = BackupSession::new(dir.path()).unwrap();
+        assert_ne!(a.timestamp, b.timestamp);
+        let pid = std::process::id().to_string();
+        let a_parts: Vec<&str> = a.timestamp.split('_').collect();
+        let b_parts: Vec<&str> = b.timestamp.split('_').collect();
+        assert_eq!(a_parts.len(), 3, "expected nanos_pid_seq: {}", a.timestamp);
+        assert_eq!(a_parts[1], pid);
+        assert_eq!(b_parts[1], pid);
+        assert_ne!(a_parts[2], b_parts[2]);
+    }
 
     #[test]
     fn backup_and_restore_modified_file() {
