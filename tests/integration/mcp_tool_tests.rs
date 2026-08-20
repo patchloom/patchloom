@@ -1178,6 +1178,47 @@ async fn test_mcp_search_files_without_match_lists_miss() {
     client.cancel().await.unwrap();
 }
 
+/// CLI `-L` all-hits is `no_matches` / empty files (#2207). MCP must peel the same.
+#[tokio::test]
+async fn test_mcp_search_files_without_match_all_hits_is_no_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "needle",
+            "literal": true,
+            "files_without_match": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "pattern miss on -L is a structured result, not a tool error: {val}"
+    );
+    assert_eq!(val["ok"], false, "{val}");
+    assert_eq!(val["error_kind"], "no_matches", "{val}");
+    assert_eq!(val["file_count"], 0, "{val}");
+    if let Some(files) = val["files"].as_array() {
+        assert!(
+            files.is_empty(),
+            "files must be empty on all-hits -L: {val}"
+        );
+    }
+    let dumped = val.to_string();
+    assert!(
+        !dumped.contains("hit.txt"),
+        "-L must not list a hit as a miss: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
 #[tokio::test]
 async fn test_mcp_search_rejects_empty_pattern() {
     if !has_mcp_support() {
