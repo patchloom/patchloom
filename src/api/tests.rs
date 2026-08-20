@@ -3490,16 +3490,15 @@ fn file_prepend_write_modes_matrix() {
         assert_eq!(res.applied, expect_applied, "{mode:?}");
         let on_disk = fs::read_to_string(&file).unwrap();
         if expect_applied {
-            assert!(
-                on_disk.starts_with("HEAD\n"),
-                "{mode:?} expected prepend, got {on_disk}"
+            assert_eq!(
+                on_disk, "HEAD\nbase",
+                "{mode:?} prepend must be exact (no extra blank)"
             );
-            assert!(on_disk.contains("base"), "{mode:?} base content retained");
         } else {
             assert_eq!(on_disk, "base", "{mode:?} must not write");
-            assert!(
-                res.new_content.starts_with("HEAD\n"),
-                "{mode:?} new_content should preview prepend"
+            assert_eq!(
+                res.new_content, "HEAD\nbase",
+                "{mode:?} preview new_content must be exact"
             );
         }
     }
@@ -7358,15 +7357,10 @@ fn fuzzy_identifier_typo_keeps_line_syntax() {
     .expect("fuzzy typo should apply");
     assert!(r.changed);
     assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
-    assert!(
-        r.new_content
-            .starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-        "must keep const/type/value: {}",
-        r.new_content
-    );
-    assert!(
-        !r.new_content.starts_with("CONFIGURATION_VALUE_SECONDARY\n"),
-        "must not replace whole first line with bare new text"
+    assert_eq!(
+        r.new_content,
+        "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        "fuzzy typo must keep the rest of the line and the second site"
     );
 }
 
@@ -7392,23 +7386,10 @@ fn fuzzy_embedder_options_identifier_typo_safe() {
     assert!(r.changed);
     assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
     assert!(r.match_score.is_some_and(|s| s >= 0.80));
-    assert!(
-        r.new_content
-            .contains("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-        "{}",
-        r.new_content
-    );
-    // Second occurrence still original (single fuzzy site).
-    assert!(
-        r.new_content.contains("CONFIGURATION_VALUE_PRIMARY"),
-        "second site left for single fuzzy replace: {}",
-        r.new_content
-    );
-    assert!(
-        !r.new_content
-            .lines()
-            .any(|l| l == "CONFIGURATION_VALUE_SECONDARY"),
-        "must not replace a whole line with bare new identifier"
+    assert_eq!(
+        r.new_content,
+        "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        "embedder unique fuzzy must keep syntax and the second site"
     );
 }
 
@@ -7523,11 +7504,11 @@ fn fuzzy_identifier_typo_disk_apply_preserves_syntax() {
         r.backup_session
     );
     let on_disk = fs::read_to_string(&file).unwrap();
-    assert!(
-        on_disk.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-        "disk: {on_disk}"
+    assert_eq!(
+        on_disk,
+        "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        "disk fuzzy apply must keep syntax and the second site: {on_disk}"
     );
-    assert!(on_disk.contains("CONFIGURATION_VALUE_PRIMARY"));
 }
 
 /// #1687: out-of-range min_fuzzy_score is InvalidInput.

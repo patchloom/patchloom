@@ -1811,17 +1811,10 @@ mod tests {
         drop(tx);
         assert_eq!(count, 1);
         let out = &f.pending[&file].1;
-        assert!(
-            out.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-            "tx fuzzy must keep syntax: {out}"
-        );
-        assert!(
-            out.contains("CONFIGURATION_VALUE_PRIMARY"),
-            "second occurrence left: {out}"
-        );
-        assert!(
-            !out.lines().any(|l| l == "CONFIGURATION_VALUE_SECONDARY"),
-            "must not bare-line replace: {out}"
+        assert_eq!(
+            out,
+            "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+            "tx fuzzy must keep syntax and the second site: {out}"
         );
         let meta = f.replace_match_meta.get(&file).expect("fuzzy meta");
         assert_eq!(meta.mode, crate::api::MatchMode::Fuzzy);

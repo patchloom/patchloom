@@ -2317,19 +2317,10 @@ fn test_replace_fuzzy_identifier_typo_preserves_syntax() {
         .code(0);
 
     let on_disk = fs::read_to_string(&file).unwrap();
-    assert!(
-        on_disk.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-        "CLI fuzzy must keep const/type: {on_disk}"
-    );
-    assert!(
-        on_disk.contains("CONFIGURATION_VALUE_PRIMARY"),
-        "second site left: {on_disk}"
-    );
-    assert!(
-        !on_disk
-            .lines()
-            .any(|l| l.trim() == "CONFIGURATION_VALUE_SECONDARY"),
-        "must not bare-line replace: {on_disk}"
+    assert_eq!(
+        on_disk,
+        "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        "CLI fuzzy must keep const/type and the second site: {on_disk}"
     );
 }
 

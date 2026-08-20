@@ -1211,9 +1211,9 @@ async fn test_mcp_search_files_without_match_all_hits_is_no_matches() {
     assert_eq!(val["error_kind"], "no_matches", "{val}");
     assert_eq!(val["file_count"], 0, "{val}");
     let err = val["error"].as_str().unwrap_or("");
-    assert!(
-        err.contains("no files without matches") && err.contains("needle"),
-        "all-hits -L must not look like a content miss: {val}"
+    assert_eq!(
+        err, "no files without matches for 'needle' in .",
+        "all-hits -L must use the files-without-match wording: {val}"
     );
     assert!(
         !err.contains("try -i"),
