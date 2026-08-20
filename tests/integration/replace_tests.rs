@@ -1372,7 +1372,7 @@ fn test_replace_apply_prunes_old_backup_sessions() {
     fs::write(&file, "aaa\n").unwrap();
 
     // Create a fake old backup session with a timestamp 8 days in the past.
-    // Pruning now uses the directory name (nanos_seq) to determine age.
+    // Pruning uses the nanos prefix of the session dir (nanos_pid_seq).
     let eight_days_ago = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
