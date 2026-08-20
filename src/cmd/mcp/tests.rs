@@ -1299,8 +1299,12 @@ mod no_results_tests {
             _ => panic!("expected text content"),
         };
         assert!(
-            text.contains("No matches"),
-            "should contain 'No matches' message, got: {text}"
+            text.contains("no matches for") && text.contains("NONEXISTENT_PATTERN_xyz"),
+            "should name the missing pattern, got: {text}"
+        );
+        assert!(
+            text.contains("no_matches"),
+            "should set error_kind no_matches, got: {text}"
         );
 
         client.cancel().await.unwrap();

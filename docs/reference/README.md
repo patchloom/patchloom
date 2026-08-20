@@ -462,7 +462,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:search-mode:files-without-match -->
 ### `search --files-without-match`
 
-- **What it does:** Emits only file paths that contain no matches (`-L`, same as grep `-L`). Combining with `--files-with-matches` (`-l`) or `--count` (`-c`) is `invalid_input`. When every scanned file contains the pattern, CLI `--json` and MCP `search_files` with `files_without_match` return `error_kind: no_matches` (CLI exit 3) and an empty `files` list. That is a pattern miss, not a tool crash.
+- **What it does:** Emits only file paths that contain no matches (`-L`, same as grep `-L`). Combining with `--files-with-matches` (`-l`) or `--count` (`-c`) is `invalid_input`. When every scanned file contains the pattern, CLI `--json` and MCP `search_files` with `files_without_match` return `error_kind: no_matches` (CLI exit 3) and an empty `files` list. The error text is `no files without matches for 'PATTERN' in SCOPE` (not a content-miss "no matches" line, and not a `-i` tip). That is not a tool crash.
 - **Use when:** You need the complement of `--files-with-matches`: files in the scan that do not contain the pattern.
 - **Prefer instead:** Use `--files-with-matches` when you want files that hit, or `--invert-match` when you want non-matching *lines* rather than files with zero hits.
 

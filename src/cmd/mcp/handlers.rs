@@ -417,10 +417,11 @@ impl PatchloomService {
                 empty_scan_hard_fail(&global, &search_args.paths, &cwd)?;
                 // True pattern miss: include refused/skipped like CLI so agents
                 // know binary co-paths were not searched as text.
+                let path_desc = global.path_scope_description(&search_args.paths);
                 let mut body = serde_json::json!({
                     "ok": false,
                     "error_kind": "no_matches",
-                    "error": "No matches found.",
+                    "error": search_args.no_match_message(&path_desc),
                     "match_count": 0,
                     "file_count": 0,
                 });
