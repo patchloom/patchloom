@@ -4877,13 +4877,11 @@ fn replace_text_before_context_disambiguates() {
     };
     let result = replace_text(&file, "TODO: fix", "DONE", &opts, ApplyMode::Apply, None).unwrap();
     assert!(result.changed);
-    let content = fs::read_to_string(&file).unwrap();
-    // First occurrence should be untouched, second replaced.
-    assert!(
-        content.contains("TODO: fix"),
-        "first occurrence should remain"
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "alpha\nTODO: fix\nbeta\ngamma\nDONE\ndelta\n",
+        "before_context must replace only the TODO after gamma"
     );
-    assert!(content.contains("DONE"), "second should be replaced");
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -4900,13 +4898,11 @@ fn replace_text_after_context_disambiguates() {
     };
     let result = replace_text(&file, "TODO: fix", "DONE", &opts, ApplyMode::Apply, None).unwrap();
     assert!(result.changed);
-    let content = fs::read_to_string(&file).unwrap();
-    // First occurrence replaced, second should remain.
-    assert!(
-        content.contains("TODO: fix"),
-        "second occurrence should remain"
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "alpha\nDONE\nbeta\ngamma\nTODO: fix\ndelta\n",
+        "after_context must replace only the TODO before beta"
     );
-    assert!(content.contains("DONE"), "first should be replaced");
 }
 
 // ── #1314: Unicode/multibyte text tests for replace_in_content ──
@@ -5175,13 +5171,10 @@ fn replace_text_before_context_disambiguates_any_path() {
     )
     .unwrap();
     assert!(result.changed);
-    assert!(
-        result.new_content.contains("host = db.primary"),
-        "database host should be replaced"
-    );
-    assert!(
-        result.new_content.matches("host = localhost").count() == 1,
-        "cache host should remain unchanged"
+    assert_eq!(
+        result.new_content,
+        "[database]\nhost = db.primary\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+        "before_context must change only the database host"
     );
 }
 
@@ -5209,8 +5202,11 @@ fn replace_text_after_context_disambiguates_any_path() {
     )
     .unwrap();
     assert!(result.changed);
-    assert!(result.new_content.contains("[database]\nhost = db.primary"));
-    assert!(result.new_content.contains("[cache]\nhost = localhost"));
+    assert_eq!(
+        result.new_content,
+        "[database]\nhost = db.primary\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+        "after_context must change only the database host"
+    );
 }
 
 #[test]
@@ -6691,8 +6687,10 @@ fn match_mode_exact_fuzzy_and_anchored() {
         Some("TODO: fix"),
         "anchored multi-match path must report matched_text (#1736 parity)"
     );
-    assert!(r.new_content.contains("beta\nTODO: done"));
-    assert!(r.new_content.contains("alpha\nTODO: fix"));
+    assert_eq!(
+        r.new_content, "alpha\nTODO: fix\nbeta\nTODO: done\n",
+        "anchored replace must keep the first TODO and not add blanks"
+    );
 }
 
 /// Disk `replace_text` must honor pure `fuzzy: true` (no context).
