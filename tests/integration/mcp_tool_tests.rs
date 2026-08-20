@@ -179,14 +179,10 @@ async fn test_mcp_apply_fragment_after_round_trip() {
         "apply_fragment files_changed: {val}"
     );
 
-    let content = fs::read_to_string(dir.path().join("t.rs")).unwrap();
-    assert!(
-        content.contains("  a();\n  b();\n"),
-        "expected insert after a(); got {content:?}"
-    );
-    assert!(
-        !content.contains("existing code"),
-        "lazy markers must be stripped: {content:?}"
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        "fn foo() {\n  a();\n  b();\n}\n",
+        "markers stripped and insert after a();"
     );
     client.cancel().await.unwrap();
 }
@@ -267,9 +263,14 @@ async fn test_mcp_apply_fragment_requires_anchor() {
     )
     .await;
     assert!(is_error, "missing anchor must error: {val}");
-    let content = fs::read_to_string(dir.path().join("t.rs")).unwrap();
+    let text = val.to_string();
+    assert!(
+        text.contains("anchor") || text.contains("placement"),
+        "missing-anchor error must name the placement: {val}"
+    );
     assert_eq!(
-        content, "x\n",
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        "x\n",
         "file must be unchanged on invalid apply_fragment"
     );
     client.cancel().await.unwrap();

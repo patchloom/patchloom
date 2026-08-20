@@ -25,6 +25,8 @@ NOTES:
   Lazy marker lines such as // ... existing code ... are stripped from --fragment.
   A fragment without a trailing newline is still placed on its own line next to a
   whole-line (or indented whole-line) anchor; the anchor's indent is copied.
+  A trailing newline on --fragment after a whole-line --after does not add a
+  blank line.
   Dry-run by default (exit 2 when changes would apply). See docs/plans/morph-gap-matrix.md."
 )]
 pub struct ApplyFragmentArgs {
