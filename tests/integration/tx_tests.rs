@@ -1871,6 +1871,39 @@ fn test_tx_replace_insert_after_with_regex_in_plan() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "aaa\nbbbX\nccc\n");
 }
 
+/// CLI `replace --insert-after` trailing-NL lock must hold on plan/tx.
+#[test]
+fn test_tx_replace_insert_after_trailing_nl_does_not_add_blank_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn foo() {\n  a();\n}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": file.to_str().unwrap(),
+            "old": "fn foo() {",
+            "insert_after": "  bar();\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn foo() {\n  bar();\n  a();\n}\n"
+    );
+}
+
 #[test]
 fn test_tx_replace_rejects_both_insert_before_and_after() {
     let dir = TempDir::new().unwrap();

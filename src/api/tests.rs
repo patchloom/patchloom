@@ -2699,10 +2699,30 @@ fn replace_text_insert_after() {
     let result = replace_text(&file, "hello", "", &opts, ApplyMode::Preview, None).unwrap();
 
     assert!(result.changed);
-    assert!(
-        result.new_content.contains("hello\n beautiful"),
-        "line-oriented insert_after: {}",
-        result.new_content
+    assert_eq!(
+        result.new_content, "hello\n beautiful world\n",
+        "line-oriented insert_after must be exact"
+    );
+}
+
+/// #2209 sibling: insert_after payload that already ends in a newline
+/// must not add a blank line (CLI cargo-bin already locks this).
+#[test]
+fn replace_text_insert_after_trailing_nl_does_not_add_blank_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn foo() {\n  a();\n}\n").unwrap();
+
+    let opts = ReplaceOptions {
+        insert_after: Some("  bar();\n".to_string()),
+        ..ReplaceOptions::default()
+    };
+    let result = replace_text(&file, "fn foo() {", "", &opts, ApplyMode::Apply, None).unwrap();
+    assert!(result.applied);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn foo() {\n  bar();\n  a();\n}\n",
+        "trailing NL on insert_after must not insert a blank line"
     );
 }
 
@@ -3460,15 +3480,15 @@ fn file_append_write_modes_matrix() {
         assert_eq!(res.applied, expect_applied, "{mode:?}");
         let on_disk = fs::read_to_string(&file).unwrap();
         if expect_applied {
-            assert!(
-                on_disk.contains("+more"),
-                "{mode:?} expected write, got {on_disk}"
+            assert_eq!(
+                on_disk, "base\n +more",
+                "{mode:?} append inserts one EOL when the file has none"
             );
         } else {
             assert_eq!(on_disk, "base", "{mode:?} must not write");
-            assert!(
-                res.new_content.contains("+more"),
-                "{mode:?} new_content should preview append"
+            assert_eq!(
+                res.new_content, "base\n +more",
+                "{mode:?} preview new_content must be exact"
             );
         }
     }

@@ -5402,14 +5402,39 @@ async fn test_mcp_replace_text_insert_after_line_oriented() {
     .await;
     assert!(!is_error, "replace_text insert_after should succeed: {val}");
     assert_eq!(val["ok"], true, "insert_after ok: {val}");
-    let content = fs::read_to_string(dir.path().join("code.rs")).unwrap();
-    assert!(
-        content.contains("fn process_data() {}\n    // after body"),
-        "line-oriented insert_after: {content}"
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn process_data() {}\n    // after body\n",
+        "line-oriented insert_after must be exact"
     );
-    assert!(
-        !content.contains("fn process_data() {}    // after body"),
-        "must not glue comment onto line: {content}"
+    client.cancel().await.unwrap();
+}
+
+/// CLI `replace --insert-after` trailing-NL lock (#2210) must hold on MCP.
+#[tokio::test]
+async fn test_mcp_replace_text_insert_after_trailing_nl_does_not_add_blank_line() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn foo() {\n  a();\n}\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "old": "fn foo() {",
+            "insert_after": "  bar();\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "insert_after trailing NL should succeed: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn foo() {\n  bar();\n  a();\n}\n",
+        "MCP insert_after trailing NL must not add a blank line"
     );
     client.cancel().await.unwrap();
 }
@@ -5528,10 +5553,10 @@ async fn test_mcp_execute_plan_insert_after_line_oriented() {
     let (is_error, val) =
         call_tool_value(&client, "execute_plan", serde_json::json!({"plan": plan})).await;
     assert!(!is_error, "execute_plan insert_after should succeed: {val}");
-    let content = fs::read_to_string(dir.path().join("t.txt")).unwrap();
-    assert!(
-        content.contains("// next") && !content.contains("beta// next"),
-        "plan insert_after line-oriented: {content}"
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.txt")).unwrap(),
+        "alpha\nbeta\n// next\n",
+        "plan insert_after must be an exact sibling line"
     );
     client.cancel().await.unwrap();
 }
