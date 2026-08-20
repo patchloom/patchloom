@@ -860,13 +860,9 @@ mod tests {
             Some("TODO: fix"),
             "batch should report widest anchored/fuzzy matched_text (#1736 / #1981)"
         );
-        assert!(r.modified.starts_with("ALPHA\n"));
-        assert!(r.modified.contains("gamma\nTODO: done"));
-        // Context-anchored replace must not touch the first TODO: fix
-        assert!(
-            r.modified.contains("ALPHA\nTODO: fix\nbeta"),
-            "first TODO must remain: {}",
-            r.modified
+        assert_eq!(
+            r.modified, "ALPHA\nTODO: fix\nbeta\ngamma\nTODO: done\n",
+            "anchored replace must keep the first TODO and not add blanks"
         );
     }
 

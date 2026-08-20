@@ -3490,16 +3490,15 @@ fn file_prepend_write_modes_matrix() {
         assert_eq!(res.applied, expect_applied, "{mode:?}");
         let on_disk = fs::read_to_string(&file).unwrap();
         if expect_applied {
-            assert!(
-                on_disk.starts_with("HEAD\n"),
-                "{mode:?} expected prepend, got {on_disk}"
+            assert_eq!(
+                on_disk, "HEAD\nbase",
+                "{mode:?} prepend must be exact (no extra blank)"
             );
-            assert!(on_disk.contains("base"), "{mode:?} base content retained");
         } else {
             assert_eq!(on_disk, "base", "{mode:?} must not write");
-            assert!(
-                res.new_content.starts_with("HEAD\n"),
-                "{mode:?} new_content should preview prepend"
+            assert_eq!(
+                res.new_content, "HEAD\nbase",
+                "{mode:?} preview new_content must be exact"
             );
         }
     }
@@ -4878,13 +4877,11 @@ fn replace_text_before_context_disambiguates() {
     };
     let result = replace_text(&file, "TODO: fix", "DONE", &opts, ApplyMode::Apply, None).unwrap();
     assert!(result.changed);
-    let content = fs::read_to_string(&file).unwrap();
-    // First occurrence should be untouched, second replaced.
-    assert!(
-        content.contains("TODO: fix"),
-        "first occurrence should remain"
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "alpha\nTODO: fix\nbeta\ngamma\nDONE\ndelta\n",
+        "before_context must replace only the TODO after gamma"
     );
-    assert!(content.contains("DONE"), "second should be replaced");
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -4901,13 +4898,11 @@ fn replace_text_after_context_disambiguates() {
     };
     let result = replace_text(&file, "TODO: fix", "DONE", &opts, ApplyMode::Apply, None).unwrap();
     assert!(result.changed);
-    let content = fs::read_to_string(&file).unwrap();
-    // First occurrence replaced, second should remain.
-    assert!(
-        content.contains("TODO: fix"),
-        "second occurrence should remain"
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "alpha\nDONE\nbeta\ngamma\nTODO: fix\ndelta\n",
+        "after_context must replace only the TODO before beta"
     );
-    assert!(content.contains("DONE"), "first should be replaced");
 }
 
 // ── #1314: Unicode/multibyte text tests for replace_in_content ──
@@ -5176,13 +5171,10 @@ fn replace_text_before_context_disambiguates_any_path() {
     )
     .unwrap();
     assert!(result.changed);
-    assert!(
-        result.new_content.contains("host = db.primary"),
-        "database host should be replaced"
-    );
-    assert!(
-        result.new_content.matches("host = localhost").count() == 1,
-        "cache host should remain unchanged"
+    assert_eq!(
+        result.new_content,
+        "[database]\nhost = db.primary\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+        "before_context must change only the database host"
     );
 }
 
@@ -5210,8 +5202,11 @@ fn replace_text_after_context_disambiguates_any_path() {
     )
     .unwrap();
     assert!(result.changed);
-    assert!(result.new_content.contains("[database]\nhost = db.primary"));
-    assert!(result.new_content.contains("[cache]\nhost = localhost"));
+    assert_eq!(
+        result.new_content,
+        "[database]\nhost = db.primary\nport = 5432\n\n[cache]\nhost = localhost\nport = 6379\n",
+        "after_context must change only the database host"
+    );
 }
 
 #[test]
@@ -6692,8 +6687,10 @@ fn match_mode_exact_fuzzy_and_anchored() {
         Some("TODO: fix"),
         "anchored multi-match path must report matched_text (#1736 parity)"
     );
-    assert!(r.new_content.contains("beta\nTODO: done"));
-    assert!(r.new_content.contains("alpha\nTODO: fix"));
+    assert_eq!(
+        r.new_content, "alpha\nTODO: fix\nbeta\nTODO: done\n",
+        "anchored replace must keep the first TODO and not add blanks"
+    );
 }
 
 /// Disk `replace_text` must honor pure `fuzzy: true` (no context).
@@ -7358,15 +7355,10 @@ fn fuzzy_identifier_typo_keeps_line_syntax() {
     .expect("fuzzy typo should apply");
     assert!(r.changed);
     assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
-    assert!(
-        r.new_content
-            .starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-        "must keep const/type/value: {}",
-        r.new_content
-    );
-    assert!(
-        !r.new_content.starts_with("CONFIGURATION_VALUE_SECONDARY\n"),
-        "must not replace whole first line with bare new text"
+    assert_eq!(
+        r.new_content,
+        "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        "fuzzy typo must keep the rest of the line and the second site"
     );
 }
 
@@ -7392,23 +7384,10 @@ fn fuzzy_embedder_options_identifier_typo_safe() {
     assert!(r.changed);
     assert_eq!(r.match_mode, Some(MatchMode::Fuzzy));
     assert!(r.match_score.is_some_and(|s| s >= 0.80));
-    assert!(
-        r.new_content
-            .contains("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-        "{}",
-        r.new_content
-    );
-    // Second occurrence still original (single fuzzy site).
-    assert!(
-        r.new_content.contains("CONFIGURATION_VALUE_PRIMARY"),
-        "second site left for single fuzzy replace: {}",
-        r.new_content
-    );
-    assert!(
-        !r.new_content
-            .lines()
-            .any(|l| l == "CONFIGURATION_VALUE_SECONDARY"),
-        "must not replace a whole line with bare new identifier"
+    assert_eq!(
+        r.new_content,
+        "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        "embedder unique fuzzy must keep syntax and the second site"
     );
 }
 
@@ -7523,11 +7502,11 @@ fn fuzzy_identifier_typo_disk_apply_preserves_syntax() {
         r.backup_session
     );
     let on_disk = fs::read_to_string(&file).unwrap();
-    assert!(
-        on_disk.starts_with("const CONFIGURATION_VALUE_SECONDARY: i32 = 1;"),
-        "disk: {on_disk}"
+    assert_eq!(
+        on_disk,
+        "const CONFIGURATION_VALUE_SECONDARY: i32 = 1;\nfn use_it() -> i32 { CONFIGURATION_VALUE_PRIMARY }\n",
+        "disk fuzzy apply must keep syntax and the second site: {on_disk}"
     );
-    assert!(on_disk.contains("CONFIGURATION_VALUE_PRIMARY"));
 }
 
 /// #1687: out-of-range min_fuzzy_score is InvalidInput.

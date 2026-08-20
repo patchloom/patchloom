@@ -932,9 +932,9 @@ fn test_search_files_without_match_all_hits_exits_3() {
     assert_eq!(v["error_kind"], "no_matches", "{v}");
     assert_eq!(v["file_count"], 0, "{v}");
     let err = v["error"].as_str().unwrap_or("");
-    assert!(
-        err.contains("no files without matches") && err.contains("needle"),
-        "all-hits -L must not look like a content miss: {v}"
+    assert_eq!(
+        err, "no files without matches for 'needle' in .",
+        "all-hits -L must use the files-without-match wording: {v}"
     );
     assert!(
         !err.contains("try -i"),
