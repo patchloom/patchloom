@@ -662,8 +662,8 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
     );
     // Line-oriented insert is CLI-facing as well (mode All includes CLI).
     assert!(
-        out.contains("Insert line placement"),
-        "agents need line-oriented insert default (#1885)"
+        out.contains("Insert line placement") && out.contains("no extra blank"),
+        "agents need line-oriented insert default and trailing-NL wrap (#1885)"
     );
     // Copy-paste shape: anchor + flag + path (not positional NEW / wrong order).
     assert!(

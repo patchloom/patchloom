@@ -5439,6 +5439,39 @@ async fn test_mcp_replace_text_insert_after_trailing_nl_does_not_add_blank_line(
     client.cancel().await.unwrap();
 }
 
+/// CLI/tx insert-before trailing-NL lock must hold on MCP replace_text.
+#[tokio::test]
+async fn test_mcp_replace_text_insert_before_trailing_nl_does_not_add_blank_line() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("code.rs"),
+        "    /// Doc comment.\n    pub field: bool,\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "replace_text",
+        serde_json::json!({
+            "path": "code.rs",
+            "old": "    /// Doc comment.",
+            "insert_before": "    // marker\n"
+        }),
+    )
+    .await;
+    assert!(!is_error, "insert_before trailing NL should succeed: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "    // marker\n    /// Doc comment.\n    pub field: bool,\n",
+        "MCP insert_before trailing NL must not add a blank line"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// MCP insert_after on CRLF files must keep CRLF separators (#1892).
 #[tokio::test]
 async fn test_mcp_replace_text_insert_after_preserves_crlf() {

@@ -546,7 +546,7 @@ These are meaningful command-specific modes that change how a top-level command 
 <!-- ref:replace-mode:insert-before -->
 ### `replace --insert-before`
 
-- **What it does:** Inserts text before each match instead of replacing it. The matched text is preserved.
+- **What it does:** Inserts text before each match instead of replacing it. The matched text is preserved. A payload that already ends in a newline is still one sibling line (no extra blank line). Same wrap as `apply-fragment --before`.
 - **Use when:** You need to add a line or annotation above an existing anchor without repeating the anchor in the replacement text.
 - **Example:** `patchloom replace 'fn main() {' --insert-before '// entry' src/main.rs --apply`
 - **Prefer instead:** Use `--new` when the matched text should actually change, not just receive a prefix.
