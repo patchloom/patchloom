@@ -99,6 +99,18 @@ impl SearchArgs {
     pub(crate) fn file_inventory_mode(&self) -> bool {
         self.count || self.file_path_list_mode()
     }
+
+    /// Soft no-match diagnostic. `-L` / `files_without_match` with every file
+    /// hitting the pattern is still `error_kind: no_matches`, but the text
+    /// must not look like a content miss (and must not tip `-i`).
+    pub(crate) fn no_match_message(&self, path_desc: &str) -> String {
+        let pat = crate::fallback::truncate_str(&self.pattern, 60);
+        if self.files_without_match {
+            format!("no files without matches for '{pat}' in {path_desc}")
+        } else {
+            format!("no matches for '{pat}' in {path_desc}")
+        }
+    }
 }
 
 /// Explicit path refused for non-pattern reasons (parity with replace `refused[]`).
@@ -697,6 +709,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::FAILURE);
         }
         let path_desc = global.path_scope_description(&args.paths);
+        let miss = args.no_match_message(&path_desc);
         let payload = SearchOutput {
             ok: false,
             match_count: 0,
@@ -705,23 +718,24 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             files: vec![],
             truncated: false,
             error_kind: Some("no_matches"),
-            error: Some(format!(
-                "no matches for '{}' in {path_desc}",
-                crate::fallback::truncate_str(&args.pattern, 60)
-            )),
+            error: Some(miss.clone()),
             skipped: skipped.clone(),
             refused: refused.clone(),
         };
         global.emit_json(&payload)?;
         if !global.quiet && !global.json && !global.jsonl {
-            eprintln!("no matches for '{}' in {path_desc}", args.pattern);
-            if args.literal && crate::files::has_regex_metacharacters(&args.pattern) {
-                eprintln!(
-                    "hint: --literal is set but the pattern looks like a regex, try removing --literal"
-                );
-            }
-            if !args.case_insensitive {
-                eprintln!("hint: try -i for case-insensitive matching");
+            eprintln!("{miss}");
+            // Content miss only: `-L` all-hits already found the pattern in
+            // every file, so `-i` / regex-literal tips would be wrong.
+            if !args.files_without_match {
+                if args.literal && crate::files::has_regex_metacharacters(&args.pattern) {
+                    eprintln!(
+                        "hint: --literal is set but the pattern looks like a regex, try removing --literal"
+                    );
+                }
+                if !args.case_insensitive {
+                    eprintln!("hint: try -i for case-insensitive matching");
+                }
             }
         }
         return Ok(exit::NO_MATCHES);
@@ -996,6 +1010,16 @@ mod tests {
         args.files_without_match = true;
         let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn no_match_message_files_without_match_names_files() {
+        let mut args = make_args("needle", vec![".".into()]);
+        args.files_without_match = true;
+        let msg = args.no_match_message(".");
+        assert_eq!(msg, "no files without matches for 'needle' in .");
+        let content = make_args("needle", vec![".".into()]).no_match_message("src");
+        assert_eq!(content, "no matches for 'needle' in src");
     }
 
     #[test]

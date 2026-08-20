@@ -1024,6 +1024,31 @@ fn test_replace_insert_after() {
     );
 }
 
+/// #2209 sibling: `--insert-after` payload that already ends in a newline
+/// must not insert a blank line (same wrap as apply-fragment `--after`).
+#[test]
+fn test_replace_insert_after_trailing_nl_does_not_add_blank_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "fn foo() {\n  a();\n}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("replace")
+        .arg("fn foo() {")
+        .arg("--insert-after")
+        .arg("  bar();\n")
+        .arg(file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "fn foo() {\n  bar();\n  a();\n}\n"
+    );
+}
+
 #[test]
 fn test_replace_insert_after_midline_bare_stays_exact() {
     let dir = TempDir::new().unwrap();

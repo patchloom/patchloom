@@ -723,8 +723,9 @@ async fn test_mcp_search_files_rejects_empty_path_alias() {
 }
 
 /// Regression test for #939 / #1270: search_files with zero matches must
-/// return a descriptive "No matches found." message as a success (isError:
-/// false), not an error. Empty results are valid answers, not failures.
+/// return a descriptive miss (`no matches for 'PATTERN'`) as a success
+/// (isError: false), not an error. Empty results are valid answers, not
+/// failures.
 #[tokio::test]
 async fn test_mcp_search_no_match_returns_descriptive_message() {
     if !has_mcp_support() {
@@ -745,8 +746,12 @@ async fn test_mcp_search_no_match_returns_descriptive_message() {
         "search with no matches should return isError: false (#1270)"
     );
     assert!(
-        text.contains("No matches found"),
-        "response should say 'No matches found', got: {text}"
+        text.contains("no matches for") && text.contains("zzz_nonexistent_pattern_zzz"),
+        "response should name the missing pattern, got: {text}"
+    );
+    assert!(
+        text.contains("no_matches"),
+        "response should set error_kind no_matches, got: {text}"
     );
     assert!(
         !text.contains("Operation failed with exit code"),
@@ -1175,6 +1180,56 @@ async fn test_mcp_search_files_without_match_lists_miss() {
     let path = files[0]["path"].as_str().unwrap_or("");
     assert!(path.contains("miss.txt"), "should list miss.txt: {val}");
     assert!(!path.contains("hit.txt"), "must not list hit.txt: {val}");
+    client.cancel().await.unwrap();
+}
+
+/// CLI `-L` all-hits is `no_matches` / empty files (#2207). MCP must peel the same.
+#[tokio::test]
+async fn test_mcp_search_files_without_match_all_hits_is_no_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "search_files",
+        serde_json::json!({
+            "pattern": "needle",
+            "literal": true,
+            "files_without_match": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "pattern miss on -L is a structured result, not a tool error: {val}"
+    );
+    assert_eq!(val["ok"], false, "{val}");
+    assert_eq!(val["error_kind"], "no_matches", "{val}");
+    assert_eq!(val["file_count"], 0, "{val}");
+    let err = val["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("no files without matches") && err.contains("needle"),
+        "all-hits -L must not look like a content miss: {val}"
+    );
+    assert!(
+        !err.contains("try -i"),
+        "must not tip -i on -L all-hits: {val}"
+    );
+    if let Some(files) = val["files"].as_array() {
+        assert!(
+            files.is_empty(),
+            "files must be empty on all-hits -L: {val}"
+        );
+    }
+    let dumped = val.to_string();
+    assert!(
+        !dumped.contains("hit.txt"),
+        "-L must not list a hit as a miss: {val}"
+    );
     client.cancel().await.unwrap();
 }
 

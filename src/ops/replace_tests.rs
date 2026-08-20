@@ -245,6 +245,14 @@ mod replace_tests {
         }
 
         #[test]
+        fn normalize_line_insert_ci_after_trailing_nl_does_not_add_blank_line() {
+            let file = "Fn Foo() {\n  a();\n}\n";
+            let out =
+                normalize_line_insert_ci(file, "fn foo() {", "  bar();\n", InsertSide::After, true);
+            assert_eq!(out, "\n  bar();");
+        }
+
+        #[test]
         fn normalize_line_insert_after_whole_line_bare_payload() {
             // avoid alphabeta when every match is a whole line
             let file = "alpha\n";
