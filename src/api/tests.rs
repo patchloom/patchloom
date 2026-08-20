@@ -2795,6 +2795,34 @@ fn replace_text_insert_before_preserves_crlf() {
     );
 }
 
+/// CLI/tx already lock insert-before trailing NL. Library must match.
+#[test]
+fn replace_text_insert_before_trailing_nl_does_not_add_blank_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("code.rs");
+    fs::write(&file, "    /// Doc comment.\n    pub field: bool,\n").unwrap();
+
+    let opts = ReplaceOptions {
+        insert_before: Some("    // marker\n".to_string()),
+        ..ReplaceOptions::default()
+    };
+    let result = replace_text(
+        &file,
+        "    /// Doc comment.",
+        "",
+        &opts,
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(result.applied);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "    // marker\n    /// Doc comment.\n    pub field: bool,\n",
+        "trailing NL on insert_before must not insert a blank line"
+    );
+}
+
 #[test]
 fn replace_text_insert_after_midline_bare() {
     let dir = TempDir::new().unwrap();
@@ -4113,7 +4141,10 @@ fn replace_in_content_insert_after() {
     };
     let result = replace::replace_in_content(content, "use std::io;", "", &opts).unwrap();
     assert!(result.changed);
-    assert!(result.new_content.contains("use std::io;\nuse std::fs;"));
+    assert_eq!(
+        result.new_content, "use std::io;\nuse std::fs;\n\nfn main() {}\n",
+        "insert_after must be exact (no extra blank)"
+    );
 }
 
 #[test]
@@ -4125,7 +4156,10 @@ fn replace_in_content_insert_before() {
     };
     let result = replace::replace_in_content(content, "use std::io;", "", &opts).unwrap();
     assert!(result.changed);
-    assert!(result.new_content.contains("use std::fs;\nuse std::io;"));
+    assert_eq!(
+        result.new_content, "use std::fs;\nuse std::io;\n\nfn main() {}\n",
+        "insert_before must be exact (no extra blank)"
+    );
 }
 
 #[test]

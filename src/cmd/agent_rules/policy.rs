@@ -287,7 +287,8 @@ success lines are the full path list.\n\n\
              **Insert line placement (#1885):** `--insert-before` / `--insert-after` (and plan/MCP \
              `insert_before` / `insert_after`) are line-oriented by default: payloads that look like a \
              new line (indent, `//`/`#` comment, embedded newline) or a whole-line anchor get a separating \
-             newline so agents do not glue text onto the match. Pure mid-line inserts (e.g. `X` after \
+             newline so agents do not glue text onto the match. A payload that already ends in a \
+             newline stays one sibling line (no extra blank). Pure mid-line inserts (e.g. `X` after \
              `foo` inside a line) stay byte-exact.\n\
              Example (anchor is positional OLD; insert text is on the flag; path last; never \
              `replace ANCHOR NEW path`):\n\
