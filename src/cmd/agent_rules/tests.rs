@@ -320,8 +320,9 @@ fn workflow_includes_plan_require_change_and_command_position() {
             && mcp.contains("refused[]")
             && mcp.contains("below_min_fuzzy_score")
             && mcp.contains("no_matches")
-            && mcp.contains("truncated"),
-        "MCP-only agent-rules must document replace_text flags, fuzzy fail-closed, refused[], and search truncated"
+            && mcp.contains("truncated")
+            && mcp.contains("files_without_match"),
+        "MCP-only agent-rules must document replace_text flags, fuzzy fail-closed, refused[], search truncated, and files_without_match all-hits"
     );
 }
 
