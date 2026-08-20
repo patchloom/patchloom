@@ -22,7 +22,7 @@ EXAMPLES:
   patchloom undo --list
   patchloom undo              # dry-run preview (exit 2); does NOT restore
   patchloom undo --apply      # restore most recent session
-  patchloom undo --session 20240101_120000 --apply
+  patchloom undo --session <id-from-undo-list> --apply
 
 NOTE:
   Default is preview only. Agents that want a real restore must pass
@@ -230,7 +230,12 @@ fn collect_sessions(
             all.push((listing.project_root.clone(), session));
         }
     }
-    all.sort_by(|a, b| b.1.timestamp.cmp(&a.1.timestamp));
+    all.sort_by(|a, b| {
+        let da = a.0.join(backup::BACKUP_DIR).join(&a.1.timestamp);
+        let db = b.0.join(backup::BACKUP_DIR).join(&b.1.timestamp);
+        backup::session_recency_key(&db, &b.1.timestamp)
+            .cmp(&backup::session_recency_key(&da, &a.1.timestamp))
+    });
     Ok(all)
 }
 

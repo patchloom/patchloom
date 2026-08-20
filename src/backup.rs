@@ -96,6 +96,35 @@ fn new_session_id() -> String {
     format!("{}_{}_{}", now.as_nanos(), std::process::id(), seq)
 }
 
+/// Parse `{nanos}_{pid}_{seq}` or legacy `{nanos}_{seq}` for newest-first order.
+///
+/// Filename lexicographic sort is wrong: `{n}_99_0` > `{n}_1000_0` as
+/// strings, so `undo` would treat the older pid as latest.
+fn parse_session_id_parts(name: &str) -> (u128, u32, u64) {
+    let mut parts = name.split('_');
+    let nanos = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let mid = parts
+        .next()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+    match parts.next().and_then(|s| s.parse::<u64>().ok()) {
+        Some(seq) => (nanos, mid.min(u32::MAX as u64) as u32, seq),
+        None => (nanos, 0, mid),
+    }
+}
+
+/// Recency key: nanos, then directory mtime (same-nanos cross-process), then seq.
+pub(crate) fn session_recency_key(
+    session_dir: &Path,
+    timestamp: &str,
+) -> (u128, std::time::SystemTime, u64) {
+    let (nanos, _pid, seq) = parse_session_id_parts(timestamp);
+    let mtime = std::fs::metadata(session_dir)
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+    (nanos, mtime, seq)
+}
+
 /// An active backup session that collects originals before writes.
 pub struct BackupSession {
     session_dir: PathBuf,
@@ -333,8 +362,11 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
         .filter(|e| e.path().is_dir())
         .collect();
 
-    // Sort by name descending (timestamps sort lexicographically).
-    entries.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+    entries.sort_by(|a, b| {
+        let ka = session_recency_key(&a.path(), &a.file_name().to_string_lossy());
+        let kb = session_recency_key(&b.path(), &b.file_name().to_string_lossy());
+        kb.cmp(&ka)
+    });
 
     for entry in entries {
         let manifest_path = entry.path().join("manifest.json");
@@ -440,19 +472,21 @@ pub fn list_sessions_under(
         }
     }
 
-    // Global newest-first by first session timestamp when present.
+    // Global newest-first using the same recency key as list_sessions.
     out.sort_by(|a, b| {
-        let ta = a
-            .sessions
-            .first()
-            .map(|s| s.timestamp.as_str())
-            .unwrap_or("");
-        let tb = b
-            .sessions
-            .first()
-            .map(|s| s.timestamp.as_str())
-            .unwrap_or("");
-        tb.cmp(ta)
+        let ka = a.sessions.first().map(|s| {
+            session_recency_key(
+                &a.project_root.join(BACKUP_DIR).join(&s.timestamp),
+                &s.timestamp,
+            )
+        });
+        let kb = b.sessions.first().map(|s| {
+            session_recency_key(
+                &b.project_root.join(BACKUP_DIR).join(&s.timestamp),
+                &s.timestamp,
+            )
+        });
+        kb.cmp(&ka)
     });
     Ok(out)
 }
@@ -983,6 +1017,65 @@ mod tests {
         assert_eq!(sessions.len(), 2);
         assert_eq!(sessions[0].timestamp, ts2);
         assert_eq!(sessions[1].timestamp, ts1);
+    }
+
+    fn write_named_session(root: &std::path::Path, ts: &str) {
+        let d = root.join(BACKUP_DIR).join(ts);
+        std::fs::create_dir_all(&d).unwrap();
+        let manifest = Manifest {
+            timestamp: ts.to_string(),
+            entries: Vec::new(),
+        };
+        std::fs::write(
+            d.join("manifest.json"),
+            serde_json::to_string(&manifest).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn list_sessions_same_nanos_orders_by_mtime_not_lexicographic_pid() {
+        let dir = TempDir::new().unwrap();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let older = format!("{n}_99_0");
+        let newer = format!("{n}_1000_0");
+        write_named_session(dir.path(), &older);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        write_named_session(dir.path(), &newer);
+
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(
+            sessions
+                .iter()
+                .map(|s| s.timestamp.as_str())
+                .collect::<Vec<_>>(),
+            vec![newer.as_str(), older.as_str()],
+            "lexicographic Reverse would list _99_ before _1000_"
+        );
+    }
+
+    #[test]
+    fn list_sessions_same_nanos_seq_10_is_newer_than_seq_9() {
+        let dir = TempDir::new().unwrap();
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        write_named_session(dir.path(), &format!("{n}_1_9"));
+        write_named_session(dir.path(), &format!("{n}_1_10"));
+
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions[0].timestamp, format!("{n}_1_10"));
+        assert_eq!(sessions[1].timestamp, format!("{n}_1_9"));
+    }
+
+    #[test]
+    fn parse_session_id_legacy_two_part() {
+        assert_eq!(parse_session_id_parts("12_3"), (12, 0, 3));
+        assert_eq!(parse_session_id_parts("12_4_5"), (12, 4, 5));
     }
 
     #[test]
