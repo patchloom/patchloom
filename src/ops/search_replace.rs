@@ -406,7 +406,13 @@ new
 +++ b/file.rs
 ";
         assert!(has_mixed_search_replace_grammar(input));
-        assert!(parse_search_replace_document(input).is_err());
+        let err = parse_search_replace_document(input).expect_err("mixed");
+        assert!(!err.truncated, "mixed grammar is malformed, not truncated");
+        assert!(
+            err.message.contains("mixed SEARCH/REPLACE"),
+            "expected mixed-grammar refuse, got {}",
+            err.message
+        );
     }
 
     #[test]

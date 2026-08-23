@@ -428,7 +428,12 @@ mod tests {
 ";
         let err = apply_begin_patch(patch, dir.path(), None, ApplyMode::Preview, None)
             .expect_err("mixed");
-        assert!(err.to_string().to_lowercase().contains("mixed"));
+        assert!(crate::exit::is_parse_error(&err));
+        assert!(
+            err.to_string()
+                .contains("mixed Begin Patch and unified diff grammar"),
+            "expected mixed-grammar peel, got {err}"
+        );
     }
 
     #[test]
