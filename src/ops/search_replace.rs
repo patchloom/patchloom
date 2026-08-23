@@ -4,6 +4,10 @@
 //! `replacen(..., 1)` or raw `fs::write` for this format. CLI / MCP / tx
 //! detect this grammar via [`looks_like_search_replace`] (#2221).
 
+/// Shared refuse when `replace_all` is set on unified or Begin Patch.
+pub(crate) const REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE: &str =
+    "replace_all is only valid for SEARCH/REPLACE documents";
+
 /// True when any line trims to `<<<<<<< SEARCH`.
 #[must_use]
 pub fn has_search_replace_marker(input: &str) -> bool {
