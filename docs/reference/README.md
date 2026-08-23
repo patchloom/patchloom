@@ -699,6 +699,7 @@ These are meaningful command-specific modes that change how a top-level command 
 - **What it does:** For SEARCH/REPLACE / DiffFenced documents only, updates every exact match instead of requiring a unique match.
 - **Use when:** The SEARCH block is intentionally repeated and every occurrence should change.
 - **Prefer instead:** Default unique apply when a multi-match would be accidental.
+- **Failure:** Unified diff or Begin Patch with `--replace-all` / `replace_all` is `invalid_input` (no write).
 
 <!-- ref:doc-mode:predicate -->
 ### `doc --predicate`

@@ -1634,14 +1634,15 @@ fn test_patch_apply_begin_patch_ambiguous_json() {
         .arg("--apply")
         .output()
         .unwrap();
-    assert_ne!(out.status.code(), Some(0));
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    let blob = format!("{stdout}{stderr}");
-    assert!(
-        blob.contains("ambiguous") || blob.contains("matched"),
-        "expected ambiguous peel, got stdout={stdout} stderr={stderr}"
-    );
+    assert_eq!(out.status.code(), Some(5), "unique multi-match → exit 5");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
     assert_eq!(
         fs::read_to_string(dir.path().join("code.rs")).unwrap(),
         "x\nx\n"
@@ -1698,16 +1699,15 @@ fn test_patch_apply_search_replace_ambiguous_without_replace_all() {
         .arg("--apply")
         .output()
         .unwrap();
-    assert_ne!(out.status.code(), Some(0));
-    let blob = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        blob.contains("ambiguous"),
-        "expected ambiguous peel, got {blob}"
-    );
+    assert_eq!(out.status.code(), Some(5), "unique multi-match → exit 5");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
     assert_eq!(
         fs::read_to_string(dir.path().join("code.rs")).unwrap(),
         "x\nx\n"
@@ -1762,19 +1762,74 @@ fn test_patch_apply_replace_all_on_unified_diff_is_invalid_input() {
         .arg("--apply")
         .output()
         .unwrap();
-    assert_ne!(out.status.code(), Some(0));
-    let blob = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "--replace-all on unified → exit 1"
     );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
     assert!(
-        blob.contains("invalid_input") && blob.contains("replace-all"),
-        "expected invalid_input for --replace-all on unified diff, got {blob}"
+        err.contains("--replace-all is only valid for SEARCH/REPLACE"),
+        "expected replace-all refuse, got {v}"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("test.txt")).unwrap(),
         "line1\nold line\nline3\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_replace_all_on_begin_patch_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Update File: code.rs\n@@\n-fn old() {}\n+fn new() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--replace-all")
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "--replace-all on Begin Patch → exit 1"
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("--replace-all is only valid for SEARCH/REPLACE"),
+        "expected replace-all refuse, got {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
     );
 }
 
@@ -1800,15 +1855,23 @@ fn test_patch_apply_mixed_search_replace_and_begin_patch_is_parse_error() {
         .arg("--apply")
         .output()
         .unwrap();
-    assert_ne!(out.status.code(), Some(0));
-    let blob = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "mixed grammar → parse_error exit 4"
     );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "parse_error", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
     assert!(
-        blob.contains("mixed") || blob.contains("parse_error"),
-        "expected mixed-grammar refuse, got {blob}"
+        err.contains("mixed Begin Patch and SEARCH/REPLACE"),
+        "expected mixed-grammar refuse, got {v}"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("code.rs")).unwrap(),

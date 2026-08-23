@@ -3729,19 +3729,76 @@ fn test_tx_patch_apply_replace_all_on_unified_is_invalid_input() {
         .arg("--apply")
         .output()
         .unwrap();
-    assert_ne!(out.status.code(), Some(0));
-    let blob = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "plan replace_all on unified → exit 1"
     );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
     assert!(
-        blob.contains("invalid_input") && blob.contains("replace_all"),
-        "expected invalid_input for plan replace_all on unified diff, got {blob}"
+        err.contains("replace_all is only valid for SEARCH/REPLACE"),
+        "expected replace_all refuse, got {v}"
     );
     assert_eq!(
         fs::read_to_string(dir.path().join("test.txt")).unwrap(),
         "line1\nold line\nline3\n"
+    );
+}
+
+#[test]
+fn test_tx_patch_apply_replace_all_on_begin_patch_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "replace_all": true,
+            "diff": "*** Begin Patch\n*** Update File: code.rs\n@@\n-fn old() {}\n+fn new() {}\n*** End Patch\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "plan replace_all on Begin Patch → exit 1"
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("replace_all is only valid for SEARCH/REPLACE"),
+        "expected replace_all refuse, got {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
     );
 }
 

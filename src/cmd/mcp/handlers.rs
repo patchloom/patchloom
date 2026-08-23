@@ -677,7 +677,7 @@ impl PatchloomService {
             if crate::ops::begin_patch::looks_like_begin_patch(&p.diff) {
                 if p.replace_all {
                     return Err(McpError::invalid_params(
-                        "replace_all is only valid for SEARCH/REPLACE documents",
+                        crate::ops::search_replace::REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE,
                         None,
                     ));
                 }
@@ -741,7 +741,7 @@ impl PatchloomService {
 
             if p.replace_all {
                 return Err(McpError::invalid_params(
-                    "replace_all is only valid for SEARCH/REPLACE documents",
+                    crate::ops::search_replace::REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE,
                     None,
                 ));
             }

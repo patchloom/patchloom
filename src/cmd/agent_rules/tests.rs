@@ -562,6 +562,7 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
             && out.contains("apply_search_replace_blocks")
             && out.contains("patch apply")
             && out.contains("--replace-all")
+            && out.contains("on unified or Begin Patch")
             && out.contains("#2219")
             && out.contains("#2220")
             && out.contains("#2221"),

@@ -13,7 +13,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
         } => {
             if *replace_all && !crate::ops::search_replace::looks_like_search_replace(diff) {
                 return Err(crate::exit::InvalidInputError {
-                    msg: "replace_all is only valid for SEARCH/REPLACE documents".into(),
+                    msg: crate::ops::search_replace::REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE.into(),
                 }
                 .into());
             }

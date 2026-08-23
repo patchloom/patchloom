@@ -5850,7 +5850,7 @@ async fn test_mcp_apply_patch_replace_all_on_unified_is_invalid() {
     assert!(is_error, "replace_all on unified should fail: {val}");
     let blob = val.to_string();
     assert!(
-        blob.contains("replace_all") || blob.contains("SEARCH/REPLACE"),
+        blob.contains("replace_all is only valid for SEARCH/REPLACE documents"),
         "expected replace_all refuse, got {val}"
     );
     assert_eq!(
@@ -5878,7 +5878,7 @@ async fn test_mcp_apply_patch_replace_all_on_begin_patch_is_invalid() {
     assert!(is_error, "replace_all on Begin Patch should fail: {val}");
     let blob = val.to_string();
     assert!(
-        blob.contains("replace_all") || blob.contains("SEARCH/REPLACE"),
+        blob.contains("replace_all is only valid for SEARCH/REPLACE documents"),
         "expected replace_all refuse, got {val}"
     );
     assert_eq!(
