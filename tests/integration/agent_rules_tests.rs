@@ -53,7 +53,10 @@ fn test_agent_rules_mode_mcp_omits_cli() {
         // MCP mode must not mention batch/transaction tools or CLI concepts
         .stdout(predicates::str::contains("batch({\"operations\":").not())
         .stdout(predicates::str::contains("transaction({\"operations\":").not())
-        .stdout(predicates::str::contains("search_replace").not())
+        // Native-tool shape only. Library docs may mention
+        // apply_search_replace_blocks (#2220).
+        .stdout(predicates::str::contains("search_replace(").not())
+        .stdout(predicates::str::contains("\"search_replace\"").not())
         .stdout(predicates::str::contains("run_terminal_command").not())
         .stdout(predicates::str::contains("## Exit codes").not())
         .stdout(predicates::str::contains("--apply").not())

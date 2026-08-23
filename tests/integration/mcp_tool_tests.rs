@@ -5733,3 +5733,57 @@ async fn test_mcp_ast_refs_sole_binary_is_error() {
     );
     client.cancel().await.unwrap();
 }
+
+/// Delete a workspace symlink whose target is outside must use entry PathGuard
+/// (follow would reject the dest). Same matrix as apply_begin_patch / tx.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_begin_patch_delete_symlink_outside_target() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = dir
+        .path()
+        .parent()
+        .unwrap()
+        .join("pl-mcp-begin-patch-symlink-target.txt");
+    fs::write(&outside, "outside-payload\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let diff = "*** Begin Patch\n*** Delete File: link.txt\n*** End Patch\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        !is_error,
+        "Begin Patch delete of in-workspace symlink must not follow target: {val}"
+    );
+    assert!(!link.exists(), "link removed");
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "outside-payload\n",
+        "outside target must not be deleted"
+    );
+    client.cancel().await.unwrap();
+    let _ = fs::remove_file(&outside);
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_begin_patch_update() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let diff = "*** Begin Patch\n*** Update File: code.rs\n@@\n-fn old() {}\n+fn new() {}\n*** End Patch\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(!is_error, "Begin Patch via MCP should succeed: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+    client.cancel().await.unwrap();
+}

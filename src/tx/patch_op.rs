@@ -10,6 +10,9 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
             on_stale,
             allow_conflicts,
         } => {
+            if crate::ops::begin_patch::looks_like_begin_patch(diff) {
+                return execute_begin_patch(diff, tx);
+            }
             let options = ApplyHunksOptions {
                 on_stale: *on_stale,
                 allow_conflicts: *allow_conflicts,
@@ -91,6 +94,91 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
 
         _ => unreachable!("execute_patch_op called with non-Patch operation"),
     }
+}
+
+fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize> {
+    use crate::ops::begin_patch::{BeginPatchOp, apply_codex_hunks, parse_begin_patch};
+
+    let ops = parse_begin_patch(diff)?;
+    for op in ops {
+        match op {
+            BeginPatchOp::Add { path, content } => {
+                let dest = tx.cwd.join(&path);
+                if dest.is_dir() {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!(
+                            "{} is a directory; Begin Patch Add File needs a file path",
+                            dest.display()
+                        ),
+                    }
+                    .into());
+                }
+                tx.write_file(&dest, content);
+            }
+            BeginPatchOp::Delete { path } => {
+                let dest = tx.cwd.join(&path);
+                if dest.is_dir() {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("{} is a directory, not a file", dest.display()),
+                    }
+                    .into());
+                }
+                if !crate::ops::file::path_entry_exists(&dest) && !tx.pending.contains_key(&dest) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file not found: {path}"),
+                    )
+                    .into());
+                }
+                let _ = read_file_content(tx.pending, tx.existed_before, &dest)?;
+                tx.deletions.insert(dest.clone());
+                tx.write_targets.insert(dest);
+            }
+            BeginPatchOp::Update {
+                path,
+                hunks,
+                move_to,
+            } => {
+                let dest = tx.cwd.join(&path);
+                if dest.is_dir() {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!(
+                            "{} is a directory; Begin Patch Update File needs a file path",
+                            dest.display()
+                        ),
+                    }
+                    .into());
+                }
+                let original = read_file_content(tx.pending, tx.existed_before, &dest)?.to_string();
+                let updated = apply_codex_hunks(&original, &hunks)?;
+                if let Some(new_path) = move_to {
+                    let new_dest = tx.cwd.join(&new_path);
+                    if dest_exists(tx, &new_dest) {
+                        return Err(crate::exit::AlreadyExistsError {
+                            msg: format!(
+                                "destination already exists: {} (Begin Patch Move refuses overwrite; remove dest)",
+                                new_dest.display()
+                            ),
+                        }
+                        .into());
+                    }
+                    tx.renames.push((dest.clone(), new_dest.clone()));
+                    tx.write_file(&new_dest, updated);
+                    if let Some((orig, _)) = tx.pending.get(&dest) {
+                        let orig = orig.clone();
+                        tx.pending.insert(dest.clone(), (orig, String::new()));
+                    } else {
+                        tx.pending
+                            .insert(dest.clone(), (String::new(), String::new()));
+                    }
+                    tx.deletions.insert(dest);
+                } else {
+                    tx.write_file(&dest, updated);
+                }
+            }
+        }
+    }
+    Ok(0)
 }
 
 fn dest_exists(tx: &TxState<'_>, path: &std::path::Path) -> bool {

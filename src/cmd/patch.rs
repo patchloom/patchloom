@@ -595,6 +595,17 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     crate::verbose!("patch: diff text length={}", diff_text.len());
+    if crate::ops::begin_patch::looks_like_begin_patch(&diff_text) {
+        if matches!(args.action, PatchAction::Check { .. }) {
+            return run_begin_patch_check(global, &cwd, &diff_text);
+        }
+        let op = Operation::PatchApply {
+            diff: diff_text,
+            on_stale: apply_options.on_stale,
+            allow_conflicts: apply_options.allow_conflicts,
+        };
+        return finish_patch_apply(global, op, merge_mode);
+    }
     let patch_files = match parse_patch(&diff_text) {
         Ok(pf) => pf,
         Err(msg) => {
@@ -883,7 +894,58 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         on_stale: apply_options.on_stale,
         allow_conflicts: apply_options.allow_conflicts,
     };
+    finish_patch_apply(global, op, merge_mode)
+}
 
+fn run_begin_patch_check(
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+    diff_text: &str,
+) -> anyhow::Result<u8> {
+    let results = match crate::api::apply_begin_patch(
+        diff_text,
+        cwd,
+        None,
+        crate::api::ApplyMode::Preview,
+        None,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let (kind, code) = if let Some((k, c)) = exit::classify_typed_error(&e) {
+                (k, c)
+            } else {
+                ("parse_error", exit::PARSE_ERROR)
+            };
+            emit_error(global, &e.to_string(), kind)?;
+            return Ok(code);
+        }
+    };
+    let files: Vec<PatchFileResult> = results
+        .iter()
+        .map(|r| PatchFileResult {
+            path: r.path.clone(),
+            status: if r.changed {
+                "would_change"
+            } else {
+                "unchanged"
+            },
+            error: None,
+            conflicts: None,
+            from: None,
+            to: r.dest_path.clone(),
+            action: r.dest_path.as_ref().map(|_| "renamed"),
+        })
+        .collect();
+    let any_would_change = results.iter().any(|r| r.changed);
+    emit_patch_files_output(global, true, &files, Some(false), None)?;
+    Ok(if any_would_change {
+        exit::CHANGES_DETECTED
+    } else {
+        exit::SUCCESS
+    })
+}
+
+fn finish_patch_apply(global: &GlobalFlags, op: Operation, merge_mode: bool) -> anyhow::Result<u8> {
     let (cwd, result) =
         match crate::cmd::output::stage_for_write(WriteSource::Operations(vec![op]), global) {
             Ok(v) => v,

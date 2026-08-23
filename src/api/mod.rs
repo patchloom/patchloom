@@ -213,9 +213,15 @@ use std::path::Path;
 use crate::backup::BackupSession;
 use crate::containment::PathGuard;
 use crate::diff::{DiffResult, format_diff_result, unified_diff};
+pub use crate::ops::begin_patch::{
+    begin_patch_declared_paths, looks_like_begin_patch, parse_begin_patch,
+};
 pub use crate::ops::patch::{
     Hunk, PatchFile, PatchLine, parse_diff_file_path, parse_diff_git_paths, patch_declared_paths,
     unquote_git_c_string,
+};
+pub use crate::ops::search_replace::{
+    SearchReplaceBlock, SearchReplaceParseError, parse_diff_fenced, parse_search_replace,
 };
 use crate::write::{EolMode, WritePolicy, atomic_write};
 
@@ -258,6 +264,15 @@ pub use self::file::*;
 
 mod patch;
 pub use self::patch::*;
+
+mod begin_patch;
+pub use self::begin_patch::apply_begin_patch;
+
+mod search_replace;
+pub use self::search_replace::{
+    ApplySearchReplaceOptions, apply_search_replace_blocks, apply_search_replace_document,
+    parse_search_replace_document,
+};
 
 mod tidy;
 pub use self::tidy::*;

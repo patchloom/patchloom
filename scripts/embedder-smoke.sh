@@ -180,4 +180,19 @@ run_lib_filter apply_fragment_to_file_after
 run_lib_filter content_edit_honesty_constructors
 pass "library path-only rename/delete + apply_fragment + honesty constructors (#2031-#2033)"
 
+# --- #2219 / #2220: Begin Patch + SEARCH/REPLACE unique apply ---
+run_lib_filter apply_begin_patch_update_unique
+run_lib_filter apply_begin_patch_update_ambiguous
+run_lib_filter apply_begin_patch_add_delete_move
+run_lib_filter apply_begin_patch_mixed_grammar
+run_lib_filter apply_begin_patch_dest_exists
+run_lib_filter apply_begin_patch_path_guard
+run_lib_filter apply_search_replace_unique_ok
+run_lib_filter apply_search_replace_multi_match_no_write
+run_lib_filter apply_search_replace_replace_all
+run_lib_filter apply_search_replace_empty_search
+run_lib_filter apply_search_replace_missing_file
+run_lib_filter apply_search_replace_path_guard
+pass "library Begin Patch + SEARCH/REPLACE unique apply (#2219/#2220)"
+
 echo "embedder-smoke: all checks passed"

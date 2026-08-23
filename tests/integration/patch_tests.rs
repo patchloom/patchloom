@@ -1583,3 +1583,67 @@ fn test_patch_apply_binary_target_is_binary_error_kind() {
         b"line one\x00line two\n"
     );
 }
+
+#[test]
+fn test_patch_apply_begin_patch_writes_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Update File: code.rs\n@@\n-fn old() {}\n+fn new() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_begin_patch_ambiguous_json() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Update File: code.rs\n@@\n-x\n+y\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let blob = format!("{stdout}{stderr}");
+    assert!(
+        blob.contains("ambiguous") || blob.contains("matched"),
+        "expected ambiguous peel, got stdout={stdout} stderr={stderr}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "x\nx\n"
+    );
+}
