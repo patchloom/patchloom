@@ -1,6 +1,37 @@
 /// A selector is a sequence of segments that navigate through a JSON value tree.
 pub type Selector = Vec<Segment>;
 
+/// Comparison operator inside a [`Segment::Predicate`].
+///
+/// Equality (`Eq`) is the default and matches historical `key=value`.
+/// Numeric compares require an `f64` operand at parse time. Regex is not
+/// supported. `[!key]` is [`PredicateOp::Not`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PredicateOp {
+    /// `key=value` (default).
+    #[default]
+    Eq,
+    /// `key!=value`. Missing fields do not match.
+    Ne,
+    /// `key>N` (numeric).
+    Gt,
+    /// `key>=N` (numeric).
+    Ge,
+    /// `key<N` (numeric).
+    Lt,
+    /// `key<=N` (numeric).
+    Le,
+    /// `[!key]`: field is absent, JSON `false`, or `null`.
+    Not,
+}
+
+impl PredicateOp {
+    /// True for `>`, `>=`, `<`, and `<=`.
+    pub fn is_numeric_compare(self) -> bool {
+        matches!(self, Self::Gt | Self::Ge | Self::Lt | Self::Le)
+    }
+}
+
 /// A single segment in a selector path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Segment {
@@ -10,8 +41,123 @@ pub enum Segment {
     Index(usize),
     /// Wildcard – matches all array elements: `[*]`.
     Wildcard,
-    /// Predicate filter on array elements, e.g. `[name=api]`.
-    Predicate { key: String, value: String },
+    /// Predicate filter on array or object-map elements, e.g. `[name=api]`.
+    Predicate {
+        key: String,
+        op: PredicateOp,
+        value: String,
+    },
+}
+
+/// Parse one `[...]` body into a segment.
+///
+/// Operator scan is left-to-right. At each index, two-character operators
+/// (`!=`, `>=`, `<=`) are tried before `=`, then `>` and `<`. Searching `>`
+/// before `=` would treat `items[url=a>b]` as a greater-than compare.
+fn parse_bracket_content(content: &str) -> Result<Segment, String> {
+    if content == "*" {
+        return Ok(Segment::Wildcard);
+    }
+
+    if let Some((key, op, value)) = split_predicate(content)? {
+        return Ok(Segment::Predicate { key, op, value });
+    }
+
+    if let Some(key) = content.strip_prefix('!') {
+        if key.is_empty() {
+            return Err("empty predicate key".to_string());
+        }
+        reject_question_prefix(key, "")?;
+        return Ok(Segment::Predicate {
+            key: key.to_string(),
+            op: PredicateOp::Not,
+            value: String::new(),
+        });
+    }
+
+    if let Ok(idx) = content.parse::<usize>() {
+        return Ok(Segment::Index(idx));
+    }
+    Err(format!("invalid bracket content: {content}"))
+}
+
+/// Split `key<op>value` if a comparison or equality operator is present.
+fn split_predicate(content: &str) -> Result<Option<(String, PredicateOp, String)>, String> {
+    let Some((key_end, op, value_start)) = find_predicate_op(content) else {
+        return Ok(None);
+    };
+    let key = &content[..key_end];
+    let mut value = content[value_start..].to_string();
+    if key.is_empty() {
+        return Err("empty predicate key".to_string());
+    }
+    reject_question_prefix(key, &value)?;
+    if op.is_numeric_compare() {
+        let trimmed = value.trim();
+        if trimmed.parse::<f64>().is_err() {
+            return Err(format!(
+                "comparison operand must be numeric (got '{value}' after {op})"
+            ));
+        }
+        value = trimmed.to_string();
+    }
+    Ok(Some((key.to_string(), op, value)))
+}
+
+/// First operator in `content`. Two-character forms win at the same index.
+///
+/// Walk bytes and never slice `content[i..]` (a mid-character index is not
+/// a UTF-8 boundary). Operators are ASCII, so the returned indices are
+/// valid split points.
+fn find_predicate_op(content: &str) -> Option<(usize, PredicateOp, usize)> {
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'!' && bytes.get(i + 1) == Some(&b'=') {
+            return Some((i, PredicateOp::Ne, i + 2));
+        }
+        if bytes[i] == b'>' && bytes.get(i + 1) == Some(&b'=') {
+            return Some((i, PredicateOp::Ge, i + 2));
+        }
+        if bytes[i] == b'<' && bytes.get(i + 1) == Some(&b'=') {
+            return Some((i, PredicateOp::Le, i + 2));
+        }
+        match bytes[i] {
+            b'=' => return Some((i, PredicateOp::Eq, i + 1)),
+            b'>' => return Some((i, PredicateOp::Gt, i + 1)),
+            b'<' => return Some((i, PredicateOp::Lt, i + 1)),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+fn reject_question_prefix(key: &str, value: &str) -> Result<(), String> {
+    if let Some(stripped) = key.strip_prefix('?') {
+        let suggestion = if value.is_empty() {
+            format!("[{stripped}]")
+        } else {
+            format!("[{stripped}={value}]")
+        };
+        return Err(format!(
+            "predicate key starts with '?'; use {suggestion} instead of [{key}={value}]"
+        ));
+    }
+    Ok(())
+}
+
+impl std::fmt::Display for PredicateOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Eq => "=",
+            Self::Ne => "!=",
+            Self::Gt => ">",
+            Self::Ge => ">=",
+            Self::Lt => "<",
+            Self::Le => "<=",
+            Self::Not => "!",
+        })
+    }
 }
 
 /// Parse a selector string into a [`Selector`].
@@ -60,25 +206,7 @@ pub fn parse(input: &str) -> Result<Selector, String> {
             let content = &input[start..i];
             i += 1; // skip ']'
 
-            if content == "*" {
-                segments.push(Segment::Wildcard);
-            } else if let Some(eq_pos) = content.find('=') {
-                let key = content[..eq_pos].to_string();
-                let value = content[eq_pos + 1..].to_string();
-                if key.is_empty() {
-                    return Err("empty predicate key".to_string());
-                }
-                if let Some(stripped) = key.strip_prefix('?') {
-                    return Err(format!(
-                        "predicate key starts with '?'; use [{stripped}={value}] instead of [{key}={value}]"
-                    ));
-                }
-                segments.push(Segment::Predicate { key, value });
-            } else if let Ok(idx) = content.parse::<usize>() {
-                segments.push(Segment::Index(idx));
-            } else {
-                return Err(format!("invalid bracket content: {content}"));
-            }
+            segments.push(parse_bracket_content(content)?);
         } else {
             // Key segment: read until '.', '[', or end.
             let start = i;
@@ -130,6 +258,7 @@ mod tests {
                 Segment::Key("jobs".into()),
                 Segment::Predicate {
                     key: "id".into(),
+                    op: PredicateOp::Eq,
                     value: "test".into(),
                 },
                 Segment::Key("timeout".into()),
@@ -244,6 +373,7 @@ mod tests {
                 Segment::Key("items".into()),
                 Segment::Predicate {
                     key: "url".into(),
+                    op: PredicateOp::Eq,
                     value: "a=b".into(),
                 },
             ]
@@ -261,6 +391,7 @@ mod tests {
                 Segment::Key("items".into()),
                 Segment::Predicate {
                     key: "pattern".into(),
+                    op: PredicateOp::Eq,
                     value: "[0-9]".into(),
                 },
             ]
@@ -277,8 +408,163 @@ mod tests {
                 Segment::Key("data".into()),
                 Segment::Predicate {
                     key: "regex".into(),
+                    op: PredicateOp::Eq,
                     value: "[a[b]c]".into(),
                 },
+            ]
+        );
+    }
+
+    // ── #2230 comparison and negation predicates ───────────────────
+
+    fn pred(key: &str, op: PredicateOp, value: &str) -> Segment {
+        Segment::Predicate {
+            key: key.into(),
+            op,
+            value: value.into(),
+        }
+    }
+
+    #[test]
+    fn parse_gt_predicate() {
+        let sel = parse("servers[port>8000]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("servers".into()),
+                pred("port", PredicateOp::Gt, "8000")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_ne_predicate() {
+        let sel = parse("items[status!=done]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("status", PredicateOp::Ne, "done")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_ge_lt_le_predicates() {
+        assert_eq!(
+            parse("servers[port>=8000]").unwrap(),
+            vec![
+                Segment::Key("servers".into()),
+                pred("port", PredicateOp::Ge, "8000")
+            ]
+        );
+        assert_eq!(
+            parse("servers[port<8000]").unwrap(),
+            vec![
+                Segment::Key("servers".into()),
+                pred("port", PredicateOp::Lt, "8000")
+            ]
+        );
+        assert_eq!(
+            parse("servers[port<=8000]").unwrap(),
+            vec![
+                Segment::Key("servers".into()),
+                pred("port", PredicateOp::Le, "8000")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_equality_value_may_contain_equals() {
+        let sel = parse("items[url=a=b]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("url", PredicateOp::Eq, "a=b")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_equality_value_may_contain_gt() {
+        // Regression vs scanning `>` before `=`.
+        let sel = parse("items[url=a>b]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("url", PredicateOp::Eq, "a>b")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_negation_predicate() {
+        let sel = parse("flags[!deprecated]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("flags".into()),
+                pred("deprecated", PredicateOp::Not, ""),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_non_numeric_comparison_operand_errors() {
+        let err = parse("items[port>abc]").unwrap_err();
+        assert!(
+            err.contains("numeric") || err.contains("comparison"),
+            "expected numeric/comparison parse error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_jobs_id_test_still_eq() {
+        let sel = parse("jobs[id=test]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("jobs".into()),
+                pred("id", PredicateOp::Eq, "test")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_non_ascii_key_equality_does_not_panic() {
+        let sel = parse("items[名前=x]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("名前", PredicateOp::Eq, "x")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_non_ascii_key_gt_does_not_panic() {
+        let sel = parse("items[café>1]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("café", PredicateOp::Gt, "1")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_chained_eq_and_gt() {
+        let sel = parse("data[type=server][port>8000]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("data".into()),
+                pred("type", PredicateOp::Eq, "server"),
+                pred("port", PredicateOp::Gt, "8000"),
             ]
         );
     }

@@ -625,10 +625,10 @@ pub fn update_matching(
     value: &mut serde_json::Value,
     segments: &[selector::Segment],
     new_val: &serde_json::Value,
-) -> usize {
+) -> anyhow::Result<usize> {
     if segments.is_empty() {
         *value = new_val.clone();
-        return 1;
+        return Ok(1);
     }
     let first = &segments[0];
     let rest = &segments[1..];
@@ -643,56 +643,105 @@ pub fn update_matching(
                 {
                     return update_matching(child, rest, new_val);
                 }
-                0
+                Ok(0)
             } else {
-                0
+                Ok(0)
             }
         }
         selector::Segment::Index(i) => {
             if let Some(child) = value.get_mut(*i) {
                 update_matching(child, rest, new_val)
             } else {
-                0
+                Ok(0)
             }
         }
         selector::Segment::Wildcard => {
             let mut count = 0;
             if let Some(arr) = value.as_array_mut() {
                 for item in arr.iter_mut() {
-                    count += update_matching(item, rest, new_val);
+                    count += update_matching(item, rest, new_val)?;
                 }
             } else if let Some(obj) = value.as_object_mut() {
                 for item in obj.values_mut() {
-                    count += update_matching(item, rest, new_val);
+                    count += update_matching(item, rest, new_val)?;
                 }
             }
-            count
+            Ok(count)
         }
         selector::Segment::Predicate {
             key,
+            op,
             value: pred_val,
-        } => {
-            let mut count = 0;
-            if let Some(arr) = value.as_array_mut() {
-                for item in arr.iter_mut() {
-                    let matches = selector::get_nested(item, key)
-                        .is_some_and(|field| selector::value_matches_str(field, pred_val));
-                    if matches {
-                        count += update_matching(item, rest, new_val);
-                    }
+        } => update_matching_predicate(value, key, *op, pred_val, rest, new_val),
+    }
+}
+
+fn update_matching_predicate(
+    value: &mut serde_json::Value,
+    key: &str,
+    op: selector::PredicateOp,
+    pred_val: &str,
+    rest: &[selector::Segment],
+    new_val: &serde_json::Value,
+) -> anyhow::Result<usize> {
+    if value.is_array() {
+        let idxs: Result<Vec<usize>, _> = value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .enumerate()
+            .filter_map(|(i, item)| {
+                match selector::item_matches_predicate(item, key, op, pred_val) {
+                    Ok(true) => Some(Ok(i)),
+                    Ok(false) => None,
+                    Err(e) => Some(Err(e)),
                 }
-            } else if let Some(obj) = value.as_object_mut() {
-                for item in obj.values_mut() {
-                    let matches = selector::get_nested(item, key)
-                        .is_some_and(|field| selector::value_matches_str(field, pred_val));
-                    if matches {
-                        count += update_matching(item, rest, new_val);
-                    }
-                }
+            })
+            .collect();
+        let idxs = idxs?;
+        let mut count = 0;
+        if let Some(arr) = value.as_array_mut() {
+            for i in idxs {
+                count += update_matching(&mut arr[i], rest, new_val)?;
             }
-            count
+        }
+        return Ok(count);
+    }
+
+    if !value.is_object() {
+        return Ok(0);
+    }
+
+    let test_self = selector::eval::predicate_tests_object_self(value, key);
+    let iterate = selector::eval::object_has_container_children(value);
+    let mut count = 0;
+    if test_self && selector::item_matches_predicate(value, key, op, pred_val)? {
+        count += update_matching(value, rest, new_val)?;
+        if rest.is_empty() {
+            return Ok(count);
         }
     }
+    if iterate {
+        let child_keys: Result<Vec<String>, _> = value
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(_, v)| v.is_object() || v.is_array())
+            .filter_map(
+                |(k, v)| match selector::item_matches_predicate(v, key, op, pred_val) {
+                    Ok(true) => Some(Ok(k.clone())),
+                    Ok(false) => None,
+                    Err(e) => Some(Err(e)),
+                },
+            )
+            .collect();
+        for k in child_keys? {
+            if let Some(child) = value.get_mut(&k) {
+                count += update_matching(child, rest, new_val)?;
+            }
+        }
+    }
+    Ok(count)
 }
 
 #[cfg(test)]
@@ -1018,7 +1067,7 @@ mod tests {
                     value,
                     expect_n,
                 } => {
-                    let n = update_matching(&mut root, &segs(selector), &value);
+                    let n = update_matching(&mut root, &segs(selector), &value).unwrap();
                     assert_eq!(n, expect_n, "{label}");
                 }
             }
@@ -1168,7 +1217,7 @@ mod tests {
     #[test]
     fn update_matching_wildcard() {
         let mut root = json!({"items": [{"v": 1}, {"v": 2}]});
-        let count = update_matching(&mut root, &segs("items[*].v"), &json!(0));
+        let count = update_matching(&mut root, &segs("items[*].v"), &json!(0)).unwrap();
         assert_eq!(count, 2);
         assert_eq!(root, json!({"items": [{"v": 0}, {"v": 0}]}));
     }
@@ -1246,7 +1295,7 @@ mod tests {
     #[test]
     fn update_matching_numeric_dot_notation() {
         let mut root = json!({"env": [{"name": "A"}, {"name": "B"}]});
-        let count = update_matching(&mut root, &segs("env.0.name"), &json!("X"));
+        let count = update_matching(&mut root, &segs("env.0.name"), &json!("X")).unwrap();
         assert_eq!(count, 1);
         assert_eq!(root["env"][0]["name"], json!("X"));
     }

@@ -744,6 +744,16 @@ Use these when the top level `doc` command is right, but you need a specific str
 
 **Multi-document YAML:** Streams with more than one `---` document are modeled as a JSON array (one element per document). Use a document index in the selector (`0.metadata.name`, `[1].spec.ports[0].port`). A bare top-level key on a multi-doc file fails with an actionable type error that points at the index form. `doc merge` of any overlay (object or array) into the multi-doc root is also `type_error` (would replace the whole stream). Successful writes re-serialize with `---` separators (not as a single YAML sequence), so `kubectl apply -f` style multi-doc files stay valid.
 
+**Selector predicates:** Filter array items (or values of an object map) inside a selector path.
+
+- `=` equality. Unchanged from historical `key=value`. The value may contain `=` or `>` (`items[url=a=b]`, `items[url=a>b]`).
+- `!=` not-equal (`items[status!=disabled]`). A missing field does not match.
+- `>`, `>=`, `<`, `<=` numeric compare on JSON numbers or numeric strings (`servers[port>8000]`). The operand after the operator must parse as a number (`[port>abc]` is `invalid_input`). A present non-numeric field vs one of these operators is `invalid_input`, not a lexicographic compare. A missing field does not match.
+- `[!key]` matches when `key` is absent, JSON `false`, or `null` (`flags[!deprecated]`).
+- Regex predicates are not supported.
+
+Predicates can be chained: `data[type=server][port>8000]`.
+
 **JSON write summary:** Every doc write success payload under `--json` / `--jsonl` includes `changed` (bool). `doc delete` and `doc delete-where` also include `removed` (usize). Agents should not treat exit 0 alone as "something was deleted"; check `removed` / `changed` for idempotent no-ops. The same fields appear on MCP `doc_delete` / `doc_delete_where` and on `execute_plan` / `tx` reports (plus a `mutations` array with per-op `path`, `op`, `changed`, `removed` for multi-step plans).
 
 <!-- ref:doc-action:get -->

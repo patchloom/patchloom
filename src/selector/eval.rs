@@ -1,10 +1,25 @@
 use super::parser::{Segment, Selector};
+use crate::exit::InvalidInputError;
+use crate::selector::{get_nested, item_matches_predicate};
 
 /// Evaluate a selector against a JSON value tree.
 ///
-/// Returns all matching leaf values.  For wildcards and predicates the
+/// Returns all matching leaf values. For wildcards and predicates the
 /// result may contain more than one entry.
+///
+/// Comparison type mismatches (a present non-numeric field vs `>` / `>=` /
+/// `<` / `<=`) are treated as no match. Use [`eval_result`] when the
+/// caller must surface those as `invalid_input`.
 pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a serde_json::Value> {
+    eval_result(value, selector).unwrap_or_default()
+}
+
+/// Like [`eval`], but a present non-numeric field vs a numeric compare
+/// returns [`InvalidInputError`].
+pub fn eval_result<'a>(
+    value: &'a serde_json::Value,
+    selector: &Selector,
+) -> Result<Vec<&'a serde_json::Value>, InvalidInputError> {
     crate::verbose!("selector: evaluating {:?}", selector);
     let mut current = vec![value];
 
@@ -37,23 +52,12 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
                 }
                 Segment::Predicate {
                     key,
+                    op,
                     value: pred_val,
                 } => {
-                    if let Some(arr) = val.as_array() {
-                        for item in arr {
-                            if let Some(field) = crate::selector::get_nested(item, key)
-                                && crate::selector::value_matches_str(field, pred_val)
-                            {
-                                next.push(item);
-                            }
-                        }
-                    } else if let Some(obj) = val.as_object() {
-                        for item in obj.values() {
-                            if let Some(field) = crate::selector::get_nested(item, key)
-                                && crate::selector::value_matches_str(field, pred_val)
-                            {
-                                next.push(item);
-                            }
+                    for item in predicate_candidates(val, key) {
+                        if item_matches_predicate(item, key, *op, pred_val)? {
+                            next.push(item);
                         }
                     }
                 }
@@ -62,7 +66,45 @@ pub fn eval<'a>(value: &'a serde_json::Value, selector: &Selector) -> Vec<&'a se
         current = next;
     }
 
-    current
+    Ok(current)
+}
+
+/// True when an object has object or array children (a map-of-records).
+pub(crate) fn object_has_container_children(val: &serde_json::Value) -> bool {
+    val.as_object()
+        .is_some_and(|obj| obj.values().any(|v| v.is_object() || v.is_array()))
+}
+
+/// Whether a predicate on an object should test the object itself.
+///
+/// Test self when `key` is present (chained `data[type=server][port>8000]`,
+/// or `[!key]` on a record). If the object is not a map-of-records, also
+/// test self so `[!deprecated]` on `{"name":"a"}` matches the record.
+pub(crate) fn predicate_tests_object_self(val: &serde_json::Value, key: &str) -> bool {
+    get_nested(val, key).is_some() || !object_has_container_children(val)
+}
+
+/// Items a predicate should test.
+///
+/// Arrays: each element. Objects: the object itself when it already has
+/// `key` (or is not a map-of-records), plus each object/array child so
+/// `services[name=api]` still filters a map of objects even if the map
+/// also has a `name` field.
+fn predicate_candidates<'a>(val: &'a serde_json::Value, key: &str) -> Vec<&'a serde_json::Value> {
+    if let Some(arr) = val.as_array() {
+        return arr.iter().collect();
+    }
+    let Some(obj) = val.as_object() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if predicate_tests_object_self(val, key) {
+        out.push(val);
+    }
+    if object_has_container_children(val) {
+        out.extend(obj.values());
+    }
+    out
 }
 
 #[cfg(test)]
@@ -191,6 +233,20 @@ mod tests {
     }
 
     #[test]
+    fn eval_predicate_object_map_with_same_key_still_filters_children() {
+        let data = json!({
+            "services": {
+                "name": "prod",
+                "web": {"name": "web"},
+                "api": {"name": "api"}
+            }
+        });
+        let sel = parse("services[name=api]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results, vec![&data["services"]["api"]]);
+    }
+
+    #[test]
     fn eval_predicate_nested_path() {
         // #1246: predicates should support dotted paths like settings.theme
         let data = json!({
@@ -257,5 +313,114 @@ mod tests {
         let results = eval(&data, &sel);
         let expected = json!("zero-key");
         assert_eq!(results, vec![&expected]);
+    }
+
+    // ── #2230 comparison and negation ──────────────────────────────
+
+    fn servers_doc() -> serde_json::Value {
+        json!({
+            "servers": [
+                {"name": "web", "port": 80},
+                {"name": "api", "port": 8080},
+                {"name": "edge", "port": 8000}
+            ]
+        })
+    }
+
+    #[test]
+    fn eval_numeric_gt() {
+        let data = servers_doc();
+        let sel = parse("servers[port>8000]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], json!("api"));
+    }
+
+    #[test]
+    fn eval_numeric_ge_lt_le() {
+        let data = servers_doc();
+        assert_eq!(eval(&data, &parse("servers[port>=8000]").unwrap()).len(), 2);
+        assert_eq!(eval(&data, &parse("servers[port<8000]").unwrap()).len(), 1);
+        assert_eq!(eval(&data, &parse("servers[port<=8000]").unwrap()).len(), 2);
+    }
+
+    #[test]
+    fn eval_numeric_string_field_still_compares() {
+        let data = json!({"items": [{"n": "10"}, {"n": "3"}]});
+        let sel = parse("items[n>5]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["n"], json!("10"));
+    }
+
+    #[test]
+    fn eval_ne_matches_other_strings_not_missing() {
+        let data = json!({
+            "items": [
+                {"status": "done"},
+                {"status": "open"},
+                {"name": "no-status"}
+            ]
+        });
+        let sel = parse("items[status!=done]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["status"], json!("open"));
+    }
+
+    #[test]
+    fn eval_not_matches_absent_false_null_not_true() {
+        let data = json!({
+            "flags": [
+                {"name": "a"},
+                {"name": "b", "deprecated": false},
+                {"name": "c", "deprecated": null},
+                {"name": "d", "deprecated": true}
+            ]
+        });
+        let sel = parse("flags[!deprecated]").unwrap();
+        let results = eval(&data, &sel);
+        let names: Vec<&str> = results
+            .iter()
+            .filter_map(|v| v.get("name").and_then(|n| n.as_str()))
+            .collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn eval_existing_name_eq_still_works() {
+        let data = json!({"items": [{"name": "a"}, {"name": "b"}]});
+        let sel = parse("items[name=b]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["name"], json!("b"));
+    }
+
+    #[test]
+    fn eval_result_non_numeric_field_is_invalid_input() {
+        let data = json!({"items": [{"port": "abc"}]});
+        let sel = parse("items[port>8000]").unwrap();
+        let err = eval_result(&data, &sel).expect_err("non-numeric field vs >");
+        assert!(
+            err.msg.contains("numeric"),
+            "expected numeric type error, got: {}",
+            err.msg
+        );
+    }
+
+    #[test]
+    fn eval_chained_eq_and_gt() {
+        let data = json!({
+            "data": [
+                {"type": "server", "port": 9000},
+                {"type": "server", "port": 80},
+                {"type": "client", "port": 9000}
+            ]
+        });
+        let sel = parse("data[type=server][port>8000]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["port"], json!(9000));
+        assert_eq!(results[0]["type"], json!("server"));
     }
 }

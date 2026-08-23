@@ -172,7 +172,7 @@ mod basic {
     fn update_matching_by_key() {
         let mut val = json!({"a": {"b": "old"}});
         let seg = crate::selector::parse("a.b").unwrap();
-        let count = update_matching(&mut val, &seg, &json!("new"));
+        let count = update_matching(&mut val, &seg, &json!("new")).unwrap();
         assert_eq!(count, 1);
         assert_eq!(val, json!({"a": {"b": "new"}}));
     }
@@ -186,7 +186,7 @@ mod basic {
             {"name": "b", "v": 2}
         ]});
         let seg = crate::selector::parse("items[name=b].v").unwrap();
-        let count = update_matching(&mut val, &seg, &json!(42));
+        let count = update_matching(&mut val, &seg, &json!(42)).unwrap();
         assert_eq!(count, 1);
         assert_eq!(val["items"][1]["v"], json!(42));
         // First item unchanged
@@ -623,10 +623,45 @@ mod edge_cases {
     }
 
     #[test]
+    fn update_matching_chained_predicate_updates_row() {
+        let mut val = json!({
+            "data": [
+                {"type": "server", "port": 9000},
+                {"type": "web", "port": 80}
+            ]
+        });
+        let seg = crate::selector::parse("data[type=server][port>8000].port").unwrap();
+        let count = update_matching(&mut val, &seg, &json!(443)).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(val["data"][0]["port"], json!(443));
+        assert_eq!(val["data"][1]["port"], json!(80));
+    }
+
+    #[test]
+    fn update_matching_not_on_object_replaces_record() {
+        let mut val = json!({"item": {"name": "a"}});
+        let seg = crate::selector::parse("item[!deprecated]").unwrap();
+        let count = update_matching(&mut val, &seg, &json!({"name": "b"})).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(val, json!({"item": {"name": "b"}}));
+    }
+
+    #[test]
+    fn update_matching_non_numeric_field_is_invalid_input() {
+        let mut val = json!({"servers": [{"port": "abc"}]});
+        let seg = crate::selector::parse("servers[port>8000]").unwrap();
+        let err = update_matching(&mut val, &seg, &json!(1)).unwrap_err();
+        assert!(
+            crate::api::is_invalid_input(&err),
+            "expected invalid_input, got {err}"
+        );
+    }
+
+    #[test]
     fn update_matching_missing_key_returns_zero() {
         let mut val = json!({"a": 1});
         let seg = crate::selector::parse("b.c").unwrap();
-        let count = update_matching(&mut val, &seg, &json!("x"));
+        let count = update_matching(&mut val, &seg, &json!("x")).unwrap();
         assert_eq!(count, 0);
     }
 
