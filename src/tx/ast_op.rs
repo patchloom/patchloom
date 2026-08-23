@@ -609,9 +609,19 @@ fn apply_consumer_import_rewrites(
         return Ok(());
     }
 
-    let files = collect_ast_source_files(tx.cwd)?;
+    let mut files = collect_ast_source_files(tx.cwd)?;
+    // Same-plan creates exist only in pending until commit.
+    for pending in tx.pending.keys() {
+        if crate::ast::Language::from_path(pending) == lang && !files.iter().any(|f| f == pending) {
+            files.push(pending.clone());
+        }
+    }
+    files.sort();
     for file in files {
         if paths_equal(&file, source) || paths_equal(&file, target) {
+            continue;
+        }
+        if tx.deletions.contains(&file) {
             continue;
         }
         if crate::ast::Language::from_path(&file) != lang {

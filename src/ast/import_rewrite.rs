@@ -35,9 +35,10 @@ pub fn rewrite_imports_in_source(
     }
 
     let lines: Vec<&str> = source.lines().collect();
+    let eol = crate::write::detect_eol(source);
     let mut replacements: Vec<(usize, usize, String)> = Vec::new();
     for import in &imports {
-        let Some(rewritten) = rewrite_rust_use_block(&import.text, moves) else {
+        let Some(rewritten) = rewrite_rust_use_block(&import.text, moves, eol) else {
             continue;
         };
         let start = import.line.saturating_sub(1);
@@ -88,7 +89,7 @@ fn apply_line_replacements(
 }
 
 /// Rewrite one Rust `use` block (single- or multi-line text from `list_imports`).
-fn rewrite_rust_use_block(text: &str, moves: &[SymbolMove]) -> Option<String> {
+fn rewrite_rust_use_block(text: &str, moves: &[SymbolMove], eol: &str) -> Option<String> {
     let compact = flatten_import_text(text);
     let (vis, body) = rust_use_prefix_and_body(&compact)?;
     if body.ends_with("::*") || body.contains("::*") && !body.contains('{') {
@@ -104,7 +105,7 @@ fn rewrite_rust_use_block(text: &str, moves: &[SymbolMove]) -> Option<String> {
         if inner.split(',').any(is_glob_item) {
             return None;
         }
-        return rewrite_grouped_use(vis, path, inner, moves);
+        return rewrite_grouped_use(vis, path, inner, moves, eol);
     }
     rewrite_simple_use(vis, body, moves)
 }
@@ -154,7 +155,13 @@ fn rewrite_simple_use(vis: &str, body: &str, moves: &[SymbolMove]) -> Option<Str
     None
 }
 
-fn rewrite_grouped_use(vis: &str, path: &str, inner: &str, moves: &[SymbolMove]) -> Option<String> {
+fn rewrite_grouped_use(
+    vis: &str,
+    path: &str,
+    inner: &str,
+    moves: &[SymbolMove],
+    eol: &str,
+) -> Option<String> {
     let path = normalize_module(path);
     let items: Vec<&str> = inner
         .split(',')
@@ -165,16 +172,12 @@ fn rewrite_grouped_use(vis: &str, path: &str, inner: &str, moves: &[SymbolMove])
         return None;
     }
 
-    let mut remaining: Vec<&str> = Vec::new();
-    let mut moved: Vec<(&str, &SymbolMove)> = Vec::new();
+    let mut remaining: Vec<String> = Vec::new();
+    let mut moved: Vec<(String, String)> = Vec::new();
     for item in &items {
-        let (name, _) = split_name_alias(item);
-        match moves
-            .iter()
-            .find(|mv| normalize_module(&mv.old_module) == path && mv.name == name)
-        {
-            Some(mv) => moved.push((item, mv)),
-            None => remaining.push(item),
+        match match_grouped_item(&path, item, moves) {
+            Some((dest, dest_item)) => moved.push((dest, dest_item)),
+            None => remaining.push((*item).to_string()),
         }
     }
     if moved.is_empty() {
@@ -183,27 +186,76 @@ fn rewrite_grouped_use(vis: &str, path: &str, inner: &str, moves: &[SymbolMove])
 
     let mut parts: Vec<String> = Vec::new();
     if !remaining.is_empty() {
-        parts.push(format_use_items(vis, &path, &remaining));
+        let refs: Vec<&str> = remaining.iter().map(String::as_str).collect();
+        parts.push(format_use_items(vis, &path, &refs));
     }
     // Group moved items by destination module, preserving encounter order.
-    let mut dest_items: Vec<(String, Vec<&str>)> = Vec::new();
-    for (item, mv) in moved {
-        let dest = normalize_module(&mv.new_module);
+    let mut dest_items: Vec<(String, Vec<String>)> = Vec::new();
+    for (dest, dest_item) in moved {
         if let Some((_, bucket)) = dest_items.iter_mut().find(|(d, _)| *d == dest) {
-            bucket.push(item);
+            bucket.push(dest_item);
         } else {
-            dest_items.push((dest, vec![item]));
+            dest_items.push((dest, vec![dest_item]));
         }
     }
     for (dest, names) in dest_items {
-        parts.push(format_use_items(vis, &dest, &names));
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        parts.push(format_use_items(vis, &dest, &refs));
     }
-    Some(parts.join("\n"))
+    Some(parts.join(eol))
+}
+
+/// Match a grouped item against moves.
+///
+/// rustfmt crate-root form `use crate::{old_mod::helper}` treats
+/// `{group}::{item_prefix}` as the module and the last path segment as
+/// the symbol.
+fn match_grouped_item(
+    group_path: &str,
+    item: &str,
+    moves: &[SymbolMove],
+) -> Option<(String, String)> {
+    let (name, alias) = split_name_alias(item);
+    if name.contains('{') {
+        return None;
+    }
+    let (item_mod, symbol) = match name.rfind("::") {
+        Some(i) => (&name[..i], &name[i + 2..]),
+        None => ("", name),
+    };
+    if symbol.is_empty() || symbol == "*" {
+        return None;
+    }
+    let full_mod = if item_mod.is_empty() {
+        group_path.to_string()
+    } else if group_path.is_empty() {
+        normalize_module(item_mod)
+    } else {
+        format!("{}::{}", group_path, normalize_module(item_mod))
+    };
+    for mv in moves {
+        if mv.name == symbol && normalize_module(&mv.old_module) == full_mod {
+            let dest_item = match alias {
+                Some(a) => format!("{symbol} as {a}"),
+                None => symbol.to_string(),
+            };
+            return Some((normalize_module(&mv.new_module), dest_item));
+        }
+    }
+    None
 }
 
 fn format_use_items(vis: &str, module: &str, items: &[&str]) -> String {
     if items.len() == 1 {
-        format!("{vis}{module}::{};", items[0])
+        let item = items[0];
+        let (name, alias) = split_name_alias(item);
+        if name == "self" {
+            return match alias {
+                Some(a) => format!("{vis}{module} as {a};"),
+                None => format!("{vis}{module};"),
+            };
+        }
+        format!("{vis}{module}::{item};")
     } else {
         format!("{vis}{module}::{{{}}};", items.join(", "))
     }
@@ -314,5 +366,44 @@ mod tests {
         let source = "use crate::old_mod::*;\n\nfn main() {}\n";
         let out = rewrite_imports_in_source(source, Language::Rust, &[rust_move("helper")]);
         assert_eq!(out, None);
+    }
+
+    #[test]
+    fn rewrite_grouped_self_leftover_is_bare_module_use() {
+        let source = "use crate::old_mod::{self, helper};\n\nfn main() {}\n";
+        let out = rewrite_imports_in_source(source, Language::Rust, &[rust_move("helper")])
+            .expect("should rewrite grouped self leftover");
+        assert_eq!(
+            out,
+            "use crate::old_mod;\nuse crate::new_mod::helper;\n\nfn main() {}\n"
+        );
+    }
+
+    #[test]
+    fn rewrite_grouped_split_preserves_crlf() {
+        let source = "use crate::old_mod::{alpha, beta, gamma};\r\n\r\nfn main() {}\r\n";
+        let moves = [rust_move("alpha"), rust_move("gamma")];
+        let out = rewrite_imports_in_source(source, Language::Rust, &moves)
+            .expect("should rewrite grouped use");
+        assert_eq!(
+            out,
+            "use crate::old_mod::beta;\r\nuse crate::new_mod::{alpha, gamma};\r\n\r\nfn main() {}\r\n"
+        );
+        assert!(!out.contains('\n') || out.contains("\r\n"));
+        assert!(
+            !out.replace("\r\n", "").contains('\n'),
+            "mixed endings: {out:?}"
+        );
+    }
+
+    #[test]
+    fn rewrite_rustfmt_crate_root_grouped_path_item() {
+        let source = "use crate::{old_mod::helper, other::Thing};\n\nfn main() {}\n";
+        let out = rewrite_imports_in_source(source, Language::Rust, &[rust_move("helper")])
+            .expect("should rewrite rustfmt crate-root item");
+        assert_eq!(
+            out,
+            "use crate::other::Thing;\nuse crate::new_mod::helper;\n\nfn main() {}\n"
+        );
     }
 }
