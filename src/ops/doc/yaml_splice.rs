@@ -57,23 +57,24 @@ pub(super) fn splice_yaml_array_diffs(
             return Ok(None);
         }
     }
-    if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *target) {
-        // Verify the result round-trips cleanly through the CST library (yaml_edit).
-        // serde_yaml_ng is more lenient with indentation patterns than yaml_edit.
-        // A spliced result with altered indentation may parse once but corrupt
-        // subsequent CST modifications (e.g., duplicating keys with wrong indent).
-        // The CST no-op round-trip catches this: if `file.to_string()` differs from
-        // the input, the CST misinterprets the structure and future edits will fail (#972).
-        if let Ok(file) = result.parse::<yaml_edit::YamlFile>() {
-            let roundtrip = file.to_string();
-            if roundtrip == result {
-                return Ok(Some(result));
-            }
-        }
-        Ok(None)
-    } else {
-        Ok(None)
+    // Semantic compare (merge keys resolved) so splices in docs that use
+    // `<<: *anchor` are accepted without forcing a full rewrite.
+    if !super::yaml_semantic_eq(&result, target) {
+        return Ok(None);
     }
+    // Verify the result round-trips cleanly through the CST library (yaml_edit).
+    // serde_yaml_ng is more lenient with indentation patterns than yaml_edit.
+    // A spliced result with altered indentation may parse once but corrupt
+    // subsequent CST modifications (e.g., duplicating keys with wrong indent).
+    // The CST no-op round-trip catches this: if `file.to_string()` differs from
+    // the input, the CST misinterprets the structure and future edits will fail (#972).
+    if let Ok(file) = result.parse::<yaml_edit::YamlFile>() {
+        let roundtrip = file.to_string();
+        if roundtrip == result {
+            return Ok(Some(result));
+        }
+    }
+    Ok(None)
 }
 
 /// Recursively find arrays that differ between `current` and `target`.

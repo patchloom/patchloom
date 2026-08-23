@@ -1273,6 +1273,63 @@ fn test_doc_get_yaml_merge_key_resolved() {
         .stdout(predicate::str::starts_with("3"));
 }
 
+/// Unrelated `doc set` must keep YAML anchors/aliases/merge keys (not expand
+/// shared defaults into full map copies on every write).
+#[test]
+fn test_doc_set_yaml_preserves_anchors_and_merges() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    let original = "\
+defaults: &defaults
+  timeout: 30
+  retries: 3
+staging:
+  <<: *defaults
+  host: staging.example.com
+production:
+  <<: *defaults
+  host: prod.example.com
+app_name: my-service
+";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("app_name")
+        .arg("\"other-service\"")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&defaults"),
+        "anchor definition lost:\n{content}"
+    );
+    assert_eq!(
+        content.matches("<<: *defaults").count(),
+        2,
+        "merge keys expanded away:\n{content}"
+    );
+    assert!(
+        content.contains("app_name: other-service")
+            || content.contains("app_name: \"other-service\""),
+        "updated field missing:\n{content}"
+    );
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("staging.timeout")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("30"));
+}
+
 #[test]
 fn test_doc_set_yaml_apply() {
     let dir = TempDir::new().unwrap();
