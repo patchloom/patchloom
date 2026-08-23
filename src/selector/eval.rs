@@ -69,12 +69,27 @@ pub fn eval_result<'a>(
     Ok(current)
 }
 
+/// True when an object has object or array children (a map-of-records).
+pub(crate) fn object_has_container_children(val: &serde_json::Value) -> bool {
+    val.as_object()
+        .is_some_and(|obj| obj.values().any(|v| v.is_object() || v.is_array()))
+}
+
+/// Whether a predicate on an object should test the object itself.
+///
+/// Test self when `key` is present (chained `data[type=server][port>8000]`,
+/// or `[!key]` on a record). If the object is not a map-of-records, also
+/// test self so `[!deprecated]` on `{"name":"a"}` matches the record.
+pub(crate) fn predicate_tests_object_self(val: &serde_json::Value, key: &str) -> bool {
+    get_nested(val, key).is_some() || !object_has_container_children(val)
+}
+
 /// Items a predicate should test.
 ///
 /// Arrays: each element. Objects: the object itself when it already has
-/// `key` (or has no object-valued children); otherwise each value, so
-/// `services[name=api]` still filters a map of objects. This also lets
-/// chained `data[type=server][port>8000]` test each selected item.
+/// `key` (or is not a map-of-records), plus each object/array child so
+/// `services[name=api]` still filters a map of objects even if the map
+/// also has a `name` field.
 fn predicate_candidates<'a>(val: &'a serde_json::Value, key: &str) -> Vec<&'a serde_json::Value> {
     if let Some(arr) = val.as_array() {
         return arr.iter().collect();
@@ -82,13 +97,14 @@ fn predicate_candidates<'a>(val: &'a serde_json::Value, key: &str) -> Vec<&'a se
     let Some(obj) = val.as_object() else {
         return Vec::new();
     };
-    if get_nested(val, key).is_some() {
-        return vec![val];
+    let mut out = Vec::new();
+    if predicate_tests_object_self(val, key) {
+        out.push(val);
     }
-    if obj.values().any(|v| v.is_object() || v.is_array()) {
-        return obj.values().collect();
+    if object_has_container_children(val) {
+        out.extend(obj.values());
     }
-    vec![val]
+    out
 }
 
 #[cfg(test)]
@@ -214,6 +230,20 @@ mod tests {
         let results = eval(&data, &sel);
         let expected = json!(8080);
         assert_eq!(results, vec![&expected]);
+    }
+
+    #[test]
+    fn eval_predicate_object_map_with_same_key_still_filters_children() {
+        let data = json!({
+            "services": {
+                "name": "prod",
+                "web": {"name": "web"},
+                "api": {"name": "api"}
+            }
+        });
+        let sel = parse("services[name=api]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results, vec![&data["services"]["api"]]);
     }
 
     #[test]

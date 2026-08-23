@@ -1159,7 +1159,7 @@ pub fn apply_doc_mutation(
         }
         DocMutation::Update { selector, value } => {
             let sel = selector::parse_anyhow(&selector)?;
-            if update_matching(root, &sel, &value) == 0 {
+            if update_matching(root, &sel, &value)? == 0 {
                 // Bare key on multi-doc / array root: soft no_matches hides shape errors.
                 if let Some(hint) = query::array_root_bare_key_hint(root, &sel) {
                     Ok(MutationResult::TypeError(hint))

@@ -105,17 +105,21 @@ fn split_predicate(content: &str) -> Result<Option<(String, PredicateOp, String)
 }
 
 /// First operator in `content`. Two-character forms win at the same index.
+///
+/// Walk bytes and never slice `content[i..]` (a mid-character index is not
+/// a UTF-8 boundary). Operators are ASCII, so the returned indices are
+/// valid split points.
 fn find_predicate_op(content: &str) -> Option<(usize, PredicateOp, usize)> {
     let bytes = content.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if content[i..].starts_with("!=") {
+        if bytes[i] == b'!' && bytes.get(i + 1) == Some(&b'=') {
             return Some((i, PredicateOp::Ne, i + 2));
         }
-        if content[i..].starts_with(">=") {
+        if bytes[i] == b'>' && bytes.get(i + 1) == Some(&b'=') {
             return Some((i, PredicateOp::Ge, i + 2));
         }
-        if content[i..].starts_with("<=") {
+        if bytes[i] == b'<' && bytes.get(i + 1) == Some(&b'=') {
             return Some((i, PredicateOp::Le, i + 2));
         }
         match bytes[i] {
@@ -524,6 +528,30 @@ mod tests {
             vec![
                 Segment::Key("jobs".into()),
                 pred("id", PredicateOp::Eq, "test")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_non_ascii_key_equality_does_not_panic() {
+        let sel = parse("items[名前=x]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("名前", PredicateOp::Eq, "x")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_non_ascii_key_gt_does_not_panic() {
+        let sel = parse("items[café>1]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("café", PredicateOp::Gt, "1")
             ]
         );
     }
