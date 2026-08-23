@@ -406,12 +406,11 @@ fn try_preserve_yaml_object(
     // that preserves original quote styles and key ordering.
     let result = fix_yaml_block_indentation(&cleanup_yaml_cst_whitespace(&file.to_string()));
 
-    if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
-        && reparsed.is_object()
-        && reparsed == *new_value
-        && !has_array_growth
-        && all_cst_applied
-    {
+    // Compare semantically (merge keys resolved) so CST results that keep
+    // `<<: *anchor` / `*alias` form match parse_doc's flattened model.
+    // Without this, verification always fails on merge-key documents and the
+    // non-preserving fallback expands every anchor/alias into full copies.
+    if yaml_semantic_eq(&result, new_value) && !has_array_growth && all_cst_applied {
         return Ok(Some(result));
     }
 
@@ -420,7 +419,10 @@ fn try_preserve_yaml_object(
     // misinterpreted indentation, #972), serde_yaml_ng will fail to parse
     // it. In that case, skip the splice and fall through to the caller's
     // non-preserving fallback instead of propagating the error.
-    if let Ok(reparsed) = serde_yaml_ng::from_str::<serde_json::Value>(&result)
+    //
+    // Feed the splice path a merge-resolved view of `result` so array diffs
+    // line up with `new_value` (also merge-resolved via parse_doc).
+    if let Some(reparsed) = parse_yaml_semantic(&result)
         && let Some(spliced) = yaml_splice::splice_yaml_array_diffs(&result, &reparsed, new_value)?
     {
         return Ok(Some(spliced));
@@ -445,7 +447,7 @@ fn try_preserve_yaml_array(
     };
     if applied {
         let result = cleanup_yaml_cst_whitespace(&file.to_string());
-        if serde_yaml_ng::from_str::<serde_json::Value>(&result).is_ok_and(|v| v == *new_value) {
+        if yaml_semantic_eq(&result, new_value) {
             return Ok(Some(result));
         }
     }
@@ -454,12 +456,27 @@ fn try_preserve_yaml_array(
     if new_arr.len() > old_arr.len()
         && let Some(spliced) =
             yaml_splice::splice_yaml_root_sequence(original_content, old_arr, new_arr)?
-        && serde_yaml_ng::from_str::<serde_json::Value>(&spliced).is_ok_and(|v| v == *new_value)
+        && yaml_semantic_eq(&spliced, new_value)
         && spliced.parse::<yaml_edit::YamlFile>().is_ok()
     {
         return Ok(Some(spliced));
     }
     Ok(None)
+}
+
+/// Parse YAML into the same semantic model as [`parse_doc`]: serde expands
+/// aliases, then merge keys (`<<`) are flattened.
+fn parse_yaml_semantic(text: &str) -> Option<serde_json::Value> {
+    let mut value: serde_json::Value = serde_yaml_ng::from_str(text).ok()?;
+    resolve_yaml_merge_keys(&mut value);
+    Some(value)
+}
+
+/// True when `text` parses to the same semantic value as `expected`
+/// (aliases expanded, merge keys resolved). Used to accept CST-preserving
+/// writes that keep `&anchor` / `*alias` / `<<: *ref` form.
+pub(super) fn yaml_semantic_eq(text: &str, expected: &serde_json::Value) -> bool {
+    parse_yaml_semantic(text).is_some_and(|v| v == *expected)
 }
 
 pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {

@@ -2190,6 +2190,49 @@ fn test_tx_doc_set_unsupported_format_rolls_back() {
     );
 }
 
+/// Plan/tx `doc.set` on YAML must keep anchors and merge keys when the
+/// edited field is unrelated to the shared defaults.
+#[test]
+fn test_tx_doc_set_yaml_preserves_anchors_and_merges() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "defaults: &d\n  timeout: 30\nstaging:\n  <<: *d\n  host: s.example\napp: old\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "app",
+            "value": "new"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&d") && content.contains("<<: *d"),
+        "tx doc.set must preserve anchor/merge:\n{content}"
+    );
+    assert!(
+        content.contains("app: new") || content.contains("app: \"new\""),
+        "updated value missing:\n{content}"
+    );
+}
+
 #[test]
 fn test_tx_doc_set_selector_in_plan() {
     let dir = TempDir::new().unwrap();

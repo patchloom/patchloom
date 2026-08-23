@@ -1039,6 +1039,184 @@ mod error_handling {
         assert_eq!(reparsed[1]["spec"]["ports"][0]["port"], json!(80));
     }
 
+    /// Unrelated field edit must keep anchors, aliases, and merge keys instead of
+    /// expanding every map into a full copy (agent configs use defaults via <<).
+    #[test]
+    fn yaml_unrelated_edit_preserves_anchors_aliases_and_merges() {
+        let yaml = "\
+defaults: &defaults
+  timeout: 30
+  retries: 3
+  log_level: info
+staging:
+  <<: *defaults
+  host: staging.example.com
+production:
+  <<: *defaults
+  host: prod.example.com
+  log_level: warning
+app_name: my-service
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["app_name"] = json!("other-service");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+
+        assert!(
+            result.contains("&defaults"),
+            "anchor definition must survive unrelated edit:\n{result}"
+        );
+        let merge_count = result.matches("<<:").count();
+        assert_eq!(
+            merge_count, 2,
+            "expected two merge keys preserved, got {merge_count}:\n{result}"
+        );
+        assert!(
+            !result.contains("timeout: 30\n  retries: 3\n  log_level: info\nstaging:\n  timeout:"),
+            "must not expand defaults into staging as a full copy:\n{result}"
+        );
+        assert!(
+            result.contains("app_name: other-service")
+                || result.contains("app_name: \"other-service\""),
+            "edited field missing:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["app_name"], json!("other-service"));
+        assert_eq!(reparsed["staging"]["timeout"], json!(30));
+        assert_eq!(reparsed["staging"]["host"], json!("staging.example.com"));
+        assert_eq!(reparsed["production"]["log_level"], json!("warning"));
+    }
+
+    /// Local override of a merge-inherited field adds an explicit key and
+    /// keeps the `<<` merge (YAML override semantics).
+    #[test]
+    fn yaml_merge_override_preserves_merge_key() {
+        let yaml = "\
+defaults: &d
+  timeout: 30
+  retries: 3
+staging:
+  <<: *d
+  name: api
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["staging"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&d") && result.contains("<<: *d"),
+            "anchor and merge must remain when overriding inherited field:\n{result}"
+        );
+        assert!(
+            result.contains("timeout: 60"),
+            "local override missing:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["staging"]["timeout"], json!(60));
+        assert_eq!(reparsed["staging"]["retries"], json!(3));
+        assert_eq!(reparsed["defaults"]["timeout"], json!(30));
+    }
+
+    /// Pure alias (`key: *anchor`) must stay an alias when a sibling field changes.
+    #[test]
+    fn yaml_pure_alias_preserved_on_sibling_edit() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared
+service_b: *shared
+label: keep
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["label"] = json!("changed");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(result.contains("&shared"), "anchor must remain:\n{result}");
+        assert_eq!(
+            result.matches("*shared").count(),
+            2,
+            "both aliases must remain:\n{result}"
+        );
+        assert!(
+            !result.contains("service_a:\n  timeout:"),
+            "must not expand pure aliases into full maps:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["label"], json!("changed"));
+        assert_eq!(reparsed["service_a"]["timeout"], json!(30));
+        assert_eq!(reparsed["service_b"]["retries"], json!(3));
+    }
+
+    /// New key under a merge map is a local addition; merge/anchor stay.
+    #[test]
+    fn yaml_add_key_under_merge_map_preserves_merge() {
+        let yaml = "\
+defaults: &d
+  timeout: 30
+staging:
+  <<: *d
+  name: api
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["staging"]["region"] = json!("us-east");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("<<: *d") && result.contains("&d"),
+            "merge/anchor must remain after local key add:\n{result}"
+        );
+        assert!(
+            result.contains("region: us-east") || result.contains("region: \"us-east\""),
+            "new key missing:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["staging"]["region"], json!("us-east"));
+        assert_eq!(reparsed["staging"]["timeout"], json!(30));
+    }
+
+    /// Multi-document stream: unrelated edit in one doc keeps that doc's merges.
+    #[test]
+    fn yaml_multi_doc_unrelated_edit_preserves_merges() {
+        let yaml = "\
+---
+defaults: &defaults
+  timeout: 30
+service:
+  <<: *defaults
+  name: api
+---
+kind: Service
+port: 8080
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[0]["service"]["name"] = json!("api-v2");
+        new[1]["port"] = json!(9090);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            is_multi_document_yaml(&result),
+            "must stay multi-document:\n{result}"
+        );
+        assert!(
+            result.contains("&defaults") && result.contains("<<: *defaults"),
+            "first doc anchors/merges must survive an edit in that document:\n{result}"
+        );
+        assert!(
+            result.contains("name: api-v2") || result.contains("name: \"api-v2\""),
+            "first doc edit missing:\n{result}"
+        );
+        assert!(
+            result.contains("port: 9090"),
+            "second doc edit missing:\n{result}"
+        );
+    }
+
     #[test]
     fn yaml_multi_document_delete_first_preserves_surviving_comments() {
         // Whole-doc delete must not pair body[0] onto former doc 1.
