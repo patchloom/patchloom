@@ -18,7 +18,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 .into());
             }
             if crate::ops::begin_patch::looks_like_begin_patch(diff) {
-                if diff.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+                if crate::ops::search_replace::has_search_replace_marker(diff) {
                     return Err(crate::exit::ParseErrorError {
                         msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
                     }

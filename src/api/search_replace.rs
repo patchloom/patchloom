@@ -358,4 +358,47 @@ new
         );
         assert_eq!(results[0].match_count, 1);
     }
+
+    #[test]
+    fn apply_patch_detects_search_replace_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("code.rs");
+        std::fs::write(&dest, "fn old() {}\n").unwrap();
+        let input = "\
+<<<<<<< SEARCH
+code.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+";
+        let result = crate::api::apply_patch(&dest, input, ApplyMode::Apply, None)
+            .expect("apply_patch detects SEARCH/REPLACE");
+        assert!(result.applied);
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "fn new() {}\n");
+    }
+
+    #[test]
+    fn apply_patch_file_detects_search_replace_document() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+        let input = "\
+<<<<<<< SEARCH
+code.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+";
+        let results = crate::api::apply_patch_file(input, dir.path(), ApplyMode::Apply, None)
+            .expect("apply_patch_file detects SEARCH/REPLACE");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].applied);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+            "fn new() {}\n"
+        );
+    }
 }

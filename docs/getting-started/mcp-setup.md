@@ -224,7 +224,7 @@ AST tools so `list_tools` stays honest about what is callable.
 | `prepend_file` | Prepend content to an existing file |
 | `delete_file` | Delete a file |
 | `move_file` | Move or rename a file (binary-safe) |
-| `apply_patch` | Apply a unified diff |
+| `apply_patch` | Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE / DiffFenced document (unique unless `replace_all`) |
 | `batch_replace` | Replace the same text across multiple files atomically |
 | `batch_tidy` | Fix whitespace in multiple files atomically |
 | `execute_plan` | Execute a full multi-op transaction plan atomically (recommended for complex/multi-file edits; equivalent to CLI `tx`). Supports inline plan or plan_path. |

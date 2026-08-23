@@ -4,6 +4,12 @@
 //! `replacen(..., 1)` or raw `fs::write` for this format. CLI / MCP / tx
 //! detect this grammar via [`looks_like_search_replace`] (#2221).
 
+/// True when any line trims to `<<<<<<< SEARCH`.
+#[must_use]
+pub fn has_search_replace_marker(input: &str) -> bool {
+    input.lines().any(|l| l.trim() == "<<<<<<< SEARCH")
+}
+
 /// True when the payload is a SEARCH/REPLACE or DiffFenced document.
 ///
 /// First non-empty line must be `<<<<<<< SEARCH` or a fence (` ``` `) so a
@@ -11,7 +17,7 @@
 /// still parsed as a unified diff.
 #[must_use]
 pub fn looks_like_search_replace(input: &str) -> bool {
-    if !input.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+    if !has_search_replace_marker(input) {
         return false;
     }
     match input.lines().map(str::trim).find(|l| !l.is_empty()) {
@@ -382,6 +388,8 @@ new
             ),
             "unified diff that mentions SEARCH later is not SEARCH/REPLACE"
         );
+        assert!(has_search_replace_marker("--- a/x\n<<<<<<< SEARCH\nkeep\n"));
+        assert!(!has_search_replace_marker("--- a/x\n+++ b/x\n"));
     }
 
     #[test]
