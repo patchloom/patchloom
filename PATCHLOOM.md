@@ -489,9 +489,12 @@ All `doc` operations use selector paths to address values inside JSON, YAML, and
 | `.` | Document root | `doc keys FILE .`; `doc set FILE . VALUE` replaces the whole document |
 | `[N]` | Array index (zero-based) | `servers[0].port` |
 | `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |
-| `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |
+| `[key=val]` | Equality predicate (filter by field value) | `deps[name=express].version` |
+| `[key!=val]` | Not-equal; missing fields do not match | `items[status!=disabled]` |
+| `[key>N]` `[key>=N]` `[key<N]` `[key<=N]` | Numeric compare (`f64`; JSON number or numeric string) | `servers[port>8000]` |
+| `[!key]` | Key absent, JSON `false`, or `null` | `flags[!deprecated]` |
 
-Segments are separated by `.` or adjacent brackets. A single leading `/` is treated as "from root" and stripped (JSON Pointer habit), so `/feature_flag` sets key `feature_flag`, not a key literally named `/feature_flag` (#1794). Only one leading slash is special; `//a` keeps a key named `/a`. Prefer bare keys in prompts (`feature_flag`, `server.port`). A lone `.` (or empty / `/`) is the document root: `doc keys FILE .` lists top-level keys, and `doc set FILE . VALUE` replaces the whole document. Examples:
+Equality is unchanged: `items[url=a=b]` and `items[url=a>b]` stay `key=value`. Comparison operands must be numeric (`[port>abc]` is `invalid_input`). A present non-numeric field vs `>` / `>=` / `<` / `<=` is also `invalid_input` (not a string compare). Regex predicates are not supported. Segments are separated by `.` or adjacent brackets. A single leading `/` is treated as "from root" and stripped (JSON Pointer habit), so `/feature_flag` sets key `feature_flag`, not a key literally named `/feature_flag` (#1794). Only one leading slash is special; `//a` keeps a key named `/a`. Prefer bare keys in prompts (`feature_flag`, `server.port`). A lone `.` (or empty / `/`) is the document root: `doc keys FILE .` lists top-level keys, and `doc set FILE . VALUE` replaces the whole document. Examples:
 
 ```text
 .                               # document root (keys / whole-document set)
@@ -499,6 +502,8 @@ scripts.test                    # simple selector path
 /feature_flag                   # same as feature_flag (leading slash stripped)
 jobs[0].steps[*].name           # index + wildcard
 dependencies[name=react].version # predicate filter
+data[type=server][port>8000]    # chained equality + numeric compare
+flags[!deprecated]              # absent, false, or null
 ```
 
 **Write ops and predicates:** `doc set` / `doc ensure` / `doc delete` / `doc move` are **single-path only** (keys and indexes such as `items.0.val`). Wildcards and predicates (`items[id=b].val`, `items[*].enabled`) belong on `doc update` (multi-match write) or `doc delete-where` (array filter). If you pass a predicate to `doc set`, the error points you at `doc update` or an index path. With `--json` / plan / MCP, that fail-closed path also sets machine-stable `suggested_op` (`"doc.update"` for set/ensure multi-match; `"doc.delete_where"` for predicate delete). Intermediate parent predicates (`items[id=a].val` on delete) use the same mapping as leaf predicates (#2138). Hosts can branch without scraping English (`api::suggested_op_from_error` on the library path).

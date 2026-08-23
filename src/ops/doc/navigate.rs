@@ -670,21 +670,22 @@ pub fn update_matching(
         }
         selector::Segment::Predicate {
             key,
+            op,
             value: pred_val,
         } => {
             let mut count = 0;
             if let Some(arr) = value.as_array_mut() {
                 for item in arr.iter_mut() {
-                    let matches = selector::get_nested(item, key)
-                        .is_some_and(|field| selector::value_matches_str(field, pred_val));
+                    let matches =
+                        selector::item_matches_predicate(item, key, *op, pred_val).unwrap_or(false);
                     if matches {
                         count += update_matching(item, rest, new_val);
                     }
                 }
             } else if let Some(obj) = value.as_object_mut() {
                 for item in obj.values_mut() {
-                    let matches = selector::get_nested(item, key)
-                        .is_some_and(|field| selector::value_matches_str(field, pred_val));
+                    let matches =
+                        selector::item_matches_predicate(item, key, *op, pred_val).unwrap_or(false);
                     if matches {
                         count += update_matching(item, rest, new_val);
                     }

@@ -3652,3 +3652,81 @@ fn style_changed_true_on_tx_plan_yaml_sequence_collapse() {
         "tx plan changes[] must report style_changed when sequence indent collapses: {v}"
     );
 }
+
+/// #2230: numeric comparison predicate on doc get --json.
+#[test]
+fn test_doc_get_port_gt_json() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("servers.json");
+    fs::write(
+        &file,
+        r#"{"servers":[{"name":"web","port":80},{"name":"api","port":9000}]}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("servers[port>8000]")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["value"]["name"], "api", "{v}");
+    assert_eq!(v["value"]["port"], 9000, "{v}");
+}
+
+/// #2230: non-numeric comparison operand is invalid_input (parse-time).
+#[test]
+fn test_doc_get_port_gt_non_numeric_operand_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("servers.json");
+    fs::write(&file, r#"{"servers":[{"port":80}]}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("servers[port>abc]")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON error envelope");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "non-numeric comparison operand must be invalid_input: {v}"
+    );
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("numeric") || err.contains("comparison"),
+        "error should name numeric/comparison, got: {v}"
+    );
+}
+
+/// #2230: existing key=value still works on doc get --json.
+#[test]
+fn test_doc_get_equality_predicate_still_works() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("items.json");
+    fs::write(
+        &file,
+        r#"{"items":[{"name":"a","v":1},{"name":"b","v":2}]}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("items[name=b]")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["value"]["name"], "b", "{v}");
+    assert_eq!(v["value"]["v"], 2, "{v}");
+}

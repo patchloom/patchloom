@@ -14,7 +14,14 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
          | `.` | Document root | `doc keys FILE .`; `doc set FILE . VALUE` replaces the whole document |\n\
          | `[N]` | Array index (zero-based) | `servers[0].port` |\n\
          | `[*]` | Wildcard (all array elements) | `jobs[*].timeout` |\n\
-         | `[key=val]` | Predicate (filter by field value) | `deps[name=express].version` |\n\n\
+         | `[key=val]` | Equality predicate (filter by field value) | `deps[name=express].version` |\n\
+         | `[key!=val]` | Not-equal; missing fields do not match | `items[status!=disabled]` |\n\
+         | `[key>N]` `[key>=N]` `[key<N]` `[key<=N]` | Numeric compare (`f64`; JSON number or numeric string) | `servers[port>8000]` |\n\
+         | `[!key]` | Key absent, JSON `false`, or `null` | `flags[!deprecated]` |\n\n\
+         Equality is unchanged: `items[url=a=b]` and `items[url=a>b]` stay `key=value`. \
+         Comparison operands must be numeric (`[port>abc]` is `invalid_input`). A present \
+         non-numeric field vs `>` / `>=` / `<` / `<=` is also `invalid_input` (not a string \
+         compare). Regex predicates are not supported. \
          Segments are separated by `.` or adjacent brackets. A single leading `/` is treated as \
 \"from root\" and stripped (JSON Pointer habit), so `/feature_flag` sets key `feature_flag`, not a key literally named `/feature_flag` (#1794). Only one leading slash is special; `//a` keeps a key named `/a`. Prefer bare keys in prompts (`feature_flag`, `server.port`). A lone `.` (or empty / `/`) is the document root: `doc keys FILE .` lists top-level keys, and `doc set FILE . VALUE` replaces the whole document. Examples:\n\n\
          ```text\n\
@@ -23,6 +30,8 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
          /feature_flag                   # same as feature_flag (leading slash stripped)\n\
          jobs[0].steps[*].name           # index + wildcard\n\
          dependencies[name=react].version # predicate filter\n\
+         data[type=server][port>8000]    # chained equality + numeric compare\n\
+         flags[!deprecated]              # absent, false, or null\n\
          ```\n\n\
          **Write ops and predicates:** `doc set` / `doc ensure` / `doc delete` / `doc move` are \
          **single-path only** (keys and indexes such as `items.0.val`). Wildcards and predicates \

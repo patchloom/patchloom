@@ -28,7 +28,7 @@ pub enum QueryResult {
 /// multi-doc bare keys (docs/reference multi-document YAML; fixrealloop).
 pub fn query_get(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryResult> {
     let segments = selector::parse_anyhow(selector)?;
-    let results = selector::eval(root, &segments);
+    let results = selector::eval_result(root, &segments)?;
     if results.is_empty() {
         if let Some(hint) = array_root_bare_key_hint(root, &segments) {
             return Err(crate::exit::TypeErrorError { msg: hint }.into());
@@ -68,7 +68,7 @@ pub(crate) fn array_root_bare_key_hint(
 /// [`query_get`] so agents do not treat a shape mistake as "key absent".
 pub fn query_has(root: &serde_json::Value, selector: &str) -> anyhow::Result<bool> {
     let segments = selector::parse_anyhow(selector)?;
-    let found = !selector::eval(root, &segments).is_empty();
+    let found = !selector::eval_result(root, &segments)?.is_empty();
     if !found && let Some(hint) = array_root_bare_key_hint(root, &segments) {
         return Err(crate::exit::TypeErrorError { msg: hint }.into());
     }
@@ -91,7 +91,7 @@ pub enum QueryKeysResult {
 /// [`crate::exit::TypeErrorError`] like [`query_get`] / [`query_has`].
 pub fn query_keys(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryKeysResult> {
     let segments = selector::parse_anyhow(selector)?;
-    let results = selector::eval(root, &segments);
+    let results = selector::eval_result(root, &segments)?;
     if results.is_empty() {
         if let Some(hint) = array_root_bare_key_hint(root, &segments) {
             return Err(crate::exit::TypeErrorError { msg: hint }.into());
@@ -119,7 +119,7 @@ pub enum QueryLenResult {
 /// Bare object keys at an array root return type_error like [`query_get`].
 pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryLenResult> {
     let segments = selector::parse_anyhow(selector)?;
-    let results = selector::eval(root, &segments);
+    let results = selector::eval_result(root, &segments)?;
     if results.is_empty() {
         if let Some(hint) = array_root_bare_key_hint(root, &segments) {
             return Err(crate::exit::TypeErrorError { msg: hint }.into());
@@ -375,5 +375,37 @@ mod tests {
             query_len(&doc, "nonexistent").unwrap(),
             QueryLenResult::NoMatch
         ));
+    }
+
+    #[test]
+    fn get_port_gt_returns_matching_items() {
+        let doc = serde_json::json!({
+            "servers": [
+                {"name": "web", "port": 80},
+                {"name": "api", "port": 9000}
+            ]
+        });
+        match query_get(&doc, "servers[port>8000]").unwrap() {
+            QueryResult::Values(v) => {
+                assert_eq!(v.len(), 1);
+                assert_eq!(v[0]["name"], "api");
+            }
+            QueryResult::NoMatch => panic!("expected match"),
+        }
+    }
+
+    #[test]
+    fn get_non_numeric_comparison_operand_is_invalid_input() {
+        let doc = serde_json::json!({"servers": [{"port": 80}]});
+        let err = query_get(&doc, "servers[port>abc]").expect_err("bad operand");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("numeric") || msg.contains("comparison"),
+            "expected numeric/comparison message, got: {msg}"
+        );
     }
 }

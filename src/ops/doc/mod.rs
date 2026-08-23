@@ -1178,7 +1178,7 @@ pub fn apply_doc_mutation(
         }
         DocMutation::Ensure { selector, value } => {
             let sel = selector::parse_anyhow(&selector)?;
-            if !selector::eval(root, &sel).is_empty() {
+            if !selector::eval_result(root, &sel)?.is_empty() {
                 Ok(MutationResult::AlreadyExists)
             } else {
                 set_at_path(root, &sel, value)?;
