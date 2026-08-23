@@ -277,6 +277,10 @@ fn test_batch_doc_set_and_delete_if_exists_missing_soft_skips() {
     );
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(
+        json["files_changed"], 2,
+        "pkg.json + keep.txt, not the missing paths: {json}"
+    );
     let pkg: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.path().join("pkg.json")).unwrap()).unwrap();
     assert_eq!(pkg["version"], 2);
@@ -291,6 +295,39 @@ fn test_batch_doc_set_and_delete_if_exists_missing_soft_skips() {
     assert!(
         !dir.path().join("gone.txt").exists(),
         "file.delete --if-exists must not create missing file"
+    );
+}
+
+/// Without --if-exists, a missing doc.set path still aborts the batch.
+#[test]
+fn test_batch_doc_set_missing_file_without_if_exists_fails() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "stay\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["batch", "--apply"])
+        .write_stdin(
+            "replace keep.txt stay kept\n\
+             doc.set absent.json version 9\n",
+        )
+        .output()
+        .unwrap();
+
+    assert_ne!(
+        output.status.code(),
+        Some(0),
+        "missing doc.set without --if-exists must fail: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+        "stay\n",
+        "failed batch must not leave sibling apply"
     );
 }
 

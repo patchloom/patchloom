@@ -127,8 +127,12 @@ mod basic {
         let op = parse_line("doc.set config.json version 42", 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocSet { path, selector, value, .. }
-            if path == "config.json" && selector == "version" && value == serde_json::json!(42)
+            Operation::DocSet {
+                path,
+                selector,
+                value,
+                if_exists: false,
+            } if path == "config.json" && selector == "version" && value == serde_json::json!(42)
         ));
     }
 

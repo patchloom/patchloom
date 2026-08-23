@@ -3477,6 +3477,10 @@ async fn test_mcp_doc_set_if_exists_missing_file_succeeds() {
         "doc_set if_exists missing file should succeed: {val}"
     );
     assert_eq!(val["ok"], true, "doc_set if_exists ok: {val}");
+    assert_eq!(
+        val["files_changed"], 0,
+        "missing-file if_exists must not count a write: {val}"
+    );
     assert!(
         !dir.path().join("absent.json").exists(),
         "if_exists must not create missing file"
@@ -3532,6 +3536,11 @@ async fn test_mcp_delete_file_if_exists_missing_succeeds() {
     assert!(
         !is_error,
         "delete_file if_exists missing file should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "delete_file if_exists ok: {val}");
+    assert_eq!(
+        val["files_deleted"], 0,
+        "missing-file if_exists must not count a delete: {val}"
     );
     assert!(
         !dir.path().join("absent.txt").exists(),
