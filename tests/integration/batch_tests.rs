@@ -247,6 +247,53 @@ fn test_batch_replace_if_exists_missing_path_soft_skips_sibling() {
     );
 }
 
+/// #2231: batch `doc.set` / `file.delete` honor `--if-exists` like replace.
+#[test]
+fn test_batch_doc_set_and_delete_if_exists_missing_soft_skips() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("pkg.json"), r#"{"version":"1.0"}"#).unwrap();
+    fs::write(dir.path().join("keep.txt"), "stay\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["batch", "--apply"])
+        .write_stdin(
+            "doc.set pkg.json version 2\n\
+             doc.set absent.json version 9 --if-exists\n\
+             replace keep.txt stay kept\n\
+             file.delete gone.txt --if-exists\n",
+        )
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    let pkg: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("pkg.json")).unwrap()).unwrap();
+    assert_eq!(pkg["version"], 2);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+        "kept\n"
+    );
+    assert!(
+        !dir.path().join("absent.json").exists(),
+        "doc.set --if-exists must not create missing file"
+    );
+    assert!(
+        !dir.path().join("gone.txt").exists(),
+        "file.delete --if-exists must not create missing file"
+    );
+}
+
 #[test]
 fn test_batch_json_empty_input_returns_structured_success() {
     let dir = TempDir::new().unwrap();
