@@ -376,6 +376,34 @@ fn parse_doc_ops_with_key_alias() {
     }
 }
 
+/// Plans without `if_exists` deserialize with the fail-hard default (#2231).
+#[test]
+fn doc_set_and_file_delete_if_exists_defaults_false() {
+    let json = r#"{
+        "version": 1,
+        "operations": [
+            {"op":"doc.set","path":"f.json","selector":"k","value":1},
+            {"op":"file.delete","path":"x.txt"}
+        ]
+    }"#;
+    let plan = parse_plan(json).unwrap();
+    match &plan.operations[0] {
+        Operation::DocSet { if_exists, .. } => {
+            assert!(!*if_exists, "doc.set without if_exists must default false");
+        }
+        other => panic!("expected DocSet, got {other:?}"),
+    }
+    match &plan.operations[1] {
+        Operation::FileDelete { if_exists, .. } => {
+            assert!(
+                !*if_exists,
+                "file.delete without if_exists must default false"
+            );
+        }
+        other => panic!("expected FileDelete, got {other:?}"),
+    }
+}
+
 /// Agents often emit `from`/`to` for replace (LLM prior); aliases map to old/new.
 #[test]
 fn parse_replace_ops_with_from_to_aliases() {
@@ -998,6 +1026,7 @@ fn needs_doc_flush_includes_file_create_delete_rename() {
 
     let delete = Operation::FileDelete {
         path: "f.json".into(),
+        if_exists: false,
     };
     assert!(
         delete.needs_doc_flush(),

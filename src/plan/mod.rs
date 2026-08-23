@@ -224,6 +224,7 @@ pub(crate) fn op_to_doc_mutation(op: &Operation) -> Option<(&str, crate::ops::do
             path,
             selector,
             value,
+            ..
         } => Some((
             path,
             DocMutation::Set {

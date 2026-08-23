@@ -431,7 +431,13 @@ mod basic {
                     content: "c".into(),
                 },
             ),
-            ("file.delete", Operation::FileDelete { path: "f".into() }),
+            (
+                "file.delete",
+                Operation::FileDelete {
+                    path: "f".into(),
+                    if_exists: false,
+                },
+            ),
             (
                 "file.rename",
                 Operation::FileRename {
@@ -459,6 +465,7 @@ mod basic {
                     path: "f".into(),
                     selector: "s".into(),
                     value: serde_json::json!("v"),
+                    if_exists: false,
                 },
             ),
             (

@@ -95,8 +95,41 @@ fn doc_write(
 
     let path_str = path.to_string_lossy().into_owned();
     let format = ops::doc::detect_format(&path_str)?;
-    let original = crate::files::load_text_strict(path, &path_str)?;
+    let if_exists_set = matches!(
+        op,
+        Operation::DocSet {
+            if_exists: true,
+            ..
+        }
+    );
+    let original = match crate::files::load_text_strict(path, &path_str) {
+        Ok(s) => s,
+        Err(e) if if_exists_set && crate::exit::is_io_not_found(&e) => {
+            return Ok(super::build_edit_result(
+                &path_str,
+                String::new(),
+                String::new(),
+                false,
+                action,
+                None,
+            ));
+        }
+        Err(e) => return Err(e),
+    };
     let value = ops::doc::parse_doc(&original, &format)?;
+    if if_exists_set
+        && let Operation::DocSet { selector, .. } = &op
+        && !ops::doc::query::query_has(&value, selector)?
+    {
+        return Ok(super::build_edit_result(
+            &path_str,
+            original.clone(),
+            original,
+            false,
+            action,
+            None,
+        ));
+    }
     let mut new_value = value.clone();
 
     let result = ops::doc::apply_doc_mutation(&mut new_value, mutation)?;
@@ -140,6 +173,7 @@ pub fn doc_set(
         path: path.to_string_lossy().into(),
         selector: selector.into(),
         value,
+        if_exists: false,
     };
     doc_write(op, path, mode, guard, "doc.set")
 }

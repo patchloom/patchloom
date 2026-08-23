@@ -50,6 +50,7 @@ pub fn run(mut args: DeleteArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let op = Operation::FileDelete {
         path: args.file.clone(),
+        if_exists: false,
     };
 
     let check_msg = format!("would delete {}", args.file);

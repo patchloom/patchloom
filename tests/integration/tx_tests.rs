@@ -3538,6 +3538,172 @@ fn test_tx_replace_if_exists_still_replaces_when_found() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "baz bar\n");
 }
 
+/// #2231: plan doc.set if_exists soft-skips a missing file; sibling still applies.
+#[test]
+fn test_tx_doc_set_if_exists_missing_file_soft_skips_sibling() {
+    let dir = TempDir::new().unwrap();
+    let exists = dir.path().join("pkg.json");
+    fs::write(&exists, r#"{"version":"1.0"}"#).unwrap();
+    let missing = dir.path().join("absent.json");
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "doc.set",
+                "path": portable_path_str(&exists),
+                "selector": "version",
+                "value": "2.0"
+            },
+            {
+                "op": "doc.set",
+                "path": portable_path_str(&missing),
+                "selector": "version",
+                "value": "9.0",
+                "if_exists": true
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["files_changed"], 1, "{json}");
+    let pkg: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&exists).unwrap()).unwrap();
+    assert_eq!(pkg["version"], "2.0");
+    assert!(!missing.exists(), "if_exists must not create missing path");
+}
+
+/// #2231: plan file.delete if_exists soft-skips a missing file.
+#[test]
+fn test_tx_file_delete_if_exists_missing_file_soft_skips() {
+    let dir = TempDir::new().unwrap();
+    let keep = dir.path().join("keep.txt");
+    fs::write(&keep, "stay\n").unwrap();
+    let missing = dir.path().join("gone.txt");
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "replace",
+                "path": portable_path_str(&keep),
+                "old": "stay",
+                "new": "kept"
+            },
+            {
+                "op": "file.delete",
+                "path": portable_path_str(&missing),
+                "if_exists": true
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(fs::read_to_string(&keep).unwrap(), "kept\n");
+    assert!(!missing.exists(), "if_exists must not create missing path");
+}
+
+/// #2231: plan doc.set if_exists still writes when the key is found.
+#[test]
+fn test_tx_doc_set_if_exists_key_found_writes() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("pkg.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "version",
+            "value": "2.0",
+            "if_exists": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let pkg: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(pkg["version"], "2.0");
+}
+
+/// #2231: plan doc.set if_exists does not create a missing selector.
+#[test]
+fn test_tx_doc_set_if_exists_missing_selector_does_not_create() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("pkg.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "name",
+            "value": "created",
+            "if_exists": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let pkg: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(pkg, serde_json::json!({"version": "1.0"}));
+}
+
 #[test]
 fn test_tx_replace_no_match_does_not_hide_other_changes() {
     let dir = TempDir::new().unwrap();

@@ -112,10 +112,20 @@ fn file_write(
                 Ok(__e)
             }
         }
-        Operation::FileDelete { .. } => {
+        Operation::FileDelete { if_exists, .. } => {
             let path_str = path.to_string_lossy();
             // path_entry_exists includes dangling symlinks (#2087).
             if !crate::ops::file::path_entry_exists(path) {
+                if if_exists {
+                    return Ok(super::build_edit_result(
+                        &path_str,
+                        String::new(),
+                        String::new(),
+                        false,
+                        action,
+                        None,
+                    ));
+                }
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     format!("file not found: {}", path.display()),
@@ -335,6 +345,7 @@ pub fn file_delete(
     let path = path_owned.as_path();
     let op = Operation::FileDelete {
         path: path.to_string_lossy().into(),
+        if_exists: false,
     };
     file_write(op, path, mode, guard, "delete")
 }

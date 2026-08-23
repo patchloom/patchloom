@@ -62,7 +62,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "doc_set",
         op_name: "doc.set",
         extra: Some(
-            "Single concrete path only (keys/indexes). For selector predicates or wildcards (items[name=foo].v, items[*].v) use doc_update / plan doc.update. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+            "Single concrete path only (keys/indexes). For selector predicates or wildcards (items[name=foo].v, items[*].v) use doc_update / plan doc.update. Set if_exists=true to soft-skip a missing file or missing selector (does not create the key). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: true,
         validations: &[
@@ -313,7 +313,7 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         tool_name: "delete_file",
         op_name: "file.delete",
         extra: Some(
-            "IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+            "Set if_exists=true to soft-skip when the file is missing. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
         ),
         has_strict: false,
         validations: &[FieldValidation::PathEntry("path")],

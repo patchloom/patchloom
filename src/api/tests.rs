@@ -3697,6 +3697,7 @@ fn adapter_preview_does_not_write() {
         path: file.to_string_lossy().into(),
         selector: "key".into(),
         value: serde_json::json!("new"),
+        if_exists: false,
     };
 
     let result =
@@ -3721,6 +3722,7 @@ fn adapter_apply_writes_to_disk() {
         path: file.to_string_lossy().into(),
         selector: "key".into(),
         value: serde_json::json!("new"),
+        if_exists: false,
     };
 
     let result =
@@ -3744,6 +3746,7 @@ fn adapter_check_does_not_write() {
         path: file.to_string_lossy().into(),
         selector: "key".into(),
         value: serde_json::json!("new"),
+        if_exists: false,
     };
 
     let result =
@@ -3774,6 +3777,7 @@ fn adapter_respects_guard() {
         path: file.to_string_lossy().into(),
         selector: "key".into(),
         value: serde_json::json!("new"),
+        if_exists: false,
     };
 
     let result = super::execute_as_edit_result(
@@ -3806,6 +3810,7 @@ fn adapter_guard_rejects_outside_path() {
         path: file.to_string_lossy().into(),
         selector: "key".into(),
         value: serde_json::json!("new"),
+        if_exists: false,
     };
 
     let err = super::execute_as_edit_result(

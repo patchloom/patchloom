@@ -374,6 +374,7 @@ mod tests {
         let global = GlobalFlags::test_default();
         let op = Operation::FileDelete {
             path: "to_delete.txt".to_string(),
+            if_exists: false,
         };
 
         let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
@@ -399,6 +400,7 @@ mod tests {
         let global = GlobalFlags::test_default();
         let op = Operation::FileDelete {
             path: "empty.txt".to_string(),
+            if_exists: false,
         };
 
         let result = execute_single(op, test_options(dir.path(), &global)).unwrap();
