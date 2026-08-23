@@ -3424,6 +3424,92 @@ async fn test_mcp_replace_if_exists_no_match_succeeds() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_set_if_exists_missing_file_succeeds() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "absent.json",
+            "selector": "version",
+            "value": "9.0",
+            "if_exists": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_set if_exists missing file should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "doc_set if_exists ok: {val}");
+    assert!(
+        !dir.path().join("absent.json").exists(),
+        "if_exists must not create missing file"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_set_if_exists_missing_selector_does_not_create() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("pkg.json"), r#"{"version":"1.0"}"#).unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "pkg.json",
+            "selector": "name",
+            "value": "created",
+            "if_exists": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_set if_exists missing selector should succeed: {val}"
+    );
+    let pkg: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("pkg.json")).unwrap()).unwrap();
+    assert_eq!(pkg, serde_json::json!({"version": "1.0"}));
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_delete_file_if_exists_missing_succeeds() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "delete_file",
+        serde_json::json!({
+            "path": "absent.txt",
+            "if_exists": true
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "delete_file if_exists missing file should succeed: {val}"
+    );
+    assert!(
+        !dir.path().join("absent.txt").exists(),
+        "if_exists must not create missing file"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_replace_command_position_round_trip() {
     if !has_mcp_support() {
         return;

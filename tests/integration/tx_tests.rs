@@ -3671,6 +3671,39 @@ fn test_tx_doc_set_if_exists_key_found_writes() {
     assert_eq!(pkg["version"], "2.0");
 }
 
+/// #2231: plan doc.set if_exists does not create a missing selector.
+#[test]
+fn test_tx_doc_set_if_exists_missing_selector_does_not_create() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("pkg.json");
+    fs::write(&file, r#"{"version":"1.0"}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "name",
+            "value": "created",
+            "if_exists": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let pkg: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(pkg, serde_json::json!({"version": "1.0"}));
+}
+
 #[test]
 fn test_tx_replace_no_match_does_not_hide_other_changes() {
     let dir = TempDir::new().unwrap();
