@@ -588,6 +588,7 @@ mod basic {
             diff: safe_diff.to_string(),
             on_stale: crate::ops::patch::OnStale::Fail,
             allow_conflicts: false,
+            replace_all: false,
         }];
         let result = validate_operation_paths(&ops, dir.path());
         result.expect("PatchApply with safe paths should pass");
@@ -795,6 +796,7 @@ mod security {
             diff: evil_diff.to_string(),
             on_stale: crate::ops::patch::OnStale::Fail,
             allow_conflicts: false,
+            replace_all: false,
         }];
         let result = validate_operation_paths(&ops, dir.path());
         assert!(

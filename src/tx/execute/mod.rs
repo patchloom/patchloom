@@ -53,6 +53,15 @@ pub(crate) fn enforce_guard_for_op(
             }
             return Ok(());
         }
+        if crate::ops::search_replace::looks_like_search_replace(diff) {
+            if let Ok(paths) = crate::ops::search_replace::search_replace_declared_paths(diff) {
+                for path in paths {
+                    g.check_path(&path)
+                        .map_err(crate::fallback::EditError::guard_rejected)?;
+                }
+            }
+            return Ok(());
+        }
         // Parse failure deferred to apply time (same as declared_paths).
         if let Ok(files) = crate::ops::patch::parse_patch(diff) {
             for pf in files {

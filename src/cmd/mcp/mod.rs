@@ -87,6 +87,11 @@ fn validate_operation_paths(
         // Note: PatchApply paths are now covered by declared_paths() which
         // parses the diff. The block below is retained as defense-in-depth.
         if let Operation::PatchApply { diff, .. } = op {
+            if crate::ops::begin_patch::looks_like_begin_patch(diff)
+                || crate::ops::search_replace::looks_like_search_replace(diff)
+            {
+                continue;
+            }
             let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
                 McpError::invalid_params(
                     format!("failed to parse diff for path validation: {e}"),
@@ -346,6 +351,21 @@ impl PatchloomService {
                 } else {
                     self.check_path(&path)?;
                 }
+            }
+            return Ok(());
+        }
+        if let Operation::PatchApply { diff, .. } = op
+            && crate::ops::search_replace::looks_like_search_replace(diff)
+        {
+            let paths =
+                crate::ops::search_replace::search_replace_declared_paths(diff).map_err(|e| {
+                    McpError::invalid_params(
+                        format!("failed to parse diff for path validation: {e}"),
+                        None,
+                    )
+                })?;
+            for path in paths {
+                self.check_path(&path)?;
             }
             return Ok(());
         }

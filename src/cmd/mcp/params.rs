@@ -127,6 +127,9 @@ pub(crate) struct PatchParams {
     pub on_stale: crate::ops::patch::OnStale,
     #[serde(default)]
     pub allow_conflicts: bool,
+    /// SEARCH/REPLACE only: update every exact match. Default unique.
+    #[serde(default)]
+    pub replace_all: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,

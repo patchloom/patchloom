@@ -21,6 +21,7 @@ use serde::Serialize;
 EXAMPLES:
   patchloom patch apply changes.patch
   patchloom patch apply changes.patch --apply
+  patchloom patch apply sr.txt --apply --replace-all
   patchloom patch check changes.patch
   patchloom patch merge changes.patch --check
   patchloom patch merge changes.patch --apply --allow-conflicts")]
@@ -48,6 +49,10 @@ pub enum PatchAction {
         stdin: bool,
         #[arg(long, value_enum, default_value_t = OnStaleCli::Fail)]
         on_stale: OnStaleCli,
+        /// SEARCH/REPLACE only: update every exact match (default is unique).
+        // ref:patch-mode:replace_all
+        #[arg(long)]
+        replace_all: bool,
     },
     Merge {
         // ref:patch-mode:file
@@ -510,6 +515,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             file,
             stdin,
             on_stale,
+            replace_all: _,
         } => (
             file.clone(),
             *stdin,
@@ -595,7 +601,27 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     crate::verbose!("patch: diff text length={}", diff_text.len());
+    let replace_all = match &args.action {
+        PatchAction::Apply { replace_all, .. } => *replace_all,
+        _ => false,
+    };
+    if replace_all && !crate::ops::search_replace::looks_like_search_replace(&diff_text) {
+        emit_error(
+            global,
+            "patch: --replace-all is only valid for SEARCH/REPLACE documents",
+            "invalid_input",
+        )?;
+        return Ok(exit::FAILURE);
+    }
     if crate::ops::begin_patch::looks_like_begin_patch(&diff_text) {
+        if diff_text.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+            emit_error(
+                global,
+                "patch: mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
+                "parse_error",
+            )?;
+            return Ok(exit::PARSE_ERROR);
+        }
         if matches!(args.action, PatchAction::Check { .. }) {
             return run_begin_patch_check(global, &cwd, &diff_text);
         }
@@ -603,6 +629,19 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             diff: diff_text,
             on_stale: apply_options.on_stale,
             allow_conflicts: apply_options.allow_conflicts,
+            replace_all: false,
+        };
+        return finish_patch_apply(global, op, merge_mode);
+    }
+    if crate::ops::search_replace::looks_like_search_replace(&diff_text) {
+        if matches!(args.action, PatchAction::Check { .. }) {
+            return run_search_replace_check(global, &cwd, &diff_text, replace_all);
+        }
+        let op = Operation::PatchApply {
+            diff: diff_text,
+            on_stale: apply_options.on_stale,
+            allow_conflicts: apply_options.allow_conflicts,
+            replace_all,
         };
         return finish_patch_apply(global, op, merge_mode);
     }
@@ -893,8 +932,58 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         diff: diff_text,
         on_stale: apply_options.on_stale,
         allow_conflicts: apply_options.allow_conflicts,
+        replace_all: false,
     };
     finish_patch_apply(global, op, merge_mode)
+}
+
+fn run_search_replace_check(
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+    diff_text: &str,
+    replace_all: bool,
+) -> anyhow::Result<u8> {
+    let results = match crate::api::apply_search_replace_document(
+        diff_text,
+        cwd,
+        &crate::api::ApplySearchReplaceOptions { replace_all },
+        crate::api::ApplyMode::Preview,
+        None,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let (kind, code) = if let Some((k, c)) = exit::classify_typed_error(&e) {
+                (k, c)
+            } else {
+                ("parse_error", exit::PARSE_ERROR)
+            };
+            emit_error(global, &e.to_string(), kind)?;
+            return Ok(code);
+        }
+    };
+    let files: Vec<PatchFileResult> = results
+        .iter()
+        .map(|r| PatchFileResult {
+            path: r.path.clone(),
+            status: if r.changed {
+                "would_change"
+            } else {
+                "unchanged"
+            },
+            error: None,
+            conflicts: None,
+            from: None,
+            to: None,
+            action: None,
+        })
+        .collect();
+    let any_would_change = results.iter().any(|r| r.changed);
+    emit_patch_files_output(global, true, &files, Some(false), None)?;
+    Ok(if any_would_change {
+        exit::CHANGES_DETECTED
+    } else {
+        exit::SUCCESS
+    })
 }
 
 fn run_begin_patch_check(
@@ -1296,6 +1385,7 @@ mod tests {
                     file: Some(diff_path.to_string_lossy().into_owned()),
                     stdin: false,
                     on_stale: OnStaleCli::Fail,
+                    replace_all: false,
                 },
                 write: Default::default(),
             },

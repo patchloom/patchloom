@@ -83,7 +83,7 @@ tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n
              | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |\n\
              | Search across files | `search_files` |\n\
              | List/inventory files (ignore-aware; max_depth prunes walk; prefer over FS MCP) | `list_files` |\n\
-             | Apply a unified diff or Codex Begin Patch | `apply_patch` |\n\
+             | Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE | `apply_patch` |\n\
              | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |\n\
              | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |\n\
              | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |\n\
@@ -122,11 +122,14 @@ binary / mode-only dests are listed then apply refuses (no silent skip on mixed 
 `api::looks_like_begin_patch` + `api::begin_patch_declared_paths`. Do not copy a \
 Begin Patch parser. Mixed Begin Patch + unified-diff is a typed error. Update hunks \
 require a unique exact match.\n\n\
-             **Library SEARCH/REPLACE (#2220):** `api::parse_search_replace` / \
+             **Library SEARCH/REPLACE (#2220 / #2221):** `api::parse_search_replace` / \
 `api::apply_search_replace_blocks` (DiffFenced is the same parse after fence unwrap). \
+CLI `patch apply` and MCP `apply_patch` detect `<<<<<<< SEARCH` (and fenced DiffFenced). \
 Default unique: multi-match is `ambiguous` and does not write. `replace_all: true` \
-updates every exact match. Empty SEARCH is invalid input. Do not `replacen` or raw \
-`fs::write`. Do not flip `ReplaceOptions.unique` on generic `replace_text`.\n\n\
+or CLI `--replace-all` updates every exact match. Empty SEARCH is invalid input. \
+Plan `patch.apply` accepts the same document (`replace_all` optional). \
+Do not `replacen` or raw `fs::write`. Do not flip `ReplaceOptions.unique` on \
+generic `replace_text`. Do not invent a native `search_replace` MCP tool.\n\n\
              **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback \
 replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
 `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \

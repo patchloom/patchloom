@@ -9,9 +9,25 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
             diff,
             on_stale,
             allow_conflicts,
+            replace_all,
         } => {
+            if *replace_all && !crate::ops::search_replace::looks_like_search_replace(diff) {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "replace_all is only valid for SEARCH/REPLACE documents".into(),
+                }
+                .into());
+            }
             if crate::ops::begin_patch::looks_like_begin_patch(diff) {
+                if diff.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+                    return Err(crate::exit::ParseErrorError {
+                        msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
+                    }
+                    .into());
+                }
                 return execute_begin_patch(diff, tx);
+            }
+            if crate::ops::search_replace::looks_like_search_replace(diff) {
+                return execute_search_replace(diff, *replace_all, tx);
             }
             let options = ApplyHunksOptions {
                 on_stale: *on_stale,
@@ -177,6 +193,92 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                 }
             }
         }
+    }
+    Ok(0)
+}
+
+fn execute_search_replace(
+    diff: &str,
+    replace_all: bool,
+    tx: &mut TxState<'_>,
+) -> anyhow::Result<usize> {
+    use crate::api::ReplaceOptions;
+    use crate::ops::search_replace::parse_search_replace_document;
+
+    let blocks = parse_search_replace_document(diff)
+        .map_err(|e| crate::exit::ParseErrorError { msg: e.message })?;
+    if blocks.is_empty() {
+        return Err(crate::exit::InvalidInputError {
+            msg: "no SEARCH/REPLACE blocks to apply".into(),
+        }
+        .into());
+    }
+    let replace_opts = ReplaceOptions {
+        unique: !replace_all,
+        require_change: true,
+        ..ReplaceOptions::default()
+    };
+
+    struct Planned {
+        path: std::path::PathBuf,
+        new_content: String,
+    }
+    let mut planned: Vec<Planned> = Vec::new();
+
+    for block in blocks {
+        if block.old.is_empty() {
+            return Err(crate::exit::InvalidInputError {
+                msg: "SEARCH/REPLACE SEARCH block must not be empty (not a whole-file rewrite)"
+                    .into(),
+            }
+            .into());
+        }
+        if block.path.trim().is_empty() {
+            return Err(crate::exit::InvalidInputError {
+                msg: "SEARCH/REPLACE path must not be empty".into(),
+            }
+            .into());
+        }
+        if std::path::Path::new(&block.path)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("SEARCH/REPLACE path must not contain '..': {}", block.path),
+            }
+            .into());
+        }
+        let dest = tx.cwd.join(&block.path);
+        if dest.is_dir() {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!(
+                    "{} is a directory; SEARCH/REPLACE needs a file path",
+                    dest.display()
+                ),
+            }
+            .into());
+        }
+        if let Some(idx) = planned.iter().position(|p| p.path == dest) {
+            let existing = &mut planned[idx];
+            let content_result = crate::api::replace_in_content(
+                &existing.new_content,
+                &block.old,
+                &block.new,
+                &replace_opts,
+            )?;
+            existing.new_content = content_result.new_content;
+            continue;
+        }
+        let original = read_file_content(tx.pending, tx.existed_before, &dest)?.to_string();
+        let content_result =
+            crate::api::replace_in_content(&original, &block.old, &block.new, &replace_opts)?;
+        planned.push(Planned {
+            path: dest,
+            new_content: content_result.new_content,
+        });
+    }
+    for item in planned {
+        tx.write_file(&item.path, item.new_content);
     }
     Ok(0)
 }

@@ -401,7 +401,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "patch.apply",
-        description: "Apply a unified diff patch to one or more files. Supports three-way merge on stale context.",
+        description: "Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE / DiffFenced document. SEARCH/REPLACE is unique unless replace_all is true.",
         tier: Tier::Medium,
         examples: &[],
     },

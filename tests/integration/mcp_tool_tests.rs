@@ -5787,3 +5787,75 @@ async fn test_mcp_apply_patch_begin_patch_update() {
     );
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_mcp_apply_patch_search_replace_update() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let diff =
+        "<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(!is_error, "SEARCH/REPLACE via MCP should succeed: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_search_replace_replace_all() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();
+    let diff = "<<<<<<< SEARCH\ncode.rs\n-------\nx\n=======\ny\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "replace_all": true}),
+    )
+    .await;
+    assert!(!is_error, "SEARCH/REPLACE replace_all via MCP: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "y\ny\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_replace_all_on_unified_is_invalid() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "line1\nold line\nline3\n").unwrap();
+    let diff =
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "replace_all": true}),
+    )
+    .await;
+    assert!(is_error, "replace_all on unified should fail: {val}");
+    let blob = val.to_string();
+    assert!(
+        blob.contains("replace_all") || blob.contains("SEARCH/REPLACE"),
+        "expected replace_all refuse, got {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+        "line1\nold line\nline3\n"
+    );
+    client.cancel().await.unwrap();
+}

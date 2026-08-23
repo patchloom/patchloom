@@ -1647,3 +1647,171 @@ fn test_patch_apply_begin_patch_ambiguous_json() {
         "x\nx\n"
     );
 }
+
+fn search_replace_doc(path: &str, old: &str, new: &str) -> String {
+    format!("<<<<<<< SEARCH\n{path}\n-------\n{old}\n=======\n{new}\n>>>>>>> REPLACE\n")
+}
+
+#[test]
+fn test_patch_apply_search_replace_writes_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        search_replace_doc("code.rs", "fn old() {}", "fn new() {}"),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_search_replace_ambiguous_without_replace_all() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(&patch_file, search_replace_doc("code.rs", "x", "y")).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let blob = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        blob.contains("ambiguous"),
+        "expected ambiguous peel, got {blob}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "x\nx\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_search_replace_replace_all() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(&patch_file, search_replace_doc("code.rs", "x", "y")).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--replace-all")
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "y\ny\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_replace_all_on_unified_diff_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "line1\nold line\nline3\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--replace-all")
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let blob = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        blob.contains("invalid_input") && blob.contains("replace-all"),
+        "expected invalid_input for --replace-all on unified diff, got {blob}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+        "line1\nold line\nline3\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_mixed_search_replace_and_begin_patch_is_parse_error() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let blob = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        blob.contains("mixed") || blob.contains("parse_error"),
+        "expected mixed-grammar refuse, got {blob}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
+    );
+}

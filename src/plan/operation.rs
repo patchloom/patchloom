@@ -296,6 +296,9 @@ pub enum Operation {
         on_stale: crate::ops::patch::OnStale,
         #[serde(default)]
         allow_conflicts: bool,
+        /// SEARCH/REPLACE only: update every exact match. Default unique.
+        #[serde(default)]
+        replace_all: bool,
     },
     #[serde(rename = "search")]
     Search {

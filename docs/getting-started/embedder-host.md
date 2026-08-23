@@ -92,11 +92,14 @@ Do not expose only `doc_set` if agents need list updates by name. See
     Begin Patch + unified-diff is a typed error. Update hunks require a unique
     exact match (#2219).
 13. **SEARCH/REPLACE / DiffFenced:** `parse_search_replace` /
-    `apply_search_replace_blocks` (or `apply_search_replace_document`). Default
-    is unique: multi-match is `ambiguous` and does not write. Pass
-    `replace_all: true` to update every exact match. Empty SEARCH is invalid
-    input. Do not `replacen(..., 1)` or raw `fs::write`, and do not flip
-    `ReplaceOptions.unique` on generic `replace_text` (#2220).
+    `apply_search_replace_blocks` (or `apply_search_replace_document`).
+    `apply_patch` / `apply_patch_file` also detect `<<<<<<< SEARCH`.
+    Dest-deny with `looks_like_search_replace` + `search_replace_declared_paths`.
+    Default is unique: multi-match is `ambiguous` and does not write. Pass
+    `replace_all: true` (CLI `patch apply --replace-all`, MCP `replace_all`)
+    to update every exact match. Empty SEARCH is invalid input. Do not
+    `replacen(..., 1)` or raw `fs::write`, and do not flip
+    `ReplaceOptions.unique` on generic `replace_text` (#2220 / #2221).
 
 ## Minimal sketch
 

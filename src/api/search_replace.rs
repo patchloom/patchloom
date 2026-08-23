@@ -3,9 +3,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use crate::containment::PathGuard;
-use crate::ops::search_replace::{
-    SearchReplaceBlock, SearchReplaceParseError, parse_diff_fenced, parse_search_replace,
-};
+use crate::ops::search_replace::{SearchReplaceBlock, SearchReplaceParseError};
 
 use super::{ApplyMode, EditResult, ReplaceOptions};
 
@@ -27,24 +25,9 @@ pub fn apply_search_replace_document(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<Vec<EditResult>> {
-    let blocks = parse_search_replace_document(input).map_err(map_parse_err)?;
+    let blocks =
+        crate::ops::search_replace::parse_search_replace_document(input).map_err(map_parse_err)?;
     apply_search_replace_blocks(&blocks, cwd, opts, mode, guard)
-}
-
-/// Parse SEARCH/REPLACE, or DiffFenced (fenced unwrap) when the document
-/// wraps blocks in triple backticks.
-pub fn parse_search_replace_document(
-    input: &str,
-) -> Result<Vec<SearchReplaceBlock>, SearchReplaceParseError> {
-    let fenced = input.lines().any(|l| {
-        let t = l.trim();
-        t == "```" || t.starts_with("```")
-    });
-    if fenced {
-        parse_diff_fenced(input)
-    } else {
-        parse_search_replace(input)
-    }
 }
 
 /// Apply parsed SEARCH/REPLACE blocks under `cwd`.

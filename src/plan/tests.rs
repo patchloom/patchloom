@@ -909,6 +909,11 @@ fn declared_paths_covers_operation_variants() {
         "Begin Patch dests must be declared: {ps:?}"
     );
 
+    // PatchApply SEARCH/REPLACE dests (#2221)
+    let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"<<<<<<< SEARCH\nb.rs\n-------\nold\n=======\nnew\n>>>>>>> REPLACE\n"}]}"#;
+    let plan = parse_plan(json).unwrap();
+    assert_eq!(declared_paths(&plan.operations[0]), vec!["b.rs"]);
+
     // PatchApply with invalid diff: returns empty (error deferred to apply time)
     let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"not a valid diff"}]}"#;
     let plan = parse_plan(json).unwrap();
