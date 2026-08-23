@@ -614,7 +614,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return Ok(exit::FAILURE);
     }
     if crate::ops::begin_patch::looks_like_begin_patch(&diff_text) {
-        if diff_text.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+        if crate::ops::search_replace::has_search_replace_marker(&diff_text) {
             emit_error(
                 global,
                 "patch: mixed Begin Patch and SEARCH/REPLACE grammar is not supported",

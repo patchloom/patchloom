@@ -25,7 +25,7 @@ pub fn apply_patch(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
-        if patch_text.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+        if crate::ops::search_replace::has_search_replace_marker(patch_text) {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
             }));
@@ -221,7 +221,7 @@ pub fn apply_patch_file(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<Vec<EditResult>> {
     if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
-        if patch_text.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+        if crate::ops::search_replace::has_search_replace_marker(patch_text) {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
             }));

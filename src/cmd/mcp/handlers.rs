@@ -681,7 +681,7 @@ impl PatchloomService {
                         None,
                     ));
                 }
-                if p.diff.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+                if crate::ops::search_replace::has_search_replace_marker(&p.diff) {
                     return Err(McpError::invalid_params(
                         "mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
                         None,
