@@ -5859,3 +5859,66 @@ async fn test_mcp_apply_patch_replace_all_on_unified_is_invalid() {
     );
     client.cancel().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_mcp_apply_patch_replace_all_on_begin_patch_is_invalid() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let diff = "*** Begin Patch\n*** Update File: code.rs\n@@\n-fn old() {}\n+fn new() {}\n*** End Patch\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "apply_patch",
+        serde_json::json!({"diff": diff, "replace_all": true}),
+    )
+    .await;
+    assert!(is_error, "replace_all on Begin Patch should fail: {val}");
+    let blob = val.to_string();
+    assert!(
+        blob.contains("replace_all") || blob.contains("SEARCH/REPLACE"),
+        "expected replace_all refuse, got {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// SEARCH/REPLACE is a content write: follow PathGuard so a workspace
+/// symlink whose target is outside must not be rewritten.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_search_replace_symlink_outside_target() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = dir
+        .path()
+        .parent()
+        .unwrap()
+        .join("pl-mcp-sr-symlink-target.txt");
+    fs::write(&outside, "outside-old\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let diff =
+        "<<<<<<< SEARCH\nlink.txt\n-------\noutside-old\n=======\nmutated\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        is_error,
+        "SEARCH/REPLACE through outside symlink must fail closed: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "outside-old\n",
+        "outside target must not be rewritten"
+    );
+    client.cancel().await.unwrap();
+    let _ = fs::remove_file(&outside);
+}
