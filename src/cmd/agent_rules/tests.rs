@@ -128,7 +128,10 @@ fn mode_mcp_omits_cli_keeps_mcp() {
     // MCP-only mode must not mention batch/transaction tools or CLI
     assert!(!out.contains("batch({\"operations\":"));
     assert!(!out.contains("transaction({\"operations\":"));
-    assert!(!out.contains("search_replace"));
+    assert!(
+        !out.contains("search_replace(") && !out.contains("\"search_replace\""),
+        "MCP-only rules must not name a native search_replace tool"
+    );
     assert!(!out.contains("run_terminal_command"));
     assert!(!out.contains("command line"));
     assert!(out.contains("Use them for ALL file operations"));
@@ -553,8 +556,13 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
             && out.contains("parse_diff_git_paths")
             && out.contains("pair after")
             && out.contains("changed: true")
-            && out.contains("#2170"),
-        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle/patch dest (#2168/#2169/#2170)"
+            && out.contains("#2170")
+            && out.contains("looks_like_begin_patch")
+            && out.contains("begin_patch_declared_paths")
+            && out.contains("apply_search_replace_blocks")
+            && out.contains("#2219")
+            && out.contains("#2220"),
+        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle/patch dest (#2168/#2169/#2170) plus Begin Patch / SEARCH/REPLACE (#2219/#2220)"
     );
     assert!(
         out.contains("Which surface to use")

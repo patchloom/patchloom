@@ -661,7 +661,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff (patch). The diff parameter is the full unified diff text. Supports multi-file diffs. Use on_stale=merge for three-way merge on stale context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
+        description = "Apply a unified diff or a Codex *** Begin Patch document. The diff parameter is the full unified diff text or a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move). Supports multi-file diffs. Use on_stale=merge for three-way merge on stale context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
     )]
     async fn apply_patch(
         &self,
@@ -669,6 +669,24 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             validate_content_size("diff", &p.diff)?;
+            if crate::ops::begin_patch::looks_like_begin_patch(&p.diff) {
+                let ops = crate::ops::begin_patch::parse_begin_patch(&p.diff).map_err(|e| {
+                    McpError::invalid_params(format!("failed to parse diff: {e}"), None)
+                })?;
+                for (path, entry) in crate::ops::begin_patch::begin_patch_containment_checks(&ops) {
+                    if entry {
+                        svc.check_path_entry(&path)?;
+                    } else {
+                        svc.check_path(&path)?;
+                    }
+                }
+                let op = Operation::PatchApply {
+                    diff: p.diff,
+                    on_stale: p.on_stale,
+                    allow_conflicts: p.allow_conflicts,
+                };
+                return svc.run_one_op(op, Some(p.strict));
+            }
             // Validate paths embedded in the diff.
             let patch_files = crate::ops::patch::parse_patch(&p.diff).map_err(|e| {
                 McpError::invalid_params(format!("failed to parse diff: {e}"), None)

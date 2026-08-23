@@ -86,6 +86,17 @@ Do not expose only `doc_set` if agents need list updates by name. See
 11. **Host unit tests for `op_honesty`:** `ContentEditHonesty` is
     `#[non_exhaustive]`; use `ContentEditHonesty::exact` / `::fuzzy` instead of
     struct literals (#2033). Prefer live `apply_content_edits` for integration tests.
+12. **Codex Begin Patch:** call `apply_patch` / `apply_patch_file` (they detect
+    `*** Begin Patch`). Dest-deny first with `looks_like_begin_patch` +
+    `begin_patch_declared_paths`. Do not copy a Begin Patch parser. Mixed
+    Begin Patch + unified-diff is a typed error. Update hunks require a unique
+    exact match (#2219).
+13. **SEARCH/REPLACE / DiffFenced:** `parse_search_replace` /
+    `apply_search_replace_blocks` (or `apply_search_replace_document`). Default
+    is unique: multi-match is `ambiguous` and does not write. Pass
+    `replace_all: true` to update every exact match. Empty SEARCH is invalid
+    input. Do not `replacen(..., 1)` or raw `fs::write`, and do not flip
+    `ReplaceOptions.unique` on generic `replace_text` (#2220).
 
 ## Minimal sketch
 

@@ -900,6 +900,15 @@ fn declared_paths_covers_operation_variants() {
         "copy dest+source must be declared: {ps:?}"
     );
 
+    // PatchApply Begin Patch: dests including Move to (#2219)
+    let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"*** Begin Patch\n*** Update File: b.rs\n*** Move to: c.rs\n@@\n-old\n+new\n*** End Patch\n"}]}"#;
+    let plan = parse_plan(json).unwrap();
+    let ps = declared_paths(&plan.operations[0]);
+    assert!(
+        ps.contains(&"b.rs".to_string()) && ps.contains(&"c.rs".to_string()),
+        "Begin Patch dests must be declared: {ps:?}"
+    );
+
     // PatchApply with invalid diff: returns empty (error deferred to apply time)
     let json = r#"{"version": 1,"operations":[{"op":"patch.apply","diff":"not a valid diff"}]}"#;
     let plan = parse_plan(json).unwrap();

@@ -1,5 +1,7 @@
 //! Operation dispatcher and in-memory plan execution.
 //!
+//! size-waiver: single-domain op dispatch + PathGuard per-op matrix (#2219 / #1408).
+//!
 //! File mutations: [`file_ops`]. Write policy: [`policy`].
 //! Other handlers: `tx/{ast,md,patch,replace,search,tidy}_op`.
 
@@ -37,6 +39,20 @@ pub(crate) fn enforce_guard_for_op(
     op: &Operation,
 ) -> anyhow::Result<()> {
     if let Operation::PatchApply { diff, .. } = op {
+        if crate::ops::begin_patch::looks_like_begin_patch(diff) {
+            if let Ok(ops) = crate::ops::begin_patch::parse_begin_patch(diff) {
+                for (path, entry) in crate::ops::begin_patch::begin_patch_containment_checks(&ops) {
+                    if entry {
+                        g.check_path_entry(&path)
+                            .map_err(crate::fallback::EditError::guard_rejected)?;
+                    } else {
+                        g.check_path(&path)
+                            .map_err(crate::fallback::EditError::guard_rejected)?;
+                    }
+                }
+            }
+            return Ok(());
+        }
         // Parse failure deferred to apply time (same as declared_paths).
         if let Ok(files) = crate::ops::patch::parse_patch(diff) {
             for pf in files {

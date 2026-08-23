@@ -19,6 +19,21 @@ pub fn apply_patch(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
+        let abs = super::absolute_for_engine(path).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to resolve path {}: {e}", path.display()),
+            )
+        })?;
+        let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
+        let results = super::apply_begin_patch(patch_text, cwd, Some(&abs), mode, guard)?;
+        return results.into_iter().next().ok_or_else(|| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: "Begin Patch contained no file operations".into(),
+            })
+        });
+    }
     let op = Operation::PatchApply {
         diff: patch_text.into(),
         on_stale: Default::default(),
@@ -173,6 +188,9 @@ pub fn apply_patch_file(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<Vec<EditResult>> {
+    if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
+        return super::apply_begin_patch(patch_text, cwd, None, mode, guard);
+    }
     let patch_files = crate::ops::patch::parse_patch(patch_text).map_err(|e| {
         anyhow::Error::new(crate::exit::ParseErrorError {
             msg: format!("patch parse error: {e}"),

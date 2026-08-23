@@ -3613,6 +3613,36 @@ fn test_tx_patch_apply_in_plan() {
     );
 }
 
+#[test]
+fn test_tx_patch_apply_begin_patch() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "*** Begin Patch\n*** Update File: code.rs\n@@\n-fn old() {}\n+fn new() {}\n*** End Patch\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+}
+
 /// Pure git rename must refuse when dest already exists (parity with file.rename).
 #[test]
 fn test_tx_patch_apply_pure_rename_refuses_existing_dest() {

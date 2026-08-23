@@ -331,6 +331,24 @@ impl PatchloomService {
 
     /// Validate paths for a single operation (including embedded paths for PatchApply).
     fn validate_op_paths(&self, op: &Operation) -> Result<(), McpError> {
+        if let Operation::PatchApply { diff, .. } = op
+            && crate::ops::begin_patch::looks_like_begin_patch(diff)
+        {
+            let ops = crate::ops::begin_patch::parse_begin_patch(diff).map_err(|e| {
+                McpError::invalid_params(
+                    format!("failed to parse diff for path validation: {e}"),
+                    None,
+                )
+            })?;
+            for (path, entry) in crate::ops::begin_patch::begin_patch_containment_checks(&ops) {
+                if entry {
+                    self.check_path_entry(&path)?;
+                } else {
+                    self.check_path(&path)?;
+                }
+            }
+            return Ok(());
+        }
         let entry = op.uses_entry_containment();
         for declared in op.declared_paths() {
             if entry {

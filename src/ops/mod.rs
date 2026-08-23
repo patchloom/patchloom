@@ -1,4 +1,5 @@
 pub mod apply_fragment;
+pub mod begin_patch;
 pub mod doc;
 pub mod file;
 pub mod md;
@@ -6,4 +7,5 @@ pub mod patch;
 pub mod read;
 pub mod replace;
 pub mod search;
+pub mod search_replace;
 pub mod shell_token;

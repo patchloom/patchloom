@@ -140,7 +140,7 @@ agent-test: build ## Run agent integration tests (requires LLM API key). Default
 		.venv/bin/pip install -q -r requirements.txt && \
 		.venv/bin/pytest -v --timeout 240 $(if $(MODEL),--model $(MODEL),) --ignore=test_bench.py
 
-embedder-smoke: build ## Pre-release host contracts (CLI peels + library fuzzy/path-only/fragment honesty)
+embedder-smoke: build ## Pre-release host contracts (CLI peels + library fuzzy/path-only/fragment/Begin Patch/SEARCH-REPLACE)
 	bash scripts/embedder-smoke.sh target/debug/patchloom
 
 semver-check: ## cargo-semver-checks vs last crates.io release (requires cargo-semver-checks; not in make check)
