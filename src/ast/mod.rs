@@ -9,6 +9,7 @@ pub mod diff;
 pub mod extract_to_file;
 pub mod group;
 pub mod impact;
+pub mod import_rewrite;
 pub mod imports;
 pub mod insert;
 pub mod map;

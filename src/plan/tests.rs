@@ -309,11 +309,24 @@ fn parse_all_operation_variants() {
             {"op": "ast.reorder", "path": "f.rs", "order": ["b", "a"], "inside": "mod tests"},
             {"op": "ast.group", "path": "f.rs", "module": "tests", "symbols": ["test_a"]},
             {"op": "ast.move", "path": "src.rs", "target": "dst.rs", "symbols": ["foo"]},
+            {"op": "ast.move", "path": "src.rs", "target": "dst.rs", "symbols": ["foo"], "update_imports": true, "old_module_path": "crate::old_mod", "new_module_path": "crate::new_mod"},
             {"op": "ast.extract_to_file", "source": "lib.rs", "symbol": "tests", "target": "lib_tests.rs"},
             {"op": "ast.split", "source": "big.rs", "targets": [{"path": "a.rs", "symbols": ["A"]}]}
         ]}"#;
     let plan = parse_plan(json).unwrap();
-    assert_eq!(plan.operations.len(), 45);
+    assert_eq!(plan.operations.len(), 46);
+    let found = plan.operations.iter().any(|op| {
+        matches!(
+            op,
+            Operation::AstMove {
+                update_imports: true,
+                old_module_path: Some(old),
+                new_module_path: Some(new),
+                ..
+            } if old == "crate::old_mod" && new == "crate::new_mod"
+        )
+    });
+    assert!(found, "ast.move update_imports fields should parse");
 }
 
 /// Canonical plan field is `selector` (matches CLI help). Alias `key` must

@@ -959,6 +959,9 @@ pub(super) fn handle_ast_move(
         position: p.position,
         target_prepend: p.target_prepend,
         lang: p.lang,
+        update_imports: p.update_imports,
+        old_module_path: p.old_module_path,
+        new_module_path: p.new_module_path,
     };
     svc.run_one_op(op, None)
 }
@@ -978,6 +981,9 @@ pub(super) fn handle_ast_extract_to_file(
         prepend: p.prepend,
         force: p.force,
         lang: p.lang,
+        update_imports: p.update_imports,
+        old_module_path: p.old_module_path,
+        new_module_path: p.new_module_path,
     };
     svc.run_one_op(op, None)
 }

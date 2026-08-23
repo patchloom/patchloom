@@ -497,10 +497,16 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             path,
             target,
             symbols,
+            update_imports,
             ..
         } => {
+            let extra = if *update_imports {
+                ", update imports"
+            } else {
+                ""
+            };
             format!(
-                "AST move {} symbol(s) from {path} to {target}",
+                "AST move {} symbol(s) from {path} to {target}{extra}",
                 symbols.len()
             )
         }
@@ -509,9 +515,15 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             source,
             symbol,
             target,
+            update_imports,
             ..
         } => {
-            format!("AST extract \"{symbol}\" from {source} to {target}")
+            let extra = if *update_imports {
+                ", update imports"
+            } else {
+                ""
+            };
+            format!("AST extract \"{symbol}\" from {source} to {target}{extra}")
         }
         #[cfg(feature = "ast")]
         Operation::AstSplit {

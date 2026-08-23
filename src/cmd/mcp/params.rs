@@ -706,6 +706,15 @@ pub(crate) struct AstMoveParams {
     pub target_prepend: Option<String>,
     /// Language hint.
     pub lang: Option<String>,
+    /// Rewrite consumer `use`/import statements of moved symbols.
+    #[serde(default)]
+    pub update_imports: bool,
+    /// Module path consumers currently import from (required with `update_imports`).
+    #[serde(default)]
+    pub old_module_path: Option<String>,
+    /// Module path consumers should import from (required with `update_imports`).
+    #[serde(default)]
+    pub new_module_path: Option<String>,
 }
 
 #[cfg(feature = "ast")]
@@ -732,6 +741,15 @@ pub(crate) struct AstExtractToFileParams {
     pub force: bool,
     /// Language hint.
     pub lang: Option<String>,
+    /// Rewrite consumer `use`/import statements of the extracted symbol.
+    #[serde(default)]
+    pub update_imports: bool,
+    /// Module path consumers currently import from (required with `update_imports`).
+    #[serde(default)]
+    pub old_module_path: Option<String>,
+    /// Module path consumers should import from (required with `update_imports`).
+    #[serde(default)]
+    pub new_module_path: Option<String>,
 }
 
 #[cfg(feature = "ast")]

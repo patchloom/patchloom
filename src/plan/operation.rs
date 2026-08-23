@@ -509,6 +509,15 @@ pub enum Operation {
         target_prepend: Option<String>,
         #[serde(default)]
         lang: Option<String>,
+        /// Rewrite consumer `use`/import statements of moved symbols.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        update_imports: bool,
+        /// Module path consumers currently import from (required with `update_imports`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old_module_path: Option<String>,
+        /// Module path consumers should import from (required with `update_imports`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_module_path: Option<String>,
     },
     #[cfg(feature = "ast")]
     #[serde(rename = "ast.extract_to_file")]
@@ -533,6 +542,15 @@ pub enum Operation {
         force: bool,
         #[serde(default)]
         lang: Option<String>,
+        /// Rewrite consumer `use`/import statements of the extracted symbol.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        update_imports: bool,
+        /// Module path consumers currently import from (required with `update_imports`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        old_module_path: Option<String>,
+        /// Module path consumers should import from (required with `update_imports`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        new_module_path: Option<String>,
     },
     #[cfg(feature = "ast")]
     #[serde(rename = "ast.split")]
