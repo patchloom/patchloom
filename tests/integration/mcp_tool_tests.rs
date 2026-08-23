@@ -658,6 +658,37 @@ async fn test_mcp_doc_get_reads_value() {
     client.cancel().await.unwrap();
 }
 
+/// #2230: MCP `doc_get` honors comparison predicates (CLI/tx sibling).
+#[tokio::test]
+async fn test_mcp_doc_get_port_gt_predicate() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("svc.json"),
+        r#"{"servers":[{"port":9000},{"port":80}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_get",
+        serde_json::json!({
+            "path": "svc.json",
+            "selector": "servers[port>8000].port"
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_get comparison selector should succeed: {val}"
+    );
+    assert_eq!(val, 9000, "expected matching port, got {val}");
+    client.cancel().await.unwrap();
+}
+
 /// #1467: singular `path` is accepted as an alias for `paths: [path]`.
 #[tokio::test]
 async fn test_mcp_search_files_accepts_path_alias() {

@@ -15,7 +15,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// Each line is one operation with positional arguments:
 ///
 /// ```text
-/// doc.set <path> <selector> <value>
+/// doc.set <path> <selector> <value> [--if-exists]
 /// doc.delete <path> <selector>
 /// doc.merge <path> <json-value>
 /// doc.merge <path> <selector> <json-value>
@@ -31,7 +31,7 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 ///   Optional flags (phase 1, #1724): --fuzzy, --min-fuzzy-score, --word-boundary/-w,
 ///   --command-position, --require-change, -i/--case-insensitive, --if-exists
 /// file.create <path> <content>
-/// file.delete <path>
+/// file.delete <path> [--if-exists]
 /// file.rename <from> <to>
 /// file.append <path> <content>
 /// file.prepend <path> <content>
@@ -156,13 +156,14 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
     match op {
         // -- doc operations (path + selector + value) --------------------------
         "doc.set" => {
-            require_args(op, args, 3, line_num)?;
+            let (args, if_exists) = peel_if_exists_flag(op, args, line_num)?;
+            require_args(op, &args, 3, line_num)?;
             let value = parse_json_value(&peel_owned(&args[2], &["value"]))?;
             op!(DocSet {
                 path: peel_owned(&args[0], &["path"]),
                 selector: peel_owned(&args[1], &["selector", "key"]),
                 value,
-                if_exists: false
+                if_exists
             })
         }
         "doc.ensure" => doc_psv!(op, args, line_num, DocEnsure),
@@ -243,10 +244,11 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
             })
         }
         "file.delete" => {
-            require_args(op, args, 1, line_num)?;
+            let (args, if_exists) = peel_if_exists_flag(op, args, line_num)?;
+            require_args(op, &args, 1, line_num)?;
             op!(FileDelete {
                 path: peel_owned(&args[0], &["path"]),
-                if_exists: false
+                if_exists
             })
         }
         "file.rename" => {
@@ -524,6 +526,31 @@ fn parse_position_keyword(
             msg: format!("line {line_num}: expected 'before' or 'after', got '{keyword}'"),
         })),
     }
+}
+
+/// Optional trailing `--if-exists` (same meaning as replace / plan).
+fn peel_if_exists_flag(
+    op: &str,
+    args: &[String],
+    line_num: usize,
+) -> anyhow::Result<(Vec<String>, bool)> {
+    let mut if_exists = false;
+    let mut out = Vec::with_capacity(args.len());
+    for tok in args {
+        if tok == "--if-exists" {
+            if_exists = true;
+            continue;
+        }
+        if tok.starts_with("--") {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!(
+                    "line {line_num}: '{op}' unknown flag {tok}; only --if-exists is supported"
+                ),
+            }));
+        }
+        out.push(tok.clone());
+    }
+    Ok((out, if_exists))
 }
 
 fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> anyhow::Result<()> {

@@ -319,6 +319,14 @@ impl TxState<'_> {
             self.renames.retain(|(from, _)| from != path);
         }
     }
+
+    /// Path is still visible to `if_exists`: staged (and not deleted) or on disk.
+    pub(crate) fn path_present_for_if_exists(&self, file_path: &Path) -> bool {
+        if self.deletions.contains(file_path) {
+            return false;
+        }
+        self.pending.contains_key(file_path) || crate::ops::file::path_entry_exists(file_path)
+    }
 }
 
 /// Mark a file as targeted by a write operation. Write policy is only
@@ -608,10 +616,7 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             _ => "",
         };
         let file_path = tx.cwd.join(path);
-        let deleted_in_tx = tx.deletions.contains(&file_path);
-        let exists_in_pending = tx.pending.contains_key(&file_path) && !deleted_in_tx;
-        let exists_on_disk = !deleted_in_tx && crate::ops::file::path_entry_exists(&file_path);
-        if !exists_in_pending && !exists_on_disk {
+        if !tx.path_present_for_if_exists(&file_path) {
             return Ok(());
         }
     }

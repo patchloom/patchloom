@@ -871,6 +871,33 @@ fn file_delete_missing_path_without_if_exists_errors() {
 }
 
 #[test]
+fn path_present_for_if_exists_treats_deleted_as_absent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("gone.txt");
+    std::fs::write(&file, "x").unwrap();
+    let mut f = TxStateFixture::new();
+    f.deletions.insert(file.clone());
+    let tx = f.state(dir.path());
+    assert!(
+        !tx.path_present_for_if_exists(&file),
+        "deleted-in-tx must look absent"
+    );
+}
+
+#[test]
+fn path_present_for_if_exists_pending_without_disk() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("staged.txt");
+    let mut f = TxStateFixture::new();
+    f.pending.insert(file.clone(), (String::new(), "hi".into()));
+    let tx = f.state(dir.path());
+    assert!(
+        tx.path_present_for_if_exists(&file),
+        "pending create must look present"
+    );
+}
+
+#[test]
 fn file_delete_if_exists_still_deletes_when_present() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("gone.txt");

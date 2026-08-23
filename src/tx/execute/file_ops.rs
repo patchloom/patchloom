@@ -127,16 +127,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // Allow regular files, symlinks (unlink only), FIFO/socket/device.
             // Refuse real directories only (#2087). Use path_entry_exists so
             // dangling symlinks are still unlinkable (Path::exists follows).
-            if *if_exists {
+            if *if_exists && !tx.path_present_for_if_exists(&file_path) {
                 // Missing on disk, never staged, or already deleted earlier
                 // in this tx: soft-skip like replace if_exists (#2231).
-                let deleted_in_tx = tx.deletions.contains(&file_path);
-                let exists_in_pending = tx.pending.contains_key(&file_path) && !deleted_in_tx;
-                let exists_on_disk =
-                    !deleted_in_tx && crate::ops::file::path_entry_exists(&file_path);
-                if !exists_in_pending && !exists_on_disk {
-                    return Ok(0);
-                }
+                return Ok(0);
             }
             if crate::ops::file::path_entry_exists(&file_path) {
                 crate::ops::file::ensure_unlinkable_not_directory(&file_path, path)?;

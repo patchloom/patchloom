@@ -564,7 +564,33 @@ mod basic {
     #[test]
     fn parse_line_file_delete() {
         let op = parse_line("file.delete old.txt", 1).unwrap();
-        assert!(matches!(op, Operation::FileDelete { path, .. } if path == "old.txt"));
+        assert!(
+            matches!(op, Operation::FileDelete { path, if_exists: false } if path == "old.txt")
+        );
+    }
+
+    #[test]
+    fn parse_line_file_delete_if_exists() {
+        let op = parse_line("file.delete old.txt --if-exists", 1).unwrap();
+        assert!(matches!(op, Operation::FileDelete { path, if_exists: true } if path == "old.txt"));
+    }
+
+    #[test]
+    fn parse_line_doc_set_if_exists() {
+        let op = parse_line("doc.set config.json version 42 --if-exists", 1).unwrap();
+        match op {
+            Operation::DocSet {
+                path,
+                selector,
+                if_exists,
+                ..
+            } => {
+                assert_eq!(path, "config.json");
+                assert_eq!(selector, "version");
+                assert!(if_exists);
+            }
+            other => panic!("expected DocSet, got {other:?}"),
+        }
     }
 
     #[test]
