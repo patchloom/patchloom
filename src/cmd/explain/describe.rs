@@ -324,6 +324,7 @@ pub(super) fn describe_operation(op: &Operation) -> String {
         Operation::PatchApply {
             on_stale,
             allow_conflicts,
+            replace_all,
             ..
         } => {
             let mut parts = Vec::new();
@@ -333,10 +334,16 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             if *allow_conflicts {
                 parts.push("allow conflicts");
             }
+            if *replace_all {
+                parts.push("replace all SEARCH/REPLACE matches");
+            }
             if parts.is_empty() {
-                "Apply unified diff patch".to_string()
+                "Apply unified diff, Begin Patch, or SEARCH/REPLACE".to_string()
             } else {
-                format!("Apply unified diff patch ({})", parts.join(", "))
+                format!(
+                    "Apply unified diff, Begin Patch, or SEARCH/REPLACE ({})",
+                    parts.join(", ")
+                )
             }
         }
         Operation::Search {
@@ -1101,8 +1108,12 @@ mod tests {
             diff: "--- a/f\n+++ b/f\n@@ -1 +1 @@\n-old\n+new\n".into(),
             on_stale: crate::ops::patch::OnStale::default(),
             allow_conflicts: false,
+            replace_all: false,
         };
-        assert_eq!(describe_operation(&op), "Apply unified diff patch");
+        assert_eq!(
+            describe_operation(&op),
+            "Apply unified diff, Begin Patch, or SEARCH/REPLACE"
+        );
     }
 
     #[test]
@@ -1111,10 +1122,11 @@ mod tests {
             diff: String::new(),
             on_stale: crate::ops::patch::OnStale::Merge,
             allow_conflicts: false,
+            replace_all: false,
         };
         assert_eq!(
             describe_operation(&op),
-            "Apply unified diff patch (merge on stale)"
+            "Apply unified diff, Begin Patch, or SEARCH/REPLACE (merge on stale)"
         );
     }
 
@@ -1124,10 +1136,11 @@ mod tests {
             diff: String::new(),
             on_stale: crate::ops::patch::OnStale::default(),
             allow_conflicts: true,
+            replace_all: false,
         };
         assert_eq!(
             describe_operation(&op),
-            "Apply unified diff patch (allow conflicts)"
+            "Apply unified diff, Begin Patch, or SEARCH/REPLACE (allow conflicts)"
         );
     }
 
@@ -1137,10 +1150,11 @@ mod tests {
             diff: String::new(),
             on_stale: crate::ops::patch::OnStale::Merge,
             allow_conflicts: true,
+            replace_all: false,
         };
         assert_eq!(
             describe_operation(&op),
-            "Apply unified diff patch (merge on stale, allow conflicts)"
+            "Apply unified diff, Begin Patch, or SEARCH/REPLACE (merge on stale, allow conflicts)"
         );
     }
 

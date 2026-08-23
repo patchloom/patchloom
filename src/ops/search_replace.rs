@@ -1,7 +1,78 @@
 //! Aider-style SEARCH/REPLACE and DiffFenced parse.
 //!
 //! Apply lives in [`crate::api::apply_search_replace_blocks`]. Hosts must not
-//! `replacen(..., 1)` or raw `fs::write` for this format.
+//! `replacen(..., 1)` or raw `fs::write` for this format. CLI / MCP / tx
+//! detect this grammar via [`looks_like_search_replace`] (#2221).
+
+/// True when the payload is a SEARCH/REPLACE or DiffFenced document.
+///
+/// First non-empty line must be `<<<<<<< SEARCH` or a fence (` ``` `) so a
+/// unified diff that happens to mention that marker as later content is
+/// still parsed as a unified diff.
+#[must_use]
+pub fn looks_like_search_replace(input: &str) -> bool {
+    if !input.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+        return false;
+    }
+    match input.lines().map(str::trim).find(|l| !l.is_empty()) {
+        Some("<<<<<<< SEARCH") => true,
+        Some(l) if l.starts_with("```") => true,
+        _ => false,
+    }
+}
+
+/// True when SEARCH/REPLACE markers appear with Begin Patch or unified-diff
+/// file headers in a document that is otherwise a SEARCH/REPLACE payload.
+#[must_use]
+pub fn has_mixed_search_replace_grammar(input: &str) -> bool {
+    if !looks_like_search_replace(input) {
+        return false;
+    }
+    crate::ops::begin_patch::looks_like_begin_patch(input) || has_unified_diff_headers(input)
+}
+
+fn has_unified_diff_headers(input: &str) -> bool {
+    input.lines().any(|line| {
+        let t = line.trim_start();
+        t.starts_with("diff --git ")
+            || t.starts_with("--- a/")
+            || t.starts_with("--- b/")
+            || t.starts_with("+++ a/")
+            || t.starts_with("+++ b/")
+    })
+}
+
+/// Parse SEARCH/REPLACE, or DiffFenced (fenced unwrap) when the document
+/// wraps blocks in triple backticks.
+pub fn parse_search_replace_document(
+    input: &str,
+) -> Result<Vec<SearchReplaceBlock>, SearchReplaceParseError> {
+    if has_mixed_search_replace_grammar(input) {
+        return Err(SearchReplaceParseError::malformed(
+            "mixed SEARCH/REPLACE and unified-diff or Begin Patch grammar is not supported",
+        ));
+    }
+    let fenced = input.lines().any(|l| {
+        let t = l.trim();
+        t == "```" || t.starts_with("```")
+    });
+    if fenced {
+        parse_diff_fenced(input)
+    } else {
+        parse_search_replace(input)
+    }
+}
+
+/// Dest paths declared in a SEARCH/REPLACE / DiffFenced document.
+pub fn search_replace_declared_paths(input: &str) -> Result<Vec<String>, SearchReplaceParseError> {
+    let mut paths = Vec::new();
+    for block in parse_search_replace_document(input)? {
+        if !paths.iter().any(|p| p == &block.path) {
+            paths.push(block.path);
+        }
+    }
+    Ok(paths)
+}
 
 /// One SEARCH/REPLACE block (path + exact old / new).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,6 +363,42 @@ new
         let blocks = parse_diff_fenced(input).expect("fenced");
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].path, "a.rs");
+    }
+
+    #[test]
+    fn looks_like_search_replace_first_line_or_fence() {
+        assert!(looks_like_search_replace(
+            "<<<<<<< SEARCH\nfile.rs\n-------\nold\n=======\nnew\n>>>>>>> REPLACE\n"
+        ));
+        assert!(looks_like_search_replace(
+            "```\n<<<<<<< SEARCH\nfile.rs\n-------\nold\n=======\nnew\n>>>>>>> REPLACE\n```\n"
+        ));
+        assert!(!looks_like_search_replace(
+            "--- a/file.rs\n+++ b/file.rs\n@@ -1 +1 @@\n-old\n+new\n"
+        ));
+        assert!(
+            !looks_like_search_replace(
+                "--- a/file.rs\n+++ b/file.rs\n@@ -1,3 +1,3 @@\n context\n <<<<<<< SEARCH\n+keep\n"
+            ),
+            "unified diff that mentions SEARCH later is not SEARCH/REPLACE"
+        );
+    }
+
+    #[test]
+    fn mixed_search_replace_and_unified_headers_refused() {
+        let input = "\
+<<<<<<< SEARCH
+file.rs
+-------
+old
+=======
+new
+>>>>>>> REPLACE
+--- a/file.rs
++++ b/file.rs
+";
+        assert!(has_mixed_search_replace_grammar(input));
+        assert!(parse_search_replace_document(input).is_err());
     }
 
     #[test]

@@ -221,7 +221,8 @@ pub use crate::ops::patch::{
     unquote_git_c_string,
 };
 pub use crate::ops::search_replace::{
-    SearchReplaceBlock, SearchReplaceParseError, parse_diff_fenced, parse_search_replace,
+    SearchReplaceBlock, SearchReplaceParseError, looks_like_search_replace, parse_diff_fenced,
+    parse_search_replace, parse_search_replace_document, search_replace_declared_paths,
 };
 use crate::write::{EolMode, WritePolicy, atomic_write};
 
@@ -271,7 +272,6 @@ pub use self::begin_patch::apply_begin_patch;
 mod search_replace;
 pub use self::search_replace::{
     ApplySearchReplaceOptions, apply_search_replace_blocks, apply_search_replace_document,
-    parse_search_replace_document,
 };
 
 mod tidy;

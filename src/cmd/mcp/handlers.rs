@@ -62,6 +62,11 @@ fn validate_op_paths_under_plan_cwd(
         check(&declared)?;
     }
     if let Operation::PatchApply { diff, .. } = op {
+        if crate::ops::begin_patch::looks_like_begin_patch(diff)
+            || crate::ops::search_replace::looks_like_search_replace(diff)
+        {
+            return Ok(());
+        }
         let patch_files = crate::ops::patch::parse_patch(diff).map_err(|e| {
             McpError::invalid_params(
                 format!("failed to parse diff for path validation: {e}"),
@@ -661,7 +666,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff or a Codex *** Begin Patch document. The diff parameter is the full unified diff text or a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move). Supports multi-file diffs. Use on_stale=merge for three-way merge on stale context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
+        description = "Apply a unified diff, a Codex *** Begin Patch document, or an Aider SEARCH/REPLACE / DiffFenced document. The diff parameter is the full unified diff text, a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move), or <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks (path on the first line after SEARCH). SEARCH/REPLACE is unique by default (multi-match is ambiguous, no write); set replace_all=true to update every exact match. Use on_stale=merge for three-way merge on stale unified-diff context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
     )]
     async fn apply_patch(
         &self,
@@ -670,6 +675,18 @@ impl PatchloomService {
         self.blocking(move |svc| {
             validate_content_size("diff", &p.diff)?;
             if crate::ops::begin_patch::looks_like_begin_patch(&p.diff) {
+                if p.replace_all {
+                    return Err(McpError::invalid_params(
+                        "replace_all is only valid for SEARCH/REPLACE documents",
+                        None,
+                    ));
+                }
+                if p.diff.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+                    return Err(McpError::invalid_params(
+                        "mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
+                        None,
+                    ));
+                }
                 let ops = crate::ops::begin_patch::parse_begin_patch(&p.diff).map_err(|e| {
                     McpError::invalid_params(format!("failed to parse diff: {e}"), None)
                 })?;
@@ -684,6 +701,23 @@ impl PatchloomService {
                     diff: p.diff,
                     on_stale: p.on_stale,
                     allow_conflicts: p.allow_conflicts,
+                    replace_all: false,
+                };
+                return svc.run_one_op(op, Some(p.strict));
+            }
+            if crate::ops::search_replace::looks_like_search_replace(&p.diff) {
+                let paths = crate::ops::search_replace::search_replace_declared_paths(&p.diff)
+                    .map_err(|e| {
+                        McpError::invalid_params(format!("failed to parse diff: {e}"), None)
+                    })?;
+                for path in &paths {
+                    svc.check_path(path)?;
+                }
+                let op = Operation::PatchApply {
+                    diff: p.diff,
+                    on_stale: p.on_stale,
+                    allow_conflicts: p.allow_conflicts,
+                    replace_all: p.replace_all,
                 };
                 return svc.run_one_op(op, Some(p.strict));
             }
@@ -705,10 +739,17 @@ impl PatchloomService {
                 }
             }
 
+            if p.replace_all {
+                return Err(McpError::invalid_params(
+                    "replace_all is only valid for SEARCH/REPLACE documents",
+                    None,
+                ));
+            }
             let op = Operation::PatchApply {
                 diff: p.diff,
                 on_stale: p.on_stale,
                 allow_conflicts: p.allow_conflicts,
+                replace_all: false,
             };
             svc.run_one_op(op, Some(p.strict))
         })

@@ -560,9 +560,12 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
             && out.contains("looks_like_begin_patch")
             && out.contains("begin_patch_declared_paths")
             && out.contains("apply_search_replace_blocks")
+            && out.contains("patch apply")
+            && out.contains("--replace-all")
             && out.contains("#2219")
-            && out.contains("#2220"),
-        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle/patch dest (#2168/#2169/#2170) plus Begin Patch / SEARCH/REPLACE (#2219/#2220)"
+            && out.contains("#2220")
+            && out.contains("#2221"),
+        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle/patch dest (#2168/#2169/#2170) plus Begin Patch / SEARCH/REPLACE (#2219/#2220/#2221)"
     );
     assert!(
         out.contains("Which surface to use")

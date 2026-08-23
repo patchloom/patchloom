@@ -12,6 +12,11 @@ use super::{ApplyMode, EditResult};
 
 /// Apply a unified diff patch to a file.
 ///
+/// Also detects Codex Begin Patch and SEARCH/REPLACE / DiffFenced.
+/// SEARCH/REPLACE is unique-only here (`replace_all` is CLI / MCP / plan).
+/// Dest paths come from the document; `path` only supplies the workspace
+/// parent (same as a relative dest under that parent).
+///
 /// Returns an `EditResult` with the patched content.
 pub fn apply_patch(
     path: &Path,
@@ -20,6 +25,11 @@ pub fn apply_patch(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
+        if patch_text.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
+            }));
+        }
         let abs = super::absolute_for_engine(path).map_err(|e| {
             crate::fallback::EditError::new(
                 crate::fallback::EditErrorKind::OperationFailed,
@@ -34,10 +44,32 @@ pub fn apply_patch(
             })
         });
     }
+    if crate::ops::search_replace::looks_like_search_replace(patch_text) {
+        let abs = super::absolute_for_engine(path).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to resolve path {}: {e}", path.display()),
+            )
+        })?;
+        let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
+        let results = super::apply_search_replace_document(
+            patch_text,
+            cwd,
+            &super::ApplySearchReplaceOptions::default(),
+            mode,
+            guard,
+        )?;
+        return results.into_iter().next().ok_or_else(|| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: "SEARCH/REPLACE contained no blocks".into(),
+            })
+        });
+    }
     let op = Operation::PatchApply {
         diff: patch_text.into(),
         on_stale: Default::default(),
         allow_conflicts: false,
+        replace_all: false,
     };
     // Resolve cwd so multi-component relative paths (and git-style patch
     // paths that match the caller path) join correctly.
@@ -189,7 +221,21 @@ pub fn apply_patch_file(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<Vec<EditResult>> {
     if crate::ops::begin_patch::looks_like_begin_patch(patch_text) {
+        if patch_text.lines().any(|l| l.trim() == "<<<<<<< SEARCH") {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
+            }));
+        }
         return super::apply_begin_patch(patch_text, cwd, None, mode, guard);
+    }
+    if crate::ops::search_replace::looks_like_search_replace(patch_text) {
+        return super::apply_search_replace_document(
+            patch_text,
+            cwd,
+            &super::ApplySearchReplaceOptions::default(),
+            mode,
+            guard,
+        );
     }
     let patch_files = crate::ops::patch::parse_patch(patch_text).map_err(|e| {
         anyhow::Error::new(crate::exit::ParseErrorError {

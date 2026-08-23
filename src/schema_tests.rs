@@ -596,6 +596,7 @@ mod basic {
                     diff: "d".into(),
                     on_stale: Default::default(),
                     allow_conflicts: false,
+                    replace_all: false,
                 },
             ),
             (

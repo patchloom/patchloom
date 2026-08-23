@@ -223,7 +223,7 @@
 //! | Plan format/validate shell preflight | [`api::lifecycle_cmds`] + [`api::refuse_lifecycle_shell_metas`]; `execute_plan(..., Some(guard))` refuses metas (#2168) |
 //! | Patch dest preflight (C-unescape, copy, dest list) | [`api::unquote_git_c_string`] / [`api::parse_diff_file_path`] / [`api::parse_diff_git_paths`] / [`api::patch_declared_paths`] (#2170–#2176). Do not quote-peel or whitespace-split `diff --git`. `parse_diff_git_paths` accepts the full line or the pair after that prefix. Empty-create apply reports `changed: true`. |
 //! | Codex `*** Begin Patch` | [`api::looks_like_begin_patch`] / [`api::begin_patch_declared_paths`] / [`api::apply_patch`] / [`api::apply_patch_file`] / [`api::apply_begin_patch`] (#2219). Mixed Begin Patch + unified-diff is a typed error. Update hunks require a unique exact match. |
-//! | SEARCH/REPLACE unique apply | [`api::parse_search_replace`] / [`api::apply_search_replace_blocks`] / [`api::apply_search_replace_document`] (#2220). Default unique (multi-match is `ambiguous`, no write). `replace_all: true` updates every exact match. Do not flip [`ReplaceOptions::unique`] on generic `replace_text`. |
+//! | SEARCH/REPLACE unique apply | [`api::parse_search_replace`] / [`api::apply_search_replace_blocks`] / [`api::apply_search_replace_document`] / [`api::looks_like_search_replace`] (#2220/#2221). `apply_patch` / `apply_patch_file` / CLI `patch apply` / MCP `apply_patch` detect the grammar. Default unique (multi-match is `ambiguous`, no write). `replace_all: true` or CLI `--replace-all` updates every exact match. Do not flip [`ReplaceOptions::unique`] on generic `replace_text`. |
 //! | Plan/tx multi-path worst-case span | [`prefer_widest_matched_text`] / top-level `matched_text` (#2007) |
 //! | File multi-op pre-write span refuse | [`apply_content_edits_to_file_with_span_policy`] + [`FuzzySpanPolicy`] (#2008) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
@@ -339,11 +339,12 @@ pub use api::{
     is_format_failed, is_fuzzy_span_suspicious, is_guard_rejected, is_invalid_encoding,
     is_invalid_input, is_lazy_marker_line, is_load_text_strict_fail, is_no_match, is_not_found,
     is_style_changed, is_type_error, lifecycle_cmds, load_text, load_text_strict,
-    looks_like_begin_patch, merge_match_modes, parse_diff_fenced, parse_diff_file_path,
-    parse_diff_git_paths, parse_search_replace, parse_unified_diff, patch_declared_paths,
-    peel_error, plan_apply_fragment_to_replace, prefer_widest_matched_text,
-    refuse_batch_if_suspicious_fuzzy, refuse_lifecycle_shell_metas, run_post_write_validation,
-    search_file, strip_lazy_markers, text_diff, unquote_git_c_string,
+    looks_like_begin_patch, looks_like_search_replace, merge_match_modes, parse_diff_fenced,
+    parse_diff_file_path, parse_diff_git_paths, parse_search_replace,
+    parse_search_replace_document, parse_unified_diff, patch_declared_paths, peel_error,
+    plan_apply_fragment_to_replace, prefer_widest_matched_text, refuse_batch_if_suspicious_fuzzy,
+    refuse_lifecycle_shell_metas, run_post_write_validation, search_file,
+    search_replace_declared_paths, strip_lazy_markers, text_diff, unquote_git_c_string,
 };
 /// Fail-restore / FormatFailed session peel for library hosts (#2127).
 pub use api::{

@@ -92,7 +92,7 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
 | List/inventory files (ignore-aware; max_depth prunes walk; prefer over FS MCP) | `list_files` |
-| Apply a unified diff or Codex Begin Patch | `apply_patch` |
+| Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE | `apply_patch` |
 | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |
 | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
 | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |
@@ -118,7 +118,7 @@ Example: `{"path":"install.sh","old":"pip","new":"uv","command_position":true,"r
 
 **Library Codex Begin Patch (#2219):** hosts must call `apply_patch` / `apply_patch_file` (they detect `*** Begin Patch`). Dest-deny with `api::looks_like_begin_patch` + `api::begin_patch_declared_paths`. Do not copy a Begin Patch parser. Mixed Begin Patch + unified-diff is a typed error. Update hunks require a unique exact match.
 
-**Library SEARCH/REPLACE (#2220):** `api::parse_search_replace` / `api::apply_search_replace_blocks` (DiffFenced is the same parse after fence unwrap). Default unique: multi-match is `ambiguous` and does not write. `replace_all: true` updates every exact match. Empty SEARCH is invalid input. Do not `replacen` or raw `fs::write`. Do not flip `ReplaceOptions.unique` on generic `replace_text`.
+**Library SEARCH/REPLACE (#2220 / #2221):** `api::parse_search_replace` / `api::apply_search_replace_blocks` (DiffFenced is the same parse after fence unwrap). CLI `patch apply` and MCP `apply_patch` detect `<<<<<<< SEARCH` (and fenced DiffFenced). Default unique: multi-match is `ambiguous` and does not write. `replace_all: true` or CLI `--replace-all` updates every exact match. Empty SEARCH is invalid input. Plan `patch.apply` accepts the same document (`replace_all` optional). Do not `replacen` or raw `fs::write`. Do not flip `ReplaceOptions.unique` on generic `replace_text`. Do not invent a native `search_replace` MCP tool.
 
 **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, `min_fuzzy_score=Some(AGENT_MIN_FUZZY_SCORE)` (`0.90`), **`allow_absent_old=false`** (fail closed), **`refuse_suspicious_fuzzy=true`** (auto-refuse over-wide fuzzy as `EditErrorKind::FuzzySpanSuspicious` / `error_kind: fuzzy_span_suspicious`; peel with `api::is_fuzzy_span_suspicious`). Overrides via struct update: replace-all → `unique: false`; deliberate approximate recovery → `allow_absent_old: true`; raw fuzzy without span refuse → `refuse_suspicious_fuzzy: false`; word-boundary rename → `fuzzy: false`, `min_fuzzy_score: None`, `word_boundary: true`. `command_position` cannot combine with fuzzy/word_boundary/regex/whole_line (typed `invalid_input`). This is **not** a host-specific recovery policy; approximate rewrite of missing `old` stays an explicit opt-in.
 
@@ -552,7 +552,7 @@ dependencies[name=react].version # predicate filter
 - `md.insert_after_section`: Insert content after the full section body (sibling placement). Use when adding a new ## section after this section's content. Prefer md.insert_after_heading for content under the heading line.
 - `md.insert_before_heading`: Insert content immediately before a markdown heading line.
 - `md.move_section`: Move a heading section to a new position (same-file reorder or cross-file move). The moved range ends at the next same-or-higher-level heading (nested lower headings included). Exactly one of before or after is required.
-- `patch.apply`: Apply a unified diff patch to one or more files. Supports three-way merge on stale context.
+- `patch.apply`: Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE / DiffFenced document. SEARCH/REPLACE is unique unless replace_all is true.
 - `doc.prepend`: Prepend a value to the beginning of an array at a selector path.
 - `doc.update`: Set a new value at every location matching a selector. Use wildcards (items[*].enabled) or selector predicates (items[name=foo].v). Not a separate --where flag; the filter is part of the selector string.
 - `doc.delete_where`: Delete array elements matching a key=value predicate via --predicate (CLI) or the predicate field (plans). For scalar arrays use .=x, _=x, or value=x. Different from doc.update, which filters inside the selector path. CLI --json and MCP/tx success include changed and removed (0 when no elements match; exit 0 / ok is idempotent).

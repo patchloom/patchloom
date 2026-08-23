@@ -355,6 +355,10 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
                 return crate::ops::begin_patch::begin_patch_declared_paths(diff)
                     .unwrap_or_default();
             }
+            if crate::ops::search_replace::looks_like_search_replace(diff) {
+                return crate::ops::search_replace::search_replace_declared_paths(diff)
+                    .unwrap_or_default();
+            }
             // Parse the diff to extract write targets and git rename sources.
             // rename_from must be guarded too (pure rename of ../outside must fail closed).
             // If parsing fails, return empty (the error will surface at apply time).

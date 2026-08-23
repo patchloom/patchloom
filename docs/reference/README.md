@@ -237,8 +237,8 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:patch -->
 ## `patch`
 
-- **What it does:** Checks or applies a unified diff, or a Codex `*** Begin Patch` document (Add / Update / Delete / Move).
-- **Use when:** The change already exists as a patch or Begin Patch envelope, or you want stale context detection instead of search and replace semantics.
+- **What it does:** Checks or applies a unified diff, a Codex `*** Begin Patch` document (Add / Update / Delete / Move), or an Aider SEARCH/REPLACE / DiffFenced document.
+- **Use when:** The change already exists as a patch, Begin Patch envelope, or SEARCH/REPLACE document, or you want stale context detection instead of search and replace semantics.
 - **Paths:** A relative patch file path is resolved under `--cwd`. Paths *inside* the unified diff are also resolved against `--cwd`.
 - **Prefer instead:** Use `replace`, `doc`, or `md` when you want to describe the mutation directly instead of carrying a diff artifact.
 - **Related:** `patch check`, `patch apply`, `patch merge`, `tx patch.apply`
@@ -693,6 +693,13 @@ These are meaningful command-specific modes that change how a top-level command 
 - **Use when:** Another tool is generating or piping the patch text directly.
 - **Prefer instead:** Use `patch FILE` when the diff should be stored as a tangible artifact.
 
+<!-- ref:patch-mode:replace_all -->
+### `patch apply --replace-all`
+
+- **What it does:** For SEARCH/REPLACE / DiffFenced documents only, updates every exact match instead of requiring a unique match.
+- **Use when:** The SEARCH block is intentionally repeated and every occurrence should change.
+- **Prefer instead:** Default unique apply when a multi-match would be accidental.
+
 <!-- ref:doc-mode:predicate -->
 ### `doc --predicate`
 
@@ -945,8 +952,8 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:apply -->
 ### `patch apply`
 
-- **What it does:** Applies a unified diff, including git renames with hunks, pure renames (`similarity index 100%` with `rename from` / `rename to`), and 100% git copies (`copy from` / `copy to`, dest created, source kept). Optional C-quoted paths with spaces and octal escapes. Git-meta binary / mode-only dests are listed for preflight then apply refuses. Use `--on-stale merge` to retry with three-way merge when context is stale.
-- **Use when:** The desired change is already available as patch text and should be replayed directly.
+- **What it does:** Applies a unified diff, including git renames with hunks, pure renames (`similarity index 100%` with `rename from` / `rename to`), and 100% git copies (`copy from` / `copy to`, dest created, source kept). Also detects Codex Begin Patch and Aider SEARCH/REPLACE / DiffFenced (`<<<<<<< SEARCH`). SEARCH/REPLACE is unique unless `--replace-all`. Optional C-quoted paths with spaces and octal escapes. Git-meta binary / mode-only dests are listed for preflight then apply refuses. Use `--on-stale merge` to retry with three-way merge when context is stale.
+- **Use when:** The desired change is already available as patch text, a Begin Patch envelope, or a SEARCH/REPLACE document and should be replayed directly.
 - **Failure behavior:** Missing rename/source target → `not_found`. Git rename or copy destination already present → `already_exists` (same policy as `rename` without `--force`; remove the dest or use `file.rename --force`). Unsupported git-meta (binary payload, mode-only) → `invalid_input` (dest still appears in `parse_unified_diff` / `patch_declared_paths`).
 - **Prefer instead:** Use `replace`, `md`, or `doc` when you would rather describe the desired mutation at a higher level.
 
@@ -1380,7 +1387,7 @@ The operations below are the building blocks inside `operations`.
 | Plan format/validate shell | Raw `sh -c` / `cmd /C`. MCP strips. `api::lifecycle_cmds` + `api::refuse_lifecycle_shell_metas`; `execute_plan(..., Some(guard))` refuses metas as `GuardRejected` (#2168). `true` / `cargo fmt` / `rustfmt` still run. |
 | Patch dest preflight | `api::unquote_git_c_string` / `parse_diff_file_path` / `parse_diff_git_paths` / `patch_declared_paths` (#2170–#2176). Do not quote-peel only or whitespace-split `diff --git`. `parse_diff_git_paths` accepts the full line or the pair after that prefix. Git copy creates dest and keeps source. Empty-create apply writes an empty dest and reports `changed: true`. Mixed binary/empty-create dests are listed; apply refuses unsupported git-meta. |
 | Codex Begin Patch | `looks_like_begin_patch` / `begin_patch_declared_paths` / `apply_patch` / `apply_patch_file` / `apply_begin_patch` (#2219). Mixed Begin Patch + unified-diff is a typed error. Update hunks require a unique exact match. Do not copy a Begin Patch parser. |
-| SEARCH/REPLACE unique apply | `parse_search_replace` / `apply_search_replace_blocks` / `apply_search_replace_document` (#2220). Default unique (multi-match is `ambiguous`, no write). `replace_all: true` updates every exact match. Empty SEARCH is invalid input. Do not flip `ReplaceOptions.unique` on generic `replace_text`. |
+| SEARCH/REPLACE unique apply | `parse_search_replace` / `apply_search_replace_blocks` / `apply_search_replace_document` / `looks_like_search_replace` (#2220/#2221). `apply_patch` / CLI `patch apply` / MCP `apply_patch` detect the grammar. Default unique (multi-match is `ambiguous`, no write). `replace_all: true` or CLI `--replace-all` updates every exact match. Empty SEARCH is invalid input. Do not flip `ReplaceOptions.unique` on generic `replace_text`. |
 | Non-`anyhow` error kinds | `classify_error(&dyn Error)` / `classify_error_ref` (#1659); `EditErrorKind::FormatFailed` for post-write hooks; `EditErrorKind::TypeError` for multi-doc / wrong-root doc navigation (CLI `error_kind: type_error`; #1883); `EditErrorKind::AlreadyExists` for create/rename dest-exists (#1947); `EditErrorKind::NotFound` / `Conflicts` / `ChangesDetected` for peels that previously collapsed to `OperationFailed`; `EditErrorKind::Binary` / `InvalidEncoding` for sole-path non-text loads (#1963) |
 | CLI-stable error kind strings | `api::error_kind_str(&err)` returns the same strings as CLI JSON (`already_exists`, `not_found`, `guard_rejected`, `binary`, `invalid_encoding`, …) without scraping Display (#1948); bool peels: `is_already_exists`, `is_not_found`, `is_conflicts`, `is_changes_detected`, `is_type_error`, `is_format_failed`, `is_guard_rejected`, `is_invalid_input`, `is_binary`, `is_invalid_encoding`, `is_load_text_strict_fail` (binary\|encoding\|invalid_input), `is_no_match`, `is_ambiguous` |
 | Path binary preflight | `api::is_binary_file` / `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884 / #1910); writers still enforce binary on apply |

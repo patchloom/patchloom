@@ -3643,6 +3643,108 @@ fn test_tx_patch_apply_begin_patch() {
     );
 }
 
+#[test]
+fn test_tx_patch_apply_search_replace() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+}
+
+#[test]
+fn test_tx_patch_apply_search_replace_replace_all() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "<<<<<<< SEARCH\ncode.rs\n-------\nx\n=======\ny\n>>>>>>> REPLACE\n",
+            "replace_all": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "y\ny\n"
+    );
+}
+
+#[test]
+fn test_tx_patch_apply_replace_all_on_unified_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "line1\nold line\nline3\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "replace_all": true,
+            "diff": "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg("plan.json")
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0));
+    let blob = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        blob.contains("invalid_input") && blob.contains("replace_all"),
+        "expected invalid_input for plan replace_all on unified diff, got {blob}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+        "line1\nold line\nline3\n"
+    );
+}
+
 /// Pure git rename must refuse when dest already exists (parity with file.rename).
 #[test]
 fn test_tx_patch_apply_pure_rename_refuses_existing_dest() {
