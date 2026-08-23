@@ -1,4 +1,4 @@
-use super::execute::{TxState, read_file_content};
+use super::execute::{TxState, read_and_probe, read_file_content};
 use crate::plan::Operation;
 
 use std::path::{Path, PathBuf};
@@ -413,7 +413,12 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             position,
             target_prepend,
             lang,
+            update_imports,
+            old_module_path,
+            new_module_path,
         } => {
+            let rewrite_mods =
+                import_rewrite_modules(*update_imports, old_module_path, new_module_path)?;
             let abs_source = tx.cwd.join(path);
             let abs_target = tx.cwd.join(target);
             let source_content =
@@ -440,6 +445,15 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             )?;
             tx.write_file(&abs_source, result.source_content);
             tx.write_file(&abs_target, result.target_content);
+            if let Some((old, new)) = rewrite_mods {
+                apply_consumer_import_rewrites(
+                    tx,
+                    &abs_source,
+                    &abs_target,
+                    lang_val,
+                    &symbol_moves(sym_names, &old, &new),
+                )?;
+            }
             Ok(result.symbols_moved)
         }
 
@@ -452,7 +466,12 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             prepend,
             force,
             lang,
+            update_imports,
+            old_module_path,
+            new_module_path,
         } => {
+            let rewrite_mods =
+                import_rewrite_modules(*update_imports, old_module_path, new_module_path)?;
             let abs_source = tx.cwd.join(source);
             let abs_target = tx.cwd.join(target);
             if !force && (abs_target.exists() || tx.pending.contains_key(&abs_target)) {
@@ -479,6 +498,15 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             )?;
             tx.write_file(&abs_source, result.source_content);
             tx.write_file(&abs_target, result.target_content);
+            if let Some((old, new)) = rewrite_mods {
+                apply_consumer_import_rewrites(
+                    tx,
+                    &abs_source,
+                    &abs_target,
+                    lang_val,
+                    &symbol_moves(std::slice::from_ref(symbol), &old, &new),
+                )?;
+            }
             Ok(1)
         }
 
@@ -525,6 +553,109 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
 
         _ => unreachable!("execute_ast_op called with non-AST operation"),
     }
+}
+
+fn import_rewrite_modules(
+    update_imports: bool,
+    old_module_path: &Option<String>,
+    new_module_path: &Option<String>,
+) -> anyhow::Result<Option<(String, String)>> {
+    if !update_imports {
+        return Ok(None);
+    }
+    let old = old_module_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let new = new_module_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match (old, new) {
+        (Some(old), Some(new)) => Ok(Some((old.to_string(), new.to_string()))),
+        _ => Err(crate::exit::InvalidInputError {
+            msg: "update_imports requires old_module_path and new_module_path".into(),
+        }
+        .into()),
+    }
+}
+
+fn symbol_moves(
+    symbols: &[String],
+    old: &str,
+    new: &str,
+) -> Vec<crate::ast::import_rewrite::SymbolMove> {
+    symbols
+        .iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|name| crate::ast::import_rewrite::SymbolMove {
+            name: name.to_string(),
+            old_module: old.to_string(),
+            new_module: new.to_string(),
+        })
+        .collect()
+}
+
+/// After a successful move/extract, optionally rewrite consumer imports.
+fn apply_consumer_import_rewrites(
+    tx: &mut TxState<'_>,
+    source: &Path,
+    target: &Path,
+    lang: crate::ast::Language,
+    moves: &[crate::ast::import_rewrite::SymbolMove],
+) -> anyhow::Result<()> {
+    if moves.is_empty() {
+        return Ok(());
+    }
+
+    let files = collect_ast_source_files(tx.cwd)?;
+    for file in files {
+        if paths_equal(&file, source) || paths_equal(&file, target) {
+            continue;
+        }
+        if crate::ast::Language::from_path(&file) != lang {
+            continue;
+        }
+        if is_skipped_consumer_path(&file, tx.cwd) {
+            continue;
+        }
+        if let Some(g) = tx.guard {
+            let rel = file.strip_prefix(tx.cwd).unwrap_or(file.as_path());
+            g.check_path(&rel.to_string_lossy())
+                .map_err(crate::fallback::EditError::guard_rejected)?;
+        }
+        if !read_and_probe(tx.pending, tx.existed_before, &file)? {
+            continue;
+        }
+        let content = read_file_content(tx.pending, tx.existed_before, &file)?.to_string();
+        if let Some(rewritten) =
+            crate::ast::import_rewrite::rewrite_imports_in_source(&content, lang, moves)
+        {
+            tx.write_file(&file, rewritten);
+        }
+    }
+    Ok(())
+}
+
+fn paths_equal(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
+fn is_skipped_consumer_path(path: &Path, cwd: &Path) -> bool {
+    let rel = path.strip_prefix(cwd).unwrap_or(path);
+    rel.components().any(|c| {
+        matches!(
+            c.as_os_str().to_str(),
+            Some("target" | "node_modules" | ".git" | ".patchloom")
+        )
+    })
 }
 
 #[cfg(all(test, any(feature = "cli", feature = "files")))]

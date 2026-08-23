@@ -8057,6 +8057,299 @@ fn test_tx_ast_move_creates_target() {
     assert!(tgt.contains("fn go"), "symbol should be present: {tgt}");
 }
 
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_update_imports() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("old_mod.rs");
+    let target = dir.path().join("new_mod.rs");
+    let consumer = dir.path().join("consumer.rs");
+    fs::write(&source, "fn keep() {}\nfn helper() { let x = 1; }\n").unwrap();
+    fs::write(&target, "").unwrap();
+    fs::write(
+        &consumer,
+        "use crate::old_mod::helper;\n\nfn main() { helper(); }\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": portable_path_str(&source),
+            "target": portable_path_str(&target),
+            "symbols": ["helper"],
+            "update_imports": true,
+            "old_module_path": "crate::old_mod",
+            "new_module_path": "crate::new_mod"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let src_content = fs::read_to_string(&source).unwrap();
+    let tgt_content = fs::read_to_string(&target).unwrap();
+    let consumer_content = fs::read_to_string(&consumer).unwrap();
+    assert!(
+        !src_content.contains("fn helper"),
+        "source should lose helper: {src_content}"
+    );
+    assert!(
+        tgt_content.contains("fn helper"),
+        "target should gain helper: {tgt_content}"
+    );
+    assert_eq!(
+        consumer_content, "use crate::new_mod::helper;\n\nfn main() { helper(); }\n",
+        "consumer use should rewrite to new_mod"
+    );
+    assert!(
+        !consumer_content.contains("crate::old_mod"),
+        "old_mod import should be gone: {consumer_content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_update_imports_grouped_use() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("old_mod.rs");
+    let target = dir.path().join("new_mod.rs");
+    let consumer = dir.path().join("consumer.rs");
+    fs::write(&source, "fn alpha() {}\nfn beta() {}\nfn gamma() {}\n").unwrap();
+    fs::write(&target, "").unwrap();
+    fs::write(
+        &consumer,
+        "use crate::old_mod::{alpha, beta, gamma};\n\nfn main() { alpha(); beta(); gamma(); }\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": portable_path_str(&source),
+            "target": portable_path_str(&target),
+            "symbols": ["alpha", "gamma"],
+            "update_imports": true,
+            "old_module_path": "crate::old_mod",
+            "new_module_path": "crate::new_mod"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let consumer_content = fs::read_to_string(&consumer).unwrap();
+    assert_eq!(
+        consumer_content,
+        "use crate::old_mod::beta;\nuse crate::new_mod::{alpha, gamma};\n\nfn main() { alpha(); beta(); gamma(); }\n"
+    );
+    let src = fs::read_to_string(&source).unwrap();
+    let tgt = fs::read_to_string(&target).unwrap();
+    assert!(src.contains("fn beta"), "beta stays in old_mod: {src}");
+    assert!(!src.contains("fn alpha"), "alpha left source: {src}");
+    assert!(
+        tgt.contains("fn alpha") && tgt.contains("fn gamma"),
+        "moved to target: {tgt}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_update_imports() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("old_mod.rs");
+    let target = dir.path().join("config.rs");
+    let consumer = dir.path().join("consumer.rs");
+    fs::write(&source, "pub struct Config {}\nfn keep() {}\n").unwrap();
+    fs::write(
+        &consumer,
+        "use crate::old_mod::Config;\n\nfn main() { let _ = Config; }\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": portable_path_str(&source),
+            "symbol": "Config",
+            "target": portable_path_str(&target),
+            "update_imports": true,
+            "old_module_path": "crate::old_mod",
+            "new_module_path": "crate::config"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let src = fs::read_to_string(&source).unwrap();
+    let tgt = fs::read_to_string(&target).unwrap();
+    let consumer_content = fs::read_to_string(&consumer).unwrap();
+    assert!(
+        !src.contains("struct Config"),
+        "Config should leave source: {src}"
+    );
+    assert!(
+        tgt.contains("struct Config"),
+        "Config should land in target: {tgt}"
+    );
+    assert_eq!(
+        consumer_content,
+        "use crate::config::Config;\n\nfn main() { let _ = Config; }\n"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_update_imports_missing_paths_errors() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("old_mod.rs");
+    let target = dir.path().join("new_mod.rs");
+    fs::write(&source, "fn helper() {}\n").unwrap();
+    fs::write(&target, "").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": portable_path_str(&source),
+            "target": portable_path_str(&target),
+            "symbols": ["helper"],
+            "update_imports": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "missing module paths should be invalid_input: {stdout}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_without_update_imports_does_not_rewrite() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("old_mod.rs");
+    let target = dir.path().join("new_mod.rs");
+    let consumer = dir.path().join("consumer.rs");
+    let consumer_src = "use crate::old_mod::helper;\n\nfn main() { helper(); }\n";
+    fs::write(&source, "fn helper() {}\n").unwrap();
+    fs::write(&target, "").unwrap();
+    fs::write(&consumer, consumer_src).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": portable_path_str(&source),
+            "target": portable_path_str(&target),
+            "symbols": ["helper"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let consumer_content = fs::read_to_string(&consumer).unwrap();
+    assert_eq!(
+        consumer_content, consumer_src,
+        "default off must not rewrite consumer imports"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_update_imports_rollback_restores_consumer() {
+    let dir = TempDir::new().unwrap();
+    let source = dir.path().join("old_mod.rs");
+    let target = dir.path().join("new_mod.rs");
+    let consumer = dir.path().join("consumer.rs");
+    let consumer_src = "use crate::old_mod::helper;\n\nfn main() { helper(); }\n";
+    let source_src = "fn helper() {}\n";
+    fs::write(&source, source_src).unwrap();
+    fs::write(&target, "").unwrap();
+    fs::write(&consumer, consumer_src).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "ast.move",
+                "path": portable_path_str(&source),
+                "target": portable_path_str(&target),
+                "symbols": ["helper"],
+                "update_imports": true,
+                "old_module_path": "crate::old_mod",
+                "new_module_path": "crate::new_mod"
+            },
+            {
+                "op": "replace",
+                "path": "missing.rs",
+                "old": "x",
+                "new": "y"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .failure();
+
+    assert_eq!(
+        fs::read_to_string(&consumer).unwrap(),
+        consumer_src,
+        "rollback must restore original consumer import"
+    );
+    assert_eq!(
+        fs::read_to_string(&source).unwrap(),
+        source_src,
+        "rollback must restore source"
+    );
+}
+
 // ── ast.extract_to_file (tx plan) ──────────────────────────────
 
 #[test]

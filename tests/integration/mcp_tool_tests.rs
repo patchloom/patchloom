@@ -4657,6 +4657,54 @@ async fn test_mcp_ast_move_between_files() {
     client.cancel().await.unwrap();
 }
 
+#[cfg(feature = "ast")]
+#[tokio::test]
+async fn test_mcp_ast_move_update_imports() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("old_mod.rs"),
+        "fn helper() {}\nfn keep() {}\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("new_mod.rs"), "").unwrap();
+    fs::write(
+        dir.path().join("consumer.rs"),
+        "use crate::old_mod::helper;\n\nfn main() { helper(); }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_move",
+        serde_json::json!({
+            "path": "old_mod.rs",
+            "target": "new_mod.rs",
+            "symbols": ["helper"],
+            "update_imports": true,
+            "old_module_path": "crate::old_mod",
+            "new_module_path": "crate::new_mod"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_move update_imports should succeed: {val}");
+    assert_eq!(val["ok"], true, "ast_move ok: {val}");
+
+    let consumer = fs::read_to_string(dir.path().join("consumer.rs")).unwrap();
+    assert_eq!(
+        consumer,
+        "use crate::new_mod::helper;\n\nfn main() { helper(); }\n"
+    );
+    let src = fs::read_to_string(dir.path().join("old_mod.rs")).unwrap();
+    let dst = fs::read_to_string(dir.path().join("new_mod.rs")).unwrap();
+    assert!(!src.contains("fn helper"), "removed from source: {src}");
+    assert!(dst.contains("fn helper"), "added to target: {dst}");
+    client.cancel().await.unwrap();
+}
+
 // ── MCP ast_extract_to_file round-trip ─────────────────────────
 
 #[cfg(feature = "ast")]

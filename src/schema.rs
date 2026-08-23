@@ -542,21 +542,33 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "ast.move",
-        description: "Move symbols between files with optional target creation.",
+        description: "Move symbols between files with optional target creation. Set update_imports with old_module_path and new_module_path to rewrite consumer use/import statements.",
         tier: Tier::Medium,
-        examples: &[(
-            "Move helpers to a utility file",
-            r###"{"op":"ast.move","path":"src/lib.rs","target":"src/helpers.rs","symbols":["helper_fn"]}"###,
-        )],
+        examples: &[
+            (
+                "Move helpers to a utility file",
+                r###"{"op":"ast.move","path":"src/lib.rs","target":"src/helpers.rs","symbols":["helper_fn"]}"###,
+            ),
+            (
+                "Move a helper and rewrite consumer imports",
+                r###"{"op":"ast.move","path":"src/old_mod.rs","target":"src/new_mod.rs","symbols":["helper"],"update_imports":true,"old_module_path":"crate::old_mod","new_module_path":"crate::new_mod"}"###,
+            ),
+        ],
     },
     OpMeta {
         name: "ast.extract_to_file",
-        description: "Extract a symbol to a separate file with optional module unwrapping.",
+        description: "Extract a symbol to a separate file with optional module unwrapping. Set update_imports with old_module_path and new_module_path to rewrite consumer use/import statements.",
         tier: Tier::Medium,
-        examples: &[(
-            "Extract test module to companion file",
-            r###"{"op":"ast.extract_to_file","source":"src/lib.rs","symbol":"tests","target":"src/lib_tests.rs","replacement":"mod tests;","prepend":"use super::*;"}"###,
-        )],
+        examples: &[
+            (
+                "Extract test module to companion file",
+                r###"{"op":"ast.extract_to_file","source":"src/lib.rs","symbol":"tests","target":"src/lib_tests.rs","replacement":"mod tests;","prepend":"use super::*;"}"###,
+            ),
+            (
+                "Extract Config and rewrite consumer imports",
+                r###"{"op":"ast.extract_to_file","source":"src/lib.rs","symbol":"Config","target":"src/config.rs","update_imports":true,"old_module_path":"crate::old_mod","new_module_path":"crate::config"}"###,
+            ),
+        ],
     },
     OpMeta {
         name: "ast.split",
