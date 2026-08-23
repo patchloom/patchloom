@@ -275,6 +275,7 @@ mod tests {
             path: String::new(),
             selector: "a".into(),
             value: serde_json::json!(1),
+            if_exists: false,
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(
@@ -287,6 +288,7 @@ mod tests {
     fn whitespace_only_path_rejected() {
         let op = Operation::FileDelete {
             path: "  \t".into(),
+            if_exists: false,
         };
         let err = validate_operation(&op).unwrap_err();
         assert!(

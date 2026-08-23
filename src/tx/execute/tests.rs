@@ -271,6 +271,7 @@ fn op_needs_doc_flush_false_for_doc_set() {
         path: "f.json".into(),
         selector: "key".into(),
         value: serde_json::json!("val"),
+        if_exists: false,
     };
     assert!(!op_needs_doc_flush(&op));
 }
@@ -777,6 +778,7 @@ fn rename_then_delete_dest_removes_both() {
             },
             Operation::FileDelete {
                 path: "b.txt".into(),
+                if_exists: false,
             },
         ],
         write_policy: None,
@@ -833,5 +835,137 @@ fn prepend_dangling_symlink_is_invalid_input() {
     assert!(
         crate::exit::is_invalid_input(&err),
         "dangling symlink prepend must be invalid_input not not_found, got: {err}"
+    );
+}
+
+// ---- if_exists on file.delete / doc.set (#2231) ----
+
+#[test]
+fn file_delete_if_exists_missing_path_soft_skips() {
+    let dir = TempDir::new().unwrap();
+    let op = Operation::FileDelete {
+        path: "missing.txt".into(),
+        if_exists: true,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let count = execute_file_op(&op, &mut tx).expect("if_exists soft-skip");
+    assert_eq!(count, 0);
+    assert!(tx.deletions.is_empty(), "soft-skip must not stage a delete");
+}
+
+#[test]
+fn file_delete_missing_path_without_if_exists_errors() {
+    let dir = TempDir::new().unwrap();
+    let op = Operation::FileDelete {
+        path: "missing.txt".into(),
+        if_exists: false,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let err = execute_file_op(&op, &mut tx).expect_err("missing without if_exists");
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "expected NotFound, got: {err:#}"
+    );
+}
+
+#[test]
+fn file_delete_if_exists_still_deletes_when_present() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("gone.txt");
+    std::fs::write(&file, "x\n").unwrap();
+    let op = Operation::FileDelete {
+        path: "gone.txt".into(),
+        if_exists: true,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    execute_file_op(&op, &mut tx).expect("delete existing");
+    assert!(
+        tx.deletions.contains(&file),
+        "existing file must still be staged for delete"
+    );
+}
+
+#[test]
+fn doc_set_if_exists_missing_file_soft_skips() {
+    let dir = TempDir::new().unwrap();
+    let op = Operation::DocSet {
+        path: "missing.json".into(),
+        selector: "k".into(),
+        value: serde_json::json!(1),
+        if_exists: true,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    execute_doc_op(&op, &mut tx).expect("if_exists soft-skip");
+    assert!(
+        tx.doc_cache.is_empty(),
+        "missing file must not be parsed or written"
+    );
+}
+
+#[test]
+fn doc_set_if_exists_key_found_writes() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("c.json");
+    std::fs::write(&file, r#"{"k":1}"#).unwrap();
+    let op = Operation::DocSet {
+        path: "c.json".into(),
+        selector: "k".into(),
+        value: serde_json::json!(2),
+        if_exists: true,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    execute_doc_op(&op, &mut tx).expect("set existing key");
+    let cached = tx
+        .doc_cache
+        .get(&file)
+        .expect("existing file should be cached");
+    assert_eq!(cached.value["k"], serde_json::json!(2));
+}
+
+#[test]
+fn doc_set_if_exists_key_missing_does_not_create() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("c.json");
+    std::fs::write(&file, r#"{"k":1}"#).unwrap();
+    let op = Operation::DocSet {
+        path: "c.json".into(),
+        selector: "missing".into(),
+        value: serde_json::json!(2),
+        if_exists: true,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    execute_doc_op(&op, &mut tx).expect("if_exists key miss");
+    let cached = tx
+        .doc_cache
+        .get(&file)
+        .expect("file is loaded before the key check");
+    assert_eq!(
+        cached.value,
+        serde_json::json!({"k": 1}),
+        "if_exists must not create a missing key"
+    );
+}
+
+#[test]
+fn doc_set_missing_file_without_if_exists_errors() {
+    let dir = TempDir::new().unwrap();
+    let op = Operation::DocSet {
+        path: "missing.json".into(),
+        selector: "k".into(),
+        value: serde_json::json!(1),
+        if_exists: false,
+    };
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let err = execute_doc_op(&op, &mut tx).expect_err("missing without if_exists");
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "expected NotFound, got: {err:#}"
     );
 }

@@ -117,6 +117,11 @@ pub enum Operation {
         selector: String,
         /// Value to set (any JSON type).
         value: serde_json::Value,
+        /// Soft-skip (no write) when the file is missing or the selector is
+        /// not present. Default false: missing file is `not_found`; a missing
+        /// selector creates the key.
+        #[serde(default)]
+        if_exists: bool,
     },
     #[serde(rename = "doc.delete")]
     DocDelete {
@@ -280,7 +285,14 @@ pub enum Operation {
     #[serde(rename = "file.prepend")]
     FilePrepend { path: String, content: String },
     #[serde(rename = "file.delete")]
-    FileDelete { path: String },
+    FileDelete {
+        /// Path of the file to delete.
+        path: String,
+        /// Soft-skip (no write) when the file is missing. Default false:
+        /// missing path is `not_found`.
+        #[serde(default)]
+        if_exists: bool,
+    },
     #[serde(rename = "file.rename")]
     FileRename {
         from: String,

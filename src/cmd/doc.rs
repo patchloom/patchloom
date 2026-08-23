@@ -308,6 +308,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
                 path: file.clone(),
                 selector: selector.clone(),
                 value: parse_value(value),
+                if_exists: false,
             })
         }
         DocAction::Delete { file, selector } => {

@@ -211,6 +211,7 @@ mod tests {
 
         let op = Operation::FileDelete {
             path: "del.txt".to_string(),
+            if_exists: false,
         };
 
         let code = execute_via_engine(

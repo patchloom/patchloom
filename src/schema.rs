@@ -244,12 +244,18 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "file.delete",
-        description: "Delete a file.",
+        description: "Delete a file. Default fails with not_found if the path is missing. Set if_exists=true to soft-skip a missing file (no write, success).",
         tier: Tier::Weak,
-        examples: &[(
-            "Delete a temporary file",
-            r###"{"op":"file.delete","path":"tmp/scratch.txt"}"###,
-        )],
+        examples: &[
+            (
+                "Delete a temporary file",
+                r###"{"op":"file.delete","path":"tmp/scratch.txt"}"###,
+            ),
+            (
+                "Soft-skip when the file is already gone",
+                r###"{"op":"file.delete","path":"tmp/scratch.txt","if_exists":true}"###,
+            ),
+        ],
     },
     OpMeta {
         name: "file.rename",
@@ -278,12 +284,18 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     // --- Medium tier ---
     OpMeta {
         name: "doc.set",
-        description: "Set a value at a single concrete selector path in a JSON, YAML, or TOML file (keys and indexes such as server.port or items.0.v). Parser-backed; output is always valid. Not for predicates or wildcards (items[name=foo].v, items[*].v); use doc.update for multi-match writes.",
+        description: "Set a value at a single concrete selector path in a JSON, YAML, or TOML file (keys and indexes such as server.port or items.0.v). Parser-backed; output is always valid. Not for predicates or wildcards (items[name=foo].v, items[*].v); use doc.update for multi-match writes. Default creates a missing key and fails with not_found if the file is missing. Set if_exists=true to soft-skip when the file is missing or the selector is not present (does not create the key).",
         tier: Tier::Medium,
-        examples: &[(
-            "Update a version in package.json",
-            r###"{"op":"doc.set","path":"package.json","selector":"version","value":"2.0.0"}"###,
-        )],
+        examples: &[
+            (
+                "Update a version in package.json",
+                r###"{"op":"doc.set","path":"package.json","selector":"version","value":"2.0.0"}"###,
+            ),
+            (
+                "Set only when the key already exists",
+                r###"{"op":"doc.set","path":"package.json","selector":"version","value":"2.0.0","if_exists":true}"###,
+            ),
+        ],
     },
     OpMeta {
         name: "doc.delete",

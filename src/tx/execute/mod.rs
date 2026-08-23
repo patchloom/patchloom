@@ -595,10 +595,45 @@ fn op_needs_doc_flush(op: &Operation) -> bool {
 }
 
 pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
+    let if_exists_set = matches!(
+        op,
+        Operation::DocSet {
+            if_exists: true,
+            ..
+        }
+    );
+    if if_exists_set {
+        let path = match op {
+            Operation::DocSet { path, .. } => path.as_str(),
+            _ => "",
+        };
+        let file_path = tx.cwd.join(path);
+        let deleted_in_tx = tx.deletions.contains(&file_path);
+        let exists_in_pending = tx.pending.contains_key(&file_path) && !deleted_in_tx;
+        let exists_on_disk = !deleted_in_tx && crate::ops::file::path_entry_exists(&file_path);
+        if !exists_in_pending && !exists_on_disk {
+            return Ok(());
+        }
+    }
+
     let (path, mutation) = crate::plan::op_to_doc_mutation(op)
         .ok_or_else(|| anyhow::anyhow!("execute_doc_op called with non-doc operation"))?;
-    let root = get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd)
-        .map_err(path_err(path))?;
+    let root = match get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd) {
+        Ok(root) => root,
+        Err(e) if if_exists_set && crate::exit::is_io_not_found(&e) => return Ok(()),
+        Err(e) => return Err(path_err(path)(e)),
+    };
+    if if_exists_set {
+        let selector = match op {
+            Operation::DocSet { selector, .. } => selector.as_str(),
+            _ => "",
+        };
+        match crate::ops::doc::query::query_has(root, selector) {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(e) => return Err(path_err(path)(e)),
+        }
+    }
 
     // Delete and DeleteWhere are idempotent: a no-match is not an error
     // (the old code silently discarded the bool/count return value).

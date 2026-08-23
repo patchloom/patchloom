@@ -155,7 +155,16 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
 
     match op {
         // -- doc operations (path + selector + value) --------------------------
-        "doc.set" => doc_psv!(op, args, line_num, DocSet),
+        "doc.set" => {
+            require_args(op, args, 3, line_num)?;
+            let value = parse_json_value(&peel_owned(&args[2], &["value"]))?;
+            op!(DocSet {
+                path: peel_owned(&args[0], &["path"]),
+                selector: peel_owned(&args[1], &["selector", "key"]),
+                value,
+                if_exists: false
+            })
+        }
         "doc.ensure" => doc_psv!(op, args, line_num, DocEnsure),
         "doc.append" => doc_psv!(op, args, line_num, DocAppend),
         "doc.prepend" => doc_psv!(op, args, line_num, DocPrepend),
@@ -236,7 +245,8 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         "file.delete" => {
             require_args(op, args, 1, line_num)?;
             op!(FileDelete {
-                path: peel_owned(&args[0], &["path"])
+                path: peel_owned(&args[0], &["path"]),
+                if_exists: false
             })
         }
         "file.rename" => {

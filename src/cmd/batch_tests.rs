@@ -127,7 +127,7 @@ mod basic {
         let op = parse_line("doc.set config.json version 42", 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocSet { path, selector, value }
+            Operation::DocSet { path, selector, value, .. }
             if path == "config.json" && selector == "version" && value == serde_json::json!(42)
         ));
     }
@@ -137,7 +137,7 @@ mod basic {
         let op = parse_line(r#"doc.set config.json name "my app""#, 1).unwrap();
         assert!(matches!(
             op,
-            Operation::DocSet { path, selector, value }
+            Operation::DocSet { path, selector, value, .. }
             if path == "config.json" && selector == "name" && value == serde_json::json!("my app")
         ));
     }
@@ -445,7 +445,7 @@ mod basic {
         assert!(
             matches!(
                 &op,
-                Operation::DocSet { path, selector, value }
+                Operation::DocSet { path, selector, value, .. }
                 if path == "config.json"
                     && selector == "version"
                     && value.as_f64() == Some(2.0)
@@ -564,7 +564,7 @@ mod basic {
     #[test]
     fn parse_line_file_delete() {
         let op = parse_line("file.delete old.txt", 1).unwrap();
-        assert!(matches!(op, Operation::FileDelete { path } if path == "old.txt"));
+        assert!(matches!(op, Operation::FileDelete { path, .. } if path == "old.txt"));
     }
 
     #[test]

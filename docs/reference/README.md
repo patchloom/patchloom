@@ -1105,6 +1105,7 @@ The operations below are the building blocks inside `operations`.
 - **What it does:** Runs a targeted structured set inside a transaction.
 - **Use when:** A precise config update must be bundled atomically with other repo changes.
 - **Field naming:** Use `selector` for the path expression in `doc.set`, `doc.delete`, `doc.append`, `doc.prepend`, `doc.update`, `doc.ensure`, and `doc.delete_where`.
+- **Optional fields:** `if_exists` (bool, default false). When true, a missing file or missing selector is a soft success (no write). The key is not created. Default remains fail-hard (`not_found` for a missing file; a missing selector creates the key).
 - **Related:** top level `doc set`
 
 <!-- ref:tx-op:doc.delete -->
@@ -1262,6 +1263,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Deletes a file inside a transaction.
 - **Use when:** File removal should roll back if later format or validation steps fail.
+- **Optional fields:** `if_exists` (bool, default false). When true, a missing file is a soft success (no write). Default remains fail-hard (`not_found`).
 - **Related:** top level `delete`
 
 <!-- ref:tx-op:file.rename -->

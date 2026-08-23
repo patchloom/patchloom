@@ -142,8 +142,10 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             path,
             selector,
             value,
+            if_exists,
         } => {
-            format!("Set {selector} to {value} in {path}")
+            let ie = if *if_exists { " (if exists)" } else { "" };
+            format!("Set {selector} to {value} in {path}{ie}")
         }
         Operation::DocDelete { path, selector } => {
             format!("Delete {selector} from {path}")
@@ -314,8 +316,9 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             };
             format!("Create file {path}{force_str}")
         }
-        Operation::FileDelete { path } => {
-            format!("Delete file {path}")
+        Operation::FileDelete { path, if_exists } => {
+            let ie = if *if_exists { " (if exists)" } else { "" };
+            format!("Delete file {path}{ie}")
         }
         Operation::FileRename { from, to, force } => {
             let force_str = if *force { " (overwrite)" } else { "" };
@@ -643,6 +646,7 @@ mod tests {
             path: "package.json".into(),
             selector: "version".into(),
             value: serde_json::json!("2.0.0"),
+            if_exists: false,
         };
         assert_eq!(
             describe_operation(&op),
@@ -697,6 +701,7 @@ mod tests {
                 },
                 Operation::FileDelete {
                     path: "old.txt".into(),
+                    if_exists: false,
                 },
             ],
             format: None,
@@ -717,6 +722,7 @@ mod tests {
             strict: Some(false),
             operations: vec![Operation::FileDelete {
                 path: "x.txt".into(),
+                if_exists: false,
             }],
             format: Some(vec![FormatStep {
                 cmd: "fmt".into(),
@@ -1276,6 +1282,7 @@ mod tests {
             strict: None,
             operations: vec![Operation::FileDelete {
                 path: "x.txt".into(),
+                if_exists: false,
             }],
             format: None,
             validate: None,
@@ -1294,6 +1301,7 @@ mod tests {
             path: "a.json".into(),
             selector: "x".into(),
             value: serde_json::json!(1),
+            if_exists: false,
         };
         assert_eq!(operation_op_name(&op), "doc.set");
         let desc = schema::operation_description("doc.set")
