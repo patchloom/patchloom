@@ -3729,6 +3729,62 @@ fn test_doc_get_port_gt_non_numeric_field_invalid_input() {
     );
 }
 
+/// #2230: CLI `doc update` parse-time non-numeric operand is invalid_input.
+#[test]
+fn test_doc_update_port_gt_non_numeric_operand_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("servers.json");
+    fs::write(&file, r#"{"servers":[{"port":80}]}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "update"])
+        .arg(&file)
+        .arg("servers[port>abc].port")
+        .arg("443")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON error envelope");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "non-numeric comparison operand must be invalid_input: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"servers":[{"port":80}]}"#
+    );
+}
+
+/// #2230: CLI `doc update` present non-numeric field vs `>` is invalid_input.
+#[test]
+fn test_doc_update_port_gt_non_numeric_field_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("servers.json");
+    fs::write(&file, r#"{"servers":[{"port":"abc"}]}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "update"])
+        .arg(&file)
+        .arg("servers[port>8000].port")
+        .arg("443")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON error envelope");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(
+        v["error_kind"], "invalid_input",
+        "non-numeric field vs > must be invalid_input: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"servers":[{"port":"abc"}]}"#
+    );
+}
+
 /// #2230: UTF-8 predicate key still parses.
 #[test]
 fn test_doc_get_unicode_predicate_key() {
