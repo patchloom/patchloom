@@ -2564,6 +2564,51 @@ fn test_tx_doc_update_port_gt_non_numeric_operand_invalid_input() {
     assert_eq!(body, r#"{"servers":[{"port":80}]}"#);
 }
 
+/// #2230: plan/tx present non-numeric field vs `>` is invalid_input (eval-time).
+#[test]
+fn test_tx_doc_update_port_gt_non_numeric_field_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("svc.json");
+    fs::write(&file, r#"{"servers":[{"port":"abc"}]}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.update",
+            "path": portable_path_str(&file),
+            "selector": "servers[port>8000].port",
+            "value": 443
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON envelope");
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "non-numeric field vs > must be invalid_input: {json}"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        r#"{"servers":[{"port":"abc"}]}"#
+    );
+}
+
 #[test]
 fn test_tx_md_insert_before_heading_in_plan() {
     let dir = TempDir::new().unwrap();
