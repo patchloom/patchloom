@@ -727,6 +727,43 @@ async fn test_mcp_doc_update_port_gt_predicate() {
     client.cancel().await.unwrap();
 }
 
+/// #2230: MCP `doc_update` comparison operand that is not numeric is invalid_input.
+#[tokio::test]
+async fn test_mcp_doc_update_port_gt_non_numeric_operand_invalid_input() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("svc.json"), r#"{"servers":[{"port":80}]}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_update",
+        serde_json::json!({
+            "path": "svc.json",
+            "selector": "servers[port>abc].port",
+            "value": 443
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "non-numeric comparison operand must fail closed via MCP: {val}"
+    );
+    assert_eq!(val["ok"], false, "{val}");
+    assert_eq!(
+        val["error_kind"], "invalid_input",
+        "MCP remapper must keep invalid_input: {val}"
+    );
+    let body = fs::read_to_string(dir.path().join("svc.json")).unwrap();
+    assert_eq!(
+        body, r#"{"servers":[{"port":80}]}"#,
+        "MCP fail-closed must not write: {body}"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// #1467: singular `path` is accepted as an alias for `paths: [path]`.
 #[tokio::test]
 async fn test_mcp_search_files_accepts_path_alias() {

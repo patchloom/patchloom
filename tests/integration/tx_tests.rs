@@ -2498,13 +2498,23 @@ fn test_tx_doc_update_port_gt_predicate_writes_matching_row() {
     let plan_file = dir.path().join("plan.json");
     fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
 
-    Command::cargo_bin("patchloom")
+    let output = Command::cargo_bin("patchloom")
         .unwrap()
+        .arg("--json")
         .arg("tx")
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
-        .assert()
-        .code(0);
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["files_changed"], 1, "{json}");
 
     let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(v["servers"][0]["port"], 80, "{v}");

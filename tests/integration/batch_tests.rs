@@ -366,6 +366,50 @@ fn test_batch_doc_update_port_gt_predicate_writes_matching_row() {
     assert_eq!(v["servers"][1]["port"], 443, "{v}");
 }
 
+/// #2230: batch `doc.update` non-numeric comparison is invalid_input (tx sibling).
+#[test]
+fn test_batch_doc_update_port_gt_non_numeric_operand_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("svc.json"), r#"{"servers":[{"port":80}]}"#).unwrap();
+    fs::write(dir.path().join("keep.txt"), "stay\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["batch", "--apply"])
+        .write_stdin(
+            "replace keep.txt stay kept\n\
+             doc.update svc.json servers[port>abc].port 443\n",
+        )
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON envelope");
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "non-numeric comparison operand must be invalid_input: {json}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("svc.json")).unwrap(),
+        r#"{"servers":[{"port":80}]}"#,
+        "failed batch must not write the bad update"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+        "stay\n",
+        "failed batch must not leave sibling apply"
+    );
+}
+
 #[test]
 fn test_batch_json_empty_input_returns_structured_success() {
     let dir = TempDir::new().unwrap();
