@@ -331,6 +331,41 @@ fn test_batch_doc_set_missing_file_without_if_exists_fails() {
     );
 }
 
+/// #2230: batch `doc.update` honors comparison predicates (CLI/tx/MCP sibling).
+#[test]
+fn test_batch_doc_update_port_gt_predicate_writes_matching_row() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("svc.json"),
+        r#"{"servers":[{"name":"web","port":80},{"name":"api","port":9000}]}"#,
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["batch", "--apply"])
+        .write_stdin("doc.update svc.json servers[port>8000].port 443\n")
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true, "{json}");
+    assert_eq!(json["files_changed"], 1, "{json}");
+    let v: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.path().join("svc.json")).unwrap()).unwrap();
+    assert_eq!(v["servers"][0]["port"], 80, "{v}");
+    assert_eq!(v["servers"][1]["port"], 443, "{v}");
+}
+
 #[test]
 fn test_batch_json_empty_input_returns_structured_success() {
     let dir = TempDir::new().unwrap();

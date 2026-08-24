@@ -2475,6 +2475,85 @@ fn test_tx_doc_update_in_plan() {
     assert!(items.iter().all(|i| i["status"] == "archived"));
 }
 
+/// #2230: plan/tx `doc.update` must honor comparison predicates (CLI/MCP sibling).
+#[test]
+fn test_tx_doc_update_port_gt_predicate_writes_matching_row() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("svc.json");
+    fs::write(
+        &file,
+        r#"{"servers":[{"name":"web","port":80},{"name":"api","port":9000}]}"#,
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.update",
+            "path": portable_path_str(&file),
+            "selector": "servers[port>8000].port",
+            "value": 443
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+    assert_eq!(v["servers"][0]["port"], 80, "{v}");
+    assert_eq!(v["servers"][1]["port"], 443, "{v}");
+}
+
+/// #2230: plan/tx comparison operand that is not numeric is invalid_input.
+#[test]
+fn test_tx_doc_update_port_gt_non_numeric_operand_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("svc.json");
+    fs::write(&file, r#"{"servers":[{"port":80}]}"#).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.update",
+            "path": portable_path_str(&file),
+            "selector": "servers[port>abc].port",
+            "value": 443
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON envelope");
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "non-numeric comparison operand must be invalid_input: {json}"
+    );
+    let body = fs::read_to_string(&file).unwrap();
+    assert_eq!(body, r#"{"servers":[{"port":80}]}"#);
+}
+
 #[test]
 fn test_tx_md_insert_before_heading_in_plan() {
     let dir = TempDir::new().unwrap();

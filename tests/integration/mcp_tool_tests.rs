@@ -689,6 +689,44 @@ async fn test_mcp_doc_get_port_gt_predicate() {
     client.cancel().await.unwrap();
 }
 
+/// #2230: MCP `doc_update` honors comparison predicates (CLI/tx sibling).
+#[tokio::test]
+async fn test_mcp_doc_update_port_gt_predicate() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("svc.json"),
+        r#"{"servers":[{"name":"web","port":80},{"name":"api","port":9000}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_update",
+        serde_json::json!({
+            "path": "svc.json",
+            "selector": "servers[port>8000].port",
+            "value": 443
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_update comparison selector should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "doc_update ok: {val}");
+    assert_eq!(val["files_changed"], 1, "doc_update files_changed: {val}");
+
+    let body = fs::read_to_string(dir.path().join("svc.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(v["servers"][0]["port"], 80, "{body}");
+    assert_eq!(v["servers"][1]["port"], 443, "{body}");
+    client.cancel().await.unwrap();
+}
+
 /// #1467: singular `path` is accepted as an alias for `paths: [path]`.
 #[tokio::test]
 async fn test_mcp_search_files_accepts_path_alias() {
