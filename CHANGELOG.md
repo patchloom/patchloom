@@ -11,6 +11,23 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.30.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.29.0...patchloom-v0.30.0) (2026-08-24)
+
+
+### Features
+
+* **api:** Begin Patch apply and unique SEARCH/REPLACE ([#2222](https://github.com/patchloom/patchloom/issues/2222)) ([f82fab5](https://github.com/patchloom/patchloom/commit/f82fab599274b4222e57de1c730a5a31b22fa6c6)), closes [#2219](https://github.com/patchloom/patchloom/issues/2219) [#2220](https://github.com/patchloom/patchloom/issues/2220) [#2221](https://github.com/patchloom/patchloom/issues/2221)
+* **api:** SEARCH/REPLACE apply on CLI, MCP, and plan ([#2224](https://github.com/patchloom/patchloom/issues/2224)) ([ceebaaf](https://github.com/patchloom/patchloom/commit/ceebaaf59a66a1b3429e9df2ebb0ac5d39aba2a9)), closes [#2221](https://github.com/patchloom/patchloom/issues/2221) [#2220](https://github.com/patchloom/patchloom/issues/2220)
+* **ast:** rewrite consumer imports after ast.move ([#2232](https://github.com/patchloom/patchloom/issues/2232)) ([9294fdf](https://github.com/patchloom/patchloom/commit/9294fdf9823626568663ffb6c9711855d5b2afb7))
+* **batch:** honor --if-exists on doc.set and file.delete ([#2235](https://github.com/patchloom/patchloom/issues/2235)) ([24ee4e0](https://github.com/patchloom/patchloom/commit/24ee4e02dd692bfe3f907e43c7afea1f862d2508))
+* **selector:** comparison and negation predicates ([#2233](https://github.com/patchloom/patchloom/issues/2233)) ([42f40f8](https://github.com/patchloom/patchloom/commit/42f40f8da2aa56e47b7afe8376a555d24fa9c683))
+* **tx:** honor if_exists on doc.set and file.delete ([#2234](https://github.com/patchloom/patchloom/issues/2234)) ([b9a88f5](https://github.com/patchloom/patchloom/commit/b9a88f57e3056943571e9501e5db4611e51fb31d))
+
+
+### Bug Fixes
+
+* **doc:** keep YAML anchors on unrelated doc.set ([#2228](https://github.com/patchloom/patchloom/issues/2228)) ([6090682](https://github.com/patchloom/patchloom/commit/6090682914b33383352bb4e3ab821cbe8c4ea5f7)), closes [#2227](https://github.com/patchloom/patchloom/issues/2227)
+
 ## [0.29.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.28.1...patchloom-v0.29.0) (2026-08-20)
 
 
