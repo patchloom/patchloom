@@ -238,6 +238,7 @@ fn workflow_documents_yaml_alias_to_merge() {
     assert!(
         out.contains("YAML anchors")
             && out.contains("service_a: *shared")
+            && out.contains("- *shared")
             && out.contains("<<: *shared"),
         "agents need YAML alias-to-merge guidance: {out}"
     );
