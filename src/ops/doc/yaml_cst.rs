@@ -325,11 +325,11 @@ fn alias_object_rewrite(
         return Ok(None);
     };
     let name = alias.name();
-    if !is_safe_yaml_anchor_name(&name) {
+    if !is_safe_yaml_plain_ident(&name) {
         return Ok(None);
     }
     if let Some(key) = key
-        && !is_safe_yaml_plain_key(key)
+        && !is_safe_yaml_plain_ident(key)
     {
         return Ok(None);
     }
@@ -368,14 +368,10 @@ struct AliasLineRewrite {
     seq_occurrence: Option<usize>,
 }
 
-fn is_safe_yaml_anchor_name(name: &str) -> bool {
+/// Anchor names and mapping keys interpolated into the alias-line regex
+/// must be unquoted YAML plain identifiers (no `:`, spaces, or quotes).
+fn is_safe_yaml_plain_ident(name: &str) -> bool {
     let mut chars = name.chars();
-    matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-}
-
-fn is_safe_yaml_plain_key(key: &str) -> bool {
-    let mut chars = key.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }

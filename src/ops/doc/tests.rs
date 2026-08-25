@@ -1452,6 +1452,121 @@ second:
         assert!(result.contains("&shared"), "anchor must remain:\n{result}");
     }
 
+    /// Nested `parent.child: *shared` is the same interior-alias case as a
+    /// top-level key; the walk must find the alias under the parent mapping.
+    #[test]
+    fn yaml_nested_mapping_alias_becomes_merge() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+parent:
+  child: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["parent"]["child"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&shared") && result.contains("<<: *shared"),
+            "nested alias override must become merge:\n{result}"
+        );
+        assert!(
+            result.contains("child:") && result.contains("timeout: 60"),
+            "local override missing:\n{result}"
+        );
+        assert!(
+            !result.contains("child: *shared"),
+            "edited nested alias must not stay a pure alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["parent"]["child"]["timeout"], json!(60));
+        assert_eq!(reparsed["parent"]["child"]["retries"], json!(3));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
+    /// A trailing comment on `key: *alias` stays on the key after the splice.
+    #[test]
+    fn yaml_pure_alias_keeps_trailing_comment() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared  # inherited
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("# inherited") && result.contains("<<: *shared"),
+            "comment must survive alias-to-merge:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"]["timeout"], json!(60));
+        assert_eq!(reparsed["service_a"]["retries"], json!(3));
+    }
+
+    /// Multi-doc streams serialize per document. A pure alias in doc 1 must
+    /// become a merge without dumping doc 0.
+    #[test]
+    fn yaml_multi_doc_second_doc_pure_alias_becomes_merge() {
+        let yaml = "\
+---
+kind: Config
+name: keep
+---
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[1]["service_a"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            is_multi_document_yaml(&result),
+            "must stay multi-document:\n{result}"
+        );
+        assert!(
+            result.contains("name: keep") || result.contains("name: \"keep\""),
+            "first document must stay intact:\n{result}"
+        );
+        assert!(
+            result.contains("&shared") && result.contains("<<: *shared"),
+            "second-doc alias override must become merge:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed[0]["name"], json!("keep"));
+        assert_eq!(reparsed[1]["service_a"]["timeout"], json!(60));
+        assert_eq!(reparsed[1]["service_a"]["retries"], json!(3));
+    }
+
+    /// Keys that are not YAML plain identifiers skip the alias-line splice
+    /// (they are interpolated into a regex). Semantic edit still applies.
+    #[test]
+    fn yaml_non_plain_key_alias_still_edits() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+\"foo:bar\": *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["foo:bar"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["foo:bar"]["timeout"], json!(60));
+        assert_eq!(reparsed["foo:bar"]["retries"], json!(3));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
     /// New key under a merge map is a local addition; merge/anchor stay.
     #[test]
     fn yaml_add_key_under_merge_map_preserves_merge() {

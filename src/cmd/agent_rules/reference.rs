@@ -56,9 +56,10 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
          form (still `---` separators, not a single YAML sequence).\n\n\
          **YAML anchors:** `doc set` / `doc.update` keep `&name`, `*name`, and `<<: *name` when \
          the edit is a sibling field or a local override beside an existing merge. An interior \
-         edit of a pure mapping alias (`service_a: *shared`) becomes `<<: *shared` plus the \
-         local key. Deleting an inherited key, or replacing the alias with a map that is not a \
-         key-superset, writes a concrete map for that site only.\n\n\
+         edit of a pure mapping alias (`service_a: *shared` or a list item `- *shared`) becomes \
+         `<<: *shared` plus the local key. Deleting an inherited key, or replacing the alias \
+         with a map that does not keep every inherited key, writes a concrete map for that \
+         site only.\n\n\
          **Markdown section bounds:** `md_replace_section` / `md_insert_after_section` / section moves \
          end at the next heading of the **same or higher** level. Nested lower-level headings belong to \
          the parent (replacing `# Intro` also rewrites following `##` children until the next `#`). Prefer \
