@@ -1330,6 +1330,52 @@ app_name: my-service
         .stdout(predicate::str::starts_with("30"));
 }
 
+/// Interior edit of `key: *anchor` becomes `<<: *anchor` plus the local key.
+#[test]
+fn test_doc_set_yaml_pure_alias_becomes_merge() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\nservice_b: *shared\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("service_a.timeout")
+        .arg("60")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&shared") && content.contains("<<: *shared"),
+        "pure alias override must become merge:\n{content}"
+    );
+    assert!(
+        content.contains("service_b: *shared"),
+        "sibling alias must stay a pure alias:\n{content}"
+    );
+    assert!(
+        content.contains("timeout: 60"),
+        "local override missing:\n{content}"
+    );
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("service_a.retries")
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("3"));
+}
+
 #[test]
 fn test_doc_set_yaml_apply() {
     let dir = TempDir::new().unwrap();

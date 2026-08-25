@@ -769,6 +769,37 @@ fn yaml_doc_set_preserves_comments() {
 }
 
 #[test]
+fn yaml_doc_set_pure_alias_becomes_merge() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\nservice_b: *shared\n",
+    )
+    .unwrap();
+
+    let result = doc_set(
+        &file,
+        "service_a.timeout",
+        serde_json::json!(60),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+
+    assert!(result.changed);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        on_disk.contains("&shared") && on_disk.contains("<<: *shared"),
+        "library doc_set must convert alias to merge:\n{on_disk}"
+    );
+    assert!(
+        on_disk.contains("service_b: *shared"),
+        "sibling alias must remain:\n{on_disk}"
+    );
+}
+
+#[test]
 #[cfg(any(feature = "cli", feature = "files"))]
 fn execute_plan_runs_operations() {
     let dir = TempDir::new().unwrap();

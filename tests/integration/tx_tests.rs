@@ -2233,6 +2233,48 @@ fn test_tx_doc_set_yaml_preserves_anchors_and_merges() {
     );
 }
 
+/// Plan/tx interior edit of a pure YAML alias becomes a merge override.
+#[test]
+fn test_tx_doc_set_yaml_pure_alias_becomes_merge() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "shared: &s\n  timeout: 30\n  retries: 3\nservice_a: *s\nservice_b: *s\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "service_a.timeout",
+            "value": 60
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&s") && content.contains("<<: *s"),
+        "tx doc.set must convert alias to merge:\n{content}"
+    );
+    assert!(
+        content.contains("service_b: *s"),
+        "sibling alias must remain:\n{content}"
+    );
+}
+
 #[test]
 fn test_tx_doc_set_selector_in_plan() {
     let dir = TempDir::new().unwrap();
