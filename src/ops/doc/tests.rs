@@ -1373,10 +1373,13 @@ items:
             result.contains("&shared") && result.contains("<<: *shared"),
             "sequence alias override must become merge:\n{result}"
         );
-        assert_eq!(
-            result.matches("*shared").count(),
-            2,
-            "merge plus remaining item alias:\n{result}"
+        assert!(
+            result.contains("- <<: *shared"),
+            "first item must become a merge:\n{result}"
+        );
+        assert!(
+            result.contains("  - *shared"),
+            "untouched second item must stay a pure alias:\n{result}"
         );
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
         assert_eq!(reparsed["items"][0]["timeout"], json!(60));
@@ -1473,7 +1476,11 @@ parent:
             "nested alias override must become merge:\n{result}"
         );
         assert!(
-            result.contains("child:") && result.contains("timeout: 60"),
+            result.contains("child:\n    <<: *shared"),
+            "nested alias must become a block merge:\n{result}"
+        );
+        assert!(
+            result.contains("timeout: 60"),
             "local override missing:\n{result}"
         );
         assert!(
@@ -1501,8 +1508,8 @@ service_a: *shared  # inherited
 
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
         assert!(
-            result.contains("# inherited") && result.contains("<<: *shared"),
-            "comment must survive alias-to-merge:\n{result}"
+            result.contains("service_a:  # inherited") && result.contains("<<: *shared"),
+            "comment must stay on the key line after splice:\n{result}"
         );
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
         assert_eq!(reparsed["service_a"]["timeout"], json!(60));
@@ -1559,6 +1566,15 @@ shared: &shared
         let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
         let mut new = old.clone();
         new["foo:bar"]["timeout"] = json!(60);
+
+        let file: yaml_edit::YamlFile = yaml.parse().unwrap();
+        let splice =
+            super::super::yaml_cst::rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+                .unwrap();
+        assert!(
+            splice.is_none(),
+            "non-plain key must skip the alias-line splice, got {splice:?}"
+        );
 
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
