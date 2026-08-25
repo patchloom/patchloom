@@ -1546,6 +1546,27 @@ service_a: *shared
         assert_eq!(reparsed[1]["service_a"]["retries"], json!(3));
     }
 
+    /// Keys that are not YAML plain identifiers skip the alias-line splice
+    /// (they are interpolated into a regex). Semantic edit still applies.
+    #[test]
+    fn yaml_non_plain_key_alias_still_edits() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+\"foo:bar\": *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["foo:bar"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["foo:bar"]["timeout"], json!(60));
+        assert_eq!(reparsed["foo:bar"]["retries"], json!(3));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
     /// New key under a merge map is a local addition; merge/anchor stay.
     #[test]
     fn yaml_add_key_under_merge_map_preserves_merge() {
