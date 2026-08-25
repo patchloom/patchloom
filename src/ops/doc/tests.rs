@@ -1387,6 +1387,77 @@ items:
         assert_eq!(reparsed["items"][1]["timeout"], json!(30));
     }
 
+    /// Alias as a field inside a sequence item (`items[1].cfg: *shared`).
+    /// The walk must recurse mappings in the list and rewrite only that site.
+    #[test]
+    fn yaml_alias_field_inside_sequence_item_becomes_merge() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+items:
+  - name: a
+    cfg: *shared
+  - name: b
+    cfg: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][1]["cfg"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("name: a") && result.contains("cfg: *shared"),
+            "first item cfg must stay a pure alias:\n{result}"
+        );
+        assert!(
+            result.contains("<<: *shared") && result.contains("timeout: 60"),
+            "second item cfg must become a merge:\n{result}"
+        );
+        assert_eq!(
+            result.matches("cfg: *shared").count(),
+            1,
+            "only the unedited cfg should remain a pure alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0]["cfg"]["timeout"], json!(30));
+        assert_eq!(reparsed["items"][1]["cfg"]["timeout"], json!(60));
+        assert_eq!(reparsed["items"][1]["cfg"]["retries"], json!(3));
+        assert_eq!(reparsed["items"][1]["name"], json!("b"));
+    }
+
+    /// Same mapping key (`cfg: *shared`) under two sibling objects.
+    /// File-wide unique-line matching would rewrite the first site.
+    #[test]
+    fn yaml_sibling_objects_same_alias_key_rewrites_the_edited_site() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a:
+  cfg: *shared
+service_b:
+  cfg: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_b"]["cfg"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("service_a:\n  cfg: *shared"),
+            "unedited sibling must stay a pure alias:\n{result}"
+        );
+        assert!(
+            result.contains("<<: *shared") && result.contains("timeout: 60"),
+            "edited sibling cfg must become a merge:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"]["cfg"]["timeout"], json!(30));
+        assert_eq!(reparsed["service_b"]["cfg"]["timeout"], json!(60));
+        assert_eq!(reparsed["service_b"]["cfg"]["retries"], json!(3));
+    }
+
     /// Two sibling lists share `*shared`. Edit the second list only.
     #[test]
     fn yaml_sibling_sequence_alias_rewrites_the_edited_list() {

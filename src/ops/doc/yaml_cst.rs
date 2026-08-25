@@ -217,8 +217,16 @@ pub(crate) fn rewrite_yaml_alias_object_edits(
     };
     let mut rewrites = Vec::new();
     let mut seq_alias_seen = std::collections::HashMap::new();
+    let mut map_alias_seen = std::collections::HashMap::new();
     if let Some(mapping) = doc.as_mapping() {
-        collect_mapping_alias_rewrites(&mapping, old, new, &mut seq_alias_seen, &mut rewrites)?;
+        collect_mapping_alias_rewrites(
+            &mapping,
+            old,
+            new,
+            &mut seq_alias_seen,
+            &mut map_alias_seen,
+            &mut rewrites,
+        )?;
     } else if let Some(seq) = doc.as_sequence()
         && let (Some(old_arr), Some(new_arr)) = (old.as_array(), new.as_array())
     {
@@ -227,6 +235,7 @@ pub(crate) fn rewrite_yaml_alias_object_edits(
             old_arr,
             new_arr,
             &mut seq_alias_seen,
+            &mut map_alias_seen,
             &mut rewrites,
         )?;
     }
@@ -241,6 +250,7 @@ fn collect_mapping_alias_rewrites(
     old: &serde_json::Value,
     new: &serde_json::Value,
     seq_alias_seen: &mut std::collections::HashMap<String, usize>,
+    map_alias_seen: &mut std::collections::HashMap<(String, String), usize>,
     out: &mut Vec<AliasLineRewrite>,
 ) -> anyhow::Result<()> {
     let (Some(old_map), Some(new_map)) = (old.as_object(), new.as_object()) else {
@@ -256,12 +266,45 @@ fn collect_mapping_alias_rewrites(
             (old_val, new_val)
             && let Some(seq) = mapping.get_sequence(key.as_str())
         {
-            collect_sequence_alias_rewrites(&seq, old_arr, new_arr, seq_alias_seen, out)?;
+            collect_sequence_alias_rewrites(
+                &seq,
+                old_arr,
+                new_arr,
+                seq_alias_seen,
+                map_alias_seen,
+                out,
+            )?;
         }
         if let (serde_json::Value::Object(_), serde_json::Value::Object(_)) = (old_val, new_val)
             && let Some(child) = mapping.get_mapping(key.as_str())
         {
-            collect_mapping_alias_rewrites(&child, old_val, new_val, seq_alias_seen, out)?;
+            collect_mapping_alias_rewrites(
+                &child,
+                old_val,
+                new_val,
+                seq_alias_seen,
+                map_alias_seen,
+                out,
+            )?;
+            continue;
+        }
+        if let Some(node) = mapping.get(key.as_str())
+            && let Some(alias) = node.as_alias()
+        {
+            // Count every `key: *alias` so nth indexes match file-wide hits,
+            // including unchanged siblings (`cfg: *shared` under two list items).
+            let name = alias.name();
+            let occ = map_alias_seen
+                .entry((key.clone(), name.clone()))
+                .or_insert(0);
+            let this = *occ;
+            *occ += 1;
+            if old_val != new_val
+                && let Some(rewrite) =
+                    alias_object_rewrite(Some(node), Some(key), old_val, new_val, Some(this))?
+            {
+                out.push(rewrite);
+            }
             continue;
         }
         if old_val == new_val {
@@ -282,6 +325,7 @@ fn collect_sequence_alias_rewrites(
     old_arr: &[serde_json::Value],
     new_arr: &[serde_json::Value],
     seq_alias_seen: &mut std::collections::HashMap<String, usize>,
+    map_alias_seen: &mut std::collections::HashMap<(String, String), usize>,
     out: &mut Vec<AliasLineRewrite>,
 ) -> anyhow::Result<()> {
     for (i, old_val) in old_arr.iter().enumerate() {
@@ -308,7 +352,14 @@ fn collect_sequence_alias_rewrites(
             && let (Some(new_val), serde_json::Value::Object(_)) = (new_arr.get(i), old_val)
             && new_val.is_object()
         {
-            collect_mapping_alias_rewrites(child, old_val, new_val, seq_alias_seen, out)?;
+            collect_mapping_alias_rewrites(
+                child,
+                old_val,
+                new_val,
+                seq_alias_seen,
+                map_alias_seen,
+                out,
+            )?;
         }
     }
     Ok(())
@@ -414,10 +465,19 @@ fn apply_alias_line_rewrites(
     rewrites: &[AliasLineRewrite],
 ) -> anyhow::Result<Option<String>> {
     let mut ordered: Vec<&AliasLineRewrite> = rewrites.iter().collect();
-    // Later sequence occurrences first so earlier `*alias` indexes stay valid.
-    ordered.sort_by(|a, b| match (a.seq_occurrence, b.seq_occurrence) {
-        (Some(x), Some(y)) if a.alias == b.alias => y.cmp(&x),
-        _ => std::cmp::Ordering::Equal,
+    // Later occurrences first so earlier `key: *alias` / `- *alias` indexes
+    // stay valid after a splice.
+    ordered.sort_by(|a, b| {
+        match (
+            a.key.as_deref(),
+            b.key.as_deref(),
+            a.seq_occurrence,
+            b.seq_occurrence,
+        ) {
+            (Some(ka), Some(kb), Some(x), Some(y)) if ka == kb && a.alias == b.alias => y.cmp(&x),
+            (None, None, Some(x), Some(y)) if a.alias == b.alias => y.cmp(&x),
+            _ => std::cmp::Ordering::Equal,
+        }
     });
     let mut out = text.to_string();
     for rewrite in ordered {
@@ -438,17 +498,20 @@ fn replace_unique_alias_line(text: &str, rewrite: &AliasLineRewrite) -> Option<S
         ))
         .ok()?;
         let hits: Vec<regex::Match<'_>> = mapping_re.find_iter(text).collect();
-        if hits.len() != 1 {
-            return None;
-        }
-        let caps = mapping_re.captures(hits[0].as_str())?;
+        let idx = match rewrite.seq_occurrence {
+            Some(i) => i,
+            None if hits.len() == 1 => 0,
+            None => return None,
+        };
+        let hit = hits.get(idx)?;
+        let caps = mapping_re.captures(hit.as_str())?;
         let indent = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         let comment = caps.get(2).map(|m| m.as_str()).unwrap_or("");
         let replacement = with_file_eol(
             text,
             &format_block_replacement(indent, &format!("{key}:{comment}"), &rewrite.body),
         );
-        return Some(splice_match(text, hits[0], &replacement));
+        return Some(splice_match(text, *hit, &replacement));
     }
 
     let seq_re = regex::Regex::new(&format!(
