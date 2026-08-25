@@ -233,6 +233,17 @@ fn workflow_documents_multi_document_yaml_index() {
 }
 
 #[test]
+fn workflow_documents_yaml_alias_to_merge() {
+    let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
+    assert!(
+        out.contains("YAML anchors")
+            && out.contains("service_a: *shared")
+            && out.contains("<<: *shared"),
+        "agents need YAML alias-to-merge guidance: {out}"
+    );
+}
+
+#[test]
 fn workflow_documents_markdown_section_bounds_and_dedupe() {
     let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));
     assert!(

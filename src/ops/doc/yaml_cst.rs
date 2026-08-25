@@ -200,6 +200,317 @@ pub(super) fn try_remove_subsequence(
     true
 }
 
+/// Rewrite `key: *alias` (or `- *alias`) lines so interior object edits keep
+/// identity. yaml-edit `Mapping::set` on an inline alias either inlines
+/// invalid YAML or drops sibling anchors, so this is a line splice.
+///
+/// Key-superset edits become `<<: *name` plus local keys. Deleting an
+/// inherited key, or a non-superset replace, writes a concrete map.
+pub(crate) fn rewrite_yaml_alias_object_edits(
+    text: &str,
+    file: &yaml_edit::YamlFile,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+) -> anyhow::Result<Option<String>> {
+    let Some(doc) = file.document() else {
+        return Ok(None);
+    };
+    let mut rewrites = Vec::new();
+    let mut seq_alias_seen = std::collections::HashMap::new();
+    if let Some(mapping) = doc.as_mapping() {
+        collect_mapping_alias_rewrites(&mapping, old, new, &mut seq_alias_seen, &mut rewrites)?;
+    } else if let Some(seq) = doc.as_sequence()
+        && let (Some(old_arr), Some(new_arr)) = (old.as_array(), new.as_array())
+    {
+        collect_sequence_alias_rewrites(
+            &seq,
+            old_arr,
+            new_arr,
+            &mut seq_alias_seen,
+            &mut rewrites,
+        )?;
+    }
+    if rewrites.is_empty() {
+        return Ok(None);
+    }
+    apply_alias_line_rewrites(text, &rewrites)
+}
+
+fn collect_mapping_alias_rewrites(
+    mapping: &yaml_edit::Mapping,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+    seq_alias_seen: &mut std::collections::HashMap<String, usize>,
+    out: &mut Vec<AliasLineRewrite>,
+) -> anyhow::Result<()> {
+    let (Some(old_map), Some(new_map)) = (old.as_object(), new.as_object()) else {
+        return Ok(());
+    };
+    for (key, new_val) in new_map {
+        let Some(old_val) = old_map.get(key) else {
+            continue;
+        };
+        // Walk every child sequence so occurrence indexes match file-wide
+        // `- *alias` hits, including lists under unchanged sibling keys.
+        if let (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr)) =
+            (old_val, new_val)
+            && let Some(seq) = mapping.get_sequence(key.as_str())
+        {
+            collect_sequence_alias_rewrites(&seq, old_arr, new_arr, seq_alias_seen, out)?;
+        }
+        if let (serde_json::Value::Object(_), serde_json::Value::Object(_)) = (old_val, new_val)
+            && let Some(child) = mapping.get_mapping(key.as_str())
+        {
+            collect_mapping_alias_rewrites(&child, old_val, new_val, seq_alias_seen, out)?;
+            continue;
+        }
+        if old_val == new_val {
+            continue;
+        }
+        if let (serde_json::Value::Object(_), serde_json::Value::Object(_)) = (old_val, new_val)
+            && let Some(rewrite) =
+                alias_object_rewrite(mapping.get(key.as_str()), Some(key), old_val, new_val, None)?
+        {
+            out.push(rewrite);
+        }
+    }
+    Ok(())
+}
+
+fn collect_sequence_alias_rewrites(
+    seq: &yaml_edit::Sequence,
+    old_arr: &[serde_json::Value],
+    new_arr: &[serde_json::Value],
+    seq_alias_seen: &mut std::collections::HashMap<String, usize>,
+    out: &mut Vec<AliasLineRewrite>,
+) -> anyhow::Result<()> {
+    for (i, old_val) in old_arr.iter().enumerate() {
+        let Some(node) = seq.get(i) else {
+            continue;
+        };
+        if let Some(alias) = node.as_alias() {
+            let name = alias.name();
+            let occ = seq_alias_seen.entry(name.clone()).or_insert(0);
+            let this = *occ;
+            *occ += 1;
+            let Some(new_val) = new_arr.get(i) else {
+                continue;
+            };
+            if old_val == new_val {
+                continue;
+            }
+            if let Some(rewrite) =
+                alias_object_rewrite(Some(node), None, old_val, new_val, Some(this))?
+            {
+                out.push(rewrite);
+            }
+        } else if let Some(child) = node.as_mapping()
+            && let (Some(new_val), serde_json::Value::Object(_)) = (new_arr.get(i), old_val)
+            && new_val.is_object()
+        {
+            collect_mapping_alias_rewrites(child, old_val, new_val, seq_alias_seen, out)?;
+        }
+    }
+    Ok(())
+}
+
+fn alias_object_rewrite(
+    node: Option<yaml_edit::YamlNode>,
+    key: Option<&str>,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+    seq_occurrence: Option<usize>,
+) -> anyhow::Result<Option<AliasLineRewrite>> {
+    let Some(alias) = node.as_ref().and_then(yaml_edit::YamlNode::as_alias) else {
+        return Ok(None);
+    };
+    let name = alias.name();
+    if !is_safe_yaml_anchor_name(&name) {
+        return Ok(None);
+    }
+    if let Some(key) = key
+        && !is_safe_yaml_plain_key(key)
+    {
+        return Ok(None);
+    }
+    let Some(new_map) = new.as_object() else {
+        return Ok(None);
+    };
+    let merge = old.as_object().is_some_and(|old_map| {
+        old_map.keys().all(|k| new_map.contains_key(k))
+            && new_map.iter().any(|(k, v)| old_map.get(k) != Some(v))
+    });
+    let body = if merge {
+        let mut overrides = serde_json::Map::new();
+        if let Some(old_map) = old.as_object() {
+            for (k, v) in new_map {
+                if old_map.get(k) != Some(v) {
+                    overrides.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        format_alias_block_body(Some(&name), &overrides)?
+    } else {
+        format_alias_block_body(None, new_map)?
+    };
+    Ok(Some(AliasLineRewrite {
+        key: key.map(str::to_string),
+        alias: name,
+        body,
+        seq_occurrence,
+    }))
+}
+
+struct AliasLineRewrite {
+    key: Option<String>,
+    alias: String,
+    body: String,
+    seq_occurrence: Option<usize>,
+}
+
+fn is_safe_yaml_anchor_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+fn is_safe_yaml_plain_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+fn format_alias_block_body(
+    merge_alias: Option<&str>,
+    fields: &serde_json::Map<String, serde_json::Value>,
+) -> anyhow::Result<String> {
+    let mut body = String::new();
+    if let Some(name) = merge_alias {
+        body.push_str("<<: *");
+        body.push_str(name);
+        body.push('\n');
+    }
+    if fields.is_empty() {
+        if merge_alias.is_none() {
+            body.push_str("{}\n");
+        }
+        return Ok(body);
+    }
+    let yaml =
+        serde_yaml_ng::to_string(&serde_json::Value::Object(fields.clone())).map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("YAML serialization failed: {e}"),
+            })
+        })?;
+    for line in yaml.lines() {
+        let line = line.trim_end();
+        if line.is_empty() || line == "---" {
+            continue;
+        }
+        body.push_str(line);
+        body.push('\n');
+    }
+    Ok(body)
+}
+
+fn apply_alias_line_rewrites(
+    text: &str,
+    rewrites: &[AliasLineRewrite],
+) -> anyhow::Result<Option<String>> {
+    let mut ordered: Vec<&AliasLineRewrite> = rewrites.iter().collect();
+    // Later sequence occurrences first so earlier `*alias` indexes stay valid.
+    ordered.sort_by(|a, b| match (a.seq_occurrence, b.seq_occurrence) {
+        (Some(x), Some(y)) if a.alias == b.alias => y.cmp(&x),
+        _ => std::cmp::Ordering::Equal,
+    });
+    let mut out = text.to_string();
+    for rewrite in ordered {
+        let Some(next) = replace_unique_alias_line(&out, rewrite) else {
+            return Ok(None);
+        };
+        out = next;
+    }
+    Ok(Some(out))
+}
+
+fn replace_unique_alias_line(text: &str, rewrite: &AliasLineRewrite) -> Option<String> {
+    let alias_re = regex::escape(&rewrite.alias);
+    if let Some(key) = rewrite.key.as_deref() {
+        let key_re = regex::escape(key);
+        let mapping_re = regex::Regex::new(&format!(
+            r"(?m)^([ \t]*){key_re}:[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
+        ))
+        .ok()?;
+        let hits: Vec<regex::Match<'_>> = mapping_re.find_iter(text).collect();
+        if hits.len() != 1 {
+            return None;
+        }
+        let caps = mapping_re.captures(hits[0].as_str())?;
+        let indent = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+        let comment = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+        let replacement = with_file_eol(
+            text,
+            &format_block_replacement(indent, &format!("{key}:{comment}"), &rewrite.body),
+        );
+        return Some(splice_match(text, hits[0], &replacement));
+    }
+
+    let seq_re = regex::Regex::new(&format!(
+        r"(?m)^([ \t]*)-[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
+    ))
+    .ok()?;
+    let hits: Vec<regex::Match<'_>> = seq_re.find_iter(text).collect();
+    let idx = rewrite.seq_occurrence?;
+    let hit = hits.get(idx)?;
+    let caps = seq_re.captures(hit.as_str())?;
+    let indent = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+    let comment = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+    let first = rewrite.body.lines().next().unwrap_or("");
+    let rest = rewrite
+        .body
+        .lines()
+        .skip(1)
+        .map(|line| format!("{indent}  {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut replacement = format!("{indent}- {first}{comment}");
+    if !rest.is_empty() {
+        replacement.push('\n');
+        replacement.push_str(&rest);
+    }
+    Some(splice_match(text, *hit, &with_file_eol(text, &replacement)))
+}
+
+fn with_file_eol(file: &str, block: &str) -> String {
+    if file.contains("\r\n") {
+        block.replace('\n', "\r\n")
+    } else {
+        block.to_string()
+    }
+}
+
+fn splice_match(text: &str, m: regex::Match<'_>, replacement: &str) -> String {
+    let mut out = String::with_capacity(text.len() + replacement.len());
+    out.push_str(&text[..m.start()]);
+    out.push_str(replacement);
+    out.push_str(&text[m.end()..]);
+    out
+}
+
+fn format_block_replacement(indent: &str, header: &str, body: &str) -> String {
+    let mut out = format!("{indent}{header}\n");
+    for line in body.lines() {
+        out.push_str(indent);
+        out.push_str("  ");
+        out.push_str(line);
+        out.push('\n');
+    }
+    // replace() inserts this in place of one line; drop the trailing newline
+    // so we do not double the original line ending.
+    out.pop();
+    out
+}
+
 /// Convert a `serde_json::Value` to a `yaml_edit::YamlNode` by
 /// round-tripping through `serde_yaml_ng` (for correct serialization)
 /// and `yaml_edit` (for a CST node that `Mapping::set` can accept).
@@ -335,6 +646,30 @@ mod tests {
         let new = json!({"key": "value"});
         let result = apply_and_serialize(yaml, &old, &new);
         assert_eq!(result, yaml);
+    }
+
+    #[test]
+    fn mapping_diff_pure_alias_override_to_merge() {
+        use std::str::FromStr;
+        let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\n";
+        let old = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"timeout": 30, "retries": 3}});
+        let new = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"timeout": 60, "retries": 3}});
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+            .unwrap()
+            .expect("alias line should be rewritten");
+        assert!(
+            result.contains("&shared") && result.contains("<<: *shared"),
+            "after alias override:\n{result}"
+        );
+        assert!(
+            result.contains("timeout: 60"),
+            "local override missing:\n{result}"
+        );
+        assert!(
+            !result.contains("service_a: <<:"),
+            "merge must be a block mapping, not inlined:\n{result}"
+        );
     }
 
     #[test]

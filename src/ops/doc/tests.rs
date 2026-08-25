@@ -1186,6 +1186,272 @@ label: keep
         assert_eq!(reparsed["service_b"]["retries"], json!(3));
     }
 
+    /// Interior override of a pure mapping alias becomes `<<: *name` plus the
+    /// local key. Sibling aliases stay aliases.
+    #[test]
+    fn yaml_pure_alias_interior_override_becomes_merge() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared
+service_b: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&shared"),
+            "anchor definition must remain:\n{result}"
+        );
+        assert!(
+            result.contains("<<: *shared"),
+            "override must keep identity via merge:\n{result}"
+        );
+        assert!(
+            result.contains("timeout: 60"),
+            "local override missing:\n{result}"
+        );
+        assert!(
+            result.contains("service_b: *shared"),
+            "sibling alias must stay a pure alias:\n{result}"
+        );
+        assert!(
+            !result.contains("service_a:\n  timeout: 60\n  retries: 3"),
+            "must not expand the alias into a full concrete map:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"]["timeout"], json!(60));
+        assert_eq!(reparsed["service_a"]["retries"], json!(3));
+        assert_eq!(reparsed["service_b"]["timeout"], json!(30));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
+    /// Two pure aliases edited in one write both become merges.
+    #[test]
+    fn yaml_two_pure_aliases_become_merges() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared
+service_b: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"]["timeout"] = json!(60);
+        new["service_b"]["retries"] = json!(9);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result.matches("<<: *shared").count(),
+            2,
+            "both aliases should become merges:\n{result}"
+        );
+        assert!(result.contains("&shared"), "anchor must remain:\n{result}");
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"]["timeout"], json!(60));
+        assert_eq!(reparsed["service_b"]["retries"], json!(9));
+        assert_eq!(reparsed["service_a"]["retries"], json!(3));
+        assert_eq!(reparsed["service_b"]["timeout"], json!(30));
+    }
+
+    /// Adding a key under a pure mapping alias is a local addition beside `<<`.
+    #[test]
+    fn yaml_pure_alias_add_key_becomes_merge() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"]["region"] = json!("us-east");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&shared") && result.contains("<<: *shared"),
+            "add-key must convert alias to merge:\n{result}"
+        );
+        assert!(
+            result.contains("region: us-east") || result.contains("region: \"us-east\""),
+            "new key missing:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"]["region"], json!("us-east"));
+        assert_eq!(reparsed["service_a"]["timeout"], json!(30));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
+    /// Deleting an inherited key cannot be expressed with `<<`. Expand that site.
+    #[test]
+    fn yaml_pure_alias_delete_inherited_still_expands() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared
+service_b: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("retries");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&shared"),
+            "anchor definition must remain:\n{result}"
+        );
+        assert!(
+            result.contains("service_b: *shared"),
+            "untouched sibling must stay an alias:\n{result}"
+        );
+        assert!(
+            !result.contains("service_a: *shared") && !result.contains("service_a:\n  <<:"),
+            "deleted inherited key cannot stay a merge:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert!(
+            reparsed["service_a"].get("retries").is_none(),
+            "retries must be gone from service_a:\n{result}"
+        );
+        assert_eq!(reparsed["service_a"]["timeout"], json!(30));
+        assert_eq!(reparsed["service_b"]["retries"], json!(3));
+    }
+
+    /// Replacing a pure alias with a map that is not a key-superset expands.
+    /// Keeping `<<` would leak inherited keys into the semantic value.
+    #[test]
+    fn yaml_pure_alias_non_superset_replace_expands() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"] = json!({"name": "api"});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&shared"),
+            "anchor definition must remain:\n{result}"
+        );
+        assert!(
+            !result.contains("<<:"),
+            "non-superset replace must not keep a merge:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"], json!({"name": "api"}));
+        assert!(reparsed["service_a"].get("timeout").is_none());
+    }
+
+    /// Sequence item that is a mapping alias converts to merge on override.
+    #[test]
+    fn yaml_sequence_alias_item_override_becomes_merge() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+items:
+  - *shared
+  - *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&shared") && result.contains("<<: *shared"),
+            "sequence alias override must become merge:\n{result}"
+        );
+        assert_eq!(
+            result.matches("*shared").count(),
+            2,
+            "merge plus remaining item alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0]["timeout"], json!(60));
+        assert_eq!(reparsed["items"][0]["retries"], json!(3));
+        assert_eq!(reparsed["items"][1]["timeout"], json!(30));
+    }
+
+    /// Two sibling lists share `*shared`. Edit the second list only.
+    #[test]
+    fn yaml_sibling_sequence_alias_rewrites_the_edited_list() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+first:
+  - *shared
+second:
+  - *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["second"][0]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("first:\n  - *shared"),
+            "unchanged list must stay a pure alias:\n{result}"
+        );
+        assert!(
+            result.contains("<<: *shared"),
+            "edited list item must become a merge:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["first"][0]["timeout"], json!(30));
+        assert_eq!(reparsed["second"][0]["timeout"], json!(60));
+        assert_eq!(reparsed["second"][0]["retries"], json!(3));
+    }
+
+    /// CRLF alias lines must still convert to merge and keep CRLF.
+    #[test]
+    fn yaml_pure_alias_override_preserves_crlf() {
+        let yaml = "shared: &shared\r\n  timeout: 30\r\n  retries: 3\r\nservice_a: *shared\r\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("\r\n") && result.contains("<<: *shared"),
+            "CRLF alias override must become merge:\n{result:?}"
+        );
+        assert!(
+            !result.replace("\r\n", "").contains('\n'),
+            "must not mix bare LF into CRLF file: {result:?}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"]["timeout"], json!(60));
+        assert_eq!(reparsed["service_a"]["retries"], json!(3));
+    }
+
+    /// Replacing a pure alias with `{}` must stay an object, not null.
+    #[test]
+    fn yaml_pure_alias_replace_with_empty_object() {
+        let yaml = "shared: &shared\n  timeout: 30\nservice_a: *shared\n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_a"] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"], json!({}));
+        assert!(reparsed["service_a"].get("timeout").is_none());
+        assert!(result.contains("&shared"), "anchor must remain:\n{result}");
+    }
+
     /// New key under a merge map is a local addition; merge/anchor stay.
     #[test]
     fn yaml_add_key_under_merge_map_preserves_merge() {

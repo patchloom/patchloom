@@ -370,19 +370,37 @@ fn try_preserve_yaml(
             msg: format!("YAML re-parse for comment preservation: {e}"),
         })
     })?;
+    let promoted =
+        yaml_cst::rewrite_yaml_alias_object_edits(original_content, &file, old_value, new_value)?;
+    if let Some(spliced) = promoted.as_deref()
+        && yaml_semantic_eq(spliced, new_value)
+    {
+        return Ok(Some(cleanup_yaml_cst_whitespace(spliced)));
+    }
+    let (file, cst_old) = if let Some(spliced) = promoted.as_deref() {
+        match yaml_edit::YamlFile::from_str(spliced) {
+            Ok(reparsed) => {
+                let cst_old = parse_yaml_semantic(spliced).unwrap_or_else(|| old_value.clone());
+                (reparsed, cst_old)
+            }
+            Err(_) => (file, old_value.clone()),
+        }
+    } else {
+        (file, old_value.clone())
+    };
 
     if let Some(doc) = file.document() {
         if let Some(mapping) = doc.as_mapping() {
-            if old_value.is_object() && new_value.is_object() {
-                return try_preserve_yaml_object(&file, &mapping, old_value, new_value);
+            if cst_old.is_object() && new_value.is_object() {
+                return try_preserve_yaml_object(&file, &mapping, &cst_old, new_value);
             }
         } else if let Some(seq) = doc.as_sequence()
-            && let (Some(old_arr), Some(new_arr)) = (old_value.as_array(), new_value.as_array())
+            && let (Some(old_arr), Some(new_arr)) = (cst_old.as_array(), new_value.as_array())
         {
             return try_preserve_yaml_array(
                 &file,
                 &seq,
-                original_content,
+                promoted.as_deref().unwrap_or(original_content),
                 old_arr,
                 new_arr,
                 new_value,
