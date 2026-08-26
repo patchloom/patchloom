@@ -256,8 +256,11 @@ pub fn execute_plan_direct(
                 ) {
                     Ok(()) => {
                         let msg = format!("strict mode -- all changes reverted ({})", err.message);
+                        // Same kind as CLI tx (`err.kind`): format_failed /
+                        // validation_failed. Keep rollback_failed only when
+                        // revert itself fails.
                         return Ok(build_error_output(
-                            "rollback",
+                            err.kind,
                             &msg,
                             apply_backup_session.as_deref(),
                         ));
@@ -296,7 +299,7 @@ pub fn execute_plan_direct(
                 if rollback_ok {
                     let msg = format!("strict mode -- all changes reverted ({})", err.message);
                     return Ok(build_error_output(
-                        "rollback",
+                        err.kind,
                         &msg,
                         apply_backup_session.as_deref(),
                     ));
@@ -906,6 +909,50 @@ mod tests {
         assert!(
             dir.path().join("new.txt").exists(),
             "must not run rollback_strict after restore_session Err"
+        );
+    }
+
+    /// Library/MCP `execute_plan` must peel `format_failed` after a successful
+    /// strict revert (CLI tx already locks this in integration tx_tests).
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn execute_plan_strict_format_fail_revert_ok_is_format_failed() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "original\n").unwrap();
+        let cmd = if cfg!(windows) { "exit /b 1" } else { "false" };
+        let plan: Plan = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "strict": true,
+            "operations": [{
+                "op": "replace",
+                "path": "test.txt",
+                "old": "original",
+                "new": "changed"
+            }],
+            "format": [{"cmd": cmd, "timeout": 5}]
+        }))
+        .unwrap();
+
+        let report = execute_plan_direct(plan, dir.path(), None).expect("plan returns output");
+        assert_eq!(
+            report.error_kind.as_deref(),
+            Some("format_failed"),
+            "revert-ok strict lifecycle must peel format_failed, not rollback: {report:?}"
+        );
+        assert!(!report.ok);
+        let err = report.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("all changes reverted"),
+            "must claim a full revert: {err}"
+        );
+        assert!(
+            err.contains("format step failed"),
+            "must include format failure: {err}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("test.txt")).unwrap(),
+            "original\n",
+            "strict revert must restore original content"
         );
     }
 
