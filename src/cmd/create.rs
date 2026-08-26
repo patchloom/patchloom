@@ -87,6 +87,10 @@ pub fn run(mut args: CreateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("already_exists"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
+    // --force must not follow a dest symlink (atomic_write writes the target).
+    if args.force {
+        crate::ops::file::refuse_symlink_destination(&path, &args.file)?;
+    }
 
     let op = Operation::FileCreate {
         path: args.file.clone(),
@@ -589,7 +593,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn create_force_replaces_dangling_symlink() {
+    fn create_force_refuses_dangling_symlink() {
         let dir = TempDir::new().unwrap();
         let link = dir.path().join("dangle.txt");
         std::os::unix::fs::symlink("missing-target", &link).unwrap();
@@ -603,10 +607,42 @@ mod tests {
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
-        let code = run(args, &global).unwrap();
-        assert_eq!(code, exit::SUCCESS);
-        assert!(link.is_file());
-        assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
-        assert_eq!(fs::read_to_string(&link).unwrap(), "hi\n");
+        let err = run(args, &global).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "force-create on dest symlink must be invalid_input, got: {err:#}"
+        );
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_force_refuses_dest_symlink() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("app.toml");
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        fs::write(&outside_file, "do not overwrite").unwrap();
+        std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+        let args = CreateArgs {
+            file: dest.to_string_lossy().into_owned(),
+            content: Some("pwned\n".into()),
+            stdin: false,
+            force: true,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let err = run(args, &global).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "force-create on dest symlink must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(dest.symlink_metadata().unwrap().file_type().is_symlink());
     }
 }

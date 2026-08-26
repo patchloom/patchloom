@@ -7947,11 +7947,36 @@ fn file_create_dangling_symlink_is_already_exists() {
         crate::fallback::error_kind_str(&err),
         Some("already_exists")
     );
-    // force overwrites the dangling entry with a regular file
-    let r = file_create(&link, "y\n", true, ApplyMode::Apply, None).unwrap();
-    assert!(r.applied);
-    assert!(link.is_file());
-    assert_eq!(fs::read_to_string(&link).unwrap(), "y\n");
+    // force must not follow or replace a dest symlink
+    let err = file_create(&link, "y\n", true, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "force-create on dest symlink must be invalid_input, got: {err:#}"
+    );
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+}
+
+/// `file.create` force must not follow a dest symlink and overwrite the target.
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_create_force_refuses_dest_symlink() {
+    let dir = TempDir::new().unwrap();
+    let dest = dir.path().join("app.toml");
+    let outside = TempDir::new().unwrap();
+    let outside_file = outside.path().join("secret");
+    fs::write(&outside_file, "do not overwrite").unwrap();
+    std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+    let err = file_create(&dest, "pwned\n", true, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "force-create on dest symlink must be invalid_input, got: {err:#}"
+    );
+    assert_eq!(
+        fs::read_to_string(&outside_file).unwrap(),
+        "do not overwrite"
+    );
+    assert!(dest.symlink_metadata().unwrap().file_type().is_symlink());
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]

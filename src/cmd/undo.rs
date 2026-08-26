@@ -463,7 +463,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             session_dir.join(backup::ORIGIN_SIDECAR),
-            b"backup-session\n",
+            backup::ORIGIN_SIDECAR_BYTES,
         )
         .unwrap();
 

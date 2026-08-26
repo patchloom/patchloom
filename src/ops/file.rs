@@ -184,6 +184,23 @@ fn is_cross_device_rename_error(e: &std::io::Error) -> bool {
     }
 }
 
+/// Refuse a destination that is a symlink (do not follow).
+///
+/// Force-create must not write through a live link and overwrite the
+/// target. Missing dest and regular files are allowed. Directory dests
+/// are refused by a separate check.
+pub fn refuse_symlink_destination(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => Err(crate::exit::InvalidInputError {
+            msg: format!("refusing to write through symlink destination: {display}"),
+        }),
+        _ => Ok(()),
+    }
+}
+
 /// Walk ancestors of `path` and ensure every existing component is a directory.
 ///
 /// Missing parents are fine (`create_dir_all` creates them on apply). An

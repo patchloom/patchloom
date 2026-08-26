@@ -21,8 +21,12 @@ pub const BACKUP_DIR: &str = ".patchloom/backups";
 ///
 /// Restore of `__external__*` paths requires this file so a forged
 /// `manifest.json` (cloned repo or user `file.create`) cannot write
-/// outside the workspace.
+/// outside the workspace. The path must be a regular file (not a
+/// symlink) whose contents are exactly [`ORIGIN_SIDECAR_BYTES`].
 pub(crate) const ORIGIN_SIDECAR: &str = ".origin";
+
+/// Bytes [`BackupSession::finalize`] writes to [`ORIGIN_SIDECAR`].
+pub(crate) const ORIGIN_SIDECAR_BYTES: &[u8] = b"backup-session\n";
 
 /// Maximum age in days before pruning old backups.
 const PRUNE_DAYS: u64 = 7;
@@ -332,7 +336,7 @@ impl BackupSession {
             .with_context(|| format!("failed to write manifest {}", manifest_path.display()))?;
 
         let origin_path = self.session_dir.join(ORIGIN_SIDECAR);
-        std::fs::write(&origin_path, b"backup-session\n")
+        std::fs::write(&origin_path, ORIGIN_SIDECAR_BYTES)
             .with_context(|| format!("failed to write session origin {}", origin_path.display()))?;
 
         Ok(Some(self.timestamp))
@@ -695,11 +699,13 @@ pub fn restore_path_from_session_with_guard(
                     format!("creating parent dir for restore target {}", entry.path)
                 })?;
             }
+            refuse_restore_onto_non_regular(&target, &entry.path)?;
             std::fs::copy(&backup, &target)
                 .with_context(|| format!("restoring modified file {}", entry.path))?;
             Ok(true)
         }
         FileAction::Created => {
+            refuse_restore_onto_non_regular(&target, &entry.path)?;
             if target.exists() {
                 std::fs::remove_file(&target)
                     .with_context(|| format!("removing created file {} during undo", entry.path))?;
@@ -724,6 +730,7 @@ pub fn restore_path_from_session_with_guard(
                     format!("creating parent dir for restore target {}", entry.path)
                 })?;
             }
+            refuse_restore_onto_non_regular(&target, &entry.path)?;
             std::fs::copy(&backup, &target)
                 .with_context(|| format!("restoring deleted file {}", entry.path))?;
             Ok(true)
@@ -800,6 +807,7 @@ pub fn restore_session_with_guard(
                         format!("creating parent dir for restore target {}", entry.path)
                     })?;
                 }
+                refuse_restore_onto_non_regular(&target, &entry.path)?;
                 std::fs::copy(&backup, &target)
                     .with_context(|| format!("restoring modified file {}", entry.path))?;
                 restored += 1;
@@ -807,6 +815,7 @@ pub fn restore_session_with_guard(
             FileAction::Created => {
                 // File was newly created by the apply; remove it if still present.
                 // Already gone is fine (idempotent undo of create).
+                refuse_restore_onto_non_regular(&target, &entry.path)?;
                 if target.exists() {
                     std::fs::remove_file(&target).with_context(|| {
                         format!("removing created file {} during undo", entry.path)
@@ -821,6 +830,7 @@ pub fn restore_session_with_guard(
                         format!("creating parent dir for restore target {}", entry.path)
                     })?;
                 }
+                refuse_restore_onto_non_regular(&target, &entry.path)?;
                 std::fs::copy(&backup, &target)
                     .with_context(|| format!("restoring deleted file {}", entry.path))?;
                 restored += 1;
@@ -843,7 +853,35 @@ pub fn remove_session(project_root: &Path, timestamp: &str) -> anyhow::Result<()
 }
 
 fn session_is_trusted(session_dir: &Path) -> bool {
-    session_dir.join(ORIGIN_SIDECAR).is_file()
+    let origin = session_dir.join(ORIGIN_SIDECAR);
+    // `Path::is_file` follows symlinks. A `.origin` link to README (or
+    // even to a file that happens to hold these bytes) is not a capability.
+    match std::fs::symlink_metadata(&origin) {
+        Ok(meta) if meta.file_type().is_file() => {}
+        _ => return false,
+    }
+    match std::fs::read(&origin) {
+        Ok(bytes) => bytes == ORIGIN_SIDECAR_BYTES,
+        Err(_) => false,
+    }
+}
+
+/// Restore must not follow a dest symlink (or write onto a directory /
+/// FIFO / other special node). Missing dest is fine; only a regular
+/// file (or no entry) may be copied or unlinked.
+fn refuse_restore_onto_non_regular(target: &Path, entry_path: &str) -> anyhow::Result<()> {
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+    match classify_path_entry(target) {
+        PathEntryKind::Missing | PathEntryKind::RegularFile => Ok(()),
+        PathEntryKind::RealDirectory | PathEntryKind::Special => {
+            Err(crate::exit::InvalidInputError {
+                msg: format!(
+                    "refusing restore onto non-regular destination (symlink or special file): {entry_path}"
+                ),
+            }
+            .into())
+        }
+    }
 }
 
 fn is_external_manifest_path(entry_path: &str) -> bool {
@@ -876,16 +914,17 @@ fn check_restore_policy(
         }
         .into());
     }
+    let target = resolve_restore_path(project_root, entry_path);
     if let Some(g) = guard {
         if external {
             return Err(crate::fallback::EditError::guard_rejected(format!(
                 "contained restore refuses paths outside the project root: {entry_path}"
             )));
         }
-        let target = resolve_restore_path(project_root, entry_path);
         g.check_path(&target.to_string_lossy())
             .map_err(crate::fallback::EditError::guard_rejected)?;
     }
+    refuse_restore_onto_non_regular(&target, entry_path)?;
     Ok(())
 }
 
@@ -1962,7 +2001,7 @@ mod tests {
         )
         .unwrap();
         if with_origin {
-            std::fs::write(session_dir.join(ORIGIN_SIDECAR), b"backup-session\n").unwrap();
+            std::fs::write(session_dir.join(ORIGIN_SIDECAR), ORIGIN_SIDECAR_BYTES).unwrap();
         }
     }
 
@@ -2062,5 +2101,110 @@ mod tests {
             "untrusted external restore must be invalid_input, got: {err:#}"
         );
         assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// A `.origin` *symlink* to a regular file (even one whose contents match
+    /// the sidecar) must not make `__external__` restore trusted.
+    #[cfg(unix)]
+    #[test]
+    fn restore_forged_external_symlink_origin_refused() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-symlink-origin");
+        std::fs::write(&outside_file, "keep").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-symlink-origin";
+        write_forged_session(
+            dir.path(),
+            ts,
+            &ext_path,
+            FileAction::Modified,
+            Some(b"pwned"),
+            false,
+        );
+        // Decoy regular file with the exact sidecar bytes. `Path::is_file`
+        // would follow this link and treat the session as trusted.
+        let decoy = dir.path().join("README");
+        std::fs::write(&decoy, ORIGIN_SIDECAR_BYTES).unwrap();
+        let origin = dir.path().join(BACKUP_DIR).join(ts).join(ORIGIN_SIDECAR);
+        std::os::unix::fs::symlink(&decoy, &origin).unwrap();
+
+        let err = restore_session(dir.path(), ts).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "symlink .origin must not trust external restore, got: {err:#}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// Regular `.origin` whose bytes are not the BackupSession sidecar.
+    #[test]
+    fn restore_forged_external_wrong_origin_bytes_refused() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-wrong-origin");
+        std::fs::write(&outside_file, "keep").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-wrong-origin";
+        write_forged_session(
+            dir.path(),
+            ts,
+            &ext_path,
+            FileAction::Modified,
+            Some(b"pwned"),
+            false,
+        );
+        std::fs::write(
+            dir.path().join(BACKUP_DIR).join(ts).join(ORIGIN_SIDECAR),
+            b"not-a-backup-session\n",
+        )
+        .unwrap();
+
+        let err = restore_session(dir.path(), ts).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "wrong .origin bytes must not trust external restore, got: {err:#}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// Undo must not `fs::copy` through a dest that is now a symlink.
+    #[cfg(unix)]
+    #[test]
+    fn restore_refuses_dest_symlink_leaves_target() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("app.toml");
+        std::fs::write(&dest, "original dest").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&dest).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        std::fs::write(&dest, "modified dest").unwrap();
+        std::fs::remove_file(&dest).unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        std::fs::write(&outside_file, "do not overwrite").unwrap();
+        std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+        let err = restore_session(dir.path(), &ts).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "restore onto dest symlink must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest entry must remain a symlink"
+        );
     }
 }

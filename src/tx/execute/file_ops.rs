@@ -94,6 +94,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // does not leave a bare tempfile error or a backup for an unwritten path.
             crate::ops::file::ensure_parent_components_are_directories(&file_path)?;
             if force.unwrap_or(false) {
+                // Do not follow a dest symlink (atomic_write would write the
+                // target). Refuse before soft-load / commit.
+                crate::ops::file::refuse_symlink_destination(&file_path, path)?;
                 // Force overwrite: soft-load prior text for backup/diff. Binary,
                 // invalid UTF-8, or unreadable prior → empty original so hosts
                 // need no remove+recreate loop (#1962). PathGuard still applies
