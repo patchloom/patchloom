@@ -22,12 +22,12 @@ use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
 use ignore::WalkBuilder;
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "files"))]
 use ignore::WalkState;
 use std::path::Path;
 #[cfg(any(feature = "cli", feature = "files"))]
 use std::path::PathBuf;
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "files"))]
 use std::sync::Mutex;
 
 /// Compute a display-friendly relative path by stripping a `base` prefix.
@@ -847,6 +847,58 @@ pub(crate) fn should_skip_walk_dirname(name: &std::ffi::OsStr) -> bool {
     name == ".git" || name == ".patchloom"
 }
 
+/// Parallel file listing from a configured [`WalkBuilder`].
+///
+/// Same engine as CLI [`collect_file_paths_opts`] (`build_parallel` + batched
+/// merge). Callers still apply exclude globs / explicit-file keepers.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn collect_files_from_walk_builder(builder: WalkBuilder) -> Vec<PathBuf> {
+    let collected: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    // Flush-on-drop so a thread-local batch merges when the worker is dropped.
+    struct FlushOnDrop<'a> {
+        batch: Vec<PathBuf>,
+        target: &'a Mutex<Vec<PathBuf>>,
+    }
+    impl Drop for FlushOnDrop<'_> {
+        fn drop(&mut self) {
+            if !self.batch.is_empty() {
+                self.target
+                    .lock()
+                    .expect("file list mutex")
+                    .append(&mut self.batch);
+            }
+        }
+    }
+
+    builder.build_parallel().run(|| {
+        let mut state = FlushOnDrop {
+            batch: Vec::with_capacity(256),
+            target: &collected,
+        };
+        Box::new(move |result| {
+            let Ok(entry) = result else {
+                return WalkState::Continue;
+            };
+            if should_skip_walk_dirname(entry.file_name()) {
+                return WalkState::Skip;
+            }
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                state.batch.push(entry.into_path());
+                if state.batch.len() >= 256 {
+                    state
+                        .target
+                        .lock()
+                        .expect("file list mutex")
+                        .append(&mut state.batch);
+                }
+            }
+            WalkState::Continue
+        })
+    });
+    collected.into_inner().expect("all walkers done")
+}
+
 /// Collect files while respecting .gitignore + custom ignore files (e.g. .agentignore)
 /// + additional exclude globs.
 ///
@@ -868,13 +920,7 @@ pub fn collect_file_paths_with_ignores(
     for name in custom_ignore_filenames {
         builder.add_custom_ignore_filename(name);
     }
-    let mut paths: Vec<PathBuf> = Vec::new();
-    for entry in builder.build().filter_map(Result::ok) {
-        if entry.file_type().is_some_and(|ft| ft.is_file()) {
-            paths.push(entry.into_path());
-        }
-    }
-
+    let mut paths = collect_files_from_walk_builder(builder);
     apply_exclude_globs(&mut paths, exclude_patterns, Some(root))?;
     Ok(paths)
 }
