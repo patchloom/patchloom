@@ -95,6 +95,10 @@ pub fn execute_plan_direct(
         Err(output) => return Ok(*output),
     };
 
+    for op in &plan.operations {
+        crate::backup::refuse_declared_paths_under_backup_dir(&effective_cwd, op)?;
+    }
+
     // PathGuard enforcement for library callers of execute_plan (addresses #755).
     if let Some(g) = guard {
         // Defense-in-depth: reject plans whose cwd would escape the guard's

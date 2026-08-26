@@ -120,6 +120,28 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    fn create_refuses_backup_dir_write() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join(".patchloom/backups/evil/manifest.json");
+        let args = CreateArgs {
+            file: target.to_string_lossy().into_owned(),
+            content: Some("{\"forged\":true}\n".into()),
+            stdin: false,
+            force: false,
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+
+        let err = run(args, &global).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input, got: {err:#}"
+        );
+        assert!(!target.exists(), "forged backup manifest must not exist");
+    }
+
+    #[test]
     fn create_writes_file_with_correct_content() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("new.txt");

@@ -124,6 +124,15 @@ pub(crate) fn commit_changes(
     cwd: &Path,
     renames: &[(PathBuf, PathBuf)],
 ) -> Result<Option<String>, CommitError> {
+    for (path, _, _) in changes {
+        crate::backup::refuse_user_write_under_backup_dir(path)
+            .map_err(|e| commit_error(e.to_string()))?;
+    }
+    for (_, to) in renames {
+        crate::backup::refuse_user_write_under_backup_dir(to)
+            .map_err(|e| commit_error(e.to_string()))?;
+    }
+
     let mut backup = crate::backup::BackupSession::new(cwd)
         .map_err(|e| commit_error(format!("starting backup session: {e}")))?;
     for (path, _, _) in changes {

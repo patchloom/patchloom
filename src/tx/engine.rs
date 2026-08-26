@@ -206,6 +206,9 @@ pub fn execute_precomputed(
                 .map_err(crate::fallback::EditError::guard_rejected)?;
         }
     }
+    for (rel_path, _, _) in &changes {
+        crate::backup::refuse_user_write_under_backup_dir(&options.cwd().join(rel_path))?;
+    }
 
     let cwd = options.cwd().to_path_buf();
     let ctx = &options.context;
@@ -278,6 +281,7 @@ fn execute_plan_inner(
                 .into());
             }
         }
+        crate::backup::refuse_declared_paths_under_backup_dir(options.cwd(), op)?;
     }
     // TidyFix-specific constraints when callers skip validate_plan_operations.
     for op in &operations {

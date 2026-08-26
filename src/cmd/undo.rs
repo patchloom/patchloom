@@ -182,7 +182,8 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         timestamp,
         backup_root.display()
     );
-    let restored = backup::restore_session(&backup_root, &timestamp)?;
+    let guard = global.workspace_guard(&cwd)?;
+    let restored = backup::restore_session_with_guard(&backup_root, &timestamp, guard.as_ref())?;
     // Remove the consumed session so subsequent `undo` calls advance to
     // the next-oldest session instead of replaying the same one.
     // Even when restored == 0 (e.g. create-only session, files already gone),
@@ -432,6 +433,55 @@ mod tests {
             v["hint"].as_str().unwrap().contains("--apply"),
             "JSON preview must include hint: {v}"
         );
+    }
+
+    #[test]
+    fn apply_contain_refuses_forged_external() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-undo-target");
+        std::fs::write(&outside_file, "keep me").unwrap();
+
+        let ext_path = backup::sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-undo-contain";
+        let session_dir = dir.path().join(backup::BACKUP_DIR).join(ts);
+        std::fs::create_dir_all(session_dir.join(Path::new(&ext_path).parent().unwrap())).unwrap();
+        std::fs::write(session_dir.join(&ext_path), b"pwned").unwrap();
+        let manifest = backup::Manifest {
+            timestamp: ts.to_string(),
+            entries: vec![backup::ManifestEntry {
+                path: ext_path,
+                action: backup::FileAction::Modified,
+            }],
+        };
+        std::fs::write(
+            session_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            session_dir.join(backup::ORIGIN_SIDECAR),
+            b"backup-session\n",
+        )
+        .unwrap();
+
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        global.contain = true;
+        let args = UndoArgs {
+            list: false,
+            session: Some(ts.to_string()),
+            apply: true,
+        };
+        let err = run(args, &global).unwrap_err();
+        assert!(
+            crate::api::is_guard_rejected(&err) || crate::exit::is_invalid_input(&err),
+            "undo --contain must refuse forged external, got: {err:#}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep me");
     }
 
     #[test]
