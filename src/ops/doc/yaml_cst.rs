@@ -137,14 +137,31 @@ pub(super) fn apply_yaml_sequence_diff(
                     }
                     continue;
                 }
-                seq.set(i, json_to_yaml_node(n)?);
+                if !try_sequence_set(seq, i, n)? {
+                    all_applied = false;
+                }
             }
             _ => {
-                seq.set(i, json_to_yaml_node(n)?);
+                if !try_sequence_set(seq, i, n)? {
+                    all_applied = false;
+                }
             }
         }
     }
     Ok(all_applied)
+}
+
+/// yaml-edit 0.3 `Sequence::set` copies an `ALIAS` child as-is and still
+/// returns true. Refuse that no-op so the caller can dump or splice.
+fn try_sequence_set(
+    seq: &yaml_edit::Sequence,
+    index: usize,
+    new_val: &serde_json::Value,
+) -> anyhow::Result<bool> {
+    if seq.get(index).is_some_and(|n| n.as_alias().is_some()) {
+        return Ok(false);
+    }
+    Ok(seq.set(index, json_to_yaml_node(new_val)?))
 }
 
 /// Handle different-length array diffs while preserving comments.
@@ -916,6 +933,23 @@ mod tests {
         let old = vec![json!("a"), json!("b")];
         let new = vec![json!("a"), json!("b")];
         assert!(apply_yaml_sequence_diff(&seq, &old, &new).unwrap());
+    }
+
+    /// yaml-edit 0.3 `Sequence::set` does not replace `*alias`. CST must
+    /// report not-applied and leave the item so the line splice stays owner.
+    #[test]
+    fn sequence_diff_on_alias_item_is_not_applied() {
+        let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\nitems:\n  - *shared\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+        let old = vec![json!({"timeout": 30, "retries": 3})];
+        let new = vec![json!({"timeout": 60, "retries": 3})];
+        assert!(
+            !apply_yaml_sequence_diff(&seq, &old, &new).unwrap(),
+            "alias item set must not report applied"
+        );
+        assert_eq!(doc.to_string(), yaml);
     }
 
     // ---- apply_yaml_sequence_resize ----
