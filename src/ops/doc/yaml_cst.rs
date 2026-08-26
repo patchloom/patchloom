@@ -721,22 +721,9 @@ mod tests {
         let replacement = json_to_yaml_mapping(&json!({"timeout": 60, "retries": 3})).unwrap();
         root.set("service_a", &replacement);
         let result = doc.to_string();
-        assert!(
-            !result.contains("<<: *shared"),
-            "0.3 Mapping::set unexpectedly produced a merge:\n{result}"
-        );
-        assert!(
-            !result.contains("service_a: *shared"),
-            "0.3 Mapping::set left the alias (would drop the override):\n{result}"
-        );
-        assert!(
-            result.contains("&shared"),
-            "0.3 Mapping::set must keep the sibling anchor:\n{result}"
-        );
-        // Concrete map is fine; identity is not. The line splice is still required.
-        assert!(
-            result.contains("timeout: 60"),
-            "0.3 Mapping::set must still write the override:\n{result}"
+        assert_eq!(
+            result,
+            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a:\n  timeout: 60\n  retries: 3\n"
         );
     }
 
@@ -751,17 +738,9 @@ mod tests {
         let merge_map = merge_src.as_mapping().expect("merge snippet is a mapping");
         root.set("service_a", &merge_map);
         let result = doc.to_string();
-        assert!(
-            result.contains("&shared") && result.contains("<<: *shared"),
-            "set of a merge-shaped mapping must write << and keep the anchor:\n{result}"
-        );
-        assert!(
-            result.contains("timeout: 60"),
-            "local override missing after merge set:\n{result}"
-        );
-        assert!(
-            !result.contains("service_a: *shared"),
-            "pure alias must be replaced by the merge block:\n{result}"
+        assert_eq!(
+            result,
+            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a:\n  <<: *shared\n  timeout: 60\n"
         );
     }
 
@@ -777,18 +756,10 @@ mod tests {
             service_a.as_alias().is_some(),
             "service_a must still be an alias node"
         );
-        if let Some(child) = root.get_mapping("service_a") {
-            child.set("timeout", json_to_yaml_node(&json!(99)).unwrap());
-            let result = doc.to_string();
-            assert!(
-                result.contains("&shared") && result.contains("timeout: 30"),
-                "get_mapping on an alias must not rewrite the &shared definition:\n{result}"
-            );
-            assert!(
-                !result.contains("timeout: 99"),
-                "get_mapping on an alias must not write through to the anchor:\n{result}"
-            );
-        }
+        assert!(
+            root.get_mapping("service_a").is_none(),
+            "get_mapping on a pure alias must be None; a Some view would let apply_yaml_mapping_diff recurse into &shared"
+        );
     }
 
     #[test]
@@ -801,17 +772,9 @@ mod tests {
         let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
             .unwrap()
             .expect("alias line should be rewritten");
-        assert!(
-            result.contains("&shared") && result.contains("<<: *shared"),
-            "after alias override:\n{result}"
-        );
-        assert!(
-            result.contains("timeout: 60"),
-            "local override missing:\n{result}"
-        );
-        assert!(
-            !result.contains("service_a: <<:"),
-            "merge must be a block mapping, not inlined:\n{result}"
+        assert_eq!(
+            result,
+            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a:\n  <<: *shared\n  timeout: 60\n"
         );
     }
 
