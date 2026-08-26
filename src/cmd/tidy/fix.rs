@@ -384,6 +384,7 @@ pub(super) fn run_fix(
     // write-policy fields use the effective check-parity defaults above.
     let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
-    let refused = crate::ops::file::explicit_multi_path_non_text_refused(&paths, &cwd);
+    let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(&paths);
+    let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
     tidy_fix_output(global, result, &dirty_rel_paths, &cwd, skipped, refused)
 }

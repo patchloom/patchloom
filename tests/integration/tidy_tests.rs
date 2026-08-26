@@ -451,6 +451,47 @@ fn test_tidy_check_files_from_multi_invalid_utf8_refused() {
     );
 }
 
+/// Dirty tidy fix --files-from must still report refused[] (same slice as
+/// the clean-tree arm and tidy check). Using positional `paths` here is
+/// empty when --files-from is set.
+#[test]
+fn test_tidy_fix_files_from_dirty_multi_invalid_utf8_refused() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "hello   \n").unwrap();
+    fs::write(dir.path().join("bad.txt"), b"hello \xff\n").unwrap();
+    fs::write(dir.path().join("list.txt"), "ok.txt\nbad.txt\n").unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "--files-from",
+            "list.txt",
+            "tidy",
+            "fix",
+            "--trim-trailing-whitespace",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let refused = v["refused"]
+        .as_array()
+        .expect("refused[] for dirty tidy fix files-from co-path");
+    assert!(
+        refused.iter().any(|r| {
+            r["path"].as_str() == Some("bad.txt") && r["reason"].as_str() == Some("invalid_utf8")
+        }),
+        "{v}"
+    );
+}
+
 #[test]
 fn test_tidy_skips_invalid_utf8_files() {
     let dir = TempDir::new().unwrap();
