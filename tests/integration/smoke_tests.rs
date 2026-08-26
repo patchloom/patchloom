@@ -866,6 +866,23 @@ fn test_smoke_windows_install_and_batch_docs() {
 }
 
 #[test]
+fn test_examples_readme_write_mode_honesty() {
+    let doc = fs::read_to_string(repo_root().join("examples").join("README.md")).unwrap();
+    assert!(
+        doc.contains("default is preview") && doc.contains("exit 2"),
+        "examples README must say default is preview (exit 2 when changes)"
+    );
+    assert!(
+        !doc.contains("`--diff` (default)"),
+        "--diff is opt-in, not the default write mode"
+    );
+    assert!(
+        doc.contains("`--diff`") && doc.contains("`--check`") && doc.contains("`--apply`"),
+        "examples README must list --diff / --check / --apply as flags"
+    );
+}
+
+#[test]
 fn test_smoke_readme_command_examples() {
     // README links to the reference doc; detailed examples live there.
     let readme = fs::read_to_string(readme_path()).unwrap();

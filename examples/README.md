@@ -8,12 +8,13 @@ commands in each file first, then adapt them to your project before applying.
 
 ```
 # Transaction plans (JSON)
-patchloom tx examples/01-basic-replace.json --diff     # preview
+patchloom tx examples/01-basic-replace.json            # preview (exit 2 if changes)
+patchloom tx examples/01-basic-replace.json --diff     # unified diff (opt-in)
 patchloom tx examples/01-basic-replace.json --apply    # apply after adapting paths
 patchloom --json tx examples/01-basic-replace.json --apply  # JSON output
 
 # Batch format (line-oriented)
-patchloom batch examples/06-batch-version-bump.txt --diff   # preview
+patchloom batch examples/06-batch-version-bump.txt     # preview (exit 2 if changes)
 patchloom batch examples/06-batch-version-bump.txt --apply  # apply
 ```
 
@@ -37,9 +38,9 @@ patchloom batch examples/06-batch-version-bump.txt --apply  # apply
 
 ## Write modes
 
-All plans support three modes via CLI flags:
+The default is preview: the plan is not written, and the command exits 2 when it would make changes. These flags are opt-in:
 
-- `--diff` (default) -- print a unified diff of what would change
+- `--diff` -- print a unified diff of what would change
 - `--check` -- exit 0 if no changes, exit 2 if changes detected (for CI)
 - `--apply` -- write changes to disk
 

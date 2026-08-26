@@ -937,9 +937,10 @@ impl PatchloomService {
                 validate_op_paths_under_plan_cwd(svc, op, op_path_prefix.as_deref())?;
             }
 
-            // The `strict` parameter from the MCP invocation always controls the execution
-            // (it defaults to true). This provides a simple, predictable experience for agents.
-            plan.strict = Some(p.strict);
+            // Top-level `strict` overrides the plan only when the caller sent it.
+            // Omitted leaves plan.strict unchanged so {"plan":{"strict":false}}
+            // is not overwritten by a default true.
+            apply_execute_plan_strict_override(&mut plan, p.strict);
 
             // Strip lifecycle steps to prevent arbitrary command execution.
             // Format/validate commands run unrestricted shell processes,

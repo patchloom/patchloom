@@ -23,6 +23,43 @@ fn test_mcp_setup_documents_surface_core_honesty() {
     );
 }
 
+/// MCP execute_plan must not be documented as running format/validate like CLI tx.
+#[test]
+fn test_mcp_setup_execute_plan_strips_lifecycle() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("MCP `execute_plan` strips `format`/`validate`")
+            || doc.contains("strips `format` and `validate`"),
+        "mcp-setup must state that MCP strips format/validate"
+    );
+    assert!(
+        !doc.contains("format` steps, `validate` steps: same as CLI"),
+        "mcp-setup must not say MCP plans run format/validate like CLI tx"
+    );
+}
+
+/// doc_update filters via the selector string, not a predicate field.
+#[test]
+fn test_mcp_setup_doc_update_selector_not_predicate_field() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        !doc.contains("| `doc_update` | Update array elements matching a predicate |"),
+        "doc_update must not be described as taking a predicate field"
+    );
+    let update_idx = doc
+        .find("`doc_update`")
+        .expect("mcp-setup must list doc_update");
+    let row = doc[update_idx..].lines().next().unwrap_or("");
+    assert!(
+        row.contains("selector") && (row.contains("wildcard") || row.contains("wildcards")),
+        "doc_update row must mention selector predicates/wildcards: {row}"
+    );
+    assert!(
+        row.contains("doc_delete_where"),
+        "doc_update row must point at doc_delete_where for the predicate tool: {row}"
+    );
+}
+
 /// #2060: setup docs must list package version + protocol_version on server_info
 /// (not only cwd/surface), matching the tool payload and agent-rules.
 #[test]
