@@ -5,17 +5,22 @@ Thank you for your interest in contributing to Patchloom!
 ## Prerequisites
 
 - Rust 1.95+ ([rustup.rs](https://rustup.rs/); see `rust-version` in `Cargo.toml`)
+- rustfmt and clippy: `rustup component add rustfmt clippy`
+- python3 (used by `audit-test-hygiene`, `server-json-test`, and `verify-homebrew-version-test`)
+- A C toolchain so tree-sitter grammars can compile (Xcode Command Line Tools on macOS; `build-essential` on Debian/Ubuntu)
 - Git
 
 ## Getting started
 
+Fork the repo and clone your fork, not only `patchloom/patchloom`.
+
 ```bash
-git clone https://github.com/patchloom/patchloom.git
+git clone https://github.com/<your-user>/patchloom.git
 cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), `server-json-test` (MCP Registry `server.json` description ≤100 chars), and `verify-homebrew-version-test` (release tap version-assert script helpers). While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`).
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), `server-json-test` (MCP Registry `server.json` description ≤100 chars), and `verify-homebrew-version-test` (release tap version-assert script helpers). It is the local Linux gate, not every GitHub required check: `audit`, `deny`, and Windows stay in CI. While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`).
 
 ## Issues and triage
 
@@ -43,7 +48,17 @@ actual behavior, and your patchloom version when filing bugs.
 2. Make your changes.
 3. Run `make check` to verify everything passes.
 4. Commit with DCO sign-off: `git commit -s`.
-5. Open a pull request.
+5. Open a pull request. The title must pass the required **Semantic PR Title** check.
+
+### Pull request titles
+
+GitHub required check **Semantic PR Title** (`.github/workflows/pr-title.yml`)
+enforces Conventional Commits on the PR title. Use exactly one prefix from:
+
+`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
+
+An optional scope is allowed (`fix(tx): peel format_failed`). Do not combine
+types with commas or `+` (`fix, docs:` and `fix+docs:` fail the check).
 
 ### Useful make targets
 
@@ -57,8 +72,8 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make integration-test` | Run integration tests |
 | `make pty-test` | Run PTY-based interactive terminal tests (serial) |
 | `make clippy` | Run clippy with `-D warnings` |
-| `make check` | Full CI gate (run before every commit) |
-| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still checks README count + homebrew version script tests) |
+| `make check` | Local Linux gate (run before every commit). Does not include `audit`, `deny`, or Windows CI. |
+| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`) |
 | `make verify-homebrew-version-test` | Unit tests for `scripts/verify-homebrew-version.sh` (part of `check`) |
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033, library `for_each` + lifecycle shell preflight #2168/#2169, patch dest helpers + git copy #2170-#2176). Not part of `check`; run before tagging a release |
 | `make windows-smoke` | PowerShell dogfood (`scripts/windows-smoke.ps1`; peels, tx, CRLF, rename force/binary; backslash paths on Windows). Not part of `check`; CI `ci-windows`. Local `pwsh` on macOS/Linux supported. Requires `pwsh` |
