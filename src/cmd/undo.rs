@@ -53,6 +53,14 @@ struct UndoListEntry {
     entries: Vec<backup::ManifestEntry>,
 }
 
+/// `--json` list payload: items plus listing warnings (emit_json_items is
+/// an array and cannot carry a sibling `warnings` field).
+#[derive(Debug, Serialize)]
+struct UndoListOutput {
+    items: Vec<UndoListEntry>,
+    warnings: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct UndoPreviewEntry {
     path: String,
@@ -86,12 +94,11 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
 
     if args.list {
-        let sessions = collect_sessions(&cwd)?;
+        let (sessions, warnings) = collect_sessions(&cwd)?;
         if sessions.is_empty() {
-            // Match other CLI exit-3 paths: agents branch on error_kind without
-            // scraping stderr (empty array alone was inconsistent with undo apply).
-            global.emit_error_json_kind(Some("no_matches"), "no backup sessions found")?;
-            return Ok(exit::NO_MATCHES);
+            let (kind, msg, code) = list_no_usable_sessions(&warnings);
+            global.emit_error_json_kind(Some(kind), &msg)?;
+            return Ok(code);
         }
 
         let list_items: Vec<UndoListEntry> = sessions
@@ -104,6 +111,21 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             })
             .collect();
 
+        // --json needs a wrapper so warnings are not stderr-only.
+        // --jsonl stays one session object per line; warnings go to stderr.
+        if global.json {
+            global.emit_json(&UndoListOutput {
+                items: list_items,
+                warnings,
+            })?;
+            return Ok(exit::SUCCESS);
+        }
+
+        if !global.quiet {
+            for warning in &warnings {
+                eprintln!("{warning}");
+            }
+        }
         if !global.emit_json_items(&list_items)? && !global.quiet {
             for (root, s) in &sessions {
                 let file_count = s.entries.len();
@@ -213,10 +235,11 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     Ok(exit::SUCCESS)
 }
 
-/// Sessions under `cwd` and nested monorepo roots, newest first (#1695).
-fn collect_sessions(
-    cwd: &std::path::Path,
-) -> anyhow::Result<Vec<(std::path::PathBuf, backup::Manifest)>> {
+type ListedSessions = Vec<(std::path::PathBuf, backup::Manifest)>;
+
+/// Sessions under `cwd` and nested monorepo roots, newest first (#1695),
+/// plus listing warnings from missing/corrupt/unreadable manifests.
+fn collect_sessions(cwd: &std::path::Path) -> anyhow::Result<(ListedSessions, Vec<String>)> {
     let listings = backup::list_sessions_under(
         cwd,
         &backup::ListSessionsOptions {
@@ -226,7 +249,9 @@ fn collect_sessions(
         },
     )?;
     let mut all = Vec::new();
+    let mut warnings = Vec::new();
     for listing in listings {
+        warnings.extend(listing.warnings);
         for session in listing.sessions {
             all.push((listing.project_root.clone(), session));
         }
@@ -237,14 +262,35 @@ fn collect_sessions(
         backup::session_recency_key(&db, &b.1.timestamp)
             .cmp(&backup::session_recency_key(&da, &a.1.timestamp))
     });
-    Ok(all)
+    Ok((all, warnings))
+}
+
+/// `--list` with zero usable sessions: empty tree is `no_matches`;
+/// session dirs that exist but have no readable manifest are `invalid_input`.
+fn list_no_usable_sessions(warnings: &[String]) -> (&'static str, String, u8) {
+    if warnings.is_empty() {
+        (
+            "no_matches",
+            "no backup sessions found".to_string(),
+            exit::NO_MATCHES,
+        )
+    } else {
+        (
+            "invalid_input",
+            format!(
+                "session directories exist but none have a readable manifest.json: {}",
+                warnings.join("; ")
+            ),
+            exit::FAILURE,
+        )
+    }
 }
 
 fn resolve_session(
     cwd: &std::path::Path,
     wanted: Option<&str>,
 ) -> anyhow::Result<Option<(std::path::PathBuf, String, backup::Manifest)>> {
-    let sessions = collect_sessions(cwd)?;
+    let (sessions, _) = collect_sessions(cwd)?;
     if let Some(ts) = wanted {
         for (root, manifest) in &sessions {
             if manifest.timestamp == ts {
@@ -588,6 +634,105 @@ mod tests {
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn list_json_missing_manifest_is_invalid_input_not_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let session_dir = dir
+            .path()
+            .join(backup::BACKUP_DIR)
+            .join("incomplete-no-manifest");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        let global = GlobalFlags {
+            json: true,
+            cwd: Some(dir.path().to_string_lossy().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let code = run(
+            UndoArgs {
+                list: true,
+                session: None,
+                apply: false,
+            },
+            &global,
+        )
+        .unwrap();
+        assert_ne!(
+            code,
+            exit::NO_MATCHES,
+            "dirs without a readable manifest are not a clean miss"
+        );
+        assert_eq!(code, exit::FAILURE);
+
+        let (_, warnings) = collect_sessions(dir.path()).unwrap();
+        assert!(
+            warnings.iter().any(|w| w.contains("manifest.json")),
+            "listing must surface the missing manifest path: {warnings:?}"
+        );
+        let (kind, msg, kind_code) = list_no_usable_sessions(&warnings);
+        assert_ne!(kind, "no_matches");
+        assert_eq!(kind, "invalid_input");
+        assert_eq!(kind_code, exit::FAILURE);
+        assert!(
+            msg.contains("manifest.json"),
+            "JSON error message must name manifest.json so agents see the path: {msg}"
+        );
+        let payload = serde_json::json!({
+            "ok": false,
+            "error": msg,
+            "error_kind": kind,
+        });
+        assert_ne!(payload["error_kind"], "no_matches");
+        assert_eq!(payload["error_kind"], "invalid_input");
+    }
+
+    #[test]
+    fn list_json_with_session_succeeds() {
+        let dir = TempDir::new().unwrap();
+        let ts = create_backup(dir.path(), "listed.txt", "content");
+        let global = GlobalFlags {
+            json: true,
+            cwd: Some(dir.path().to_string_lossy().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let code = run(
+            UndoArgs {
+                list: true,
+                session: None,
+                apply: false,
+            },
+            &global,
+        )
+        .unwrap();
+        assert_eq!(code, exit::SUCCESS);
+
+        let (sessions, warnings) = collect_sessions(dir.path()).unwrap();
+        assert!(
+            warnings.is_empty(),
+            "usable session must not warn: {warnings:?}"
+        );
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].1.timestamp, ts);
+        let payload = serde_json::to_value(&UndoListOutput {
+            items: sessions
+                .iter()
+                .map(|(root, manifest)| UndoListEntry {
+                    timestamp: manifest.timestamp.clone(),
+                    project_root: display_root(dir.path(), root),
+                    file_count: manifest.entries.len(),
+                    entries: manifest.entries.clone(),
+                })
+                .collect(),
+            warnings,
+        })
+        .unwrap();
+        assert_eq!(payload["items"][0]["timestamp"], ts);
+        assert!(payload["items"][0].get("project_root").is_some());
+        assert!(payload["items"][0].get("file_count").is_some());
+        assert!(payload["items"][0].get("entries").is_some());
+        assert_eq!(payload["warnings"].as_array().map(Vec::len), Some(0));
     }
 
     #[test]

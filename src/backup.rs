@@ -558,6 +558,13 @@ pub struct SessionListing {
     pub project_root: PathBuf,
     /// Sessions under that root, newest first.
     pub sessions: Vec<Manifest>,
+    /// Missing, unreadable, or corrupt manifests under this root.
+    ///
+    /// Empty when every session dir had a readable `manifest.json`.
+    /// Callers that print (CLI `undo --list`) own the eprint; this helper
+    /// does not eprint, so hosts can put warnings on JSON instead of
+    /// dropping them as stderr-only.
+    pub warnings: Vec<String>,
 }
 
 /// List backup sessions under `project_root`, optionally walking nested crates.
@@ -566,6 +573,12 @@ pub struct SessionListing {
 /// edits may create `crates/foo/.patchloom/backups/` while the workspace root
 /// only has its own backups. Agent hosts use this helper instead of
 /// reimplementing nested discovery.
+///
+/// A root is included when it has usable sessions **or** listing warnings
+/// (missing/corrupt/unreadable `manifest.json`). Warnings live on
+/// [`SessionListing::warnings`]; this function does not eprint. Use
+/// [`list_sessions`] when the caller wants stderr warnings and only
+/// usable manifests.
 pub fn list_sessions_under(
     project_root: &Path,
     opts: &ListSessionsOptions,
@@ -605,11 +618,15 @@ pub fn list_sessions_under(
 
     let mut out = Vec::new();
     for root in unique_roots {
-        let sessions = list_sessions(&root)?;
-        if !sessions.is_empty() {
+        // Do not call `list_sessions` here: that eprints warnings. Undo and
+        // JSON hosts need the strings on the listing so they are not
+        // stderr-only (and so undo does not double-eprint).
+        let (sessions, warnings) = collect_listed_sessions(&root)?;
+        if !sessions.is_empty() || !warnings.is_empty() {
             out.push(SessionListing {
                 project_root: root,
                 sessions,
+                warnings,
             });
         }
     }
@@ -1998,6 +2015,38 @@ mod tests {
         assert!(
             shallow.is_empty(),
             "max_depth=1 should not reach crates/pkg: {shallow:?}"
+        );
+    }
+
+    #[test]
+    fn list_sessions_under_missing_manifest_returns_warnings() {
+        let dir = TempDir::new().unwrap();
+        let session_dir = dir.path().join(BACKUP_DIR).join("incomplete-no-manifest");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        let listings = list_sessions_under(
+            dir.path(),
+            &ListSessionsOptions {
+                descendants: false,
+                ancestors: false,
+                max_depth: Some(8),
+            },
+        )
+        .unwrap();
+        assert_eq!(listings.len(), 1, "warning-only root must still be listed");
+        assert!(
+            listings[0].sessions.is_empty(),
+            "missing manifest is not usable: {:?}",
+            listings[0].sessions
+        );
+        assert_eq!(
+            listings[0].warnings,
+            vec![missing_manifest_warning(&session_dir)]
+        );
+        assert!(
+            listings[0].warnings[0].contains("manifest.json"),
+            "warning must name manifest.json: {:?}",
+            listings[0].warnings
         );
     }
 
