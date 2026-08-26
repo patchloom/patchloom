@@ -73,11 +73,12 @@ pub fn classify_path_entry(path: &Path) -> PathEntryKind {
         Err(_) => PathEntryKind::Missing,
         Ok(meta) => {
             let ft = meta.file_type();
-            // Symlinks report is_dir/is_file false for the link itself on Unix;
-            // real directories are never symlinks.
+            // Unix: the link itself reports is_dir/is_file false.
+            // Windows: a dest file symlink can report is_file() == true;
+            // exclude those so dest-symlink refuse does not treat them as RegularFile.
             if ft.is_dir() && !ft.is_symlink() {
                 PathEntryKind::RealDirectory
-            } else if ft.is_file() {
+            } else if ft.is_file() && !ft.is_symlink() {
                 PathEntryKind::RegularFile
             } else {
                 PathEntryKind::Special
@@ -624,6 +625,53 @@ mod tests {
         assert!(
             crate::exit::is_invalid_input(&err),
             "dest symlink must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(src.exists(), "source must remain after dest-symlink refuse");
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest must remain a symlink"
+        );
+    }
+
+    /// Windows dest file symlinks can report `FileType::is_file()`; they
+    /// must still classify as Special so rename refuse does not follow.
+    #[cfg(windows)]
+    #[test]
+    fn dest_file_symlink_is_special_and_rename_refuses() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dest = dir.path().join("dest.txt");
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        fs::write(&src, "payload\n").unwrap();
+        fs::write(&outside_file, "do not overwrite").unwrap();
+        if let Err(e) = std::os::windows::fs::symlink_file(&outside_file, &dest) {
+            // File symlinks need Developer Mode or admin.
+            eprintln!("skip dest file symlink test: {e}");
+            return;
+        }
+
+        assert_eq!(
+            classify_path_entry(&dest),
+            PathEntryKind::Special,
+            "Windows dest file symlink must not classify as RegularFile"
+        );
+        assert!(!is_regular_file_for_backup(&dest));
+        let err = refuse_non_regular_destination(&dest, "dest.txt").unwrap_err();
+        assert!(
+            err.msg.contains("symlink destination"),
+            "unexpected refuse message: {}",
+            err.msg
+        );
+
+        let err = rename_or_copy(&src, &dest).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dest file symlink must be invalid_input, got: {err:#}"
         );
         assert_eq!(
             fs::read_to_string(&outside_file).unwrap(),
