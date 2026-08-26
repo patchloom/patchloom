@@ -1246,11 +1246,19 @@ service_b: *shared
 
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
         assert_eq!(
-            result.matches("<<: *shared").count(),
-            2,
-            "both aliases should become merges:\n{result}"
+            result,
+            "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a:
+  <<: *shared
+  timeout: 60
+service_b:
+  <<: *shared
+  retries: 9
+"
         );
-        assert!(result.contains("&shared"), "anchor must remain:\n{result}");
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
         assert_eq!(reparsed["service_a"]["timeout"], json!(60));
         assert_eq!(reparsed["service_b"]["retries"], json!(9));
@@ -1444,18 +1452,65 @@ service_b:
         new["service_b"]["cfg"]["timeout"] = json!(60);
 
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
-        assert!(
-            result.contains("service_a:\n  cfg: *shared"),
-            "unedited sibling must stay a pure alias:\n{result}"
-        );
-        assert!(
-            result.contains("<<: *shared") && result.contains("timeout: 60"),
-            "edited sibling cfg must become a merge:\n{result}"
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a:
+  cfg: *shared
+service_b:
+  cfg:
+    <<: *shared
+    timeout: 60
+"
         );
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
         assert_eq!(reparsed["service_a"]["cfg"]["timeout"], json!(30));
         assert_eq!(reparsed["service_b"]["cfg"]["timeout"], json!(60));
         assert_eq!(reparsed["service_b"]["cfg"]["retries"], json!(3));
+    }
+
+    /// Three `cfg: *shared` sites; edit only the middle occurrence.
+    #[test]
+    fn yaml_three_sibling_alias_keys_rewrites_middle_site() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a:
+  cfg: *shared
+service_b:
+  cfg: *shared
+service_c:
+  cfg: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["service_b"]["cfg"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a:
+  cfg: *shared
+service_b:
+  cfg:
+    <<: *shared
+    timeout: 60
+service_c:
+  cfg: *shared
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["service_a"]["cfg"]["timeout"], json!(30));
+        assert_eq!(reparsed["service_b"]["cfg"]["timeout"], json!(60));
+        assert_eq!(reparsed["service_c"]["cfg"]["timeout"], json!(30));
     }
 
     /// Two sibling lists share `*shared`. Edit the second list only.
@@ -1475,13 +1530,18 @@ second:
         new["second"][0]["timeout"] = json!(60);
 
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
-        assert!(
-            result.contains("first:\n  - *shared"),
-            "unchanged list must stay a pure alias:\n{result}"
-        );
-        assert!(
-            result.contains("<<: *shared"),
-            "edited list item must become a merge:\n{result}"
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+  retries: 3
+first:
+  - *shared
+second:
+  - <<: *shared
+    timeout: 60
+"
         );
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
         assert_eq!(reparsed["first"][0]["timeout"], json!(30));
@@ -1520,10 +1580,10 @@ second:
         new["service_a"] = json!({});
 
         let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(result, "shared: &shared\n  timeout: 30\nservice_a:\n  {}\n");
         let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
         assert_eq!(reparsed["service_a"], json!({}));
         assert!(reparsed["service_a"].get("timeout").is_none());
-        assert!(result.contains("&shared"), "anchor must remain:\n{result}");
     }
 
     /// Nested `parent.child: *shared` is the same interior-alias case as a
