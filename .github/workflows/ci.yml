@@ -51,9 +51,11 @@ jobs:
               - 'Cargo.*'
               - 'deny.toml'
               - 'tests/**'
+              - 'scripts/**'
               - 'Makefile'
               - 'fuzz/**'
               - 'benches/**'
+              - 'server.json'
               - '.github/actions/**'
               - '.github/workflows/ci.yml'
 
