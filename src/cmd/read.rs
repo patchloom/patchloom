@@ -47,11 +47,27 @@ impl std::fmt::Display for ReadFail {
 
 fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, ReadFail> {
     let p = std::path::Path::new(path);
-    if p.exists() && !p.is_file() {
-        return Err(ReadFail {
-            kind: "invalid_input",
-            msg: format!("{path}: target is not a file"),
-        });
+    // Classify the directory entry, not Path::exists() follow. Dangling
+    // symlinks fail exists() and used to look like not_found; create would
+    // then treat the same name as already_exists / invalid_input.
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+    match classify_path_entry(p) {
+        PathEntryKind::RealDirectory => {
+            return Err(ReadFail {
+                kind: "invalid_input",
+                msg: format!("{path}: target is not a file"),
+            });
+        }
+        PathEntryKind::Special if !p.exists() => {
+            return Err(ReadFail {
+                kind: "invalid_input",
+                msg: format!("{path}: path exists as a symlink or special entry"),
+            });
+        }
+        // RegularFile, live Special (symlink to a file), and Missing:
+        // follow-and-read via load_text_strict. Live file symlinks must
+        // still read through (atomic_write follow is locked #1230).
+        _ => {}
     }
     // Strict text load (#1894 / #1963): binary / invalid_encoding / invalid_input.
     let content = match crate::files::load_text_strict(p, path) {
@@ -485,6 +501,93 @@ mod tests {
         let err = result.expect_err("directory must fail");
         assert_eq!(err.kind, "invalid_input");
         assert!(err.msg.contains("not a file"), "got: {err}");
+    }
+
+    /// Create a file symlink; return false when the OS refuses (Windows
+    /// without Developer Mode / admin).
+    fn try_symlink_file(target: &std::path::Path, link: &std::path::Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            match std::os::windows::fs::symlink_file(target, link) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("skip file symlink test: {e}");
+                    false
+                }
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (target, link);
+            false
+        }
+    }
+
+    #[test]
+    fn read_one_file_dangling_symlink_is_invalid_input() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        if !try_symlink_file(&dir.path().join("missing-target"), &link) {
+            return;
+        }
+        let err = read_one_file(link.to_str().unwrap(), None).expect_err("dangling must fail");
+        assert_eq!(
+            err.kind, "invalid_input",
+            "dangling must not look missing: {err}"
+        );
+        assert!(
+            err.msg.contains("symlink") || err.msg.contains("special"),
+            "message must warn agents not to create over the name, got: {err}"
+        );
+    }
+
+    #[test]
+    fn read_dangling_symlink_json_is_invalid_input_not_not_found() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        if !try_symlink_file(&dir.path().join("missing-target"), &link) {
+            return;
+        }
+        let args = ReadArgs {
+            files: vec![link.to_string_lossy().into_owned()],
+            lines: None,
+        };
+        let mut global = GlobalFlags::test_default();
+        global.json = true;
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE, "invalid_input maps to FAILURE");
+        assert_ne!(code, exit::NO_MATCHES, "must not look like no_matches");
+        // Kind is locked on read_one_file; run() maps all-invalid_input to
+        // FAILURE (1), not NO_MATCHES (3) or a missing-path code.
+        let err = read_one_file(link.to_str().unwrap(), None).expect_err("dangling");
+        assert_eq!(err.kind, "invalid_input");
+        assert_ne!(err.kind, "not_found");
+    }
+
+    #[test]
+    fn read_one_file_live_symlink_reads_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let target = dir.path().join("real.txt");
+        fs::write(&target, "hello via link\n").unwrap();
+        let link = dir.path().join("live.txt");
+        if !try_symlink_file(&target, &link) {
+            return;
+        }
+        let result = read_one_file(link.to_str().unwrap(), None).expect("live file symlink");
+        assert_eq!(result.content, "hello via link\n");
+        assert!(result.ok);
+    }
+
+    #[test]
+    fn read_one_file_missing_path_is_not_found() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing = dir.path().join("does-not-exist.txt");
+        let err = read_one_file(missing.to_str().unwrap(), None).expect_err("missing");
+        assert_eq!(err.kind, "not_found");
     }
 
     #[test]
