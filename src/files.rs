@@ -686,12 +686,15 @@ pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
 
     // Metadata-first: `File::open` on a FIFO blocks until a writer connects.
     if !is_openable_regular_file(path) {
-        // Entry exists but is not a regular file (FIFO/socket/dir/…) → clear
-        // refused reason. Missing path (no metadata) → unreadable.
-        return match std::fs::symlink_metadata(path) {
-            Ok(meta) if !meta.file_type().is_file() => Err(SoftTextSkip::NotRegularFile),
-            Ok(_) => Err(SoftTextSkip::Unreadable),
-            Err(_) => Err(SoftTextSkip::Unreadable),
+        // Same kind as dest-symlink refuse: classify_path_entry, not raw
+        // FileType::is_file. Windows dangling file symlinks report is_file
+        // true; they must skip as NotRegularFile, not Unreadable.
+        use crate::ops::file::{PathEntryKind, classify_path_entry};
+        return match classify_path_entry(path) {
+            PathEntryKind::Missing | PathEntryKind::RegularFile => Err(SoftTextSkip::Unreadable),
+            PathEntryKind::Special | PathEntryKind::RealDirectory => {
+                Err(SoftTextSkip::NotRegularFile)
+            }
         };
     }
 
@@ -1457,6 +1460,38 @@ mod tests {
         assert!(SoftTextSkip::Binary.is_content_skip());
         assert!(!SoftTextSkip::Unreadable.is_content_skip());
         assert_eq!(SoftTextSkip::InvalidUtf8.as_reason(), "invalid_utf8");
+    }
+
+    /// Dangling symlink is a present special entry, not missing/unreadable.
+    #[cfg(unix)]
+    #[test]
+    fn try_read_text_file_dangling_symlink_is_not_regular() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+        assert_eq!(
+            try_read_text_file(&link).unwrap_err(),
+            SoftTextSkip::NotRegularFile
+        );
+    }
+
+    /// Windows dangling file symlink reports `FileType::is_file()`; soft
+    /// read must still skip as NotRegularFile, not Unreadable.
+    #[cfg(windows)]
+    #[test]
+    fn try_read_text_file_dangling_file_symlink_is_not_regular() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("dangling.txt");
+        if let Err(e) = std::os::windows::fs::symlink_file(dir.path().join("missing-target"), &link)
+        {
+            // File symlinks need Developer Mode or admin.
+            eprintln!("skip dangling file symlink test: {e}");
+            return;
+        }
+        assert_eq!(
+            try_read_text_file(&link).unwrap_err(),
+            SoftTextSkip::NotRegularFile
+        );
     }
 
     /// Soft text load must not open FIFOs (blocks forever).
