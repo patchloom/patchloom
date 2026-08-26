@@ -1,10 +1,11 @@
 //! Plan validation/preparation and direct in-process plan execution.
 
 use super::commit::commit_changes;
-use super::steps::{
-    resolve_plan_cwd, restore_collateral_files, rollback_strict, run_lifecycle,
-    snapshot_non_tx_files,
-};
+#[cfg(not(any(feature = "cli", feature = "files")))]
+use super::steps::rollback_strict;
+use super::steps::{resolve_plan_cwd, run_lifecycle};
+#[cfg(any(feature = "cli", feature = "files"))]
+use super::steps::{revert_strict_lifecycle, snapshot_non_tx_files, tx_paths_for_collateral};
 use crate::cli::global::GlobalFlags;
 use crate::plan::{self, Plan};
 use crate::tx::execute::execute_and_collect;
@@ -13,7 +14,10 @@ use crate::tx::validate::validate_plan_operations;
 #[cfg(feature = "ast")]
 use crate::tx::verify;
 use crate::tx::{build_error_output, build_error_output_with_suggested_op};
-use std::collections::{HashMap, HashSet};
+#[cfg(any(test, feature = "cli", feature = "files"))]
+use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 fn config_tx_strict(cwd: &Path) -> Option<bool> {
@@ -230,13 +234,7 @@ pub fn execute_plan_direct(
     // be treated as tx paths so collateral walk does not re-touch them.
     #[cfg(any(feature = "cli", feature = "files"))]
     let collateral_snapshot = if strict && plan.has_lifecycle_steps() {
-        let mut tx_paths: HashSet<PathBuf> =
-            result.changes.iter().map(|(p, _, _)| p.clone()).collect();
-        tx_paths.extend(result.deletions.iter().cloned());
-        for (from, to) in &result.renames {
-            tx_paths.insert(from.clone());
-            tx_paths.insert(to.clone());
-        }
+        let tx_paths = tx_paths_for_collateral(&result.changes, &result.deletions, &result.renames);
         snapshot_non_tx_files(&effective_cwd, &tx_paths)
     } else {
         HashMap::new()
@@ -245,29 +243,74 @@ pub fn execute_plan_direct(
     // Run format steps, then validation steps.
     if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
         if strict {
-            // Prefer full backup restore so soft-empty non-text originals
-            // (binary / invalid UTF-8 path ops) are not rewritten as empty
-            // files by string rollback. Fall back to pending-based rollback
-            // when no session exists.
-            let used_backup = apply_backup_session
-                .as_ref()
-                .is_some_and(|ts| crate::backup::restore_session(&effective_cwd, ts).is_ok());
-            if !used_backup {
-                rollback_strict(
+            #[cfg(any(feature = "cli", feature = "files"))]
+            {
+                match revert_strict_lifecycle(
+                    &effective_cwd,
                     &result.changes,
                     &result.pending,
                     &result.deletions,
                     &result.existed_before,
-                );
+                    apply_backup_session.as_deref(),
+                    &collateral_snapshot,
+                ) {
+                    Ok(()) => {
+                        let msg = format!("strict mode -- all changes reverted ({})", err.message);
+                        return Ok(build_error_output(
+                            "rollback",
+                            &msg,
+                            apply_backup_session.as_deref(),
+                        ));
+                    }
+                    Err(detail) => {
+                        let msg = format!(
+                            "strict mode -- could not fully revert changes ({detail}; {})",
+                            err.message
+                        );
+                        return Ok(build_error_output(
+                            "rollback_failed",
+                            &msg,
+                            apply_backup_session.as_deref(),
+                        ));
+                    }
+                }
             }
-            #[cfg(any(feature = "cli", feature = "files"))]
-            restore_collateral_files(&collateral_snapshot);
-            let msg = format!("strict mode -- all changes reverted ({})", err.message);
-            return Ok(build_error_output(
-                "rollback",
-                &msg,
-                apply_backup_session.as_deref(),
-            ));
+            #[cfg(not(any(feature = "cli", feature = "files")))]
+            {
+                // No collateral snapshot without the files walker. Prefer
+                // backup restore; do not run string rollback after a failed
+                // restore_session (partial restore must not be overwritten).
+                let mut rollback_ok = true;
+                if let Some(ts) = apply_backup_session.as_ref() {
+                    if crate::backup::restore_session(&effective_cwd, ts).is_err() {
+                        rollback_ok = false;
+                    }
+                } else {
+                    rollback_strict(
+                        &result.changes,
+                        &result.pending,
+                        &result.deletions,
+                        &result.existed_before,
+                    );
+                }
+                if rollback_ok {
+                    let msg = format!("strict mode -- all changes reverted ({})", err.message);
+                    return Ok(build_error_output(
+                        "rollback",
+                        &msg,
+                        apply_backup_session.as_deref(),
+                    ));
+                }
+                let msg = format!(
+                    "strict mode -- could not fully revert changes ({})",
+                    err.message
+                );
+                return Ok(build_error_output(
+                    "rollback_failed",
+                    &msg,
+                    apply_backup_session.as_deref(),
+                ));
+            }
         }
         // Non-strict: writes already committed. Report applied changes so
         // agents do not see files_changed=0 while the working tree changed.
@@ -294,7 +337,11 @@ mod tests {
     };
     use super::super::steps::{
         COLLATERAL_SNAPSHOT_MAX_SIZE, LifecycleError, lifecycle_failure_msg, resolve_plan_cwd,
-        restore_collateral_files, rollback_strict, run_lifecycle, snapshot_non_tx_files,
+        rollback_strict, run_lifecycle, tx_paths_for_collateral,
+    };
+    #[cfg(any(feature = "cli", feature = "files"))]
+    use super::super::steps::{
+        restore_collateral_files, revert_strict_lifecycle, snapshot_non_tx_files,
     };
     use super::*;
 
@@ -698,7 +745,7 @@ mod tests {
         );
 
         // Restore should revert the file.
-        restore_collateral_files(&snapshot);
+        restore_collateral_files(&snapshot).expect("collateral restore");
         assert_eq!(
             std::fs::read_to_string(&file).unwrap(),
             "original content",
@@ -717,7 +764,7 @@ mod tests {
         snapshot.insert(file.clone(), "same content".to_string());
 
         // File was not modified by the formatter. restore should be a no-op.
-        restore_collateral_files(&snapshot);
+        restore_collateral_files(&snapshot).expect("collateral restore");
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "same content");
     }
 
@@ -744,6 +791,121 @@ mod tests {
         assert!(
             snapshot.contains_key(&small_file),
             "small file should be in snapshot"
+        );
+    }
+
+    #[test]
+    fn tx_paths_for_collateral_includes_rename_dest_absent_from_changes() {
+        let dest = PathBuf::from("/tmp/renamed.txt");
+        let src = PathBuf::from("/tmp/old.txt");
+        let deletions = HashSet::from([src.clone()]);
+        let renames = vec![(src.clone(), dest.clone())];
+        // dest is a rename target but not in `changes` (identical-content
+        // force overwrite). It must still be a tx path.
+        let paths = tx_paths_for_collateral(&[], &deletions, &renames);
+        assert!(paths.contains(&dest), "rename dest must be a tx path");
+        assert!(paths.contains(&src), "rename source must be a tx path");
+    }
+
+    #[cfg(unix)]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn restore_collateral_files_reports_write_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("bystander.rs");
+        let sibling = dir.path().join("link.rs");
+        std::fs::write(&file, "original content").unwrap();
+        std::fs::hard_link(&file, &sibling).unwrap();
+
+        let mut snapshot = HashMap::new();
+        snapshot.insert(file.clone(), "original content".to_string());
+        std::fs::write(&file, "reformatted content").unwrap();
+
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o444)).unwrap();
+        // Root (common in Docker) can still write mode-444 files. Skip when
+        // permissions do not actually block writing.
+        if std::fs::OpenOptions::new().write(true).open(&file).is_ok() {
+            let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+            return;
+        }
+
+        let result = restore_collateral_files(&snapshot);
+        let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+        let failed = result.expect_err("readonly hardlink restore must fail");
+        assert!(
+            failed.iter().any(|p| p == &file),
+            "failed paths should include the collateral file: {failed:?}"
+        );
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn revert_strict_lifecycle_skips_rollback_strict_after_restore_fail() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let dest = dir.path().join("new.txt");
+        std::fs::write(&dest, "post-rename").unwrap();
+
+        let changes = vec![(dest.clone(), String::new(), "post-rename".to_string())];
+        let pending = HashMap::new();
+        let deletions = HashSet::new();
+        let existed_before = HashSet::new();
+        let collateral = HashMap::new();
+
+        let _guard = RestoreFailGuard::engage();
+        let err = revert_strict_lifecycle(
+            dir.path(),
+            &changes,
+            &pending,
+            &deletions,
+            &existed_before,
+            Some("missing-session"),
+            &collateral,
+        )
+        .expect_err("forced restore fail must not claim full revert");
+        assert!(
+            err.contains("backup restore failed"),
+            "error should name the failed backup restore: {err}"
+        );
+        assert!(
+            dest.exists(),
+            "must not run rollback_strict after restore_session Err"
+        );
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "post-rename");
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn execute_plan_strict_format_fail_restore_err_is_rollback_failed() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("old.txt"), "content\n").unwrap();
+        let cmd = if cfg!(windows) { "exit /b 1" } else { "false" };
+        let plan: Plan = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "strict": true,
+            "operations": [
+                {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
+            ],
+            "format": [{"cmd": cmd, "timeout": 5}]
+        }))
+        .unwrap();
+
+        let _guard = RestoreFailGuard::engage();
+        let report = execute_plan_direct(plan, dir.path(), None).expect("plan returns output");
+        assert_eq!(report.error_kind.as_deref(), Some("rollback_failed"));
+        assert!(!report.ok);
+        let err = report.error.as_deref().unwrap_or("");
+        assert!(
+            err.contains("could not fully revert"),
+            "must not claim a full revert: {err}"
+        );
+        assert!(
+            !err.contains("all changes reverted"),
+            "must not claim a full revert: {err}"
+        );
+        assert!(
+            dir.path().join("new.txt").exists(),
+            "must not run rollback_strict after restore_session Err"
         );
     }
 

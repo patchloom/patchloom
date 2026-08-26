@@ -1228,6 +1228,51 @@ fn test_tx_file_rename_moves_file() {
     );
 }
 
+/// CLI collateral skip set must include rename dests (not only `changes`).
+/// After strict format rollback, the dest must be gone (exit 7).
+#[test]
+fn test_tx_strict_format_rollback_removes_rename_dest() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dest = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "strict": true,
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
+        ],
+        "format": [{
+            "cmd": shell_false(),
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(7);
+
+    assert!(
+        src.exists(),
+        "source should be restored after strict format rollback"
+    );
+    assert_eq!(fs::read_to_string(&src).unwrap(), "content\n");
+    assert!(
+        !dest.exists(),
+        "rename dest must be gone after strict format rollback"
+    );
+}
+
 /// Symlink rename must not rewrite the target even when CLI write policy is set (#2091).
 #[cfg(unix)]
 #[test]

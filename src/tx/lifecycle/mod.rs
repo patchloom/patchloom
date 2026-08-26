@@ -16,6 +16,8 @@ pub use plan_exec::execute_plan_direct;
 pub(crate) use commit::{commit_changes, restore_after_failed_commit};
 pub(crate) use plan_exec::validate_and_prepare_plan;
 pub(crate) use steps::{
-    resolve_plan_cwd, restore_collateral_files, rollback_strict, run_format_steps, run_lifecycle,
-    run_validate_steps, snapshot_non_tx_files,
+    resolve_plan_cwd, rollback_strict, run_format_steps, run_lifecycle, run_validate_steps,
+    tx_paths_for_collateral,
 };
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) use steps::{restore_collateral_files, revert_strict_lifecycle, snapshot_non_tx_files};

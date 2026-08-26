@@ -127,6 +127,27 @@ pub(crate) fn run_validate_steps(
 /// standard formatters and snapshotting them wastes memory.
 pub(crate) const COLLATERAL_SNAPSHOT_MAX_SIZE: u64 = 1_048_576; // 1 MiB
 
+/// Paths the transaction already owns: change targets, deletions, and
+/// rename from/to. Used as the skip set for [`snapshot_non_tx_files`].
+///
+/// Rename dests are often also in `changes`, but force-overwrite dests
+/// with identical content (and empty-file deletes historically) can be
+/// absent from `changes`. Omitting them lets the post-commit dest be
+/// snapshotted as collateral and written back after rollback.
+pub(crate) fn tx_paths_for_collateral(
+    changes: &[(PathBuf, String, String)],
+    deletions: &HashSet<PathBuf>,
+    renames: &[(PathBuf, PathBuf)],
+) -> HashSet<PathBuf> {
+    let mut tx_paths: HashSet<PathBuf> = changes.iter().map(|(p, _, _)| p.clone()).collect();
+    tx_paths.extend(deletions.iter().cloned());
+    for (from, to) in renames {
+        tx_paths.insert(from.clone());
+        tx_paths.insert(to.clone());
+    }
+    tx_paths
+}
+
 /// Snapshot the content of non-binary text files under `cwd` that are NOT
 /// already tracked by the transaction. This captures the pre-format state of
 /// files that a format step (e.g. `cargo fmt`) might modify as a side effect.
@@ -192,10 +213,17 @@ pub(crate) fn snapshot_non_tx_files(
 /// Restore any files that were modified by format/validate steps but were
 /// not part of the transaction. Compares current content against the
 /// snapshot and writes back the original content for any files that changed.
+///
+/// Returns `Ok(())` when every needed write succeeded. Returns `Err` with
+/// the paths that failed so callers can emit `rollback_failed` instead of
+/// claiming a full revert.
 #[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
+pub(crate) fn restore_collateral_files(
+    snapshot: &HashMap<PathBuf, String>,
+) -> Result<(), Vec<PathBuf>> {
     let noop_policy = WritePolicy::default();
     let mut restored = 0usize;
+    let mut failed = Vec::new();
     for (path, original) in snapshot {
         // Soft content load: skip binary / unreadable collateral (do not
         // rewrite non-text via atomic_write as UTF-8).
@@ -213,6 +241,7 @@ pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
                     "tx: rollback: failed to restore collateral file {}: {e}",
                     path.display()
                 );
+                failed.push(path.clone());
             } else {
                 restored += 1;
             }
@@ -220,6 +249,59 @@ pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
     }
     if restored > 0 {
         crate::verbose!("tx: collateral restore: reverted {} file(s)", restored);
+    }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(failed)
+    }
+}
+
+/// Undo a committed transaction after a strict format/validate failure.
+///
+/// Prefers [`crate::backup::restore_session`]. Falls back to
+/// [`rollback_strict`] only when no backup session exists. A failed
+/// `restore_session` (or the test [`super::commit::RestoreFailGuard`])
+/// does **not** run string rollback: a partial backup restore must not be
+/// overwritten.
+///
+/// Returns `Ok(())` only when backup restore (when attempted) and
+/// collateral restore both succeed. Callers must emit `rollback_failed`
+/// on `Err` and must not claim that all changes were reverted.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn revert_strict_lifecycle(
+    cwd: &Path,
+    changes: &[(PathBuf, String, String)],
+    pending: &HashMap<PathBuf, (String, String)>,
+    deletions: &HashSet<PathBuf>,
+    existed_before: &HashSet<PathBuf>,
+    backup_session: Option<&str>,
+    collateral: &HashMap<PathBuf, String>,
+) -> Result<(), String> {
+    let mut errors: Vec<String> = Vec::new();
+    if let Some(ts) = backup_session {
+        let force_fail =
+            super::commit::FORCE_RESTORE_FAIL.with(|f| f.load(std::sync::atomic::Ordering::SeqCst));
+        if force_fail {
+            errors.push(format!("backup restore failed for session {ts}"));
+        } else if let Err(e) = crate::backup::restore_session(cwd, ts) {
+            errors.push(format!("backup restore failed for session {ts}: {e}"));
+        }
+    } else {
+        rollback_strict(changes, pending, deletions, existed_before);
+    }
+    if let Err(failed) = restore_collateral_files(collateral) {
+        for path in failed {
+            errors.push(format!(
+                "failed to restore collateral file {}",
+                path.display()
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
 

@@ -55,12 +55,14 @@ pub(crate) use execute::TxStateFixture;
 pub(crate) use execute::{path_err, read_and_probe, read_file_content, update_file_content};
 
 // lifecycle.rs
+#[cfg(test)]
+pub(crate) use lifecycle::rollback_strict;
 pub use lifecycle::{CommitError, RestoreFailGuard, WriteFailGuard, execute_plan_direct};
 pub(crate) use lifecycle::{
-    commit_changes, rollback_strict, run_lifecycle, validate_and_prepare_plan,
+    commit_changes, run_lifecycle, tx_paths_for_collateral, validate_and_prepare_plan,
 };
 #[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) use lifecycle::{restore_collateral_files, snapshot_non_tx_files};
+pub(crate) use lifecycle::{revert_strict_lifecycle, snapshot_non_tx_files};
 
 #[cfg(feature = "cli")]
 use clap::Args;
