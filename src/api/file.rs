@@ -246,6 +246,7 @@ fn file_write_cross(
     // Fallback: rename directly.
     if let Operation::FileRename { to, force, .. } = _op {
         let dst = Path::new(&to);
+        crate::ops::file::refuse_non_regular_destination(dst, &to)?;
         if !force && dst.exists() {
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                 msg: format!(

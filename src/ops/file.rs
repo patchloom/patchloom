@@ -132,8 +132,12 @@ pub fn is_regular_file_for_backup(path: &Path) -> bool {
 /// Shared by CLI direct-rename and tx commit (#2091 dedup). Force overwrite
 /// must not delete a pre-existing dest on partial failure (backup holds bytes).
 /// Uses [`path_entry_exists`] so dangling dest entries count as present.
+/// Dest symlink / non-regular entries are refused before rename or EXDEV
+/// copy so `std::fs::copy` cannot follow the dest and overwrite the target.
 pub fn rename_or_copy(src: &Path, dst: &Path) -> anyhow::Result<()> {
     use anyhow::Context;
+
+    refuse_non_regular_destination(dst, &dst.to_string_lossy())?;
 
     match std::fs::rename(src, dst) {
         Ok(()) => Ok(()),
@@ -195,6 +199,24 @@ pub fn refuse_symlink_destination(
 ) -> Result<(), crate::exit::InvalidInputError> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => Err(crate::exit::InvalidInputError {
+            msg: format!("refusing to write through symlink destination: {display}"),
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// Refuse a destination that is a symlink or other non-regular entry.
+///
+/// Same-device `fs::rename` replaces the dest inode (does not follow).
+/// Cross-device `std::fs::copy` follows a dest symlink and would
+/// overwrite the target. Rename refuses dest symlink (and FIFO /
+/// socket / device) on every device so policy matches force-create.
+pub fn refuse_non_regular_destination(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    match classify_path_entry(path) {
+        PathEntryKind::Special => Err(crate::exit::InvalidInputError {
             msg: format!("refusing to write through symlink destination: {display}"),
         }),
         _ => Ok(()),
@@ -582,6 +604,36 @@ mod tests {
         rename_or_copy(&src, &dst).unwrap();
         assert!(!src.exists());
         assert_eq!(fs::read_to_string(&dst).unwrap(), "payload\n");
+    }
+
+    /// Dest symlink must refuse before rename or EXDEV copy so the
+    /// outside target is not overwritten.
+    #[cfg(unix)]
+    #[test]
+    fn rename_or_copy_refuses_dest_symlink() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dest = dir.path().join("dest.txt");
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        fs::write(&src, "payload\n").unwrap();
+        fs::write(&outside_file, "do not overwrite").unwrap();
+        std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+        let err = rename_or_copy(&src, &dest).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dest symlink must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(src.exists(), "source must remain after dest-symlink refuse");
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest must remain a symlink"
+        );
     }
 
     #[test]

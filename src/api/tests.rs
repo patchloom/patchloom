@@ -7979,6 +7979,36 @@ fn file_create_force_refuses_dest_symlink() {
     assert!(dest.symlink_metadata().unwrap().file_type().is_symlink());
 }
 
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_rename_refuses_dest_symlink() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src.txt");
+    let dest = dir.path().join("app.toml");
+    let outside = TempDir::new().unwrap();
+    let outside_file = outside.path().join("secret");
+    fs::write(&src, "payload\n").unwrap();
+    fs::write(&outside_file, "do not overwrite").unwrap();
+    std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+    for force in [false, true] {
+        let err = file_rename(&src, &dest, force, ApplyMode::Apply, None).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "file.rename dest symlink force={force} must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(src.exists(), "source must remain when dest is a symlink");
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest must remain a symlink"
+        );
+    }
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
 fn file_rename_destination_exists_is_already_exists() {

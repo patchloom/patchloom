@@ -209,6 +209,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 }
                 .into());
             }
+            // Dest symlink / non-regular: refuse before force overwrite or
+            // EXDEV copy so we never follow the dest and clobber its target.
+            crate::ops::file::refuse_non_regular_destination(&dst_path, to)?;
             crate::ops::file::ensure_parent_components_are_directories(&dst_path)?;
 
             // If source and destination resolve to the same file, no-op.

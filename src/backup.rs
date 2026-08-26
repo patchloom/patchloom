@@ -10,6 +10,7 @@
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 
 use crate::containment::PathGuard;
@@ -34,7 +35,9 @@ const PRUNE_DAYS: u64 = 7;
 /// True when `path` is inside a `.patchloom/backups` tree (any ancestor).
 ///
 /// Lexically normalizes `.` and `..` so `foo/../.patchloom/backups/x`
-/// is still detected. User writers must not target this store.
+/// is still detected. The `.patchloom` and `backups` segments are
+/// compared case-insensitively so `.PATCHLOOM/backups` on APFS cannot
+/// write into the real store. User writers must not target this store.
 pub fn is_under_backup_dir(path: &Path) -> bool {
     let needle: Vec<_> = Path::new(BACKUP_DIR)
         .components()
@@ -57,8 +60,18 @@ pub fn is_under_backup_dir(path: &Path) -> bool {
             Component::Normal(s) => norm.push(s.to_os_string()),
         }
     }
-    norm.windows(needle.len())
-        .any(|w| w.iter().eq(needle.iter()))
+    norm.windows(needle.len()).any(|w| {
+        w.iter()
+            .zip(needle.iter())
+            .all(|(got, want)| path_component_eq_ignore_ascii_case(got, want))
+    })
+}
+
+fn path_component_eq_ignore_ascii_case(a: &OsStr, b: &OsStr) -> bool {
+    match (a.to_str(), b.to_str()) {
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        _ => a == b,
+    }
 }
 
 /// Refuse a user write whose destination is under [`BACKUP_DIR`].
@@ -2007,6 +2020,22 @@ mod tests {
     }
 
     #[test]
+    fn is_under_backup_dir_detects_case_fold() {
+        assert!(is_under_backup_dir(Path::new(
+            ".PATCHLOOM/backups/x/manifest.json"
+        )));
+        assert!(is_under_backup_dir(Path::new(".Patchloom/BACKUPS/x")));
+        assert!(is_under_backup_dir(Path::new(
+            "/proj/.patchloom/BACKUPS/id/blob"
+        )));
+        assert!(is_under_backup_dir(Path::new(
+            "foo/../.PATCHLOOM/backups/x"
+        )));
+        assert!(!is_under_backup_dir(Path::new(".PATCHLOOM/other")));
+        assert!(!is_under_backup_dir(Path::new("BACKUPS/foo")));
+    }
+
+    #[test]
     fn finalize_writes_origin_sidecar() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("a.txt");
@@ -2045,6 +2074,33 @@ mod tests {
             "expected invalid_input, got: {err:#}"
         );
         assert!(!target.exists(), "forged backup manifest must not exist");
+    }
+
+    #[test]
+    fn file_create_refuses_case_fold_backup_dir_write() {
+        let dir = TempDir::new().unwrap();
+        let target = dir
+            .path()
+            .join(".PATCHLOOM")
+            .join("backups")
+            .join("x")
+            .join("manifest.json");
+        let err = crate::api::file_create(
+            &target,
+            "{\"forged\":true}\n",
+            false,
+            crate::api::ApplyMode::Apply,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input, got: {err:#}"
+        );
+        assert!(
+            !target.exists(),
+            "forged case-fold backup manifest must not exist"
+        );
     }
 
     #[test]
