@@ -707,6 +707,33 @@ mod tests {
         assert_eq!(result, yaml);
     }
 
+    /// yaml-edit 0.3 still cannot turn `key: *alias` into `<<: *alias` via
+    /// `Mapping::set`. A CST set of the expanded object inlines the map and
+    /// can drop the sibling `&shared` definition. Keep
+    /// [`rewrite_yaml_alias_object_edits`] (#2250).
+    #[test]
+    fn yaml_edit_set_on_pure_alias_does_not_become_merge() {
+        let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\n";
+        let doc = parse_yaml(yaml);
+        let root = doc.as_mapping().unwrap();
+        let replacement = json_to_yaml_mapping(&json!({"timeout": 60, "retries": 3})).unwrap();
+        root.set("service_a", &replacement);
+        let result = doc.to_string();
+        assert!(
+            !result.contains("<<: *shared"),
+            "0.3 Mapping::set unexpectedly produced a merge:\n{result}"
+        );
+        assert!(
+            !result.contains("service_a: *shared"),
+            "0.3 Mapping::set left the alias (would drop the override):\n{result}"
+        );
+        // Concrete map is fine; identity is not. The line splice is still required.
+        assert!(
+            result.contains("timeout: 60"),
+            "0.3 Mapping::set must still write the override:\n{result}"
+        );
+    }
+
     #[test]
     fn mapping_diff_pure_alias_override_to_merge() {
         use std::str::FromStr;

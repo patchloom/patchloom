@@ -79,7 +79,7 @@ clap = { version = "4", features = ["derive"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml_ng = "0.10"
-yaml-edit = "0.2"
+yaml-edit = "0.3"
 toml_edit = { version = "0.25", features = ["serde"] }
 ignore = { version = "0.4", optional = true }
 globset = { version = "0.4", optional = true }
