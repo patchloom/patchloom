@@ -98,7 +98,8 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// | Text | `Ok(String)` |
 /// | Binary | `Err(BinaryError)` — `target is a binary file: {display}` (`error_kind: binary`) |
 /// | Invalid UTF-8 | `Err(InvalidEncodingError)` — `target is not valid UTF-8 text: {display}` (`error_kind: invalid_encoding`) |
-/// | Not a file | `Err(InvalidInputError)` — `target is not a file: {display}` |
+/// | Not a file (directory, FIFO, …) | `Err(InvalidInputError)` — `target is not a file: {display}` |
+/// | Dangling symlink / special name | `Err(InvalidInputError)` — `target is not a file: {display}` (not IO NotFound) |
 /// | IO NotFound | `Err` with `io::Error` + context `failed to read {display}` (`is_io_not_found`) |
 /// | IO other (permission, …) | `Err(InvalidInputError)` — `failed to read {display}: {os error}` |
 ///
@@ -112,11 +113,26 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// Directory walks and multi-path soft-skip must use [`read_text_file`] (or
 /// `tx::read_and_probe`), not this function.
 pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
-    if path.exists() && !path.is_file() {
-        return Err(crate::exit::InvalidInputError {
-            msg: format!("target is not a file: {display}"),
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+    match classify_path_entry(path) {
+        PathEntryKind::RealDirectory => {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("target is not a file: {display}"),
+            }
+            .into());
         }
-        .into());
+        PathEntryKind::Special if !path.exists() || !path.is_file() => {
+            // Dangling symlink / FIFO / socket / symlink-to-dir: present
+            // special name, not a missing path. Must not look like IO
+            // NotFound (agents would create over the name). Live file
+            // symlinks follow via fs::read (#1230).
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("target is not a file: {display}"),
+            }
+            .into());
+        }
+        // RegularFile, live file symlink (Special + exists + is_file), Missing.
+        PathEntryKind::RegularFile | PathEntryKind::Special | PathEntryKind::Missing => {}
     }
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
@@ -1286,6 +1302,64 @@ mod tests {
             msg.matches("failed to read").count(),
             1,
             "must not double-wrap: {msg}"
+        );
+    }
+
+    /// Create a file symlink; return false when the OS refuses (Windows
+    /// without Developer Mode / admin).
+    fn try_symlink_file(target: &std::path::Path, link: &std::path::Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            match std::os::windows::fs::symlink_file(target, link) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("skip file symlink test: {e}");
+                    false
+                }
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (target, link);
+            false
+        }
+    }
+
+    #[test]
+    fn load_text_strict_dangling_symlink_is_invalid_input() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        if !try_symlink_file(&dir.path().join("missing-target"), &link) {
+            return;
+        }
+        let err = load_text_strict(&link, "dangling.txt").unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dangling must be InvalidInputError, got: {err:#}"
+        );
+        assert!(
+            !crate::exit::is_io_not_found(&err),
+            "dangling must not look missing: {err:#}"
+        );
+        assert!(err.to_string().contains("not a file"), "msg: {err}");
+    }
+
+    #[test]
+    fn load_text_strict_live_symlink_to_text_ok() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let target = dir.path().join("real.txt");
+        std::fs::write(&target, "hello via link\n").unwrap();
+        let link = dir.path().join("live.txt");
+        if !try_symlink_file(&target, &link) {
+            return;
+        }
+        assert_eq!(
+            load_text_strict(&link, "live.txt").unwrap(),
+            "hello via link\n"
         );
     }
 
