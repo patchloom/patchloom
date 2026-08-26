@@ -862,6 +862,66 @@ mod error_handling {
     }
 
     #[test]
+    fn similar_targets_come_from_first_scan_list() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        fs::write(&file, "process_request\nprocess_response\n").unwrap();
+        let args = make_args(
+            "process_requst",
+            "x",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        let scan =
+            collect_replacements_with_list(&args, &GlobalFlags::test_default(), None).unwrap();
+        assert!(scan.replacements.is_empty());
+        assert!(
+            scan.file_paths.iter().any(|p| p.ends_with("a.txt")),
+            "first scan must include a.txt: {:?}",
+            scan.file_paths
+        );
+        let similar = similar_targets_for_no_match(&args, &scan.file_paths)
+            .expect("did-you-mean from first scan list");
+        assert!(
+            similar.iter().any(|s| s == "process_request"),
+            "expected process_request from scanned list: {similar:?}"
+        );
+    }
+
+    #[test]
+    fn similar_targets_do_not_rewalk_when_scan_list_empty() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        fs::write(&file, "process_request\n").unwrap();
+        let args = make_args(
+            "process_requst",
+            "x",
+            vec![dir.path().to_string_lossy().into_owned()],
+        );
+        // Empty first-scan list must not walk args.paths again.
+        assert!(similar_targets_for_no_match(&args, &[]).is_none());
+    }
+
+    #[test]
+    fn similar_targets_use_provided_scan_not_args_paths() {
+        let dir = TempDir::new().unwrap();
+        let outside = dir.path().join("outside.txt");
+        fs::write(&outside, "process_request\n").unwrap();
+        let empty = dir.path().join("empty");
+        fs::create_dir(&empty).unwrap();
+        let args = make_args(
+            "process_requst",
+            "x",
+            vec![empty.to_string_lossy().into_owned()],
+        );
+        let similar = similar_targets_for_no_match(&args, std::slice::from_ref(&outside))
+            .expect("hints come from the provided scan list");
+        assert!(
+            similar.iter().any(|s| s == "process_request"),
+            "expected process_request from outside.txt: {similar:?}"
+        );
+    }
+
+    #[test]
     fn nth_zero_is_rejected() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");

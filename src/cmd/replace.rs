@@ -231,37 +231,19 @@ fn match_mode_str(mode: crate::api::MatchMode) -> &'static str {
 
 /// Best-effort "did you mean?" candidates for a soft no-match (literal only).
 ///
-/// Samples up to a few readable files under the replace path args so agents
-/// can branch on structured `similar_targets` without scraping English.
+/// Samples up to five files from the **first** replace scan so the miss path
+/// does not walk the tree again. Agents branch on structured `similar_targets`
+/// without scraping English.
 fn similar_targets_for_no_match(
     args: &ReplaceArgs,
-    global: &GlobalFlags,
-    cwd: &std::path::Path,
+    scanned: &[std::path::PathBuf],
 ) -> Option<Vec<String>> {
     if args.regex {
         return None;
     }
-    let mut files: Vec<std::path::PathBuf> = Vec::new();
-    for p in &args.paths {
-        let abs = cwd.join(p);
-        if abs.is_file() {
-            files.push(abs);
-        } else if abs.is_dir()
-            && let Ok(mut walked) = crate::files::collect_file_paths_opts(
-                std::slice::from_ref(p),
-                global,
-                false,
-                Some(cwd),
-            )
-        {
-            walked.truncate(5);
-            files.extend(walked);
-        }
-    }
-    files.truncate(5);
-    for f in files {
+    for f in scanned.iter().take(5) {
         // SoftSkip multi-path scan (#1894); binary/invalid UTF-8 skipped.
-        let Some(content) = crate::files::read_text_file(&f) else {
+        let Some(content) = crate::files::read_text_file(f) else {
             continue;
         };
         let similar = crate::fallback::find_similar_targets(&content, &args.old, 3);
@@ -284,6 +266,16 @@ fn parse_range_arg(spec: Option<&str>) -> anyhow::Result<Option<(usize, Option<u
     }
 }
 
+/// One replace scan: matches, explicit-list refuses, and the walked paths.
+///
+/// `file_paths` is the first walk. Miss-path unreadable masking and similar
+/// target sampling reuse it instead of calling `collect_file_paths` again.
+struct ReplacementScan {
+    replacements: Vec<FileReplacement>,
+    zero_match_refused: Option<Vec<RefuseFileResult>>,
+    file_paths: Vec<std::path::PathBuf>,
+}
+
 /// Walk files and collect replacements using parallel file processing.
 ///
 /// Includes identity matches (`new == old`) so callers can enforce `--unique`
@@ -296,14 +288,15 @@ fn collect_replacements(
     args: &ReplaceArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<(Vec<FileReplacement>, Option<Vec<RefuseFileResult>>)> {
-    collect_replacements_with_list(args, global, None)
+    let scan = collect_replacements_with_list(args, global, None)?;
+    Ok((scan.replacements, scan.zero_match_refused))
 }
 
 fn collect_replacements_with_list(
     args: &ReplaceArgs,
     global: &GlobalFlags,
     files_from_preload: Option<&[String]>,
-) -> anyhow::Result<(Vec<FileReplacement>, Option<Vec<RefuseFileResult>>)> {
+) -> anyhow::Result<ReplacementScan> {
     let cwd = global.resolve_cwd()?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
     let file_paths = crate::files::collect_file_paths_opts_with_list(
@@ -408,7 +401,11 @@ fn collect_replacements_with_list(
         exact_zero_match_refused_from_paths(args, global, &cwd, &file_paths, &replacements);
     // Caller runs unique against this list (including identity matches), then
     // filters identity so writes/diffs only cover real content changes.
-    Ok((replacements, zero_match_refused))
+    Ok(ReplacementScan {
+        replacements,
+        zero_match_refused,
+        file_paths,
+    })
 }
 
 fn make_file_results(replacements: &[FileReplacement]) -> Vec<ReplaceFileResult> {
@@ -711,17 +708,21 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Phase 1: Parallel file scan to identify files with matches (includes identity).
     // Also builds exact zero-match refused for explicit path lists (#1792) from
     // the same path walk so --files-from - is only read once (#1796).
-    let (mut replacements, zero_match_refused) =
-        match collect_replacements_with_list(&args, global, files_from_list.as_deref()) {
-            Ok(r) => r,
-            Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
-                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
-                let msg = crate::exit::agent_error_message(&e);
-                global.emit_error_json_kind(Some(kind), &msg)?;
-                return Ok(exit::FAILURE);
-            }
-            Err(e) => return Err(e),
-        };
+    let scan = match collect_replacements_with_list(&args, global, files_from_list.as_deref()) {
+        Ok(r) => r,
+        Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+            let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+            let msg = crate::exit::agent_error_message(&e);
+            global.emit_error_json_kind(Some(kind), &msg)?;
+            return Ok(exit::FAILURE);
+        }
+        Err(e) => return Err(e),
+    };
+    let ReplacementScan {
+        mut replacements,
+        zero_match_refused,
+        file_paths,
+    } = scan;
     let raw_match_count: usize = replacements.iter().map(|r| r.match_count).sum();
 
     // Unique check: fail if any file has more than one match (before identity
@@ -778,14 +779,6 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             args.case_insensitive,
             args.multiline,
             args.word_boundary,
-        )?;
-        let file_paths = crate::files::collect_file_paths_opts_with_list(
-            &args.paths,
-            global,
-            false,
-            Some(&cwd),
-            files_from_list.as_deref(),
-            None,
         )?;
         let range = parse_range_arg(args.range.as_deref())?;
         for path in &file_paths {
@@ -900,19 +893,12 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::FAILURE);
         }
         // Multi-path / dir walk: unreadable may have masked the scan (#1894).
-        let scanned = crate::files::collect_file_paths_opts_with_list(
-            &args.paths,
-            global,
-            true,
-            Some(&cwd),
-            files_from_list.as_deref(),
-            None,
-        )?;
-        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
+        // Reuse the first walk; do not collect_file_paths again on miss.
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&file_paths, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
         }
-        let similar = similar_targets_for_no_match(&args, global, &cwd);
+        let similar = similar_targets_for_no_match(&args, &file_paths);
         let path_desc = global.path_scope_description(&args.paths);
         // Agents reading `error` (tx parity) should not need to scrape stderr.
         // Always set a message (even without similar_targets) so pure misses are
