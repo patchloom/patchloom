@@ -762,6 +762,21 @@ mod tests {
         );
     }
 
+    /// CST fallback when rewrite is skipped: `get_mapping` is None, so
+    /// `apply_yaml_mapping_diff` `set`s the whole object. Must inline and
+    /// keep `&shared` (not mutate the definition).
+    #[test]
+    fn mapping_diff_on_alias_key_inlines_and_keeps_anchor() {
+        let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\n";
+        let old = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"timeout": 30, "retries": 3}});
+        let new = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"timeout": 60, "retries": 3}});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert_eq!(
+            result,
+            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a:\n  timeout: 60\n  retries: 3\n"
+        );
+    }
+
     #[test]
     fn mapping_diff_pure_alias_override_to_merge() {
         use std::str::FromStr;
