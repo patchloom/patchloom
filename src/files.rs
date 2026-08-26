@@ -426,8 +426,14 @@ pub(crate) fn collect_file_paths_opts_with_list(
     if let Some(depth) = max_depth {
         builder.max_depth(Some(depth));
     }
-    // Never enter .git or .patchloom (even when hidden files are included).
-    builder.filter_entry(|e| !should_skip_walk_dirname(e.file_name()));
+    // Never enter .git / .patchloom; prune exclude prefixes (vendor/**) at walk
+    // time so we do not descend into trees that apply_exclude_globs would drop.
+    let exclude_set = build_glob_matcher(&global.exclude)?;
+    attach_walk_entry_filter(
+        &mut builder,
+        exclude_set.clone(),
+        root.map(Path::to_path_buf),
+    );
     // Support advanced layered ignores (e.g. .agentignore) for parity with library
     // `collect_file_paths_with_ignores` and `api::SearchOptions` (#821).
     for name in &global.ignore_file {
@@ -492,7 +498,7 @@ pub(crate) fn collect_file_paths_opts_with_list(
         .filter(|p| p.is_file())
         .collect();
 
-    // Apply runtime exclude patterns (shared helper for parity with with_ignores).
+    // File-level excludes (*.rs) and defense-in-depth after walk-time prune.
     apply_exclude_globs(&mut paths, &global.exclude, root)?;
 
     for f in explicit_files {
@@ -800,6 +806,31 @@ pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<V
     collect_file_paths_with_ignores(root, &[], &[], include_hidden)
 }
 
+/// Whether `path` is excluded by the same rules as [`apply_exclude_globs`].
+///
+/// Checks the full path, the filename fallback, and (when `root` is set) the
+/// path relative to that root so `vendor/**` matches `<root>/vendor/lib.rs`.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn exclude_path_matches(path: &Path, root: Option<&Path>, matcher: &GlobSet) -> bool {
+    if glob_matches_path(path, matcher) {
+        return true;
+    }
+    if let Some(r) = root
+        && let Ok(rel) = path.strip_prefix(r)
+        && !rel.as_os_str().is_empty()
+        && matcher.is_match(rel)
+    {
+        return true;
+    }
+    false
+}
+
+/// Drop paths that match exclude globs (post-filter).
+#[cfg(any(feature = "cli", feature = "files"))]
+fn apply_exclude_globset(paths: &mut Vec<PathBuf>, matcher: &GlobSet, root: Option<&Path>) {
+    paths.retain(|p| !exclude_path_matches(p, root, matcher));
+}
+
 /// Apply exclude glob patterns to a list of paths (post-filter).
 /// Shared to avoid duplication between collect_file_paths_with_ignores and
 /// the advanced logic in collect_file_paths_opts.
@@ -813,31 +844,44 @@ fn apply_exclude_globs(
     patterns: &[String],
     root: Option<&Path>,
 ) -> anyhow::Result<()> {
-    if patterns.is_empty() {
-        return Ok(());
+    if let Some(ex) = build_glob_matcher(patterns)? {
+        apply_exclude_globset(paths, &ex, root);
     }
-    let mut exb = globset::GlobSetBuilder::new();
-    for pat in patterns {
-        exb.add(globset::Glob::new(pat)?);
-    }
-    let ex = exb.build()?;
-    paths.retain(|p| {
-        // Check full path and filename (existing behavior).
-        if glob_matches_path(p, &ex) {
+    Ok(())
+}
+
+/// True when exclude globs would drop every descendant of `dir`.
+///
+/// Requires a synthetic child *and* grandchild to match so a glob that only
+/// hits one path shape does not prune the rest. Same matcher as
+/// [`apply_exclude_globs`]; no extra exclude syntax.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn should_prune_excluded_directory(dir: &Path, root: Option<&Path>, matcher: &GlobSet) -> bool {
+    const SENTINEL: &str = "__walk_prune__";
+    let child = dir.join(SENTINEL);
+    let nested = child.join(SENTINEL);
+    exclude_path_matches(&child, root, matcher) && exclude_path_matches(&nested, root, matcher)
+}
+
+/// Skip `.git` / `.patchloom` and directories fully covered by exclude globs.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn attach_walk_entry_filter(
+    builder: &mut WalkBuilder,
+    exclude: Option<GlobSet>,
+    root: Option<PathBuf>,
+) {
+    builder.filter_entry(move |e| {
+        if should_skip_walk_dirname(e.file_name()) {
             return false;
         }
-        // Also check the relative path so patterns like `vendor/**` work
-        // when collected paths are absolute.
-        if let Some(r) = root
-            && let Ok(rel) = p.strip_prefix(r)
-            && !rel.as_os_str().is_empty()
-            && ex.is_match(rel)
+        if let Some(ref matcher) = exclude
+            && e.file_type().is_some_and(|ft| ft.is_dir())
+            && should_prune_excluded_directory(e.path(), root.as_deref(), matcher)
         {
             return false;
         }
         true
     });
-    Ok(())
 }
 
 /// Directory basenames we never descend into when walking the tree.
@@ -918,8 +962,9 @@ pub fn collect_file_paths_with_ignores(
     if include_hidden {
         builder.hidden(false);
     }
-    // Do not enter .git / .patchloom (filter before build so children are never visited).
-    builder.filter_entry(|e| !should_skip_walk_dirname(e.file_name()));
+    // Do not enter .git / .patchloom; prune exclude prefixes before descending.
+    let exclude_set = build_glob_matcher(exclude_patterns)?;
+    attach_walk_entry_filter(&mut builder, exclude_set.clone(), Some(root.to_path_buf()));
     for name in custom_ignore_filenames {
         builder.add_custom_ignore_filename(name);
     }
@@ -1947,5 +1992,191 @@ mod explicit_exclude_tests {
             !paths.iter().any(|p| p.to_string_lossy().contains("vendor")),
             "vendor walk contents still excluded: {paths:?}"
         );
+    }
+
+    #[test]
+    fn excluded_directory_tree_is_omitted() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("vendor/pkg/deep")).unwrap();
+        fs::write(root.join("vendor/pkg/deep/lib.js"), "v\n").unwrap();
+        fs::write(root.join("vendor/top.js"), "v\n").unwrap();
+        fs::write(root.join("app.js"), "a\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["vendor/**".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths = collect_file_paths_opts_with_list(
+            &[".".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+            None,
+        )
+        .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(rels.iter().any(|r| r == "app.js"), "kept app.js: {rels:?}");
+        assert!(
+            !rels.iter().any(|r| r.contains("vendor")),
+            "vendor/** must omit the tree: {rels:?}"
+        );
+    }
+
+    #[test]
+    fn extension_exclude_still_collects_other_files_under_dir() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "fn x() {}\n").unwrap();
+        fs::write(root.join("src/keep.md"), "ok\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["*.rs".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths = collect_file_paths_opts_with_list(
+            &[".".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+            None,
+        )
+        .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(
+            rels.iter().any(|r| r == "src/keep.md"),
+            "*.rs must not prune src/: {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.ends_with(".rs")),
+            "*.rs still excludes rust files: {rels:?}"
+        );
+    }
+
+    #[test]
+    fn vendor_star_exclude_omits_nested_like_double_star() {
+        // globset `*` matches `/` (literal_separator is off). `vendor/*` is
+        // the same exclude language as `vendor/**`.
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("vendor/pkg")).unwrap();
+        fs::write(root.join("vendor/top.js"), "t\n").unwrap();
+        fs::write(root.join("vendor/pkg/deep.js"), "d\n").unwrap();
+        fs::write(root.join("app.js"), "a\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["vendor/*".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths = collect_file_paths_opts_with_list(
+            &[".".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+            None,
+        )
+        .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(rels.iter().any(|r| r == "app.js"), "kept app.js: {rels:?}");
+        assert!(
+            !rels.iter().any(|r| r.contains("vendor")),
+            "vendor/* omits the tree: {rels:?}"
+        );
+    }
+}
+
+#[cfg(all(test, any(feature = "cli", feature = "files")))]
+mod walk_prune_tests {
+    use super::*;
+    use std::path::Path;
+
+    fn matcher(pat: &str) -> globset::GlobSet {
+        build_glob_matcher(&[pat.into()]).unwrap().unwrap()
+    }
+
+    #[test]
+    fn prune_vendor_double_star() {
+        let m = matcher("vendor/**");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("vendor"),
+            Some(root),
+            &m
+        ));
+        assert!(!should_prune_excluded_directory(
+            &root.join("src"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn prune_vendor_star_same_as_double_star() {
+        // globset `*` matches `/`; `vendor/*` covers every descendant.
+        let m = matcher("vendor/*");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("vendor"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn do_not_prune_extension_glob() {
+        let m = matcher("*.rs");
+        let root = Path::new("/project");
+        assert!(!should_prune_excluded_directory(
+            &root.join("src"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn prune_nested_node_modules_prefix() {
+        let m = matcher("**/node_modules/**");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("src/node_modules"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn prune_target_double_star() {
+        let m = matcher("target/**");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("target"),
+            Some(root),
+            &m
+        ));
     }
 }

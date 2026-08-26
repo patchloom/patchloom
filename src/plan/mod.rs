@@ -560,7 +560,7 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         }));
     }
 
-    // 1. Collect matching files.
+    // 1. Collect matching files (exclude prefixes pruned while walking).
     let glob_set = match crate::files::build_glob_matcher(std::slice::from_ref(&fe.glob)) {
         Ok(Some(set)) => set,
         Ok(None) => {
@@ -575,7 +575,16 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         }
     };
 
-    let all_files = crate::files::collect_file_paths(cwd, false)?;
+    if !fe.exclude.is_empty() {
+        crate::files::build_glob_matcher(&fe.exclude).map_err(|e| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("for_each: invalid exclude glob: {e}"),
+            })
+        })?;
+    }
+
+    // Walk with exclude prefixes pruned (vendor/**); include glob still filters.
+    let all_files = crate::files::collect_file_paths_with_ignores(cwd, &[], &fe.exclude, false)?;
     let mut matched: Vec<std::path::PathBuf> = all_files
         .into_iter()
         .filter(|p| {
@@ -585,22 +594,7 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         .collect();
     matched.sort();
 
-    // 2. Apply exclude patterns.
-    if !fe.exclude.is_empty() {
-        let excl = crate::files::build_glob_matcher(&fe.exclude).map_err(|e| {
-            anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: format!("for_each: invalid exclude glob: {e}"),
-            })
-        })?;
-        if let Some(excl_set) = excl {
-            matched.retain(|p| {
-                let rel = p.strip_prefix(cwd).unwrap_or(p);
-                !excl_set.is_match(rel)
-            });
-        }
-    }
-
-    // 3. Apply filter (currently supports `has_symbol(NAME)`).
+    // 2. Apply filter (currently supports `has_symbol(NAME)`).
     if let Some(ref filter) = fe.filter {
         let filter = filter.trim();
         let Some(sym_name) = filter
