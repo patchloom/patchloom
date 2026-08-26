@@ -952,6 +952,22 @@ mod tests {
         assert_eq!(doc.to_string(), yaml);
     }
 
+    /// Scalar `- *alias` is the same Sequence::set no-op (non-object arm).
+    #[test]
+    fn sequence_diff_on_scalar_alias_item_is_not_applied() {
+        let yaml = "shared: &shared hello\nitems:\n  - *shared\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+        let old = vec![json!("hello")];
+        let new = vec![json!("world")];
+        assert!(
+            !apply_yaml_sequence_diff(&seq, &old, &new).unwrap(),
+            "scalar alias item set must not report applied"
+        );
+        assert_eq!(doc.to_string(), yaml);
+    }
+
     // ---- apply_yaml_sequence_resize ----
 
     #[test]
