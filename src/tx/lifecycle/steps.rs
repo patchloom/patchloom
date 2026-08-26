@@ -4,8 +4,6 @@ use crate::exec;
 use crate::plan::{self, Plan};
 use crate::tx::output::{describe_exit_status, describe_lifecycle_cwd};
 use crate::write::{WritePolicy, atomic_write};
-#[cfg(any(feature = "cli", feature = "files"))]
-use ignore::WalkBuilder;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -165,12 +163,14 @@ pub(crate) fn snapshot_non_tx_files(
         cwd.display(),
         tx_paths.len()
     );
-    let walker = WalkBuilder::new(cwd).hidden(false).build();
-    for entry in walker.flatten() {
-        let path = entry.path().to_path_buf();
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
+    // include_hidden=true matches WalkBuilder.hidden(false); the collector
+    // still prunes .git / .patchloom via attach_walk_entry_filter.
+    // Walk errors stay soft (empty snapshot), matching flatten() swallow.
+    let walked = match crate::files::collect_file_paths_with_ignores(cwd, &[], &[], true) {
+        Ok(paths) => paths,
+        Err(_) => return snapshot,
+    };
+    for path in walked {
         if tx_paths.contains(&path) {
             crate::verbose!(
                 "tx: collateral snapshot: skipping tx file {}",

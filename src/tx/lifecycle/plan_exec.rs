@@ -731,6 +731,55 @@ mod tests {
 
     #[cfg(any(feature = "cli", feature = "files"))]
     #[test]
+    fn snapshot_non_tx_files_prunes_git_and_patchloom_dirs() {
+        let dir = tempfile::TempDir::new().unwrap();
+
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let rust_file = src.join("a.rs");
+        std::fs::write(&rust_file, "fn a() {}").unwrap();
+
+        let git_pack = dir.path().join(".git").join("objects").join("pack");
+        std::fs::create_dir_all(&git_pack).unwrap();
+        let git_obj = git_pack.join("x");
+        std::fs::write(&git_obj, "packdata").unwrap();
+        let git_file = dir.path().join(".git").join("foo.txt");
+        std::fs::write(&git_file, "git metadata").unwrap();
+
+        let backups = dir.path().join(".patchloom").join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        let backup = backups.join("x");
+        std::fs::write(&backup, "backup session").unwrap();
+
+        let snapshot = snapshot_non_tx_files(dir.path(), &HashSet::new());
+
+        assert!(
+            snapshot.contains_key(&rust_file),
+            "real source file should be in snapshot"
+        );
+        assert_eq!(snapshot[&rust_file], "fn a() {}");
+        assert!(
+            snapshot
+                .keys()
+                .all(|p| !p.components().any(|c| c.as_os_str() == ".git")),
+            "snapshot must not include paths under .git: {:?}",
+            snapshot.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            snapshot
+                .keys()
+                .all(|p| !p.components().any(|c| c.as_os_str() == ".patchloom")),
+            "snapshot must not include paths under .patchloom: {:?}",
+            snapshot.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !snapshot.contains_key(&backup),
+            ".patchloom/backups/x must not appear in snapshot"
+        );
+    }
+
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
     fn restore_collateral_files_reverts_changed_files() {
         let dir = tempfile::TempDir::new().unwrap();
         let file = dir.path().join("bystander.rs");
