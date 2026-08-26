@@ -40,31 +40,6 @@ fn is_glob_pattern(s: &str) -> bool {
     s.contains('*') || s.contains('?') || s.contains('[')
 }
 
-/// Walk `dir` recursively, adding files whose relative path (from `root`)
-/// matches `matcher` to `out`.
-#[cfg(feature = "files")]
-fn walk_and_match(
-    root: &Path,
-    dir: &Path,
-    matcher: &globset::GlobMatcher,
-    out: &mut HashSet<PathBuf>,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_and_match(root, &path, matcher, out);
-        } else if path.is_file()
-            && let Ok(rel) = path.strip_prefix(root)
-            && matcher.is_match(rel)
-        {
-            out.insert(path);
-        }
-    }
-}
-
 /// Collect all file paths declared by operations in a plan.
 ///
 /// Handles three cases for each declared path:
@@ -92,10 +67,20 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
             } else if is_glob_pattern(&p) {
                 // Expand glob patterns against cwd so verification
                 // covers files targeted by glob-based operations.
-                #[cfg(feature = "files")]
-                if let Ok(glob) = globset::Glob::new(&p) {
+                // Shared walker: gitignore, prune .git/.patchloom, no dir-symlink follow.
+                #[cfg(any(feature = "cli", feature = "files"))]
+                if let Ok(glob) = globset::Glob::new(&p)
+                    && let Ok(walked) =
+                        crate::files::collect_file_paths_with_ignores(cwd, &[], &[], false)
+                {
                     let matcher = glob.compile_matcher();
-                    walk_and_match(cwd, cwd, &matcher, &mut paths);
+                    for file_path in walked {
+                        if let Ok(rel) = file_path.strip_prefix(cwd)
+                            && matcher.is_match(rel)
+                        {
+                            paths.insert(file_path);
+                        }
+                    }
                 }
             }
         }
@@ -648,6 +633,98 @@ mod tests {
         assert!(
             !names.contains(&"README.md".to_string()),
             "glob should not match README.md"
+        );
+    }
+
+    fn replace_glob_plan(glob: &str) -> crate::plan::Plan {
+        crate::plan::parse_plan(&format!(
+            r#"{{"version":1,"operations":[{{"op":"replace","glob":"{glob}","old":"old","new":"new"}}]}}"#
+        ))
+        .unwrap()
+    }
+
+    /// Shared walker must prune `.git` so `--verify` globs skip VCS objects.
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn affected_file_paths_glob_skips_dot_git() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("main.rs"), "fn main() {}\n").unwrap();
+        let git_obj = dir.path().join(".git/objects");
+        std::fs::create_dir_all(&git_obj).unwrap();
+        std::fs::write(git_obj.join("hidden.rs"), "fn hidden() {}\n").unwrap();
+
+        let affected = affected_file_paths(&replace_glob_plan("**/*.rs"), dir.path());
+        let names: Vec<String> = affected
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        assert!(
+            names.contains(&"main.rs".to_string()),
+            "glob should match src/main.rs, got: {names:?}"
+        );
+        assert!(
+            !names.contains(&"hidden.rs".to_string()),
+            ".git file must not be in affected paths, got: {names:?}"
+        );
+        assert!(
+            affected
+                .iter()
+                .all(|p| !p.components().any(|c| c.as_os_str() == ".git")),
+            "no affected path should be under .git, got: {affected:?}"
+        );
+    }
+
+    /// WalkBuilder default: do not follow a directory symlink out of cwd.
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn affected_file_paths_glob_does_not_follow_dir_symlink() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("inside.rs"), "fn inside() {}\n").unwrap();
+
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret.rs");
+        std::fs::write(&outside_file, "fn secret() {}\n").unwrap();
+
+        let link = dir.path().join("link");
+        #[cfg(unix)]
+        let link_result = std::os::unix::fs::symlink(outside.path(), &link);
+        #[cfg(windows)]
+        let link_result = std::os::windows::fs::symlink_dir(outside.path(), &link);
+        #[cfg(not(any(unix, windows)))]
+        let link_result: std::io::Result<()> = Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "no directory symlink API on this platform",
+        ));
+        if let Err(e) = link_result {
+            eprintln!("skip directory symlink test: {e}");
+            return;
+        }
+
+        let affected = affected_file_paths(&replace_glob_plan("**/*.rs"), dir.path());
+        assert!(
+            affected
+                .iter()
+                .any(|p| p.file_name().is_some_and(|n| n == "inside.rs")),
+            "glob should match inside.rs, got: {affected:?}"
+        );
+        assert!(
+            affected
+                .iter()
+                .all(|p| p != &outside_file && !p.starts_with(outside.path())),
+            "must not descend dir symlink to outside file, got: {affected:?}"
+        );
+        assert!(
+            affected
+                .iter()
+                .all(|p| p.file_name().is_none_or(|n| n != "secret.rs")),
+            "outside secret.rs must not appear, got: {affected:?}"
         );
     }
 
