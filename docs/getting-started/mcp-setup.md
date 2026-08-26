@@ -476,26 +476,37 @@ Each individual tool validates every path before execution.
 
 By default, the MCP server uses stdio transport (ideal for local IDE/agent integration). With `--http`, the server switches to Streamable HTTP transport, allowing remote MCP clients to connect over the network.
 
+Streamable HTTP has no authentication and no token. The default bind is loopback (`127.0.0.1`). Binding a non-loopback address (`0.0.0.0`, a LAN IP, or a public IP) is refused unless you pass `--allow-unauthenticated`.
+
 ### Basic HTTP
 
 ```bash
-# Default: listen on 127.0.0.1:8080
+# Default: listen on 127.0.0.1:8080 (loopback)
 patchloom mcp-server --http
 
-# Custom port
+# Custom port on loopback
 patchloom mcp-server --http --port 3000
 
-# Listen on all interfaces
-patchloom mcp-server --http --host 0.0.0.0
+# Explicit loopback bind
+patchloom mcp-server --http --host 127.0.0.1
 ```
 
 The MCP endpoint is served at `/mcp` (e.g., `http://127.0.0.1:8080/mcp`).
 
+Do not copy-paste `--host 0.0.0.0` as a default. All-interfaces HTTP is unauthenticated (there is no token) and requires an explicit opt-in:
+
+```bash
+# All interfaces: unauthenticated, opt-in required
+patchloom mcp-server --http --host 0.0.0.0 --allow-unauthenticated
+```
+
 ### HTTPS with native TLS
+
+TLS encrypts the connection but still does not authenticate clients. Non-loopback binds still need `--allow-unauthenticated`. There is no bearer token.
 
 ```bash
 patchloom mcp-server --http --host 0.0.0.0 --port 443 \
-  --tls-cert cert.pem --tls-key key.pem
+  --tls-cert cert.pem --tls-key key.pem --allow-unauthenticated
 ```
 
 Both `--tls-cert` and `--tls-key` must be provided together. The server uses rustls (no OpenSSL dependency).
@@ -505,8 +516,9 @@ Both `--tls-cert` and `--tls-key` must be provided together. The server uses rus
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--http` | off | Use Streamable HTTP transport instead of stdio |
-| `--host` | `127.0.0.1` | Bind address (requires `--http`) |
+| `--host` | `127.0.0.1` | Bind address (requires `--http`). Non-loopback binds require `--allow-unauthenticated` |
 | `--port` | `8080` | Bind port (requires `--http`). Use `0` for an OS-assigned ephemeral port (printed in the startup banner) |
+| `--allow-unauthenticated` | off | Permit HTTP on a non-loopback bind. Streamable HTTP has no token or other client auth |
 | `--tls-cert` | none | TLS certificate PEM file; enables HTTPS (requires `--http` and `--tls-key`) |
 | `--tls-key` | none | TLS private key PEM file (requires `--http` and `--tls-cert`) |
 

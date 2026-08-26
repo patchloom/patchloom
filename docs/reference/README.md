@@ -426,10 +426,11 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **Notable flags:**
   - `--log <path>`: Log tool calls to a JSONL file (also settable via `PATCHLOOM_MCP_LOG` env var).
   - `--http`: Use Streamable HTTP transport instead of stdio.
-  - `--host <addr>` (default: `127.0.0.1`): Bind address (requires `--http`).
+  - `--host <addr>` (default: `127.0.0.1`): Bind address (requires `--http`). Non-loopback binds require `--allow-unauthenticated`.
   - `--port <port>` (default: `8080`): Bind port (requires `--http`).
+  - `--allow-unauthenticated`: Permit HTTP on a non-loopback bind. Streamable HTTP has no token.
   - `--tls-cert <path>` / `--tls-key <path>`: TLS certificate and key PEM files for HTTPS (requires `--http`; both must be provided together).
-- **Failure behavior:** Invalid bind address or TLS config fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
+- **Failure behavior:** Invalid bind address, TLS config, or unauthenticated non-loopback `--host` without `--allow-unauthenticated` fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`
 

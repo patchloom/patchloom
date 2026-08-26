@@ -146,6 +146,111 @@ fn test_mcp_http_host_requires_http_flag() {
         .stderr(predicates::str::contains("--http"));
 }
 
+/// Unauthenticated `--host 0.0.0.0` must fail closed before bind.
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_non_loopback_refused_without_allow_flag() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "mcp-server", "--http", "--host", "0.0.0.0"])
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "non-loopback HTTP must fail without --allow-unauthenticated"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        !combined.contains("listening"),
+        "must refuse before bind, got: {combined}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("expected JSON invalid_input on stdout: {e}; stdout={stdout} stderr={stderr}")
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let msg = v["error"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("--allow-unauthenticated"),
+        "error must name the opt-in flag: {msg}"
+    );
+    assert!(
+        msg.contains("no authentication") || msg.contains("unauthenticated"),
+        "error must say HTTP has no auth: {msg}"
+    );
+}
+
+/// Loopback `--http` still starts without `--allow-unauthenticated`.
+#[cfg(feature = "mcp-http")]
+#[tokio::test]
+async fn test_mcp_http_loopback_starts_without_allow_flag() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut child = tokio::process::Command::new(&bin)
+        .args(["mcp-server", "--http", "--host", "127.0.0.1", "--port", "0"])
+        .current_dir(dir.path())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn loopback mcp-server --http");
+
+    let stderr = child.stderr.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stderr);
+    let mut line = String::new();
+    tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line)
+        .await
+        .expect("failed to read loopback HTTP banner");
+    assert!(
+        line.contains("MCP HTTP server listening"),
+        "loopback --http must start without --allow-unauthenticated: {line}"
+    );
+    assert!(
+        line.contains("127.0.0.1"),
+        "banner should show loopback bind: {line}"
+    );
+    child.kill().await.ok();
+}
+
+/// mcp-setup must not present `--host 0.0.0.0` as a one-line default.
+#[test]
+fn test_mcp_setup_does_not_advertise_bare_all_interfaces_http() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("--allow-unauthenticated"),
+        "mcp-setup must document --allow-unauthenticated"
+    );
+    assert!(
+        doc.contains("127.0.0.1"),
+        "mcp-setup must show loopback first"
+    );
+    for line in doc.lines() {
+        let trimmed = line.trim();
+        // Command examples only. Prose may mention 0.0.0.0 to warn against it.
+        if trimmed.starts_with("patchloom ") && trimmed.contains("--host 0.0.0.0") {
+            assert!(
+                trimmed.contains("--allow-unauthenticated") || trimmed.ends_with('\\'),
+                "0.0.0.0 command must include --allow-unauthenticated (or continue to a line that does): {trimmed}"
+            );
+        }
+    }
+    let idx = doc
+        .find("patchloom mcp-server --http --host 0.0.0.0")
+        .expect("all-interfaces example should still exist with the flag");
+    let window = &doc[idx..idx.saturating_add(200).min(doc.len())];
+    assert!(
+        window.contains("--allow-unauthenticated"),
+        "0.0.0.0 command example must include --allow-unauthenticated nearby"
+    );
+}
+
 #[cfg(feature = "mcp-http")]
 #[test]
 fn test_mcp_http_tls_cert_requires_tls_key() {

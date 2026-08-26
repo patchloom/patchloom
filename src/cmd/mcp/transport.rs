@@ -140,6 +140,50 @@ impl ServerHandler for PatchloomService {
     }
 }
 
+/// True when `--host` is a loopback bind (`127.0.0.0/8`, `::1`, `localhost`).
+///
+/// Unspecified addresses (`0.0.0.0`, `::`) are not loopback. Used to fail
+/// closed on unauthenticated Streamable HTTP binds.
+#[cfg(feature = "mcp-http")]
+pub(crate) fn is_loopback_http_bind_host(host: &str) -> bool {
+    let host = host.trim();
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let host = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip.is_loopback(),
+        Ok(std::net::IpAddr::V6(ip)) => {
+            ip.is_loopback() || ip.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
+        Err(_) => false,
+    }
+}
+
+/// Refuse unauthenticated Streamable HTTP on a non-loopback bind.
+///
+/// Streamable HTTP has no token. Binding `0.0.0.0` or another non-loopback
+/// address requires an explicit `--allow-unauthenticated` opt-in.
+#[cfg(feature = "mcp-http")]
+pub(crate) fn check_unauthenticated_http_bind(
+    host: &str,
+    allow_unauthenticated: bool,
+) -> Result<(), crate::exit::InvalidInputError> {
+    if allow_unauthenticated || is_loopback_http_bind_host(host) {
+        return Ok(());
+    }
+    Err(crate::exit::InvalidInputError {
+        msg: format!(
+            "refusing unauthenticated HTTP bind on non-loopback address '{host}'. \
+             Streamable HTTP has no authentication. Bind 127.0.0.1, ::1, or localhost, \
+             or pass --allow-unauthenticated to opt in."
+        ),
+    })
+}
+
 /// Run the MCP server over Streamable HTTP (optionally with TLS).
 #[cfg(feature = "mcp-http")]
 pub(crate) fn run_mcp_http_server(
@@ -149,10 +193,13 @@ pub(crate) fn run_mcp_http_server(
     port: u16,
     tls_cert: Option<&std::path::Path>,
     tls_key: Option<&std::path::Path>,
+    allow_unauthenticated: bool,
 ) -> anyhow::Result<u8> {
     use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
     use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
     use tokio_util::sync::CancellationToken;
+
+    check_unauthenticated_http_bind(host, allow_unauthenticated).map_err(anyhow::Error::new)?;
 
     let cwd = global.resolve_cwd()?;
     let ct = CancellationToken::new();
@@ -161,7 +208,7 @@ pub(crate) fn run_mcp_http_server(
         StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token());
 
     // When binding to non-loopback, allow any Host header
-    if host != "127.0.0.1" && host != "::1" && host != "localhost" {
+    if !is_loopback_http_bind_host(host) {
         config = config.disable_allowed_hosts();
     }
 
@@ -258,4 +305,80 @@ pub(crate) fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyho
     })?;
 
     Ok(crate::exit::SUCCESS)
+}
+
+#[cfg(all(test, feature = "mcp-http"))]
+mod bind_host_tests {
+    use super::{check_unauthenticated_http_bind, is_loopback_http_bind_host};
+
+    #[test]
+    fn loopback_hosts_are_loopback() {
+        for host in [
+            "127.0.0.1",
+            "127.0.0.2",
+            "127.255.255.255",
+            "::1",
+            "[::1]",
+            "localhost",
+            "LOCALHOST",
+            " ::ffff:127.0.0.1 ",
+        ] {
+            assert!(
+                is_loopback_http_bind_host(host),
+                "expected loopback: {host:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_loopback_hosts_are_not_loopback() {
+        for host in [
+            "0.0.0.0",
+            "::",
+            "[::]",
+            "192.168.1.1",
+            "10.0.0.1",
+            "8.8.8.8",
+            "example.com",
+            "",
+        ] {
+            assert!(
+                !is_loopback_http_bind_host(host),
+                "expected non-loopback: {host:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn non_loopback_refused_without_allow_flag() {
+        let err = check_unauthenticated_http_bind("0.0.0.0", false).unwrap_err();
+        assert!(
+            err.msg.contains("no authentication"),
+            "message must say HTTP has no auth: {}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("--allow-unauthenticated"),
+            "message must name the opt-in flag: {}",
+            err.msg
+        );
+        let wrapped = anyhow::Error::new(err);
+        assert_eq!(
+            crate::fallback::error_kind_str(&wrapped),
+            Some("invalid_input")
+        );
+    }
+
+    #[test]
+    fn loopback_ok_without_allow_flag() {
+        check_unauthenticated_http_bind("127.0.0.1", false).unwrap();
+        check_unauthenticated_http_bind("localhost", false).unwrap();
+        check_unauthenticated_http_bind("::1", false).unwrap();
+    }
+
+    #[test]
+    fn non_loopback_ok_with_allow_flag() {
+        check_unauthenticated_http_bind("0.0.0.0", true).unwrap();
+        check_unauthenticated_http_bind("192.168.0.10", true).unwrap();
+    }
 }

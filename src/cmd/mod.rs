@@ -142,6 +142,11 @@ pub enum Command {
         #[cfg(feature = "mcp-http")]
         #[arg(long, requires_all = ["http", "tls_cert"])]
         tls_key: Option<std::path::PathBuf>,
+
+        /// Permit Streamable HTTP on a non-loopback bind. HTTP has no authentication.
+        #[cfg(feature = "mcp-http")]
+        #[arg(long, requires = "http")]
+        allow_unauthenticated: bool,
     },
     /// Generate shell completions for bash, zsh, fish, or elvish.
     #[command(display_order = 58)]
@@ -181,6 +186,8 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             tls_cert,
             #[cfg(feature = "mcp-http")]
             tls_key,
+            #[cfg(feature = "mcp-http")]
+            allow_unauthenticated,
         } => {
             load_project_config(&mut global);
             #[cfg(feature = "mcp-http")]
@@ -192,6 +199,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
                     port,
                     tls_cert.as_deref(),
                     tls_key.as_deref(),
+                    allow_unauthenticated,
                 );
             }
             mcp::run_mcp_server(&global, log)
