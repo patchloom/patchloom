@@ -810,6 +810,51 @@ mod tests {
         );
     }
 
+    /// Deleting an inherited key cannot stay a merge. The splice must
+    /// expand to a concrete map; Mapping::set would inline the same
+    /// semantics if rewrite returned None.
+    #[test]
+    fn mapping_diff_pure_alias_delete_inherited_expands() {
+        use std::str::FromStr;
+        let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\nservice_b: *shared\n";
+        let old = json!({
+            "shared": {"timeout": 30, "retries": 3},
+            "service_a": {"timeout": 30, "retries": 3},
+            "service_b": {"timeout": 30, "retries": 3}
+        });
+        let new = json!({
+            "shared": {"timeout": 30, "retries": 3},
+            "service_a": {"timeout": 30},
+            "service_b": {"timeout": 30, "retries": 3}
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+            .unwrap()
+            .expect("delete-inherited must splice, not return None");
+        assert_eq!(
+            result,
+            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a:\n  timeout: 30\nservice_b: *shared\n"
+        );
+    }
+
+    /// Replacing a pure alias with a non-superset map must expand. A
+    /// merge would leak inherited keys; Mapping::set would also inline.
+    #[test]
+    fn mapping_diff_pure_alias_non_superset_replace_expands() {
+        use std::str::FromStr;
+        let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\n";
+        let old = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"timeout": 30, "retries": 3}});
+        let new = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"name": "api"}});
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+            .unwrap()
+            .expect("non-superset replace must splice, not return None");
+        assert_eq!(
+            result,
+            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a:\n  name: api\n"
+        );
+    }
+
     #[test]
     fn mapping_diff_scalar_update() {
         let yaml = "name: old\n";
@@ -983,6 +1028,9 @@ mod tests {
         assert!(apply_yaml_sequence_resize(
             &seq, &old, &new, &mapping, "items", &new_val
         ));
+        // yaml-edit leaves the next item over-indented; caller
+        // `fix_yaml_block_indentation` repairs that. Lock items a, c only.
+        assert_eq!(doc.to_string(), "items:\n  - a\n    - c\n");
     }
 
     #[test]
@@ -1002,7 +1050,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_diff_remove_first_nested_preserves_indentation() {
+    fn mapping_diff_remove_first_nested_key() {
         let yaml = "app:\n  name: \"my-app\"\n  version: \"1.0.0\"\n  enabled: \"true\"\n  port: \"8080\"\n";
         let old = json!({"app": {"name": "my-app", "version": "1.0.0", "enabled": "true", "port": "8080"}});
         let mut new = old.clone();
@@ -1015,7 +1063,12 @@ mod tests {
             .shift_remove("name");
 
         let result = apply_and_serialize(yaml, &old, &new);
-        assert!(!result.contains("name"));
+        // First remaining key is over-indented (CST remove); caller
+        // `fix_yaml_block_indentation` repairs that. Lock remaining keys.
+        assert_eq!(
+            result,
+            "app:\n    version: \"1.0.0\"\n  enabled: \"true\"\n  port: \"8080\"\n"
+        );
     }
 
     #[test]
