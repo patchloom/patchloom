@@ -423,7 +423,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             let abs_target = tx.cwd.join(target);
             let source_content =
                 read_file_content(tx.pending, tx.existed_before, &abs_source)?.to_string();
-            let target_content = if abs_target.exists() || tx.pending.contains_key(&abs_target) {
+            let target_content = if tx.path_present_for_if_exists(&abs_target) {
                 read_file_content(tx.pending, tx.existed_before, &abs_target)?.to_string()
             } else {
                 target_prepend
@@ -474,7 +474,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 import_rewrite_modules(*update_imports, old_module_path, new_module_path)?;
             let abs_source = tx.cwd.join(source);
             let abs_target = tx.cwd.join(target);
-            if !force && (abs_target.exists() || tx.pending.contains_key(&abs_target)) {
+            if !force && tx.path_present_for_if_exists(&abs_target) {
                 return Err(crate::exit::AlreadyExistsError {
                     msg: format!(
                         "target file '{target}' already exists (use force: true to overwrite)"

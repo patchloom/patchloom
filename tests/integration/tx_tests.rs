@@ -9858,6 +9858,85 @@ fn test_tx_ast_extract_to_file_existing_target_already_exists() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_after_delete_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();
+    fs::write(dir.path().join("dest.rs"), "// already here\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.delete", "path": "dest.rs"},
+            {
+                "op": "ast.extract_to_file",
+                "source": "src.rs",
+                "symbol": "take_me",
+                "target": "dest.rs"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let dest = fs::read_to_string(dir.path().join("dest.rs")).unwrap();
+    assert!(
+        dest.contains("fn take_me"),
+        "delete then extract must recreate dest: {dest}"
+    );
+    assert!(
+        !dest.contains("already here"),
+        "deleted dest content must not remain: {dest}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dangling_dest_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\n").unwrap();
+    std::os::unix::fs::symlink("missing.rs", dir.path().join("dest.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "dest.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "already_exists",
+        "dangling dest symlink must refuse extract: {stdout}"
+    );
+    assert!(
+        dir.path().join("dest.rs").symlink_metadata().is_ok(),
+        "dangling dest must remain"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_tx_ast_rewrite_signature_missing_fields_invalid_input() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("lib.rs"), "fn process() {}\n").unwrap();
