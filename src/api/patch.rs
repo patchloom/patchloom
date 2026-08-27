@@ -3,7 +3,8 @@
 //! Single-file `apply_patch` delegates to the tx engine via `execute_as_edit_result`.
 //! Multi-file `apply_patch_file` retains a direct implementation.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use crate::containment::PathGuard;
 use crate::plan::Operation;
@@ -280,6 +281,8 @@ pub fn apply_patch_file(
     }
 
     let mut staged: Vec<StageOp> = Vec::new();
+    let mut created: HashSet<PathBuf> = HashSet::new();
+    let mut deleted: HashSet<PathBuf> = HashSet::new();
     for pf in &patch_files {
         if let Some(reason) = pf.unsupported.as_deref() {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
@@ -293,13 +296,17 @@ pub fn apply_patch_file(
             .unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
-        if let Some(msg) = pf.dest_clobber_msg(crate::ops::file::path_entry_exists(&write_path)) {
+        if let Some(msg) = pf.dest_clobber_msg(crate::ops::patch::staged_path_exists(
+            &write_path,
+            &created,
+            &deleted,
+        )) {
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError { msg }));
         }
 
         if let Some(from) = pf.copy_from.as_ref() {
             let from_path = cwd.join(from);
-            if !crate::ops::file::path_entry_exists(&from_path) {
+            if !crate::ops::patch::staged_path_exists(&from_path, &created, &deleted) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     format!("file not found: {from}"),
@@ -320,6 +327,7 @@ pub fn apply_patch_file(
                 original: original.clone(),
                 new_content: original,
             });
+            crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
             continue;
         }
 
@@ -335,6 +343,7 @@ pub fn apply_patch_file(
                 display: pf.path.clone(),
                 original,
             });
+            crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
             continue;
         }
 
@@ -389,6 +398,7 @@ pub fn apply_patch_file(
                 is_creation: pf.is_creation,
             });
         }
+        crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
     }
 
     // Phase 2: one backup session, then all-or-nothing mutate.

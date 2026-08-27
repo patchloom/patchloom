@@ -9,7 +9,8 @@ use crate::diff::{DiffResult, format_diff_result_colored};
 use crate::exit;
 use crate::ops::patch::{
     ApplyHunksOptions, ApplyHunksResult, ApplyHunksStatus, OnStale, PatchFile, apply_hunks,
-    apply_hunks_with_options, parse_patch, unsupported_git_meta_msg,
+    apply_hunks_with_options, parse_patch, record_staged_patch_dest, staged_path_exists,
+    unsupported_git_meta_msg,
 };
 use crate::plan::Operation;
 use crate::tx::engine::WriteSource;
@@ -266,52 +267,13 @@ struct PatchFilesOutput {
     backup_session: Option<String>,
 }
 
-fn staged_dest_exists(
-    cwd: &Path,
-    rel: &str,
-    created: &HashSet<PathBuf>,
-    deleted: &HashSet<PathBuf>,
-) -> bool {
-    let abs = cwd.join(rel);
-    if created.contains(&abs) {
-        return true;
-    }
-    if deleted.contains(&abs) {
-        return false;
-    }
-    crate::ops::file::path_entry_exists(&abs)
-}
-
-fn record_check_dest(
-    cwd: &Path,
-    pf: &PatchFile,
-    created: &mut HashSet<PathBuf>,
-    deleted: &mut HashSet<PathBuf>,
-) {
-    let dest = cwd.join(&pf.path);
-    if pf.is_deletion {
-        created.remove(&dest);
-        deleted.insert(dest);
-        return;
-    }
-    if let Some(from) = pf.rename_from.as_ref() {
-        let from_abs = cwd.join(from);
-        created.remove(&from_abs);
-        deleted.insert(from_abs);
-    }
-    if pf.is_creation || pf.copy_from.is_some() || pf.rename_from.is_some() {
-        deleted.remove(&dest);
-        created.insert(dest);
-    }
-}
-
 fn dest_clobber_check_result(
     cwd: &Path,
     pf: &PatchFile,
     created: &HashSet<PathBuf>,
     deleted: &HashSet<PathBuf>,
 ) -> Option<PatchFileResult> {
-    let dest_exists = staged_dest_exists(cwd, &pf.path, created, deleted);
+    let dest_exists = staged_path_exists(&cwd.join(&pf.path), created, deleted);
     let msg = pf.dest_clobber_msg(dest_exists)?;
     let (from, to, action) = if pf.rename_from.is_some() {
         (
@@ -823,7 +785,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         to,
                         action,
                     });
-                    record_check_dest(&cwd, pf, &mut created, &mut deleted);
+                    record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
                 }
                 Err(_) => {
                     any_problem = true;
@@ -939,7 +901,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         || pf.is_creation
                         || pf.is_deletion
                     {
-                        record_check_dest(&cwd, pf, &mut created, &mut deleted);
+                        record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
                     }
                 }
                 Err(msg) => {

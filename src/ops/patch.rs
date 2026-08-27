@@ -4,6 +4,8 @@
 //! Co-located tests push line count. Policy #1408 — do not split for LOC alone.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatchLine {
@@ -139,6 +141,45 @@ impl PatchFile {
             self.copy_from.is_some(),
             self.is_creation && self.copy_from.is_none(),
         )
+    }
+}
+
+/// Dest existence as apply sees it: pending creates minus deletions, else disk.
+pub(crate) fn staged_path_exists(
+    path: &Path,
+    created: &HashSet<PathBuf>,
+    deleted: &HashSet<PathBuf>,
+) -> bool {
+    if created.contains(path) {
+        return true;
+    }
+    if deleted.contains(path) {
+        return false;
+    }
+    crate::ops::file::path_entry_exists(path)
+}
+
+/// Record dests this file entry would create or free (check/apply parity).
+pub(crate) fn record_staged_patch_dest(
+    cwd: &Path,
+    pf: &PatchFile,
+    created: &mut HashSet<PathBuf>,
+    deleted: &mut HashSet<PathBuf>,
+) {
+    let dest = cwd.join(&pf.path);
+    if pf.is_deletion {
+        created.remove(&dest);
+        deleted.insert(dest);
+        return;
+    }
+    if let Some(from) = pf.rename_from.as_ref() {
+        let from_abs = cwd.join(from);
+        created.remove(&from_abs);
+        deleted.insert(from_abs);
+    }
+    if pf.is_creation || pf.copy_from.is_some() || pf.rename_from.is_some() {
+        deleted.remove(&dest);
+        created.insert(dest);
     }
 }
 

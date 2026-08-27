@@ -1432,6 +1432,59 @@ index 0000000..e69de29\n";
 }
 
 #[test]
+fn apply_patch_file_second_create_same_dest_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    let patch = "\
+--- /dev/null
++++ b/new.rs
+@@ -0,0 +1 @@
++first
+--- /dev/null
++++ b/new.rs
+@@ -0,0 +1 @@
++second
+";
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_already_exists(&err),
+        "expected already_exists, got: {err}"
+    );
+    assert!(
+        !dir.path().join("new.rs").exists(),
+        "apply must not write dest after refuse"
+    );
+}
+
+#[test]
+fn apply_patch_file_recreate_after_rename_from() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "fn main() {}\n").unwrap();
+    let patch = "\
+diff --git a/old.rs b/new.rs
+similarity index 100%
+rename from old.rs
+rename to new.rs
+diff --git a/old.rs b/old.rs
+new file mode 100644
+--- /dev/null
++++ b/old.rs
+@@ -0,0 +1 @@
++replaced
+";
+    let preview = apply_patch_file(patch, dir.path(), ApplyMode::Preview, None).unwrap();
+    assert!(
+        preview
+            .iter()
+            .any(|r| r.path.ends_with("new.rs") || r.changed),
+        "rename+recreate preview must not be already_exists: {preview:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+}
+
+#[test]
 fn apply_patch_file_empty_create_writes_empty_dest() {
     let dir = TempDir::new().unwrap();
     let patch = "\
