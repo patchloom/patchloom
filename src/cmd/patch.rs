@@ -946,7 +946,10 @@ fn run_search_replace_check(
     let results = match crate::api::apply_search_replace_document(
         diff_text,
         cwd,
-        &crate::api::ApplySearchReplaceOptions { replace_all },
+        &crate::api::ApplySearchReplaceOptions {
+            replace_all,
+            ..Default::default()
+        },
         crate::api::ApplyMode::Preview,
         None,
     ) {

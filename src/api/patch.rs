@@ -55,7 +55,10 @@ pub fn apply_patch(
         let results = super::apply_search_replace_document(
             patch_text,
             cwd,
-            &super::ApplySearchReplaceOptions::default(),
+            &super::ApplySearchReplaceOptions {
+                file_hint: Some(abs.clone()),
+                ..super::ApplySearchReplaceOptions::default()
+            },
             mode,
             guard,
         )?;
