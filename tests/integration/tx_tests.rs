@@ -9900,6 +9900,75 @@ fn test_tx_ast_extract_to_file_dest_dir_is_invalid_input() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "notdir/out.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "dest-parent file apply={apply}: {stdout}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dest_parent_dangling_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\n").unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "broken/out.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{stdout}");
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_tx_ast_extract_to_file_after_delete_dest() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();

@@ -480,6 +480,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
                 .into());
             }
+            crate::ops::file::ensure_parent_components_are_directories(&abs_target)?;
             if !force && tx.path_present_for_if_exists(&abs_target) {
                 return Err(crate::exit::AlreadyExistsError {
                     msg: format!(
