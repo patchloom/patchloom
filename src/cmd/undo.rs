@@ -153,6 +153,10 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
             return Ok(exit::NO_MATCHES);
         }
+        Err(e) if crate::exit::is_invalid_input(&e) => {
+            global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+            return Ok(exit::FAILURE);
+        }
         Err(e) => return Err(e),
     };
 
@@ -290,7 +294,7 @@ fn resolve_session(
     cwd: &std::path::Path,
     wanted: Option<&str>,
 ) -> anyhow::Result<Option<(std::path::PathBuf, String, backup::Manifest)>> {
-    let (sessions, _) = collect_sessions(cwd)?;
+    let (sessions, warnings) = collect_sessions(cwd)?;
     if let Some(ts) = wanted {
         for (root, manifest) in &sessions {
             if manifest.timestamp == ts {
@@ -308,6 +312,10 @@ fn resolve_session(
         .into());
     }
     if sessions.is_empty() {
+        if !warnings.is_empty() {
+            let (_, msg, _) = list_no_usable_sessions(&warnings);
+            return Err(crate::exit::InvalidInputError { msg }.into());
+        }
         return Ok(None);
     }
     let (root, manifest) = sessions.into_iter().next().expect("non-empty");
@@ -686,6 +694,33 @@ mod tests {
         });
         assert_ne!(payload["error_kind"], "no_matches");
         assert_eq!(payload["error_kind"], "invalid_input");
+    }
+
+    #[test]
+    fn undo_without_list_corrupt_only_is_invalid_input_not_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let session_dir = dir
+            .path()
+            .join(backup::BACKUP_DIR)
+            .join("incomplete-no-manifest");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        let global = GlobalFlags {
+            json: true,
+            cwd: Some(dir.path().to_string_lossy().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let code = run(
+            UndoArgs {
+                list: false,
+                session: None,
+                apply: false,
+            },
+            &global,
+        )
+        .unwrap();
+        assert_ne!(code, exit::NO_MATCHES);
+        assert_eq!(code, exit::FAILURE);
     }
 
     #[test]
