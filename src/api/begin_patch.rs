@@ -70,19 +70,15 @@ pub(crate) fn apply_begin_patch_ops(
                         ),
                     }));
                 }
-                let original = if path_entry_exists(&dest) {
-                    match crate::files::load_text_strict(&dest, path) {
-                        Ok(s) => s,
-                        Err(e) if crate::exit::is_load_text_strict_fail(&e) => String::new(),
-                        Err(e) => return Err(e),
-                    }
-                } else {
-                    String::new()
-                };
+                if path_entry_exists(&dest) {
+                    return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                        msg: crate::ops::patch::create_dest_exists_msg(path),
+                    }));
+                }
                 staged.push(StageOp::Write {
                     write_path: dest,
                     display: path.clone(),
-                    original,
+                    original: String::new(),
                     new_content: content.clone(),
                     is_creation: true,
                 });
@@ -460,6 +456,25 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dir.path().join("from.rs")).unwrap(),
             "fn a() {}\n"
+        );
+    }
+
+    #[test]
+    fn apply_begin_patch_add_dest_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("new.rs"), "keep\n").unwrap();
+        let patch = "\
+*** Begin Patch
+*** Add File: new.rs
++fn added() {}
+*** End Patch
+";
+        let err =
+            apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None).expect_err("exists");
+        assert!(is_already_exists(&err));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+            "keep\n"
         );
     }
 

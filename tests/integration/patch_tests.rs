@@ -1662,6 +1662,40 @@ fn test_patch_apply_begin_patch_writes_file() {
 }
 
 #[test]
+fn test_patch_begin_patch_add_dest_exists_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("new.rs"), "keep\n").unwrap();
+    let patch_file = dir.path().join("add.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Add File: new.rs\n+fn added() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "keep\n"
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .code(1);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "keep\n",
+        "Begin Patch Add must not clobber dest"
+    );
+}
+
+#[test]
 fn test_patch_apply_begin_patch_ambiguous_json() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();

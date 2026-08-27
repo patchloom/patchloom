@@ -127,6 +127,12 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     }
                     .into());
                 }
+                if dest_exists(tx, &dest) {
+                    return Err(crate::exit::AlreadyExistsError {
+                        msg: crate::ops::patch::create_dest_exists_msg(&path),
+                    }
+                    .into());
+                }
                 tx.write_file(&dest, content);
             }
             BeginPatchOp::Delete { path } => {
