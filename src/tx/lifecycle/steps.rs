@@ -245,11 +245,7 @@ pub(crate) fn restore_collateral_files(
                 "tx: collateral restore: reverting {} (changed by formatter)",
                 path.display()
             );
-            if let Err(e) = atomic_write(path, original, &noop_policy) {
-                eprintln!(
-                    "tx: rollback: failed to restore collateral file {}: {e}",
-                    path.display()
-                );
+            if atomic_write(path, original, &noop_policy).is_err() {
                 failed.push(path.clone());
             } else {
                 restored += 1;
