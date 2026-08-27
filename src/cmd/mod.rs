@@ -208,6 +208,13 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::AgentRules(args) => agent_rules::run(args, &global),
         Command::Init(args) => init::run(args, &global),
         Command::Completions { shell } => {
+            if global.json || global.jsonl {
+                global.emit_error_json_kind(
+                    Some("invalid_input"),
+                    "completions does not support --json/--jsonl; omit those flags to print a shell script",
+                )?;
+                return Ok(crate::exit::FAILURE);
+            }
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
             Ok(crate::exit::SUCCESS)
