@@ -353,6 +353,22 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
     // One array for --json (agent-parseable); one line per file for --jsonl.
     if structured {
         global.emit_json_items(&structured_items)?;
+        // JSONL file rows have no top-level error_kind. Tidy check streams a
+        // summary trailer so agents can branch; --json stays a bare array.
+        if global.jsonl {
+            let invalid_count = results.iter().filter(|vr| !vr.result.valid).count();
+            global.emit_json(&serde_json::json!({
+                "type": "summary",
+                "ok": all_valid,
+                "file_count": results.len(),
+                "invalid_count": invalid_count,
+                "error_kind": if all_valid {
+                    None
+                } else {
+                    Some("validation_failed")
+                },
+            }))?;
+        }
     }
 
     if all_valid {

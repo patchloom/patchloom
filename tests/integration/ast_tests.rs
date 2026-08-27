@@ -364,8 +364,42 @@ fn test_ast_validate_jsonl_output() {
         .stdout
         .clone();
     let text = String::from_utf8(out).unwrap();
-    let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
-    assert_eq!(v["valid"], serde_json::json!(true));
+    let mut lines = text.lines().filter(|l| !l.is_empty());
+    let file_row: serde_json::Value =
+        serde_json::from_str(lines.next().expect("file row")).unwrap();
+    assert_eq!(file_row["valid"], serde_json::json!(true));
+    let summary: serde_json::Value =
+        serde_json::from_str(lines.next().expect("jsonl summary trailer")).unwrap();
+    assert_eq!(summary["type"], "summary", "{summary}");
+    assert_eq!(summary["ok"], true, "{summary}");
+    assert!(
+        summary.get("error_kind").is_none() || summary["error_kind"].is_null(),
+        "clean validate must not set error_kind: {summary}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_validate_jsonl_invalid_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bad.rs"), "fn broken( {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "validate", "bad.rs", "--jsonl"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let last = text
+        .lines()
+        .rev()
+        .find(|l| !l.is_empty())
+        .expect("jsonl summary");
+    let summary: serde_json::Value = serde_json::from_str(last).unwrap();
+    assert_eq!(summary["type"], "summary", "{summary}");
+    assert_eq!(summary["ok"], false, "{summary}");
+    assert_eq!(summary["error_kind"], "validation_failed", "{summary}");
 }
 
 #[test]
