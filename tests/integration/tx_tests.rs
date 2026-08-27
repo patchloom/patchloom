@@ -9858,6 +9858,48 @@ fn test_tx_ast_extract_to_file_existing_target_already_exists() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();
+    fs::create_dir(dir.path().join("dest.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "dest.rs",
+            "force": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "dest dir force={apply}: {stdout}"
+        );
+    }
+    assert!(
+        dir.path().join("dest.rs").is_dir(),
+        "dest directory must remain"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_tx_ast_extract_to_file_after_delete_dest() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();

@@ -474,6 +474,12 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 import_rewrite_modules(*update_imports, old_module_path, new_module_path)?;
             let abs_source = tx.cwd.join(source);
             let abs_target = tx.cwd.join(target);
+            if crate::ops::file::is_real_directory(&abs_target) {
+                return Err(crate::exit::InvalidInputError {
+                    msg: format!("target is a directory: {target}"),
+                }
+                .into());
+            }
             if !force && tx.path_present_for_if_exists(&abs_target) {
                 return Err(crate::exit::AlreadyExistsError {
                     msg: format!(
