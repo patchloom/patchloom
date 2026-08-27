@@ -71,6 +71,9 @@ struct UndoPreviewEntry {
 struct UndoPreviewOutput {
     ok: bool,
     status: &'static str,
+    /// Same kind as tidy check / status when a dry-run would restore.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<&'static str>,
     /// Always set on dry-run so agents do not treat exit 2 as a completed restore.
     hint: &'static str,
     /// False on dry-run: matches write mutators (#1830 / #1788). Agents that
@@ -193,6 +196,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let output = UndoPreviewOutput {
             ok: true,
             status: "changes_detected",
+            error_kind: Some("changes_detected"),
             hint: UNDO_DRY_RUN_HINT,
             applied: false,
             session: timestamp.clone(),
@@ -485,6 +489,7 @@ mod tests {
         let preview = UndoPreviewOutput {
             ok: true,
             status: "changes_detected",
+            error_kind: Some("changes_detected"),
             hint: UNDO_DRY_RUN_HINT,
             applied: false,
             session: "t".into(),
@@ -494,6 +499,7 @@ mod tests {
         };
         let v = serde_json::to_value(&preview).unwrap();
         assert_eq!(v["status"], "changes_detected");
+        assert_eq!(v["error_kind"], "changes_detected");
         assert_eq!(
             v["applied"], false,
             "dry-run must set applied:false (#1830): {v}"

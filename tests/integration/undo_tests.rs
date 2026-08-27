@@ -260,6 +260,10 @@ fn test_undo_dry_run_json_output() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["status"], "changes_detected");
     assert_eq!(
+        json["error_kind"], "changes_detected",
+        "dry-run must set error_kind so agents can branch: {json}"
+    );
+    assert_eq!(
         json["applied"], false,
         "dry-run must not claim restore completed (#1830): {json}"
     );
@@ -299,6 +303,10 @@ fn test_undo_dry_run_jsonl_output() {
     let json: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(json["ok"], true);
     assert_eq!(json["status"], "changes_detected");
+    assert_eq!(
+        json["error_kind"], "changes_detected",
+        "dry-run jsonl must set error_kind: {json}"
+    );
     assert_eq!(
         json["applied"], false,
         "dry-run jsonl must set applied:false (#1830): {json}"
