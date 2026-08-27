@@ -1,4 +1,6 @@
 //! Plan validation/preparation and direct in-process plan execution.
+//!
+//! size-waiver: plan validate, execute, and format_failed peel stay in one lifecycle module (policy #1408).
 
 use super::commit::commit_changes;
 #[cfg(not(any(feature = "cli", feature = "files")))]

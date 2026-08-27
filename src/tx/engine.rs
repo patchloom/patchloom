@@ -1,5 +1,7 @@
 //! Unified execution engine for single-operation and multi-operation execution.
 //!
+//! size-waiver: single execute_single / stage / commit path for CLI, MCP, and library (policy #1408).
+//!
 //! This module provides `execute_single()`, a lightweight entry point that
 //! wraps one `Operation` into a minimal `Plan` and runs it through the existing
 //! `execute_and_collect()` + `commit_changes()` path.

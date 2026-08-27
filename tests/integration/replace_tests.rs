@@ -3843,7 +3843,7 @@ fn test_replace_files_from_fifo_refused_not_regular_file() {
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("not a regular file"),
-        "stderr diagnostic: {stderr}"
+        stderr.trim().is_empty(),
+        "--json keeps FIFO skip off stderr (reason is refused[]): {stderr}"
     );
 }

@@ -1,3 +1,4 @@
+//! size-waiver: dest classify, dest-parent, append/prepend, rename_or_copy (policy #1408).
 use std::path::{Path, PathBuf};
 
 use crate::ops::replace::preferred_line_ending;
