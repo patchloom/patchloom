@@ -77,6 +77,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                     ) {
                         return Err(crate::exit::AlreadyExistsError { msg }.into());
                     }
+                    crate::ops::file::ensure_parent_components_are_directories(&to_path)?;
                     // Ensure source is in pending (loader already did); record rename
                     // so commit uses fs::rename then write dest content.
                     if !tx.existed_before.contains(&from_path)
@@ -112,6 +113,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                     ) {
                         return Err(crate::exit::AlreadyExistsError { msg }.into());
                     }
+                    crate::ops::file::ensure_parent_components_are_directories(&file_path)?;
                     tx.write_file(&file_path, result.content);
                 }
             }
@@ -145,6 +147,7 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     }
                     .into());
                 }
+                crate::ops::file::ensure_parent_components_are_directories(&dest)?;
                 tx.write_file(&dest, content);
             }
             BeginPatchOp::Delete { path } => {
@@ -201,6 +204,7 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                         }
                         .into());
                     }
+                    crate::ops::file::ensure_parent_components_are_directories(&new_dest)?;
                     tx.renames.push((dest.clone(), new_dest.clone()));
                     tx.write_file(&new_dest, updated);
                     if let Some((orig, _)) = tx.pending.get(&dest) {

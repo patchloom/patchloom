@@ -2243,3 +2243,147 @@ fn test_patch_apply_mixed_search_replace_and_begin_patch_is_parse_error() {
         "fn old() {}\n"
     );
 }
+
+fn patch_apply_json(dir: &TempDir, patch: &std::path::Path) -> (i32, serde_json::Value) {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("apply")
+        .arg(patch)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON (exit {code}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    (code, json)
+}
+
+/// Dest under a file parent is invalid_input on check and apply (not apply-only IO).
+#[test]
+fn test_patch_check_and_apply_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = dir.path().join("create.patch");
+    fs::write(
+        &patch,
+        "--- /dev/null\n\
+         +++ b/notdir/out.rs\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+    assert_eq!(json["applied"], false, "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "must not write dest under a file parent"
+    );
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("notdir")).unwrap(),
+        "i am a file\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_patch_check_dest_parent_dangling_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken")).unwrap();
+    let patch = dir.path().join("create.patch");
+    fs::write(
+        &patch,
+        "--- /dev/null\n\
+         +++ b/broken/out.rs\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert!(
+        !dir.path().join("broken").join("out.rs").exists(),
+        "must not write dest under a dangling parent"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_add_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = dir.path().join("add.patch");
+    fs::write(
+        &patch,
+        "*** Begin Patch\n*** Add File: notdir/out.rs\n+hello\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "Begin Patch Add must not write dest under a file parent"
+    );
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_move_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("from.rs"), "fn a() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = dir.path().join("move.patch");
+    fs::write(
+        &patch,
+        "*** Begin Patch\n*** Update File: from.rs\n*** Move to: notdir/out.rs\n@@\n-fn a() {}\n+fn b() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("from.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "Begin Patch Move must not write dest under a file parent"
+    );
+}

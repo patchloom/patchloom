@@ -4085,6 +4085,98 @@ fn test_tx_begin_patch_move_dest_exists_is_already_exists() {
     );
 }
 
+fn assert_tx_dest_parent_invalid_input(dir: &TempDir, plan_file: &std::path::Path) {
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "dest-parent file apply={apply}: {stdout}"
+        );
+    }
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+}
+
+#[test]
+fn test_tx_patch_apply_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "--- /dev/null\n+++ b/notdir/out.rs\n@@ -0,0 +1 @@\n+hello\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "must not write dest under a file parent"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_tx_patch_apply_dest_parent_dangling_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken")).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "--- /dev/null\n+++ b/broken/out.rs\n@@ -0,0 +1 @@\n+hello\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{stdout}");
+}
+
+#[test]
+fn test_tx_begin_patch_add_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "*** Begin Patch\n*** Add File: notdir/out.rs\n+hello\n*** End Patch\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "Begin Patch Add must not write dest under a file parent"
+    );
+}
+
 #[test]
 fn test_tx_patch_apply_begin_patch() {
     let dir = TempDir::new().unwrap();

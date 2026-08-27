@@ -1455,6 +1455,38 @@ fn apply_patch_file_second_create_same_dest_is_already_exists() {
     );
 }
 
+/// Dest under a file parent is invalid_input on Preview and Apply.
+#[test]
+fn apply_patch_file_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = "\
+--- /dev/null
++++ b/notdir/out.rs
+@@ -0,0 +1 @@
++hello
+";
+    for mode in [ApplyMode::Preview, ApplyMode::Apply] {
+        let err = apply_patch_file(patch, dir.path(), mode, None).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input for {mode:?}, got: {err}"
+        );
+        assert!(
+            err.to_string().contains("not a directory"),
+            "message should name the parent: {err}"
+        );
+    }
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "must not write dest under a file parent"
+    );
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+}
+
 #[test]
 fn apply_patch_file_recreate_after_rename_from() {
     let dir = TempDir::new().unwrap();

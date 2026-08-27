@@ -297,6 +297,26 @@ fn dest_clobber_check_result(
     })
 }
 
+/// File / dangling / special dest parent is invalid_input (same as create/rename).
+fn dest_parent_check_result(cwd: &Path, pf: &PatchFile) -> Option<PatchFileResult> {
+    if pf.is_deletion {
+        return None;
+    }
+    let dest = cwd.join(&pf.path);
+    match crate::ops::file::ensure_parent_components_are_directories(&dest) {
+        Ok(()) => None,
+        Err(e) => Some(PatchFileResult {
+            path: pf.path.clone(),
+            status: "error",
+            error: Some(e.msg),
+            conflicts: None,
+            from: None,
+            to: None,
+            action: None,
+        }),
+    }
+}
+
 fn patch_load_rel(pf: &PatchFile) -> &str {
     pf.copy_from
         .as_deref()
@@ -697,6 +717,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 any_problem = true;
                 continue;
             }
+            if let Some(row) = dest_parent_check_result(&cwd, pf) {
+                results.push(row);
+                any_problem = true;
+                continue;
+            }
             // Git rename/copy: check loads source path (#2101 / #2171).
             let load_rel = patch_load_rel(pf);
             let file_path = cwd.join(load_rel);
@@ -845,6 +870,11 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 continue;
             }
             if let Some(row) = dest_clobber_check_result(&cwd, pf, &created, &deleted) {
+                all_ok = false;
+                results.push(row);
+                continue;
+            }
+            if let Some(row) = dest_parent_check_result(&cwd, pf) {
                 all_ok = false;
                 results.push(row);
                 continue;
@@ -1180,6 +1210,30 @@ mod tests {
             to: None,
             action: None,
         }
+    }
+
+    #[test]
+    fn dest_parent_check_result_file_parent_is_error() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("notdir"), "file\n").unwrap();
+        let pf = PatchFile {
+            path: "notdir/out.rs".into(),
+            hunks: vec![],
+            is_deletion: false,
+            is_creation: true,
+            rename_from: None,
+            copy_from: None,
+            unsupported: None,
+        };
+        let row = dest_parent_check_result(dir.path(), &pf).expect("file parent");
+        assert_eq!(row.status, "error");
+        assert!(
+            row.error
+                .as_deref()
+                .is_some_and(|m| m.contains("not a directory")),
+            "unexpected: {:?}",
+            row.error
+        );
     }
 
     #[test]
