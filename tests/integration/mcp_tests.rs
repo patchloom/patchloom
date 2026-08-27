@@ -256,6 +256,96 @@ async fn test_mcp_http_loopback_starts_without_allow_flag() {
     child.kill().await.ok();
 }
 
+/// `--quiet` and `--json` must not print the HTTP listening banner.
+#[cfg(feature = "mcp-http")]
+#[tokio::test]
+async fn test_mcp_http_quiet_suppresses_banner() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut child = tokio::process::Command::new(&bin)
+        .args([
+            "--quiet",
+            "mcp-server",
+            "--http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+        ])
+        .current_dir(dir.path())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn quiet mcp-server --http");
+
+    let stderr = child.stderr.take().unwrap();
+    let collector = tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(stderr);
+        let mut all = String::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line).await {
+                Ok(0) => break,
+                Ok(_) => all.push_str(&line),
+                Err(_) => break,
+            }
+        }
+        all
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    assert!(
+        child.try_wait().expect("try_wait").is_none(),
+        "quiet --http server should still be running"
+    );
+    child.kill().await.ok();
+    let stderr = collector.await.expect("stderr collector");
+    assert!(
+        !stderr.contains("listening"),
+        "--quiet must not print the listening banner: {stderr}"
+    );
+}
+
+/// Occupied bind is a typed `invalid_input` under `--json`, not a bare anyhow.
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_bind_failure_is_invalid_input_json() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let holder = std::net::TcpListener::bind("127.0.0.1:0").expect("hold a port");
+    let port = holder.local_addr().expect("local_addr").port();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "mcp-server",
+            "--http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("expected JSON invalid_input on stdout: {e}; stdout={stdout}"));
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let msg = v["error"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("failed to bind"),
+        "error must name the bind failure: {msg}"
+    );
+    drop(holder);
+}
+
 /// mcp-setup must not present `--host 0.0.0.0` as a one-line default.
 #[test]
 fn test_mcp_setup_does_not_advertise_bare_all_interfaces_http() {

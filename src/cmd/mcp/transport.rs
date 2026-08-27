@@ -225,6 +225,7 @@ pub(crate) fn run_mcp_http_server(
             msg: format!("invalid bind address: {e}"),
         })
     })?;
+    let show_banner = !global.quiet && !global.json && !global.jsonl;
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
@@ -250,7 +251,9 @@ pub(crate) fn run_mcp_http_server(
             // --port 0 shows the real ephemeral port (fixes #867).
             let h_addr = handle.clone();
             tokio::spawn(async move {
-                if let Some(real_addr) = h_addr.listening().await {
+                if let Some(real_addr) = h_addr.listening().await
+                    && show_banner
+                {
                     eprintln!("MCP HTTPS server listening on https://{real_addr}/mcp");
                 }
             });
@@ -267,13 +270,17 @@ pub(crate) fn run_mcp_http_server(
                 ct2.cancel();
             });
 
-            let listener = tokio::net::TcpListener::bind(addr)
-                .await
-                .map_err(|e| anyhow::anyhow!("failed to bind {addr}: {e}"))?;
-            eprintln!(
-                "MCP HTTP server listening on http://{}/mcp",
-                listener.local_addr()?
-            );
+            let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("failed to bind {addr}: {e}"),
+                })
+            })?;
+            if show_banner {
+                eprintln!(
+                    "MCP HTTP server listening on http://{}/mcp",
+                    listener.local_addr()?
+                );
+            }
 
             axum::serve(listener, app)
                 .with_graceful_shutdown(ct.cancelled_owned())
