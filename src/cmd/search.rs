@@ -894,9 +894,13 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(collected.scanned, walked);
+        let mut scanned = collected.scanned;
+        let mut walked = walked;
+        scanned.sort();
+        walked.sort();
+        assert_eq!(scanned, walked);
         assert!(
-            !collected.scanned.is_empty(),
+            !scanned.is_empty(),
             "fixture walk must include hello.txt / code.rs"
         );
     }

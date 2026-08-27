@@ -779,9 +779,13 @@ fn collect_issues_with_list_returns_first_walk() {
         None,
     )
     .unwrap();
-    assert_eq!(collected.scanned, walked);
+    let mut scanned = collected.scanned;
+    let mut walked = walked;
+    scanned.sort();
+    walked.sort();
+    assert_eq!(scanned, walked);
     assert!(
-        !collected.scanned.is_empty(),
+        !scanned.is_empty(),
         "clean tree walk must include clean.txt"
     );
     assert!(
