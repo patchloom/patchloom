@@ -10113,6 +10113,88 @@ fn test_tx_ast_split_dest_parent_file_is_invalid_input() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_tx_ast_move_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn stay() {}\nfn go() {}\n").unwrap();
+    fs::create_dir(dir.path().join("out.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": "src.rs",
+            "target": "out.rs",
+            "symbols": ["go"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "ast.move dest-dir apply={apply}: {stdout}"
+        );
+    }
+    assert!(
+        dir.path().join("out.rs").is_dir(),
+        "must not replace a directory dest"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_split_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn keep() {}\nfn go() {}\n").unwrap();
+    fs::create_dir(dir.path().join("out.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.split",
+            "source": "src.rs",
+            "targets": [{ "path": "out.rs", "symbols": ["go"] }],
+            "keep_in_source": ["keep"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "ast.split dest-dir apply={apply}: {stdout}"
+        );
+    }
+    assert!(
+        dir.path().join("out.rs").is_dir(),
+        "must not replace a directory dest"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_tx_ast_extract_to_file_after_delete_dest() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();
