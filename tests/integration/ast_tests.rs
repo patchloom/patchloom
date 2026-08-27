@@ -41,6 +41,32 @@ fn test_ast_list_basic() {
         .stdout(predicates::str::contains("Bar"));
 }
 
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_quiet_suppresses_text() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "pub fn foo() {}\nstruct Bar;\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["--quiet", "ast", "list", "lib.rs"])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_map_quiet_suppresses_text() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, "pub fn foo() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args(["--quiet", "ast", "map", "."])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+}
+
 /// `--json` for multi-symbol list must be one parseable JSON array, not
 /// pretty multi-documents (agents use `json.loads` on full stdout).
 #[test]
@@ -625,6 +651,42 @@ fn test_ast_search_pattern_literal_name_is_not_wildcard() {
     let blob = json.to_string();
     assert!(blob.contains("compute"), "{json}");
     assert!(!blob.contains("other"), "{json}");
+}
+
+/// Mixed-language `--pattern` must not leak compile text onto stderr under `--json`.
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_search_pattern_json_mixed_lang_stderr_empty() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn compute() {}\n").unwrap();
+    fs::write(dir.path().join("main.py"), "def compute():\n    pass\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "ast",
+            "search",
+            "--pattern",
+            "fn compute() {}",
+            ".",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("ast search --json must be one JSON value: {e}\n{stdout}"));
+    assert!(v.is_array(), "{v}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.is_empty(),
+        "must not leak per-file pattern compile text under --json: {stderr}"
+    );
 }
 
 /// Pattern mode must fail closed on compile errors (not soft no_matches).

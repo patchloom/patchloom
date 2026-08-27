@@ -82,9 +82,9 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
             any_output = true;
             if structured {
                 print_symbols_json(&args.path, &filtered, global)?;
-            } else if args.compact {
+            } else if !global.quiet && args.compact {
                 print_symbols_compact(&args.path, &filtered);
-            } else {
+            } else if !global.quiet {
                 print_symbols_human(&args.path, &filtered);
             }
         }
@@ -120,9 +120,9 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
                 for sym in &filtered {
                     structured_items.push(symbol_to_json(sym, &result.display));
                 }
-            } else if args.compact {
+            } else if !global.quiet && args.compact {
                 print_symbols_compact(&result.display, &filtered);
-            } else {
+            } else if !global.quiet {
                 print_symbols_human(&result.display, &filtered);
             }
         }
@@ -214,7 +214,8 @@ pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u
         "end_line": sym.end_line,
         "signature": sym.signature,
         "content": content,
-    }))? {
+    }))? && !global.quiet
+    {
         for (i, line) in lines[start..end].iter().enumerate() {
             let line_num = start + i + 1;
             println!("{line_num:>4} | {line}");
@@ -441,7 +442,7 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
                 match crate::ast::search::compile_pattern_query(&args.query, lang) {
                     Ok(q) => q,
                     Err(e) => {
-                        if !global.quiet {
+                        if !global.quiet && !global.json && !global.jsonl {
                             eprintln!(
                                 "patchloom: pattern compile error for {}: {e}",
                                 path.display()
@@ -476,7 +477,7 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
                     "text": m.text,
                     "captures": m.captures,
                 }));
-            } else {
+            } else if !global.quiet {
                 println!(
                     "{}:{}:{}: {}",
                     result.display,
@@ -572,7 +573,8 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
         "symbol": args.symbol,
         "references": all_refs,
         "count": all_refs.len(),
-    }))? {
+    }))? && !global.quiet
+    {
         for r in &all_refs {
             let kind_label = match r.kind {
                 crate::ast::refs::RefKind::Definition => "def",
@@ -675,7 +677,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
                         "raw": imp.raw,
                     }));
                 }
-            } else {
+            } else if !global.quiet {
                 for imp in &hit.matching {
                     println!("{}:{}: {}", hit.display, imp.line, imp.raw);
                 }
@@ -706,7 +708,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
                     "file": result.display,
                     "imports": result.imports,
                 }));
-            } else {
+            } else if !global.quiet {
                 println!("{}", result.display);
                 println!("  imports:");
                 for imp in &result.imports {
@@ -796,7 +798,7 @@ pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8>
         return Ok(exit::NO_MATCHES);
     }
 
-    if !global.emit_json_items(&entries)? {
+    if !global.emit_json_items(&entries)? && !global.quiet {
         print!("{}", crate::ast::map::render_tree(&entries));
     }
 
@@ -858,7 +860,8 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
         "depth": args.depth,
         "impact": nodes,
         "direct_count": nodes.len(),
-    }))? {
+    }))? && !global.quiet
+    {
         print!(
             "{}",
             crate::ast::impact::render_impact_tree(&args.symbol, &nodes, 0)
@@ -920,7 +923,8 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
         "from": args.from,
         "to": args.to.as_deref().unwrap_or("working tree"),
         "changes": changes,
-    }))? {
+    }))? && !global.quiet
+    {
         print!("{}", crate::ast::diff::render_changes(&args.path, &changes));
     }
 

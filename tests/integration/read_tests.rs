@@ -270,6 +270,11 @@ fn test_read_multiple_files_json_partial_failure_reports_skipped() {
             .is_some_and(|s| s.contains("no-such-file-json-array-shape")),
         "skipped should name missing path: {json}"
     );
+    assert!(
+        output.stderr.is_empty(),
+        "partial --json must not double-emit human stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// Sole explicit binary path must be `error_kind: binary`, not ok:true with NULs

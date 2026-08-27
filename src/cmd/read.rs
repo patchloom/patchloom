@@ -291,13 +291,6 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
     }
 
-    // Always show errors on stderr, even with --quiet (#1179).
-    if structured {
-        for (_, error) in &errors {
-            eprintln!("read: {error}");
-        }
-    }
-
     // Partial failure: some files succeeded, some failed (#1166).
     if !errors.is_empty() {
         return Ok(exit::FAILURE);
