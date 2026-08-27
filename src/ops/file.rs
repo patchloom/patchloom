@@ -239,16 +239,20 @@ pub fn ensure_parent_components_are_directories(
         if p.as_os_str().is_empty() {
             break;
         }
-        if p.exists() {
-            if !p.is_dir() {
+        match classify_path_entry(p) {
+            PathEntryKind::RealDirectory => {
+                // An existing directory implies higher ancestors are also dirs.
+                break;
+            }
+            PathEntryKind::Missing => {
+                current = p.parent();
+            }
+            _ => {
                 return Err(crate::exit::InvalidInputError {
                     msg: format!("parent path is not a directory: {}", p.display()),
                 });
             }
-            // An existing directory implies higher ancestors are also dirs.
-            break;
         }
-        current = p.parent();
     }
     Ok(())
 }
@@ -742,6 +746,21 @@ mod tests {
         let path = blocking.join("b").join("c.txt");
         let err = ensure_parent_components_are_directories(&path).unwrap_err();
         assert!(err.msg.contains("not a directory"), "got: {}", err.msg);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_parents_rejects_dangling_symlink_parent() {
+        let dir = TempDir::new().unwrap();
+        let broken = dir.path().join("broken");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &broken).unwrap();
+        let path = broken.join("new.txt");
+        let err = ensure_parent_components_are_directories(&path).unwrap_err();
+        assert!(
+            err.msg.contains("not a directory"),
+            "dangling parent must refuse: {}",
+            err.msg
+        );
     }
 
     #[test]
