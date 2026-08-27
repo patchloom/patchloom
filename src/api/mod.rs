@@ -897,6 +897,13 @@ pub(crate) fn write_if_apply_many(
     }
     for (path, _) in files {
         ensure_contained(guard, path)?;
+        if crate::ops::file::is_real_directory(path) {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("target is a directory: {}", path.display()),
+            }
+            .into());
+        }
+        crate::ops::file::ensure_parent_components_are_directories(path)?;
     }
     let mut backup = BackupSession::new(backup_root)?;
     for (path, _) in files {

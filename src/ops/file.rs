@@ -224,13 +224,17 @@ pub fn refuse_non_regular_destination(
     }
 }
 
-/// Walk ancestors of `path` and ensure every existing component is a directory.
+/// Walk ancestors of `path` and ensure every existing component can host a dest.
 ///
 /// Missing parents are fine (`create_dir_all` creates them on apply). An
 /// ancestor that exists as a file (or other non-dir) makes
 /// `create_dir_all` / tempfile placement fail at commit with a bare IO
 /// error and can leave a spurious backup entry for a path that was never
 /// written. Call this before staging `file.create` / rename destinations.
+///
+/// A symlink whose target is a directory is allowed (macOS `/tmp` points at
+/// `/private/tmp`). Dangling links, FIFO/socket/device, and symlink-to-file
+/// are refused.
 pub fn ensure_parent_components_are_directories(
     path: &Path,
 ) -> Result<(), crate::exit::InvalidInputError> {
@@ -246,6 +250,10 @@ pub fn ensure_parent_components_are_directories(
             }
             PathEntryKind::Missing => {
                 current = p.parent();
+            }
+            PathEntryKind::Special if p.is_dir() => {
+                // Followed a symlink (or other special) to a real directory.
+                break;
             }
             _ => {
                 return Err(crate::exit::InvalidInputError {
@@ -759,6 +767,35 @@ mod tests {
         assert!(
             err.msg.contains("not a directory"),
             "dangling parent must refuse: {}",
+            err.msg
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_parents_ok_when_parent_is_symlink_to_dir() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let path = link.join("new.txt");
+        ensure_parent_components_are_directories(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_parents_rejects_symlink_to_file_parent() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("f.txt");
+        fs::write(&file, "x\n").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        let path = link.join("new.txt");
+        let err = ensure_parent_components_are_directories(&path).unwrap_err();
+        assert!(
+            err.msg.contains("not a directory"),
+            "symlink-to-file parent must refuse: {}",
             err.msg
         );
     }

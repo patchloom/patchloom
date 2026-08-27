@@ -1840,14 +1840,14 @@ fn apply_patch_file_mid_write_after_create_restores_orphan() {
 fn write_if_apply_many_restores_on_second_write_failure() {
     let dir = TempDir::new().unwrap();
     let a = dir.path().join("a.txt");
-    let b = dir.path().join("b.txt");
+    // Missing parent: dest-parent classify allows Missing, but atomic_write
+    // does not mkdir and NamedTempFile::new_in fails after `a` is written.
+    // Dest-as-directory cannot be this fixture: restore refuses dest-dir
+    // before rolling back the sibling.
+    let b = dir.path().join("no_such_dir").join("b.txt");
     fs::write(&a, "aaa\n").unwrap();
-    fs::write(&b, "bbb\n").unwrap();
 
     let policy = crate::write::WritePolicy::default();
-    // Replace b with a directory so the second atomic_write fails after a writes.
-    fs::remove_file(&b).unwrap();
-    fs::create_dir(&b).unwrap();
     let files: [(&std::path::Path, &str); 2] = [(&a, "AAA\n"), (&b, "BBB\n")];
     assert!(
         super::write_if_apply_many(&files, ApplyMode::Apply, &policy, None, dir.path()).is_err()
@@ -1856,6 +1856,31 @@ fn write_if_apply_many_restores_on_second_write_failure() {
         fs::read_to_string(&a).unwrap(),
         "aaa\n",
         "first write must be rolled back when later write fails"
+    );
+}
+
+/// Dest that is already a directory is refused before any sibling write.
+#[test]
+fn write_if_apply_many_dest_dir_does_not_write_sibling() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "aaa\n").unwrap();
+    fs::create_dir(&b).unwrap();
+
+    let policy = crate::write::WritePolicy::default();
+    let files: [(&std::path::Path, &str); 2] = [(&a, "AAA\n"), (&b, "BBB\n")];
+    let err = super::write_if_apply_many(&files, ApplyMode::Apply, &policy, None, dir.path())
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("directory"),
+        "dest-dir must be invalid_input, got: {msg}"
+    );
+    assert_eq!(
+        fs::read_to_string(&a).unwrap(),
+        "aaa\n",
+        "sibling must stay original when dest-dir is refused up front"
     );
 }
 
