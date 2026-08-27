@@ -789,7 +789,7 @@ fn collect_issues_with_list_returns_first_walk() {
         "clean tree walk must include clean.txt"
     );
     assert!(
-        crate::ops::file::empty_scan_masked_by_unreadable(&collected.scanned, &cwd).is_none(),
+        crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd).is_none(),
         "readable clean collect must not remask"
     );
 }
