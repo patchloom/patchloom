@@ -11,6 +11,21 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.31.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.30.0...patchloom-v0.31.0) (2026-08-27)
+
+
+### Features
+
+* **doc:** convert pure YAML alias to merge on interior edit ([#2243](https://github.com/patchloom/patchloom/issues/2243)) ([7363356](https://github.com/patchloom/patchloom/commit/7363356aefd91991d782e13b44bb1a2494ad8e52)), closes [#2242](https://github.com/patchloom/patchloom/issues/2242)
+
+
+### Bug Fixes
+
+* **cli:** classify dest parents and set error_kind on JSON failures ([#2258](https://github.com/patchloom/patchloom/issues/2258)) ([3ea4310](https://github.com/patchloom/patchloom/commit/3ea43101bec35162f9b5356303ba27e1d6445353))
+* **cli:** limit dest-parent classify to create and rename ([#2259](https://github.com/patchloom/patchloom/issues/2259)) ([bea79d3](https://github.com/patchloom/patchloom/commit/bea79d3ac0e7b6a9085e66f77815e42b4e4531aa)), closes [#2258](https://github.com/patchloom/patchloom/issues/2258)
+* **doc:** nth-index YAML mapping aliases that share a key ([#2247](https://github.com/patchloom/patchloom/issues/2247)) ([1e0638f](https://github.com/patchloom/patchloom/commit/1e0638fa223fb152bee865220fa3d3208c60bf07)), closes [#2243](https://github.com/patchloom/patchloom/issues/2243) [#2245](https://github.com/patchloom/patchloom/issues/2245) [#2246](https://github.com/patchloom/patchloom/issues/2246)
+* **doc:** treat yaml-edit Sequence::set on *alias as not applied ([#2255](https://github.com/patchloom/patchloom/issues/2255)) ([0d08bf6](https://github.com/patchloom/patchloom/commit/0d08bf67b51dd16d06fcea0c9586704147fbb15b))
+
 ## [0.30.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.29.0...patchloom-v0.30.0) (2026-08-24)
 
 
