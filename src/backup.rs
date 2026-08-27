@@ -775,11 +775,7 @@ pub fn restore_path_from_session_with_guard(
                 }
                 .into());
             }
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("creating parent dir for restore target {}", entry.path)
-                })?;
-            }
+            ensure_restore_parent_dir(&target, &entry.path)?;
             refuse_restore_onto_non_regular(&target, &entry.path)?;
             std::fs::copy(&backup, &target)
                 .with_context(|| format!("restoring modified file {}", entry.path))?;
@@ -806,11 +802,7 @@ pub fn restore_path_from_session_with_guard(
                 }
                 .into());
             }
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("creating parent dir for restore target {}", entry.path)
-                })?;
-            }
+            ensure_restore_parent_dir(&target, &entry.path)?;
             refuse_restore_onto_non_regular(&target, &entry.path)?;
             std::fs::copy(&backup, &target)
                 .with_context(|| format!("restoring deleted file {}", entry.path))?;
@@ -875,6 +867,7 @@ pub fn restore_session_with_guard(
         }
         .into());
     }
+    classify_restore_write_dests(project_root, &manifest)?;
 
     // Phase 2: apply restores only after every required blob exists.
     let mut restored = 0;
@@ -883,11 +876,7 @@ pub fn restore_session_with_guard(
         match entry.action {
             FileAction::Modified => {
                 let backup = session_dir.join(&entry.path);
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent).with_context(|| {
-                        format!("creating parent dir for restore target {}", entry.path)
-                    })?;
-                }
+                ensure_restore_parent_dir(&target, &entry.path)?;
                 refuse_restore_onto_non_regular(&target, &entry.path)?;
                 std::fs::copy(&backup, &target)
                     .with_context(|| format!("restoring modified file {}", entry.path))?;
@@ -906,11 +895,7 @@ pub fn restore_session_with_guard(
             }
             FileAction::Deleted => {
                 let backup = session_dir.join(&entry.path);
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent).with_context(|| {
-                        format!("creating parent dir for restore target {}", entry.path)
-                    })?;
-                }
+                ensure_restore_parent_dir(&target, &entry.path)?;
                 refuse_restore_onto_non_regular(&target, &entry.path)?;
                 std::fs::copy(&backup, &target)
                     .with_context(|| format!("restoring deleted file {}", entry.path))?;
@@ -1044,6 +1029,39 @@ fn validate_restore_path(entry_path: &str) -> anyhow::Result<()> {
                 }));
             }
         }
+    }
+    Ok(())
+}
+
+/// Classify dest parents for Modified/Deleted restore writes.
+///
+/// Created-file undo only deletes the dest and does not mkdir parents.
+/// Preview and apply share this so a file or dangling parent is
+/// `invalid_input` instead of preview-ok / apply-only IO.
+pub(crate) fn classify_restore_write_dests(
+    project_root: &Path,
+    manifest: &Manifest,
+) -> Result<(), crate::exit::InvalidInputError> {
+    for entry in &manifest.entries {
+        match entry.action {
+            FileAction::Created => {}
+            FileAction::Modified | FileAction::Deleted => {
+                let target = resolve_restore_path(project_root, &entry.path);
+                crate::ops::file::ensure_parent_components_are_directories(&target)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Classify dest parent then create missing directories for a restore write.
+fn ensure_restore_parent_dir(target: &Path, entry_path: &str) -> anyhow::Result<()> {
+    crate::ops::file::ensure_parent_components_are_directories(target)?;
+    if let Some(parent) = target.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating parent dir for restore target {entry_path}"))?;
     }
     Ok(())
 }

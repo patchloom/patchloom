@@ -172,6 +172,10 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
 
     if !args.apply {
+        if let Err(e) = backup::classify_restore_write_dests(&backup_root, &session) {
+            global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
+            return Ok(exit::FAILURE);
+        }
         let entries: Vec<UndoPreviewEntry> = session
             .entries
             .iter()
