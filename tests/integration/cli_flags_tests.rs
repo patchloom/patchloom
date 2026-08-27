@@ -881,6 +881,46 @@ fn test_config_malformed_toml_warns_on_stderr() {
         .stderr(predicate::str::contains("warning: malformed"));
 }
 
+#[test]
+fn test_config_malformed_toml_json_no_stderr_warning() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "this is not valid { toml [",
+    )
+    .unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "hello", "--cwd"])
+        .arg(dir.path())
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning: malformed").not());
+}
+
+#[test]
+fn test_config_invalid_eol_json_no_stderr_warning() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[write_policy]\nnormalize_eol = \"bogus\"\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "hello", "--cwd"])
+        .arg(dir.path())
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("normalize_eol").not());
+}
+
 /// Verify the Python agent driver's `_PATCHLOOM_SUBCOMMANDS` set stays in
 /// sync with the CLI's actual subcommand list. This test exists because the
 /// set drifted (missing `explain`, `undo`, `init`) and was only caught by

@@ -162,7 +162,8 @@ fn load_project_config(global: &mut crate::cli::global::GlobalFlags) {
     let Ok(cwd) = global.resolve_cwd() else {
         return;
     };
-    if let Some((config, _)) = crate::config::find_and_load(&cwd) {
+    let warn = !global.quiet && !global.json && !global.jsonl;
+    if let Some((config, _)) = crate::config::find_and_load_opts(&cwd, warn) {
         crate::config::apply_config(global, &config);
     }
 }
