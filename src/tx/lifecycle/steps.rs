@@ -40,6 +40,7 @@ fn run_lifecycle_steps(
     label: &str,
     error_label: &str,
     kind: &'static str,
+    quiet: bool,
 ) -> Result<(), LifecycleError> {
     let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
     for (index, (cmd, timeout, required)) in steps.enumerate() {
@@ -66,7 +67,9 @@ fn run_lifecycle_steps(
                     lifecycle_cwd
                 );
                 let msg = lifecycle_failure_msg(&header, &stderr_head);
-                eprintln!("tx: {msg}");
+                if !quiet {
+                    eprintln!("tx: {msg}");
+                }
                 if required {
                     return Err(LifecycleError { message: msg, kind });
                 }
@@ -77,7 +80,9 @@ fn run_lifecycle_steps(
                     index + 1,
                     lifecycle_cwd
                 );
-                eprintln!("tx: {msg}");
+                if !quiet {
+                    eprintln!("tx: {msg}");
+                }
                 if required {
                     return Err(LifecycleError { message: msg, kind });
                 }
@@ -92,6 +97,7 @@ pub(crate) fn run_format_steps(
     steps: &[plan::FormatStep],
     base_cwd: &Path,
     cwd: &Path,
+    quiet: bool,
 ) -> Result<(), LifecycleError> {
     run_lifecycle_steps(
         steps.iter().map(|s| (s.cmd.clone(), s.timeout, true)),
@@ -100,6 +106,7 @@ pub(crate) fn run_format_steps(
         "format step",
         "format step",
         "format_failed",
+        quiet,
     )
 }
 
@@ -107,6 +114,7 @@ pub(crate) fn run_validate_steps(
     steps: &[plan::ValidationStep],
     base_cwd: &Path,
     cwd: &Path,
+    quiet: bool,
 ) -> Result<(), LifecycleError> {
     run_lifecycle_steps(
         steps
@@ -117,6 +125,7 @@ pub(crate) fn run_validate_steps(
         "required validation",
         "validation",
         "validation_failed",
+        quiet,
     )
 }
 
@@ -358,16 +367,21 @@ pub(crate) fn rollback_strict(
 }
 
 /// Run format and validation lifecycle steps. Returns `None` on success.
-pub(crate) fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
+pub(crate) fn run_lifecycle(
+    plan: &Plan,
+    base_cwd: &Path,
+    cwd: &Path,
+    quiet: bool,
+) -> Option<LifecycleError> {
     plan.format
         .as_deref()
-        .map(|steps| run_format_steps(steps, base_cwd, cwd))
+        .map(|steps| run_format_steps(steps, base_cwd, cwd, quiet))
         .unwrap_or(Ok(()))
         .err()
         .or_else(|| {
             plan.validate
                 .as_deref()
-                .and_then(|steps| run_validate_steps(steps, base_cwd, cwd).err())
+                .and_then(|steps| run_validate_steps(steps, base_cwd, cwd, quiet).err())
         })
 }
 

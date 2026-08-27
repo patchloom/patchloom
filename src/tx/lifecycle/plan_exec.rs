@@ -241,7 +241,7 @@ pub fn execute_plan_direct(
     };
 
     // Run format steps, then validation steps.
-    if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd) {
+    if let Some(err) = run_lifecycle(&plan, cwd, &effective_cwd, true) {
         if strict {
             #[cfg(any(feature = "cli", feature = "files"))]
             {
@@ -687,7 +687,7 @@ mod tests {
             for_each: None,
         };
         let cwd = Path::new("/tmp");
-        assert!(run_lifecycle(&plan, cwd, cwd).is_none());
+        assert!(run_lifecycle(&plan, cwd, cwd, true).is_none());
     }
 
     // ---- snapshot / restore collateral (#1111.7) ----

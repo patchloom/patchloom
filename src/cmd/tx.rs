@@ -222,7 +222,12 @@ fn commit_and_finalize(
         std::collections::HashMap::new()
     };
 
-    if let Some(err) = run_lifecycle(ctx.plan, ctx.base_cwd, ctx.cwd) {
+    if let Some(err) = run_lifecycle(
+        ctx.plan,
+        ctx.base_cwd,
+        ctx.cwd,
+        global.quiet || global.json || global.jsonl,
+    ) {
         if ctx.strict {
             match crate::tx::revert_strict_lifecycle(
                 ctx.cwd,

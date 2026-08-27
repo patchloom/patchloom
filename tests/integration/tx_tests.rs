@@ -4044,6 +4044,48 @@ fn test_tx_patch_apply_in_plan() {
 }
 
 #[test]
+fn test_tx_begin_patch_move_dest_exists_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("from.rs"), "fn a() {}\n").unwrap();
+    fs::write(dir.path().join("taken.rs"), "keep\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "*** Begin Patch\n*** Update File: from.rs\n*** Move to: taken.rs\n@@\n-fn a() {}\n+fn b() {}\n*** End Patch\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "--apply"])
+        .arg(&plan_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("taken.rs")).unwrap(),
+        "keep\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("from.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+}
+
+#[test]
 fn test_tx_patch_apply_begin_patch() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
@@ -6405,6 +6447,11 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
     assert!(
         error.contains("backup session") || error.contains("undo"),
         "error should hint undo: {error}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("tx:"),
+        "format failure under --json must not print a human tx: line: {stderr}"
     );
 }
 
