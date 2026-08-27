@@ -40,7 +40,19 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 diff,
                 |path| {
                     let file_path = tx.cwd.join(path);
-                    Ok(read_file_content(tx.pending, tx.existed_before, &file_path)?.to_string())
+                    match read_file_content(tx.pending, tx.existed_before, &file_path) {
+                        Ok(s) => Ok(s.to_string()),
+                        Err(e)
+                            if options.on_stale == crate::ops::patch::OnStale::Merge
+                                && crate::exit::classify_typed_error(&e)
+                                    .is_some_and(|(k, _)| k == "not_found") =>
+                        {
+                            // Merge check treats missing dest as empty; apply must too
+                            // so dest occupancy matches dest_exists after the write.
+                            Ok(String::new())
+                        }
+                        Err(e) => Err(e),
+                    }
                 },
                 options,
             )?;

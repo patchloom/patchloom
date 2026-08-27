@@ -1779,6 +1779,28 @@ rename to \"caf\\303\\251-new.rs\"
     }
 
     #[test]
+    fn record_staged_patch_dest_marks_update_write() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut created = std::collections::HashSet::new();
+        let mut deleted = std::collections::HashSet::new();
+        let pf = PatchFile {
+            path: "dest.txt".into(),
+            hunks: Vec::new(),
+            is_creation: false,
+            is_deletion: false,
+            rename_from: None,
+            copy_from: None,
+            unsupported: None,
+        };
+        record_staged_patch_dest(dir.path(), &pf, &mut created, &mut deleted);
+        let dest = dir.path().join("dest.txt");
+        assert!(
+            staged_path_exists(&dest, &created, &deleted),
+            "update write occupies dest like tx pending"
+        );
+    }
+
+    #[test]
     fn parse_pure_git_rename_c_quoted_paths_with_spaces() {
         // Git C-quotes paths with spaces on pure renames (no hunks).
         let diff = "\

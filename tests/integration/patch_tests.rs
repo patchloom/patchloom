@@ -654,6 +654,70 @@ fn test_patch_check_second_create_same_dest_is_already_exists() {
     );
 }
 
+/// Merge check used to miss dests from a regular update write, so a later
+/// create of the same dest looked free while apply used pending dest_exists.
+#[test]
+fn test_patch_merge_check_update_then_create_same_dest() {
+    let dir = TempDir::new().unwrap();
+    let patch = dir.path().join("upd-create.patch");
+    fs::write(
+        &patch,
+        "--- a/dest.txt\n\
+         +++ b/dest.txt\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n\
+         --- /dev/null\n\
+         +++ b/dest.txt\n\
+         @@ -0,0 +1 @@\n\
+         +world\n",
+    )
+    .unwrap();
+
+    let merge_out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "merge", "--check"])
+        .arg(&patch)
+        .output()
+        .unwrap();
+    assert_eq!(
+        merge_out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&merge_out.stdout),
+        String::from_utf8_lossy(&merge_out.stderr)
+    );
+    let merge_json: serde_json::Value = serde_json::from_slice(&merge_out.stdout).unwrap();
+    assert_eq!(merge_json["error_kind"], "already_exists", "{merge_json}");
+    assert!(
+        !dir.path().join("dest.txt").exists(),
+        "merge --check must not write dest"
+    );
+
+    let apply_out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "merge", "--apply"])
+        .arg(&patch)
+        .output()
+        .unwrap();
+    assert_eq!(
+        apply_out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&apply_out.stdout),
+        String::from_utf8_lossy(&apply_out.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&apply_out.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "already_exists", "{apply_json}");
+    assert!(
+        !dir.path().join("dest.txt").exists(),
+        "merge apply must not write dest after refuse"
+    );
+}
+
 /// Recreate after `rename from` must succeed: dest is freed in staged view.
 #[test]
 fn test_patch_check_recreate_after_rename_from() {

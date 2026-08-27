@@ -177,10 +177,9 @@ pub(crate) fn record_staged_patch_dest(
         created.remove(&from_abs);
         deleted.insert(from_abs);
     }
-    if pf.is_creation || pf.copy_from.is_some() || pf.rename_from.is_some() {
-        deleted.remove(&dest);
-        created.insert(dest);
-    }
+    // Any non-delete write occupies dest (pending), matching tx dest_exists.
+    deleted.remove(&dest);
+    created.insert(dest);
 }
 
 /// Apply-refuse message for a dest listed from git-meta that we do not write.

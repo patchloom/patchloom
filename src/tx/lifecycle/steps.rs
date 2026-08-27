@@ -297,7 +297,7 @@ pub(crate) fn revert_strict_lifecycle(
             errors.push(format!("backup restore failed for session {ts}: {e}"));
         }
     } else {
-        rollback_strict(changes, pending, deletions, existed_before);
+        rollback_strict(changes, pending, deletions, existed_before, true);
     }
     if let Err(failed) = restore_collateral_files(collateral) {
         for path in failed {
@@ -319,13 +319,16 @@ pub(crate) fn rollback_strict(
     pending: &HashMap<PathBuf, (String, String)>,
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
+    quiet: bool,
 ) {
     let noop_policy = WritePolicy::default();
     for (path, original, _) in changes {
         if !existed_before.contains(path) {
             // File was created during this tx. Whether it was also deleted
             // does not matter: it should not exist after rollback.
-            if let Err(e) = std::fs::remove_file(path) {
+            if let Err(e) = std::fs::remove_file(path)
+                && !quiet
+            {
                 eprintln!(
                     "tx: rollback: failed to remove created file {}: {e}",
                     path.display()
@@ -333,7 +336,9 @@ pub(crate) fn rollback_strict(
             }
         } else if !deletions.contains(path) {
             // File existed before and was modified (not deleted): restore.
-            if let Err(e) = atomic_write(path, original, &noop_policy) {
+            if let Err(e) = atomic_write(path, original, &noop_policy)
+                && !quiet
+            {
                 eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
             }
         }
@@ -350,13 +355,17 @@ pub(crate) fn rollback_strict(
                 && !parent.exists()
                 && let Err(e) = std::fs::create_dir_all(parent)
             {
-                eprintln!(
-                    "tx: rollback: failed to create dir {}: {e}",
-                    parent.display()
-                );
+                if !quiet {
+                    eprintln!(
+                        "tx: rollback: failed to create dir {}: {e}",
+                        parent.display()
+                    );
+                }
                 continue;
             }
-            if let Err(e) = atomic_write(path, orig, &noop_policy) {
+            if let Err(e) = atomic_write(path, orig, &noop_policy)
+                && !quiet
+            {
                 eprintln!(
                     "tx: rollback: failed to restore deleted {}: {e}",
                     path.display()

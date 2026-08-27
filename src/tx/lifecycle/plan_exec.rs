@@ -294,6 +294,7 @@ pub fn execute_plan_direct(
                         &result.pending,
                         &result.deletions,
                         &result.existed_before,
+                        true,
                     );
                 }
                 if rollback_ok {
@@ -590,7 +591,7 @@ mod tests {
         existed_before.insert(file_pb.clone());
 
         // rollback_strict should recreate the parent dir and restore the file.
-        rollback_strict(&[], &pending, &deletions, &existed_before);
+        rollback_strict(&[], &pending, &deletions, &existed_before, true);
         assert!(
             file.exists(),
             "rollback should restore file even when parent dir was removed"
@@ -618,7 +619,7 @@ mod tests {
         // Create the file on disk to simulate mid-tx state.
         std::fs::write(&file, "hello").unwrap();
 
-        rollback_strict(&changes, &pending, &deletions, &existed_before);
+        rollback_strict(&changes, &pending, &deletions, &existed_before, true);
 
         assert!(
             !file.exists(),
@@ -654,7 +655,7 @@ mod tests {
         // Simulate mid-tx state: file was deleted.
         std::fs::remove_file(&file).unwrap();
 
-        rollback_strict(&changes, &pending, &deletions, &existed_before);
+        rollback_strict(&changes, &pending, &deletions, &existed_before, true);
 
         // The deletions loop should restore the original.
         assert!(file.exists(), "deleted file should be restored");

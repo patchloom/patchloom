@@ -923,12 +923,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         emit_patch_files_output(global, all_ok, &results, Some(false), None)?;
         let has_errors = results.iter().any(|r| r.status == "error");
         let has_conflicts = results.iter().any(|r| r.status == "conflict");
+        let has_already_exists = results.iter().any(|r| r.status == "already_exists");
         // Identity / already-applied (content == original): exit 0 so agents
         // do not loop on exit 2 forever (parity with patch check).
         // Errors use shared kind→exit (invalid_input → 1), not always ambiguous.
         // When --allow-conflicts, derive kind from non-conflict rows so a
         // read/stale error is not masked as conflicts (exit 8).
-        return Ok(if has_errors {
+        return Ok(if has_errors || has_already_exists {
             if apply_options.allow_conflicts {
                 let non_conflict: Vec<PatchFileResult> = results
                     .iter()
