@@ -10061,6 +10061,58 @@ fn test_tx_ast_extract_to_file_dest_parent_dangling_is_invalid_input() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_tx_ast_move_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn stay() {}\nfn go() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": "src.rs",
+            "target": "notdir/out.rs",
+            "symbols": ["go"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "ast.move must not write dest under a file parent"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_split_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn keep() {}\nfn go() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.split",
+            "source": "src.rs",
+            "targets": [{ "path": "notdir/out.rs", "symbols": ["go"] }],
+            "keep_in_source": ["keep"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "ast.split must not write dest under a file parent"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_tx_ast_extract_to_file_after_delete_dest() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();

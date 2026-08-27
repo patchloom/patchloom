@@ -421,6 +421,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 import_rewrite_modules(*update_imports, old_module_path, new_module_path)?;
             let abs_source = tx.cwd.join(path);
             let abs_target = tx.cwd.join(target);
+            crate::ops::file::ensure_parent_components_are_directories(&abs_target)?;
             let source_content =
                 read_file_content(tx.pending, tx.existed_before, &abs_source)?.to_string();
             let target_content = if tx.path_present_for_if_exists(&abs_target) {
@@ -540,6 +541,10 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     prepend: t.prepend.clone(),
                 })
                 .collect();
+            for t in targets {
+                let abs_target = tx.cwd.join(&t.path);
+                crate::ops::file::ensure_parent_components_are_directories(&abs_target)?;
+            }
             let exhaustive = require_exhaustive.unwrap_or(true);
             let result = crate::ast::split::split_file(
                 source_content,
