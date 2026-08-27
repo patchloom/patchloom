@@ -3721,6 +3721,76 @@ fn test_apply_fragment_cli_ambiguous_json_hint() {
     );
 }
 
+fn apply_fragment_json_check(dir: &TempDir, dest: &str) -> (Option<i32>, serde_json::Value) {
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "apply-fragment", dest])
+        .args(["--old", "fn x() {}", "--fragment", "fn y() {}\n", "--check"])
+        .arg("--cwd")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got: {} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    (out.status.code(), json)
+}
+
+/// Dest directory is invalid_input on check and apply (not a walk).
+#[test]
+fn test_apply_fragment_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("adir")).unwrap();
+
+    let (code, json) = apply_fragment_json_check(&dir, "adir");
+    assert_eq!(code, Some(1), "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+    assert_eq!(json["applied"], false, "check: {json}");
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "apply-fragment", "adir"])
+        .args(["--old", "fn x() {}", "--fragment", "fn y() {}\n", "--apply"])
+        .arg("--cwd")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(1), "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a dest that was never written"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_apply_fragment_dest_dangling_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken")).unwrap();
+
+    let (code, json) = apply_fragment_json_check(&dir, "broken");
+    assert_eq!(code, Some(1), "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "apply-fragment", "broken"])
+        .args(["--old", "fn x() {}", "--fragment", "fn y() {}\n", "--apply"])
+        .arg("--cwd")
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(1), "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+}
+
 /// Multi-path FIFO co-list must refuse with `not_regular_file` (not
 /// `unreadable`) so agents do not retry chmod (fixrealloop 2026-08-03).
 #[cfg(unix)]
