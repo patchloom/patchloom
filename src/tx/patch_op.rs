@@ -96,9 +96,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                         dest_exists(tx, &file_path),
                         None,
                         result.copy_from.is_some(),
-                        result.is_creation
-                            && result.copy_from.is_none()
-                            && result.content.is_empty(),
+                        result.is_creation && result.copy_from.is_none(),
                     ) {
                         return Err(crate::exit::AlreadyExistsError { msg }.into());
                     }

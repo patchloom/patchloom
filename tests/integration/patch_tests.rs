@@ -556,6 +556,55 @@ fn test_patch_check_copy_and_empty_create_dest_honesty() {
     assert!(!dir.path().join("secret.bin").exists());
 }
 
+/// `--- /dev/null` create *with hunks* must refuse dest (same as empty-create).
+/// Apply used to clobber; check used to report stale/ambiguous.
+#[test]
+fn test_patch_create_with_hunks_dest_exists_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("new.rs"), "existing\n").unwrap();
+    let patch = dir.path().join("create.patch");
+    fs::write(
+        &patch,
+        "--- /dev/null\n\
+         +++ b/new.rs\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(json["files"][0]["status"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "existing\n"
+    );
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "already_exists", "{apply_json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "existing\n",
+        "apply must not clobber dest"
+    );
+}
+
 #[test]
 fn test_patch_apply_empty_create_lists_dest_in_json() {
     // fixrealloop R9: apply wrote a 0-byte dest with applied:true but files[].

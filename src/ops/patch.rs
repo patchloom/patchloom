@@ -99,21 +99,22 @@ pub fn copy_dest_exists_msg(to: &str) -> String {
     format!("destination already exists: {to} (patch copy refuses overwrite; remove dest)")
 }
 
-/// Error message when a git empty-create dest already exists.
+/// Error message when a patch-create dest already exists.
 pub fn create_dest_exists_msg(to: &str) -> String {
     format!("destination already exists: {to} (patch create refuses overwrite; remove dest)")
 }
 
 /// Already-exists message when dest must not be overwritten.
 ///
-/// Covers rename clobber, git copy dest, and empty-create dest. Case-only
-/// rename returns `None` even when dest exists.
+/// Covers rename clobber, git copy dest, and create dest (`--- /dev/null`,
+/// with or without hunks). Case-only rename returns `None` even when dest
+/// exists.
 pub(crate) fn dest_clobber_msg(
     path: &str,
     dest_exists: bool,
     rename_from: Option<&str>,
     is_copy: bool,
-    is_empty_create: bool,
+    is_creation: bool,
 ) -> Option<String> {
     if let Some(from) = rename_from
         && rename_would_clobber_dest(from, path, dest_exists)
@@ -123,7 +124,7 @@ pub(crate) fn dest_clobber_msg(
     if is_copy && dest_exists {
         return Some(copy_dest_exists_msg(path));
     }
-    if is_empty_create && dest_exists {
+    if is_creation && dest_exists {
         return Some(create_dest_exists_msg(path));
     }
     None
@@ -136,7 +137,7 @@ impl PatchFile {
             dest_exists,
             self.rename_from.as_deref(),
             self.copy_from.is_some(),
-            self.is_creation && self.hunks.is_empty() && self.copy_from.is_none(),
+            self.is_creation && self.copy_from.is_none(),
         )
     }
 }
