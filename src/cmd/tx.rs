@@ -238,6 +238,15 @@ fn commit_and_finalize(
                         "rollback: strict mode -- all changes reverted ({})",
                         err.message
                     );
+                    // Kind is format_failed / validation_failed / verification_failed.
+                    // Exit must match exit_code_from_tx_output (MCP/library), not
+                    // ROLLBACK (that is error_kind: rollback only).
+                    let code = match err.kind {
+                        "format_failed" | "validation_failed" | "verification_failed" => {
+                            exit::VALIDATION_FAILED
+                        }
+                        _ => exit::ROLLBACK,
+                    };
                     if ctx.structured {
                         let ok = emit_error_json(
                             err.kind,
@@ -245,10 +254,10 @@ fn commit_and_finalize(
                             apply_backup_session.as_deref(),
                             ctx.compact,
                         );
-                        return Ok(exit_after_emit(ok, exit::ROLLBACK));
+                        return Ok(exit_after_emit(ok, code));
                     }
                     eprintln!("tx: {rollback_msg}");
-                    return Ok(exit::ROLLBACK);
+                    return Ok(code);
                 }
                 Err(detail) => {
                     let failed_msg = format!(

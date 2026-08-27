@@ -1260,7 +1260,7 @@ fn test_tx_strict_format_rollback_removes_rename_dest() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7);
+        .code(6); // VALIDATION_FAILED
 
     assert!(
         src.exists(),
@@ -5160,7 +5160,7 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // File should be restored to original content.
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
@@ -5201,7 +5201,7 @@ fn test_tx_strict_format_fail_restores_binary_delete() {
         .unwrap();
     assert_eq!(
         output.status.code(),
-        Some(7),
+        Some(6), // VALIDATION_FAILED
         "strict format fail should exit ROLLBACK: {}",
         String::from_utf8_lossy(&output.stdout)
     );
@@ -5255,7 +5255,7 @@ fn test_tx_strict_mode_reverts_on_validate_failure() {
         .unwrap();
     assert_eq!(
         output.status.code(),
-        Some(7), // ROLLBACK
+        Some(6), // VALIDATION_FAILED
         "stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -5297,7 +5297,7 @@ fn test_tx_strict_mode_restores_modified_empty_file_on_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     assert!(file.exists(), "modified empty file should not be deleted");
     assert_eq!(fs::read_to_string(&file).unwrap(), "");
@@ -5330,7 +5330,7 @@ fn test_tx_strict_mode_removes_created_files_on_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // Newly created file should be removed.
     assert!(!new_file.exists());
@@ -6088,7 +6088,7 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    assert_eq!(output.status.code(), Some(6)); // VALIDATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["error_kind"], "validation_failed");
@@ -6131,7 +6131,7 @@ fn test_tx_strict_mode_restores_deleted_empty_file_on_failure() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     assert!(file.exists(), "deleted empty file should be restored");
     assert_eq!(fs::read_to_string(&file).unwrap(), "");
@@ -6166,7 +6166,7 @@ fn test_tx_strict_mode_restores_deleted_empty_file_absolute_path() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     assert!(
         file.exists(),
@@ -6202,7 +6202,7 @@ fn test_tx_strict_mode_restores_deleted_file_on_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // Deleted file should be restored.
     assert_eq!(fs::read_to_string(&file).unwrap(), "keep me\n");
@@ -6235,7 +6235,7 @@ fn test_tx_default_strict_reverts_on_format_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7);
+        .code(6); // VALIDATION_FAILED
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }
@@ -6440,7 +6440,7 @@ fn test_tx_json_output_on_strict_format_failure_preserves_error_kind() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    assert_eq!(output.status.code(), Some(6)); // VALIDATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["error_kind"], "format_failed");
@@ -9400,7 +9400,7 @@ fn test_tx_strict_rollback_restores_collateral_files() {
         .arg("plan.json")
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // The tx file should be restored.
     assert_eq!(
