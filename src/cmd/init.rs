@@ -51,6 +51,8 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         agent_rules_path: Option<String>,
         completions: String,
         gitignore: String,
+        hard_error_kind: Option<String>,
+        hard_error: Option<String>,
     }
     let mut report = InitReport::default();
 
@@ -77,7 +79,13 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Check if patchloom rules are already present.
         match crate::files::load_text_strict(&target_path, &target_path.display().to_string()) {
             Err(e) => {
-                report.agent_rules = format!("error:{e}");
+                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&e);
+                report.agent_rules = format!("error:{msg}");
+                if report.hard_error_kind.is_none() {
+                    report.hard_error_kind = Some(kind.to_string());
+                    report.hard_error = Some(msg);
+                }
                 status!("could not read {rel_target}: {e}");
             }
             Ok(content) if content.contains(AGENT_RULES_GENERATED_MARKER) => {
@@ -99,8 +107,15 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         status!("appended patchloom rules to {rel_target}");
                     }
                     Err(e) => {
-                        report.agent_rules = format!("error:{e}");
                         status!("could not write {rel_target}: {e}");
+                        let err = anyhow::Error::from(e);
+                        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+                        let msg = crate::exit::agent_error_message(&err);
+                        report.agent_rules = format!("error:{msg}");
+                        if report.hard_error_kind.is_none() {
+                            report.hard_error_kind = Some(kind.to_string());
+                            report.hard_error = Some(msg);
+                        }
                     }
                 }
             }
@@ -119,8 +134,15 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 status!("created {rel_target}");
             }
             Err(e) => {
-                report.agent_rules = format!("error:{e}");
                 status!("could not write {rel_target}: {e}");
+                let err = anyhow::Error::from(e);
+                let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&err);
+                report.agent_rules = format!("error:{msg}");
+                if report.hard_error_kind.is_none() {
+                    report.hard_error_kind = Some(kind.to_string());
+                    report.hard_error = Some(msg);
+                }
             }
         }
     } else {
@@ -203,8 +225,14 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 status!(".gitignore already ignores .patchloom/");
             }
             Err(e) => {
-                report.gitignore = format!("error:{e}");
                 status!("could not update .gitignore: {e}");
+                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&e);
+                report.gitignore = format!("error:{msg}");
+                if report.hard_error_kind.is_none() {
+                    report.hard_error_kind = Some(kind.to_string());
+                    report.hard_error = Some(msg);
+                }
             }
         }
     } else {
@@ -260,6 +288,10 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             completions: &'a str,
             gitignore: &'a str,
             mcp_available: bool,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            error_kind: Option<&'a str>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            error: Option<&'a str>,
         }
         let payload = InitJson {
             ok,
@@ -268,6 +300,8 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             completions: &report.completions,
             gitignore: &report.gitignore,
             mcp_available: cfg!(feature = "mcp"),
+            error_kind: report.hard_error_kind.as_deref(),
+            error: report.hard_error.as_deref(),
         };
         global.emit_json(&payload)?;
     }
