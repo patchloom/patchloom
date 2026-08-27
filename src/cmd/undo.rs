@@ -111,13 +111,24 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             })
             .collect();
 
-        // --json needs a wrapper so warnings are not stderr-only.
-        // --jsonl stays one session object per line; warnings go to stderr.
+        // --json wraps items+warnings. --jsonl streams sessions then a
+        // `type: warnings` trailer (same as replace/patch summary trailers).
         if global.json {
             global.emit_json(&UndoListOutput {
                 items: list_items,
                 warnings,
             })?;
+            return Ok(exit::SUCCESS);
+        }
+
+        if global.jsonl {
+            global.emit_json_items(&list_items)?;
+            if !warnings.is_empty() {
+                global.emit_json(&serde_json::json!({
+                    "type": "warnings",
+                    "warnings": warnings,
+                }))?;
+            }
             return Ok(exit::SUCCESS);
         }
 

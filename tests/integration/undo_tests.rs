@@ -182,6 +182,57 @@ fn test_undo_list_jsonl_output() {
 }
 
 #[test]
+fn test_undo_list_jsonl_warnings_are_not_on_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--new", "hi", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .code(0);
+
+    let junk = dir.path().join(".patchloom/backups/bad-session");
+    fs::create_dir_all(&junk).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--jsonl", "undo", "--list", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("manifest"),
+        "jsonl listing warnings must not go to stderr: {stderr}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert!(
+        lines.len() >= 2,
+        "session line plus warnings trailer: {stdout}"
+    );
+    let trailer: serde_json::Value = serde_json::from_str(lines[lines.len() - 1]).unwrap();
+    assert_eq!(trailer["type"], "warnings", "{trailer}");
+    let warns = trailer["warnings"].as_array().expect("warnings array");
+    assert!(
+        warns
+            .iter()
+            .any(|w| w.as_str().is_some_and(|s| s.contains("manifest"))),
+        "trailer should name the missing manifest: {trailer}"
+    );
+}
+
+#[test]
 fn test_undo_dry_run_json_output() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
