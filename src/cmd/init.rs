@@ -75,35 +75,54 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if action == "append" {
         // Check if patchloom rules are already present.
-        let content =
-            crate::files::load_text_strict(&target_path, &target_path.display().to_string())
-                .with_context(|| format!("reading existing {}", target_path.display()))?;
-        if content.contains(AGENT_RULES_GENERATED_MARKER) {
-            report.agent_rules = "skipped_already_present".into();
-            status!("{rel_target} already contains patchloom rules, skipping.");
-        } else if auto_agent_rules || confirm(&format!("Append patchloom rules to {rel_target}?")) {
-            let mut content = content;
-            if !content.ends_with('\n') {
-                content.push('\n');
+        match crate::files::load_text_strict(&target_path, &target_path.display().to_string()) {
+            Err(e) => {
+                report.agent_rules = format!("error:{e}");
+                status!("could not read {rel_target}: {e}");
             }
-            content.push('\n');
-            content.push_str(&rules);
-            std::fs::write(&target_path, content)
-                .with_context(|| format!("writing {}", target_path.display()))?;
-            report.agent_rules = "appended".into();
-            status!("appended patchloom rules to {rel_target}");
-        } else {
-            // Non-interactive decline (no TTY, no --yes/--json): explain next step.
-            report.agent_rules = "skipped_use_yes".into();
-            status!(
-                "skipped {rel_target} (declined or non-interactive; re-run with --yes or --json)"
-            );
+            Ok(content) if content.contains(AGENT_RULES_GENERATED_MARKER) => {
+                report.agent_rules = "skipped_already_present".into();
+                status!("{rel_target} already contains patchloom rules, skipping.");
+            }
+            Ok(mut content)
+                if auto_agent_rules
+                    || confirm(&format!("Append patchloom rules to {rel_target}?")) =>
+            {
+                if !content.ends_with('\n') {
+                    content.push('\n');
+                }
+                content.push('\n');
+                content.push_str(&rules);
+                match std::fs::write(&target_path, content) {
+                    Ok(()) => {
+                        report.agent_rules = "appended".into();
+                        status!("appended patchloom rules to {rel_target}");
+                    }
+                    Err(e) => {
+                        report.agent_rules = format!("error:{e}");
+                        status!("could not write {rel_target}: {e}");
+                    }
+                }
+            }
+            Ok(_) => {
+                // Non-interactive decline (no TTY, no --yes/--json): explain next step.
+                report.agent_rules = "skipped_use_yes".into();
+                status!(
+                    "skipped {rel_target} (declined or non-interactive; re-run with --yes or --json)"
+                );
+            }
         }
     } else if auto_agent_rules || confirm(&format!("Create {rel_target}?")) {
-        std::fs::write(&target_path, &rules)
-            .with_context(|| format!("writing {}", target_path.display()))?;
-        report.agent_rules = "created".into();
-        status!("created {rel_target}");
+        match std::fs::write(&target_path, &rules) {
+            Ok(()) => {
+                report.agent_rules = "created".into();
+                status!("created {rel_target}");
+            }
+            Err(e) => {
+                report.agent_rules = format!("error:{e}");
+                status!("could not write {rel_target}: {e}");
+            }
+        }
     } else {
         report.agent_rules = "skipped_use_yes".into();
         status!("skipped {rel_target} (declined or non-interactive; re-run with --yes or --json)");
@@ -431,6 +450,20 @@ mod tests {
     fn find_agent_file_none_in_empty_dir() {
         let dir = tempfile::TempDir::new().unwrap();
         assert!(find_agent_file(dir.path()).is_none());
+    }
+
+    #[test]
+    fn init_json_agent_rules_io_error_sets_report_not_bare_anyhow() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("AGENTS.md")).unwrap();
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            json: true,
+            quiet: true,
+            ..GlobalFlags::default()
+        };
+        let code = run(InitArgs { yes: true }, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 
     /// fixrealloop: plain `init` without --yes on non-TTY must not look like
