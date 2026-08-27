@@ -247,6 +247,36 @@ mod basic {
     }
 
     #[test]
+    fn parse_line_replace_cwd_path_old_new_succeeds_when_first_is_file() {
+        // PATH OLD NEW under --cwd: notes.md exists in the workspace, Cargo.toml
+        // is a file in the process cwd. Must not treat the third token as a path.
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("notes.md"), "title\n").unwrap();
+        let op = parse_line_at("replace notes.md title Cargo.toml", 1, Some(dir.path())).unwrap();
+        assert!(matches!(
+            op,
+            Operation::Replace {
+                path: Some(p),
+                old,
+                new_text: Some(t),
+                ..
+            } if p == "notes.md" && old == "title" && t == "Cargo.toml"
+        ));
+    }
+
+    #[test]
+    fn parse_line_replace_cli_order_hint_when_third_arg_is_file_under_cwd() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("target.txt"), "hello\n").unwrap();
+        let err = parse_line_at("replace hello hi target.txt", 1, Some(dir.path())).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("PATH OLD NEW") && msg.contains("not a file"),
+            "expected CLI-order hint, got: {msg}"
+        );
+    }
+
+    #[test]
     fn parse_line_replace_cli_new_flag_hints_path_old_new() {
         // Agents paste CLI `replace OLD --new NEW path` into batch.
         let err = parse_line(r#"replace hello --new hi README.md"#, 1).unwrap_err();
