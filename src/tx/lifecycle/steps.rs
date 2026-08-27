@@ -346,31 +346,18 @@ pub(crate) fn rollback_strict(
         {
             // Ensure parent directory exists before restoring; the directory
             // may have been removed if the deletion was the last file in it.
-            // Classify first so a file/special parent is not passed to
-            // create_dir_all (best-effort: eprint and skip, not fail-closed).
             if let Some(parent) = path.parent()
                 && !parent.as_os_str().is_empty()
+                && !parent.exists()
+                && let Err(e) = std::fs::create_dir_all(parent)
             {
-                if let Err(e) = crate::ops::file::ensure_parent_components_are_directories(path) {
-                    if !quiet {
-                        eprintln!(
-                            "tx: rollback: failed to create dir {}: {e}",
-                            parent.display()
-                        );
-                    }
-                    continue;
+                if !quiet {
+                    eprintln!(
+                        "tx: rollback: failed to create dir {}: {e}",
+                        parent.display()
+                    );
                 }
-                if !parent.exists()
-                    && let Err(e) = std::fs::create_dir_all(parent)
-                {
-                    if !quiet {
-                        eprintln!(
-                            "tx: rollback: failed to create dir {}: {e}",
-                            parent.display()
-                        );
-                    }
-                    continue;
-                }
+                continue;
             }
             if let Err(e) = atomic_write(path, orig, &noop_policy)
                 && !quiet

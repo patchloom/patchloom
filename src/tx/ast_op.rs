@@ -427,7 +427,6 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
                 .into());
             }
-            crate::ops::file::ensure_parent_components_are_directories(&abs_target)?;
             let source_content =
                 read_file_content(tx.pending, tx.existed_before, &abs_source)?.to_string();
             let target_content = if tx.path_present_for_if_exists(&abs_target) {
@@ -487,7 +486,6 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
                 .into());
             }
-            crate::ops::file::ensure_parent_components_are_directories(&abs_target)?;
             if !force && tx.path_present_for_if_exists(&abs_target) {
                 return Err(crate::exit::AlreadyExistsError {
                     msg: format!(
@@ -555,7 +553,6 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     }
                     .into());
                 }
-                crate::ops::file::ensure_parent_components_are_directories(&abs_target)?;
             }
             let exhaustive = require_exhaustive.unwrap_or(true);
             let result = crate::ast::split::split_file(

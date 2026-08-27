@@ -1035,11 +1035,12 @@ fn validate_restore_path(entry_path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Classify dest kind (and dest parents for write restores).
+/// Classify dest kind for restore writes.
 ///
 /// Created-file undo only deletes the dest and does not mkdir parents,
 /// but a symlink/dir dest is still `invalid_input` (same as apply).
-/// Preview and apply share this so dest honesty is not apply-only.
+/// Preview and apply share this so dest-dir / dest-symlink refuse is
+/// not apply-only.
 pub(crate) fn classify_restore_write_dests(
     project_root: &Path,
     manifest: &Manifest,
@@ -1047,19 +1048,12 @@ pub(crate) fn classify_restore_write_dests(
     for entry in &manifest.entries {
         let target = resolve_restore_path(project_root, &entry.path);
         refuse_restore_onto_non_regular(&target, &entry.path)?;
-        match entry.action {
-            FileAction::Created => {}
-            FileAction::Modified | FileAction::Deleted => {
-                crate::ops::file::ensure_parent_components_are_directories(&target)?;
-            }
-        }
     }
     Ok(())
 }
 
-/// Classify dest parent then create missing directories for a restore write.
+/// Create missing directories for a restore write.
 fn ensure_restore_parent_dir(target: &Path, entry_path: &str) -> anyhow::Result<()> {
-    crate::ops::file::ensure_parent_components_are_directories(target)?;
     if let Some(parent) = target.parent()
         && !parent.as_os_str().is_empty()
     {

@@ -90,7 +90,6 @@ pub(crate) fn apply_begin_patch_ops(
                         msg: crate::ops::patch::create_dest_exists_msg(path),
                     }));
                 }
-                crate::ops::file::ensure_parent_components_are_directories(&dest)?;
                 created.insert(dest.clone(), content.clone());
                 deleted.remove(&dest);
                 staged.push(StageOp::Write {
@@ -166,7 +165,6 @@ pub(crate) fn apply_begin_patch_ops(
                             ),
                         }));
                     }
-                    crate::ops::file::ensure_parent_components_are_directories(&new_dest)?;
                     created.remove(&dest);
                     deleted.insert(dest.clone());
                     created.insert(new_dest.clone(), updated.clone());
@@ -236,7 +234,6 @@ pub(crate) fn apply_begin_patch_ops(
                         new_content,
                         ..
                     } => {
-                        crate::ops::file::ensure_parent_components_are_directories(write_path)?;
                         if let Some(parent) = write_path.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -262,7 +259,6 @@ pub(crate) fn apply_begin_patch_ops(
                         new_content,
                         ..
                     } => {
-                        crate::ops::file::ensure_parent_components_are_directories(to)?;
                         if let Some(parent) = to.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -355,7 +351,6 @@ mod tests {
     use super::*;
     use crate::api::{is_already_exists, is_ambiguous, is_guard_rejected, is_no_match};
     use crate::containment::PathGuard;
-    use crate::exit::is_invalid_input;
     use crate::ops::begin_patch::looks_like_begin_patch;
 
     fn update_patch(path: &str, old: &str, new: &str) -> String {
@@ -622,38 +617,6 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(other_dir.join("main.rs")).unwrap(),
             "fn changed() {}\n"
-        );
-    }
-
-    #[test]
-    fn apply_begin_patch_add_dest_parent_file_is_invalid_input() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
-        let patch = "\
-*** Begin Patch
-*** Add File: notdir/out.rs
-+hello
-*** End Patch
-";
-        for mode in [ApplyMode::Preview, ApplyMode::Apply] {
-            let err =
-                apply_begin_patch(patch, dir.path(), None, mode, None).expect_err("file parent");
-            assert!(
-                is_invalid_input(&err),
-                "expected invalid_input for {mode:?}, got: {err}"
-            );
-            assert!(
-                err.to_string().contains("not a directory"),
-                "message should name the parent: {err}"
-            );
-        }
-        assert!(
-            !dir.path().join("notdir").join("out.rs").exists(),
-            "must not write dest under a file parent"
-        );
-        assert!(
-            !dir.path().join(".patchloom/backups").exists(),
-            "must not create a backup for a path that was never written"
         );
     }
 
