@@ -1,5 +1,6 @@
 //! Disk apply for Codex `*** Begin Patch` (#2219).
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::containment::PathGuard;
@@ -57,6 +58,20 @@ pub(crate) fn apply_begin_patch_ops(
     }
 
     let mut staged: Vec<StageOp> = Vec::new();
+    // Same pending/delete view as tx `dest_exists` so Preview (`patch check`)
+    // agrees with apply on Delete-then-Add / Add-then-Delete in one document.
+    let mut created: HashMap<PathBuf, String> = HashMap::new();
+    let mut deleted: HashSet<PathBuf> = HashSet::new();
+    let staged_exists =
+        |path: &Path, created: &HashMap<PathBuf, String>, deleted: &HashSet<PathBuf>| {
+            if created.contains_key(path) {
+                return true;
+            }
+            if deleted.contains(path) {
+                return false;
+            }
+            path_entry_exists(path)
+        };
     for op in ops {
         match op {
             BeginPatchOp::Add { path, content } => {
@@ -70,11 +85,13 @@ pub(crate) fn apply_begin_patch_ops(
                         ),
                     }));
                 }
-                if path_entry_exists(&dest) {
+                if staged_exists(&dest, &created, &deleted) {
                     return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                         msg: crate::ops::patch::create_dest_exists_msg(path),
                     }));
                 }
+                created.insert(dest.clone(), content.clone());
+                deleted.remove(&dest);
                 staged.push(StageOp::Write {
                     write_path: dest,
                     display: path.clone(),
@@ -91,14 +108,18 @@ pub(crate) fn apply_begin_patch_ops(
                         msg: format!("{} is a directory, not a file", dest.display()),
                     }));
                 }
-                if !path_entry_exists(&dest) {
+                if !staged_exists(&dest, &created, &deleted) {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
                         format!("file not found: {path}"),
                     )
                     .into());
                 }
-                let original = crate::files::load_text_strict(&dest, path).unwrap_or_default();
+                let original = created.get(&dest).cloned().unwrap_or_else(|| {
+                    crate::files::load_text_strict(&dest, path).unwrap_or_default()
+                });
+                created.remove(&dest);
+                deleted.insert(dest.clone());
                 staged.push(StageOp::Delete {
                     path: dest,
                     display: path.clone(),
@@ -120,12 +141,23 @@ pub(crate) fn apply_begin_patch_ops(
                         ),
                     }));
                 }
-                let original = crate::files::load_text_strict(&dest, path)?;
+                if !staged_exists(&dest, &created, &deleted) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file not found: {path}"),
+                    )
+                    .into());
+                }
+                let original = if let Some(s) = created.get(&dest) {
+                    s.clone()
+                } else {
+                    crate::files::load_text_strict(&dest, path)?
+                };
                 let updated = apply_codex_hunks(&original, hunks)?;
                 if let Some(new_path) = move_to {
                     let new_dest = resolve_begin_patch_dest(cwd, new_path, None);
                     super::ensure_contained_entry(guard, &new_dest)?;
-                    if path_entry_exists(&new_dest) {
+                    if staged_exists(&new_dest, &created, &deleted) {
                         return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                             msg: format!(
                                 "destination already exists: {} (Begin Patch Move refuses overwrite; remove dest)",
@@ -133,6 +165,10 @@ pub(crate) fn apply_begin_patch_ops(
                             ),
                         }));
                     }
+                    created.remove(&dest);
+                    deleted.insert(dest.clone());
+                    created.insert(new_dest.clone(), updated.clone());
+                    deleted.remove(&new_dest);
                     staged.push(StageOp::Rename {
                         from: dest,
                         to: new_dest,
@@ -142,6 +178,8 @@ pub(crate) fn apply_begin_patch_ops(
                         new_content: updated,
                     });
                 } else {
+                    created.insert(dest.clone(), updated.clone());
+                    deleted.remove(&dest);
                     staged.push(StageOp::Write {
                         write_path: dest,
                         display: path.clone(),
@@ -476,6 +514,44 @@ mod tests {
             std::fs::read_to_string(dir.path().join("new.rs")).unwrap(),
             "keep\n"
         );
+    }
+
+    #[test]
+    fn apply_begin_patch_delete_then_add_same_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("swap.rs"), "old\n").unwrap();
+        let patch = "\
+*** Begin Patch
+*** Delete File: swap.rs
+*** Add File: swap.rs
++new
+*** End Patch
+";
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Preview, None)
+            .expect("preview delete-then-add");
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None)
+            .expect("apply delete-then-add");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("swap.rs")).unwrap(),
+            "new\n"
+        );
+    }
+
+    #[test]
+    fn apply_begin_patch_add_then_delete_missing_dest() {
+        let dir = tempfile::tempdir().unwrap();
+        let patch = "\
+*** Begin Patch
+*** Add File: brand.rs
++hello
+*** Delete File: brand.rs
+*** End Patch
+";
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Preview, None)
+            .expect("preview add-then-delete");
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None)
+            .expect("apply add-then-delete");
+        assert!(!dir.path().join("brand.rs").exists());
     }
 
     #[test]
