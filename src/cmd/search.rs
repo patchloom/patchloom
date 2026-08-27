@@ -236,7 +236,7 @@ fn collect_matches_with_list(
         before_context: args.before_context,
         after_context: args.after_context,
         context: args.context,
-        quiet: global.quiet,
+        quiet: global.quiet || global.json || global.jsonl,
     };
     let file_results =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {

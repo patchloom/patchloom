@@ -1584,6 +1584,32 @@ fn test_search_skips_invalid_utf8_files() {
     );
 }
 
+#[test]
+fn test_search_json_invalid_utf8_no_skip_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("text.txt"), "needle in text\n").unwrap();
+    fs::write(dir.path().join("invalid.txt"), b"needle\xffin invalid").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("needle")
+        .arg(dir.path().to_str().unwrap())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("search --json must be one JSON value: {e}\n{stdout}"));
+    assert!(v.is_array() || v.get("ok").is_some(), "{v}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("invalid UTF-8"),
+        "skip lines must not leak under --json: {stderr}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn test_search_follows_symlink_within_cwd() {

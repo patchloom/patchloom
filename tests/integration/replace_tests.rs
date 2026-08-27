@@ -705,6 +705,33 @@ fn test_replace_ambiguous_match_quiet_suppresses_stderr() {
 }
 
 #[test]
+fn test_replace_ambiguous_match_json_suppresses_stderr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "aaa bbb aaa\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("replace")
+        .arg("aaa")
+        .arg("--new")
+        .arg("ccc")
+        .arg("--unique")
+        .arg(file.to_str().unwrap())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(5));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("ambiguous match"),
+        "stderr should be suppressed with --json but was: {stderr}"
+    );
+}
+
+#[test]
 fn test_replace_context_no_match_text_mode_emits_stderr() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");

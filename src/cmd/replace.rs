@@ -311,7 +311,7 @@ fn collect_replacements_with_list(
     // Detected here (single read of stdin) before soft no_matches handling.
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(&args.paths, global, Some(&cwd))?;
-    let quiet = global.quiet;
+    let quiet = global.quiet || global.json || global.jsonl;
 
     let compiled_re = compile_replace_regex(
         &args.old,
@@ -756,7 +756,7 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     refused: None,
                 };
                 global.emit_json(&output)?;
-                if !global.quiet {
+                if !global.quiet && !global.json && !global.jsonl {
                     eprintln!(
                         "ambiguous match: pattern {:?} matches {} times in {}; tighten the pattern/anchor, use --nth (replace), unique: false (plan/MCP), or --allow-non-unique (apply-fragment CLI)",
                         crate::fallback::truncate_str(&args.old, 60),

@@ -180,7 +180,7 @@ pub(super) fn collect_issues_with_list(
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
 
-    let quiet = global.quiet;
+    let quiet = global.quiet || global.json || global.jsonl;
     let eol_target = global.normalize_eol;
     let respect_ec = global.respect_editorconfig;
     let file_issues: Vec<Vec<TidyIssue>> =

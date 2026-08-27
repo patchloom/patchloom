@@ -610,7 +610,7 @@ pub(crate) fn run_parsed_plan(
             eprintln!("tx: {msg}");
             return Ok(exit::VALIDATION_FAILED);
         }
-        if !global.quiet {
+        if !global.quiet && !global.json && !global.jsonl {
             for m in &messages {
                 eprintln!("tx: {m}");
             }

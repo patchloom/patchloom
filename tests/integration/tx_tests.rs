@@ -10576,6 +10576,48 @@ fn test_tx_verify_cli_and_plan_unique_names_deduped() {
     );
 }
 
+#[test]
+fn test_tx_verify_pass_json_no_human_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn foo() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": "a.rs",
+            "old": "foo",
+            "new": "qux"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--verify")
+        .arg("unique_names")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("tx:"),
+        "passing --verify must not print human lines under --json: {stderr}"
+    );
+}
+
 /// #1802: successful tx --json includes backup_session.
 #[test]
 fn test_tx_apply_json_includes_backup_session() {
