@@ -171,7 +171,34 @@ pub(crate) fn collect_status(
     paths: &[String],
     global: &GlobalFlags,
 ) -> anyhow::Result<StatusOutput> {
+    collect_status_with_list(paths, global, None)
+}
+
+/// Like [`collect_status`], with a pre-read `--files-from` list so stdin `-`
+/// is not consumed twice (contain check in [`run`] + collect).
+fn collect_status_with_list(
+    paths: &[String],
+    global: &GlobalFlags,
+    files_from_preload: Option<&[String]>,
+) -> anyhow::Result<StatusOutput> {
     let cwd = global.resolve_cwd()?;
+
+    let files_owned;
+    let files_from: Option<&[String]> = if let Some(pre) = files_from_preload {
+        Some(pre)
+    } else if global.files_from.is_some() {
+        files_owned = global.read_files_from()?;
+        files_owned.as_deref()
+    } else {
+        None
+    };
+    if let Some(list) = files_from {
+        let listed: Vec<PathBuf> = list.iter().map(PathBuf::from).collect();
+        crate::files::ensure_files_from_nonempty(global, &listed)?;
+        global.check_paths_contained(&cwd, list)?;
+    }
+    // `--files-from` is the scan list (same as search/tidy), not a later filter.
+    let status_paths: &[String] = files_from.unwrap_or(paths);
 
     let mut cmd = process::Command::new("git");
     cmd.current_dir(&cwd)
@@ -180,9 +207,9 @@ pub(crate) fn collect_status(
         .arg("--no-renames")
         .arg("--untracked-files=all")
         .arg("-z");
-    if !paths.is_empty() {
+    if !status_paths.is_empty() {
         cmd.arg("--");
-        for path in paths {
+        for path in status_paths {
             cmd.arg(path);
         }
     }
@@ -199,7 +226,7 @@ pub(crate) fn collect_status(
     }
 
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
+    let glob_roots = crate::collect_glob_roots_from_global(status_paths, global, Some(&cwd))?;
     // Align glob roots with canonical porcelain paths (`/var` vs `/private/var`).
     let glob_roots: Vec<PathBuf> = glob_roots
         .into_iter()
@@ -269,8 +296,13 @@ pub(crate) fn collect_status(
 pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("status: checking {} path(s)", args.paths.len());
     let cwd = global.resolve_cwd()?;
+    // Read once so `--files-from -` is not consumed twice (contain + collect).
+    let files_from_list = global.read_files_from()?;
     global.check_paths_contained(&cwd, &args.paths)?;
-    let out = match collect_status(&args.paths, global) {
+    if let Some(ref list) = files_from_list {
+        global.check_paths_contained(&cwd, list)?;
+    }
+    let out = match collect_status_with_list(&args.paths, global, files_from_list.as_deref()) {
         Ok(o) => o,
         Err(e) => {
             // Outside a git repo, missing git binary, etc.
@@ -537,6 +569,66 @@ mod tests {
             out.modified.iter().any(|p| p == "foo.rs"),
             "dirty src/foo.rs should remain, got {:?}",
             out.modified
+        );
+    }
+
+    #[test]
+    fn collect_status_files_from_limits_to_listed_paths() {
+        let dir = tempfile::TempDir::new().unwrap();
+        init_git_repo_with_committed_file(dir.path(), "a.txt", "old-a\n");
+        std::fs::write(dir.path().join("b.txt"), "old-b\n").unwrap();
+        git_ok(dir.path(), &["add", "--", "b.txt"]);
+        git_ok(dir.path(), &["commit", "-m", "add b"]);
+        std::fs::write(dir.path().join("a.txt"), "new-a\n").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "new-b\n").unwrap();
+        std::fs::write(dir.path().join("list.txt"), "a.txt\n").unwrap();
+
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            files_from: Some("list.txt".into()),
+            ..GlobalFlags::default()
+        };
+        let out = collect_status(&[], &global).unwrap();
+        assert!(
+            out.modified.iter().any(|p| p == "a.txt"),
+            "files-from a.txt must report a.txt, got {:?}",
+            out.modified
+        );
+        assert!(
+            !out.modified.iter().any(|p| p == "b.txt")
+                && !out.created.iter().any(|p| p == "b.txt")
+                && !out.deleted.iter().any(|p| p == "b.txt"),
+            "files-from a.txt must omit dirty b.txt, got modified={:?} created={:?} deleted={:?}",
+            out.modified,
+            out.created,
+            out.deleted
+        );
+        assert_eq!(out.total_changes, 1, "expected only a.txt, got {out:?}");
+    }
+
+    #[test]
+    fn collect_status_empty_files_from_is_invalid_input() {
+        let dir = tempfile::TempDir::new().unwrap();
+        init_git_repo_with_committed_file(dir.path(), "a.txt", "old\n");
+        std::fs::write(dir.path().join("a.txt"), "new\n").unwrap();
+        std::fs::write(dir.path().join("empty.txt"), "").unwrap();
+
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            files_from: Some("empty.txt".into()),
+            ..GlobalFlags::default()
+        };
+        let err = collect_status(&[], &global).unwrap_err();
+        assert_eq!(
+            crate::exit::classify_typed_error(&err).map(|(kind, _)| kind),
+            Some("invalid_input"),
+            "empty --files-from must be invalid_input, not a clean tree: {err:#}"
+        );
+        let code = run(StatusArgs { paths: vec![] }, &global).unwrap();
+        assert_eq!(
+            code,
+            exit::FAILURE,
+            "empty --files-from must not report clean success"
         );
     }
 }
