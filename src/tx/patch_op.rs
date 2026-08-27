@@ -143,7 +143,7 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     }
                     .into());
                 }
-                if !crate::ops::file::path_entry_exists(&dest) && !tx.pending.contains_key(&dest) {
+                if !dest_exists(tx, &dest) {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
                         format!("file not found: {path}"),
@@ -167,6 +167,13 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                             dest.display()
                         ),
                     }
+                    .into());
+                }
+                if !dest_exists(tx, &dest) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file not found: {path}"),
+                    )
                     .into());
                 }
                 let original = read_file_content(tx.pending, tx.existed_before, &dest)?.to_string();

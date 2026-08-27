@@ -1696,6 +1696,96 @@ fn test_patch_begin_patch_add_dest_exists_is_already_exists() {
 }
 
 #[test]
+fn test_patch_begin_patch_double_delete_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("gone.rs"), "bye\n").unwrap();
+    let patch_file = dir.path().join("dbl.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Delete File: gone.rs\n*** Delete File: gone.rs\n*** End Patch\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+    assert!(
+        dir.path().join("gone.rs").exists(),
+        "failed apply must not delete"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_delete_then_update_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();
+    let patch_file = dir.path().join("du.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Delete File: a.rs\n*** Update File: a.rs\n@@\n-fn a() {}\n+fn b() {}\n*** End Patch\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_delete_then_add_applies() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("swap.rs"), "old\n").unwrap();
+    let patch_file = dir.path().join("da.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Delete File: swap.rs\n*** Add File: swap.rs\n+new\n*** End Patch\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_to_string(dir.path().join("swap.rs")).unwrap(),
+        "new\n"
+    );
+}
+
+#[test]
 fn test_patch_apply_begin_patch_ambiguous_json() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();
