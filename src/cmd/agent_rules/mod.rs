@@ -112,7 +112,8 @@ pub fn run(args: AgentRulesArgs, global: &crate::cli::global::GlobalFlags) -> an
         "ok": true,
         "format": "markdown",
         "content": output,
-    }))? {
+    }))? && !global.quiet
+    {
         print!("{output}");
     }
     Ok(exit::SUCCESS)
