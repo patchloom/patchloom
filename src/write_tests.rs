@@ -1268,6 +1268,24 @@ mod format_command_tests {
         // Should NOT bail even though formatter fails (advisory formatting)
         run_format_command_ext(&global, dir.path(), Some(&["test.rs"]), Some(&config)).unwrap();
     }
+
+    #[test]
+    fn run_format_command_ext_formatter_failure_json_does_not_bail() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("test.rs");
+        std::fs::write(&file, "fn main() {}\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.json = true;
+        let mut by_ext = std::collections::HashMap::new();
+        by_ext.insert("rs".to_string(), "false --".to_string());
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: None,
+            by_extension: by_ext,
+        };
+        run_format_command_ext(&global, dir.path(), Some(&["test.rs"]), Some(&config)).unwrap();
+    }
 }
 
 mod format_preservation {

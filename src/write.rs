@@ -854,6 +854,7 @@ pub(crate) fn run_format_command_ext(
     }
 
     let timeout_secs = global.format_timeout.unwrap_or(30);
+    let show_format_warn = !global.quiet && !global.json && !global.jsonl;
 
     // Priority 1: explicit --format command (whole-project)
     if let Some(cmd) = global.format.as_deref() {
@@ -888,7 +889,7 @@ pub(crate) fn run_format_command_ext(
     // Priority 2a: catch-all command
     if let Some(ref cmd) = config.command {
         let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
-        if !result.status.success() {
+        if !result.status.success() && show_format_warn {
             eprintln!(
                 "warning: format command failed ({}): {}",
                 cmd,
@@ -939,13 +940,13 @@ pub(crate) fn run_format_command_ext(
             for file in files {
                 let cmd = format!("{cmd_template} {}", shell_escape(file));
                 match crate::exec::run_with_timeout(&cmd, timeout_secs, cwd) {
-                    Ok(result) if !result.status.success() => {
+                    Ok(result) if !result.status.success() && show_format_warn => {
                         eprintln!(
                             "warning: formatter for .{ext} failed on {file}: {}",
                             result.stderr_head.trim()
                         );
                     }
-                    Err(e) => {
+                    Err(e) if show_format_warn => {
                         eprintln!("warning: formatter for .{ext} error on {file}: {e}");
                     }
                     _ => {}
