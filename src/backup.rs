@@ -945,7 +945,10 @@ fn session_origin_untrusted_reason(session_dir: &Path) -> Option<String> {
 /// Restore must not follow a dest symlink (or write onto a directory /
 /// FIFO / other special node). Missing dest is fine; only a regular
 /// file (or no entry) may be copied or unlinked.
-fn refuse_restore_onto_non_regular(target: &Path, entry_path: &str) -> anyhow::Result<()> {
+fn refuse_restore_onto_non_regular(
+    target: &Path,
+    entry_path: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
     use crate::ops::file::{PathEntryKind, classify_path_entry};
     match classify_path_entry(target) {
         PathEntryKind::Missing | PathEntryKind::RegularFile => Ok(()),
@@ -954,8 +957,7 @@ fn refuse_restore_onto_non_regular(target: &Path, entry_path: &str) -> anyhow::R
                 msg: format!(
                     "refusing restore onto non-regular destination (symlink or special file): {entry_path}"
                 ),
-            }
-            .into())
+            })
         }
     }
 }
@@ -1033,20 +1035,21 @@ fn validate_restore_path(entry_path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Classify dest parents for Modified/Deleted restore writes.
+/// Classify dest kind (and dest parents for write restores).
 ///
-/// Created-file undo only deletes the dest and does not mkdir parents.
-/// Preview and apply share this so a file or dangling parent is
-/// `invalid_input` instead of preview-ok / apply-only IO.
+/// Created-file undo only deletes the dest and does not mkdir parents,
+/// but a symlink/dir dest is still `invalid_input` (same as apply).
+/// Preview and apply share this so dest honesty is not apply-only.
 pub(crate) fn classify_restore_write_dests(
     project_root: &Path,
     manifest: &Manifest,
 ) -> Result<(), crate::exit::InvalidInputError> {
     for entry in &manifest.entries {
+        let target = resolve_restore_path(project_root, &entry.path);
+        refuse_restore_onto_non_regular(&target, &entry.path)?;
         match entry.action {
             FileAction::Created => {}
             FileAction::Modified | FileAction::Deleted => {
-                let target = resolve_restore_path(project_root, &entry.path);
                 crate::ops::file::ensure_parent_components_are_directories(&target)?;
             }
         }

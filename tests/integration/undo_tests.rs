@@ -724,3 +724,99 @@ fn test_undo_preview_and_apply_dest_parent_dangling_is_invalid_input() {
         "failed undo must not consume the session or create a backup-of-undo"
     );
 }
+
+fn create_then_replace_dest_with_dir(dir: &TempDir) {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "create",
+            "new.txt",
+            "--content",
+            "hello\n",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .assert()
+        .code(0);
+    fs::remove_file(dir.path().join("new.txt")).unwrap();
+    fs::create_dir(dir.path().join("new.txt")).unwrap();
+}
+
+fn assert_undo_dest_non_regular_invalid(dir: &TempDir, apply: bool) -> serde_json::Value {
+    let label = if apply { "apply" } else { "preview" };
+    let (code, json) = undo_json(dir, apply);
+    assert_eq!(code, Some(1), "{label}: {json}");
+    assert_eq!(json["ok"], false, "{label}: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "{label}: {json}");
+    assert_ne!(
+        json["status"], "changes_detected",
+        "{label} must not report preview-ok: {json}"
+    );
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("non-regular"),
+        "{label} message must name non-regular dest: {json}"
+    );
+    json
+}
+
+/// Created dest replaced by a directory is invalid_input on preview and apply.
+#[test]
+fn test_undo_preview_and_apply_created_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    create_then_replace_dest_with_dir(&dir);
+
+    let sessions_before = backup_session_dirs(dir.path());
+    assert_eq!(sessions_before.len(), 1);
+
+    assert_undo_dest_non_regular_invalid(&dir, false);
+    assert_undo_dest_non_regular_invalid(&dir, true);
+
+    assert!(
+        dir.path().join("new.txt").is_dir(),
+        "must not replace a directory dest"
+    );
+    let sessions_after = backup_session_dirs(dir.path());
+    assert_eq!(
+        sessions_after, sessions_before,
+        "failed undo must not consume the session or create a backup-of-undo"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_undo_preview_and_apply_created_dest_symlink_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "create",
+            "new.txt",
+            "--content",
+            "hello\n",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .assert()
+        .code(0);
+    fs::remove_file(dir.path().join("new.txt")).unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("new.txt")).unwrap();
+
+    let sessions_before = backup_session_dirs(dir.path());
+    assert_eq!(sessions_before.len(), 1);
+
+    assert_undo_dest_non_regular_invalid(&dir, false);
+    assert_undo_dest_non_regular_invalid(&dir, true);
+
+    assert!(
+        dir.path().join("new.txt").symlink_metadata().is_ok(),
+        "must not follow or replace a dest symlink"
+    );
+    let sessions_after = backup_session_dirs(dir.path());
+    assert_eq!(
+        sessions_after, sessions_before,
+        "failed undo must not consume the session"
+    );
+}
