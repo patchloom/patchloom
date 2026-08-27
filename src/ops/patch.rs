@@ -4,6 +4,8 @@
 //! Co-located tests push line count. Policy #1408 — do not split for LOC alone.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatchLine {
@@ -99,21 +101,22 @@ pub fn copy_dest_exists_msg(to: &str) -> String {
     format!("destination already exists: {to} (patch copy refuses overwrite; remove dest)")
 }
 
-/// Error message when a git empty-create dest already exists.
+/// Error message when a patch-create dest already exists.
 pub fn create_dest_exists_msg(to: &str) -> String {
     format!("destination already exists: {to} (patch create refuses overwrite; remove dest)")
 }
 
 /// Already-exists message when dest must not be overwritten.
 ///
-/// Covers rename clobber, git copy dest, and empty-create dest. Case-only
-/// rename returns `None` even when dest exists.
+/// Covers rename clobber, git copy dest, and create dest (`--- /dev/null`,
+/// with or without hunks). Case-only rename returns `None` even when dest
+/// exists.
 pub(crate) fn dest_clobber_msg(
     path: &str,
     dest_exists: bool,
     rename_from: Option<&str>,
     is_copy: bool,
-    is_empty_create: bool,
+    is_creation: bool,
 ) -> Option<String> {
     if let Some(from) = rename_from
         && rename_would_clobber_dest(from, path, dest_exists)
@@ -123,7 +126,7 @@ pub(crate) fn dest_clobber_msg(
     if is_copy && dest_exists {
         return Some(copy_dest_exists_msg(path));
     }
-    if is_empty_create && dest_exists {
+    if is_creation && dest_exists {
         return Some(create_dest_exists_msg(path));
     }
     None
@@ -136,9 +139,47 @@ impl PatchFile {
             dest_exists,
             self.rename_from.as_deref(),
             self.copy_from.is_some(),
-            self.is_creation && self.hunks.is_empty() && self.copy_from.is_none(),
+            self.is_creation && self.copy_from.is_none(),
         )
     }
+}
+
+/// Dest existence as apply sees it: pending creates minus deletions, else disk.
+pub(crate) fn staged_path_exists(
+    path: &Path,
+    created: &HashSet<PathBuf>,
+    deleted: &HashSet<PathBuf>,
+) -> bool {
+    if created.contains(path) {
+        return true;
+    }
+    if deleted.contains(path) {
+        return false;
+    }
+    crate::ops::file::path_entry_exists(path)
+}
+
+/// Record dests this file entry would create or free (check/apply parity).
+pub(crate) fn record_staged_patch_dest(
+    cwd: &Path,
+    pf: &PatchFile,
+    created: &mut HashSet<PathBuf>,
+    deleted: &mut HashSet<PathBuf>,
+) {
+    let dest = cwd.join(&pf.path);
+    if pf.is_deletion {
+        created.remove(&dest);
+        deleted.insert(dest);
+        return;
+    }
+    if let Some(from) = pf.rename_from.as_ref() {
+        let from_abs = cwd.join(from);
+        created.remove(&from_abs);
+        deleted.insert(from_abs);
+    }
+    // Any non-delete write occupies dest (pending), matching tx dest_exists.
+    deleted.remove(&dest);
+    created.insert(dest);
 }
 
 /// Apply-refuse message for a dest listed from git-meta that we do not write.

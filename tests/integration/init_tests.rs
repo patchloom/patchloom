@@ -104,7 +104,11 @@ fn test_init_errors_on_non_utf8_existing_agents_md() {
         "file should not be modified"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("reading existing"));
+    assert!(
+        stderr.contains("could not read")
+            && (stderr.contains("binary") || stderr.contains("UTF-8")),
+        "human init must name the read failure: {stderr}"
+    );
 }
 
 #[test]
@@ -172,6 +176,78 @@ fn test_init_json_emits_structured_report() {
         "gitignore field required: {json}"
     );
     assert!(dir.path().join("AGENTS.md").exists());
+    assert!(
+        json.get("error_kind").is_none() || json["error_kind"].is_null(),
+        "success report must not set error_kind: {json}"
+    );
+}
+
+/// Hard-fail init --json must set error_kind so agents can branch.
+#[test]
+fn test_init_json_hard_fail_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("AGENTS.md"), b"hello \xff world").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "init", "--yes", "--cwd"])
+        .arg(dir.path())
+        .env("SHELL", "unknown")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+        panic!(
+            "init --json must be JSON ({e}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "invalid_encoding", "{json}");
+    assert!(
+        json["error"]
+            .as_str()
+            .is_some_and(|s| s.contains("UTF-8") || s.contains("encoding")),
+        "error must name encoding: {json}"
+    );
+    assert!(
+        json["agent_rules"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("error:")),
+        "agent_rules still reports error: {json}"
+    );
+}
+
+#[test]
+fn test_init_json_agents_md_directory_sets_error_kind() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("AGENTS.md")).unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "init", "--yes", "--cwd"])
+        .arg(dir.path())
+        .env("SHELL", "unknown")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert!(
+        json["error"]
+            .as_str()
+            .is_some_and(|s| s.contains("not a file")),
+        "error must name dest kind: {json}"
+    );
 }
 
 /// #1833: `init --json` without `--yes` must still create AGENTS.md (agent bootstrap).

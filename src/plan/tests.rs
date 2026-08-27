@@ -1144,3 +1144,35 @@ fn for_each_expand_declared_paths_are_concrete() {
         "declared_paths after expand must not keep {{path}} templates: {paths:?}"
     );
 }
+
+#[cfg(feature = "files")]
+#[test]
+fn for_each_exclude_omits_vendor_tree() {
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("vendor/pkg")).unwrap();
+    std::fs::write(dir.path().join("app.js"), "a\n").unwrap();
+    std::fs::write(dir.path().join("vendor/pkg/lib.js"), "v\n").unwrap();
+    let mut plan = parse_plan(
+        r#"{
+            "version": 1,
+            "for_each": {"glob": "**/*.js", "exclude": ["vendor/**"]},
+            "operations": [{"op": "replace", "path": "{path}", "old": "a", "new": "b"}]
+        }"#,
+    )
+    .unwrap();
+    expand_for_each(&mut plan, dir.path()).unwrap();
+    let paths: Vec<String> = plan
+        .operations
+        .iter()
+        .flat_map(Operation::declared_paths)
+        .collect();
+    assert_eq!(paths.len(), 1, "only app.js: {paths:?}");
+    assert!(
+        paths.iter().any(|p| p.ends_with("app.js")),
+        "kept app.js: {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.contains("vendor")),
+        "vendor/** excluded: {paths:?}"
+    );
+}

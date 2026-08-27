@@ -96,7 +96,8 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     if plan.for_each.is_some() {
         crate::plan::expand_for_each(&mut plan, &cwd)?;
     }
-    let config_strict = crate::config::find_and_load(&cwd)
+    let warn = !global.quiet && !global.json && !global.jsonl;
+    let config_strict = crate::config::find_and_load_opts(&cwd, warn)
         .map(|(config, _)| config.tx.strict)
         .unwrap_or(None);
     let strict = crate::plan::effective_strict(plan.strict, config_strict, false);

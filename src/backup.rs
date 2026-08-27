@@ -10,13 +10,96 @@
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::ffi::OsStr;
+use std::path::{Component, Path, PathBuf};
+
+use crate::containment::PathGuard;
 
 /// Directory name under the project root.
 pub const BACKUP_DIR: &str = ".patchloom/backups";
 
+/// Sidecar written only by [`BackupSession::finalize`].
+///
+/// Restore of `__external__*` paths requires this file so a forged
+/// `manifest.json` (cloned repo or user `file.create`) cannot write
+/// outside the workspace. The path must be a regular file (not a
+/// symlink) whose contents are exactly [`ORIGIN_SIDECAR_BYTES`].
+pub(crate) const ORIGIN_SIDECAR: &str = ".origin";
+
+/// Bytes [`BackupSession::finalize`] writes to [`ORIGIN_SIDECAR`].
+pub(crate) const ORIGIN_SIDECAR_BYTES: &[u8] = b"backup-session\n";
+
 /// Maximum age in days before pruning old backups.
 const PRUNE_DAYS: u64 = 7;
+
+/// True when `path` is inside a `.patchloom/backups` tree (any ancestor).
+///
+/// Lexically normalizes `.` and `..` so `foo/../.patchloom/backups/x`
+/// is still detected. The `.patchloom` and `backups` segments are
+/// compared case-insensitively so `.PATCHLOOM/backups` on APFS cannot
+/// write into the real store. User writers must not target this store.
+pub fn is_under_backup_dir(path: &Path) -> bool {
+    let needle: Vec<_> = Path::new(BACKUP_DIR)
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s.to_os_string()),
+            _ => None,
+        })
+        .collect();
+    if needle.is_empty() {
+        return false;
+    }
+    let mut norm: Vec<std::ffi::OsString> = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::Prefix(_) | Component::RootDir => {}
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let _ = norm.pop();
+            }
+            Component::Normal(s) => norm.push(s.to_os_string()),
+        }
+    }
+    norm.windows(needle.len()).any(|w| {
+        w.iter()
+            .zip(needle.iter())
+            .all(|(got, want)| path_component_eq_ignore_ascii_case(got, want))
+    })
+}
+
+fn path_component_eq_ignore_ascii_case(a: &OsStr, b: &OsStr) -> bool {
+    match (a.to_str(), b.to_str()) {
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        _ => a == b,
+    }
+}
+
+/// Refuse a user write whose destination is under [`BACKUP_DIR`].
+pub fn refuse_user_write_under_backup_dir(path: &Path) -> anyhow::Result<()> {
+    if is_under_backup_dir(path) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("refusing write under {BACKUP_DIR}: {}", path.display()),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+/// Refuse declared operation paths that resolve under [`BACKUP_DIR`].
+pub(crate) fn refuse_declared_paths_under_backup_dir(
+    cwd: &Path,
+    op: &crate::plan::Operation,
+) -> anyhow::Result<()> {
+    for p in op.declared_paths() {
+        let joined = if Path::new(&p).is_absolute() {
+            PathBuf::from(&p)
+        } else {
+            cwd.join(&p)
+        };
+        refuse_user_write_under_backup_dir(&joined)?;
+    }
+    Ok(())
+}
 
 /// A single file entry in the backup manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +134,7 @@ pub struct Manifest {
 /// If the file is under the project root, returns the relative path. Otherwise,
 /// strips the root `/` (or drive prefix on Windows) so the path can be safely
 /// joined under the session directory without replacing it.
-fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
+pub(crate) fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
     // Strip Windows \\?\ (and //?/) so strip_prefix and drive-letter parsing
     // work when the caller passed a std::fs::canonicalize path (#1931).
     let file_path = dunce::simplified(file_path);
@@ -265,6 +348,10 @@ impl BackupSession {
         std::fs::write(&manifest_path, json)
             .with_context(|| format!("failed to write manifest {}", manifest_path.display()))?;
 
+        let origin_path = self.session_dir.join(ORIGIN_SIDECAR);
+        std::fs::write(&origin_path, ORIGIN_SIDECAR_BYTES)
+            .with_context(|| format!("failed to write session origin {}", origin_path.display()))?;
+
         Ok(Some(self.timestamp))
     }
 }
@@ -350,17 +437,65 @@ pub fn find_backup_roots(path: &Path) -> Vec<PathBuf> {
 }
 
 /// List available backup sessions, most recent first.
+///
+/// Session directories without a readable `manifest.json` (or with corrupt
+/// JSON) are omitted. This helper does not print. CLI `undo --list` puts
+/// listing warnings on the JSON envelope or a `--jsonl` trailer.
 pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
+    let (sessions, _warnings) = collect_listed_sessions(project_root)?;
+    Ok(sessions)
+}
+
+/// Warning when a session directory has no `manifest.json`.
+fn missing_manifest_warning(session_dir: &Path) -> String {
+    format!(
+        "warning: backup session {} has no manifest.json",
+        session_dir.display()
+    )
+}
+
+/// Warning when `manifest.json` exists but cannot be read.
+fn unreadable_manifest_warning(manifest_path: &Path, err: &impl std::fmt::Display) -> String {
+    format!(
+        "warning: unreadable backup manifest {}: {err}",
+        manifest_path.display()
+    )
+}
+
+/// Warning when `manifest.json` is not valid session JSON.
+fn corrupted_manifest_warning(manifest_path: &Path, err: &impl std::fmt::Display) -> String {
+    format!(
+        "warning: corrupted backup manifest {}: {err}",
+        manifest_path.display()
+    )
+}
+
+/// Collect sessions plus listing warnings (missing/corrupt/unreadable
+/// manifests, dropped `read_dir` dirents). Does not print.
+fn collect_listed_sessions(project_root: &Path) -> anyhow::Result<(Vec<Manifest>, Vec<String>)> {
     let backup_dir = project_root.join(BACKUP_DIR);
     if !backup_dir.exists() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), Vec::new()));
     }
 
-    let mut sessions = Vec::new();
+    let mut warnings = Vec::new();
+    let mut dropped_dirents = 0usize;
     let mut entries: Vec<_> = std::fs::read_dir(&backup_dir)?
-        .filter_map(|e| e.ok())
+        .filter_map(|e| match e {
+            Ok(ent) => Some(ent),
+            Err(_) => {
+                dropped_dirents += 1;
+                None
+            }
+        })
         .filter(|e| e.path().is_dir())
         .collect();
+    if dropped_dirents > 0 {
+        warnings.push(format!(
+            "warning: skipped {dropped_dirents} unreadable backup dirent(s) under {}",
+            backup_dir.display()
+        ));
+    }
 
     entries.sort_by(|a, b| {
         let ka = session_recency_key(&a.path(), &a.file_name().to_string_lossy());
@@ -368,24 +503,28 @@ pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
         kb.cmp(&ka)
     });
 
+    let mut sessions = Vec::new();
     for entry in entries {
-        let manifest_path = entry.path().join("manifest.json");
-        if manifest_path.exists() {
-            let content = std::fs::read_to_string(&manifest_path)
-                .with_context(|| format!("reading {}", manifest_path.display()))?;
-            match serde_json::from_str::<Manifest>(&content) {
-                Ok(manifest) => sessions.push(manifest),
-                Err(e) => {
-                    eprintln!(
-                        "warning: corrupted backup manifest {}: {e}",
-                        manifest_path.display()
-                    );
-                }
+        let session_dir = entry.path();
+        let manifest_path = session_dir.join("manifest.json");
+        if !manifest_path.exists() {
+            warnings.push(missing_manifest_warning(&session_dir));
+            continue;
+        }
+        let content = match std::fs::read_to_string(&manifest_path) {
+            Ok(content) => content,
+            Err(e) => {
+                warnings.push(unreadable_manifest_warning(&manifest_path, &e));
+                continue;
             }
+        };
+        match serde_json::from_str::<Manifest>(&content) {
+            Ok(manifest) => sessions.push(manifest),
+            Err(e) => warnings.push(corrupted_manifest_warning(&manifest_path, &e)),
         }
     }
 
-    Ok(sessions)
+    Ok((sessions, warnings))
 }
 
 /// Options for [`list_sessions_under`] (#1688).
@@ -416,6 +555,13 @@ pub struct SessionListing {
     pub project_root: PathBuf,
     /// Sessions under that root, newest first.
     pub sessions: Vec<Manifest>,
+    /// Missing, unreadable, or corrupt manifests under this root.
+    ///
+    /// Empty when every session dir had a readable `manifest.json`.
+    /// Callers that print (CLI `undo --list`) own the eprint; this helper
+    /// does not eprint, so hosts can put warnings on JSON instead of
+    /// dropping them as stderr-only.
+    pub warnings: Vec<String>,
 }
 
 /// List backup sessions under `project_root`, optionally walking nested crates.
@@ -424,6 +570,12 @@ pub struct SessionListing {
 /// edits may create `crates/foo/.patchloom/backups/` while the workspace root
 /// only has its own backups. Agent hosts use this helper instead of
 /// reimplementing nested discovery.
+///
+/// A root is included when it has usable sessions **or** listing warnings
+/// (missing/corrupt/unreadable `manifest.json`). Warnings live on
+/// [`SessionListing::warnings`]; this function does not eprint. Use
+/// [`list_sessions`] when the caller wants stderr warnings and only
+/// usable manifests.
 pub fn list_sessions_under(
     project_root: &Path,
     opts: &ListSessionsOptions,
@@ -463,11 +615,14 @@ pub fn list_sessions_under(
 
     let mut out = Vec::new();
     for root in unique_roots {
-        let sessions = list_sessions(&root)?;
-        if !sessions.is_empty() {
+        // Need warning strings on the listing (CLI undo --json / jsonl).
+        // list_sessions drops them.
+        let (sessions, warnings) = collect_listed_sessions(&root)?;
+        if !sessions.is_empty() || !warnings.is_empty() {
             out.push(SessionListing {
                 project_root: root,
                 sessions,
+                warnings,
             });
         }
     }
@@ -571,6 +726,16 @@ pub fn restore_path_from_session(
     session_timestamp: &str,
     path: &Path,
 ) -> anyhow::Result<bool> {
+    restore_path_from_session_with_guard(project_root, session_timestamp, path, None)
+}
+
+/// Like [`restore_path_from_session`], with optional [`PathGuard`].
+pub fn restore_path_from_session_with_guard(
+    project_root: &Path,
+    session_timestamp: &str,
+    path: &Path,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<bool> {
     let session_dir = project_root.join(BACKUP_DIR).join(session_timestamp);
     let manifest_path = session_dir.join("manifest.json");
 
@@ -594,7 +759,7 @@ pub fn restore_path_from_session(
         return Ok(false);
     };
 
-    validate_restore_path(&entry.path)?;
+    check_restore_policy(project_root, &session_dir, &entry.path, guard)?;
     let target = resolve_restore_path(project_root, &entry.path);
 
     match entry.action {
@@ -610,16 +775,14 @@ pub fn restore_path_from_session(
                 }
                 .into());
             }
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("creating parent dir for restore target {}", entry.path)
-                })?;
-            }
+            ensure_restore_parent_dir(&target, &entry.path)?;
+            refuse_restore_onto_non_regular(&target, &entry.path)?;
             std::fs::copy(&backup, &target)
                 .with_context(|| format!("restoring modified file {}", entry.path))?;
             Ok(true)
         }
         FileAction::Created => {
+            refuse_restore_onto_non_regular(&target, &entry.path)?;
             if target.exists() {
                 std::fs::remove_file(&target)
                     .with_context(|| format!("removing created file {} during undo", entry.path))?;
@@ -639,11 +802,8 @@ pub fn restore_path_from_session(
                 }
                 .into());
             }
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).with_context(|| {
-                    format!("creating parent dir for restore target {}", entry.path)
-                })?;
-            }
+            ensure_restore_parent_dir(&target, &entry.path)?;
+            refuse_restore_onto_non_regular(&target, &entry.path)?;
             std::fs::copy(&backup, &target)
                 .with_context(|| format!("restoring deleted file {}", entry.path))?;
             Ok(true)
@@ -652,7 +812,24 @@ pub fn restore_path_from_session(
 }
 
 /// Restore a specific backup session, returning the number of files restored.
+///
+/// Uncontained (no [`PathGuard`]). Legitimate `__external__*` entries from a
+/// real [`BackupSession`] still restore. Use
+/// [`restore_session_with_guard`] for `--contain` / MCP / library hosts.
 pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<usize> {
+    restore_session_with_guard(project_root, timestamp, None)
+}
+
+/// Restore a backup session, refusing targets outside `guard` when set.
+///
+/// With a guard: `__external__*` and any resolved path outside the workspace
+/// are rejected before any write or delete. Without a guard, `__external__*`
+/// still requires [`ORIGIN_SIDECAR`] (written only by [`BackupSession`]).
+pub fn restore_session_with_guard(
+    project_root: &Path,
+    timestamp: &str,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<usize> {
     let session_dir = project_root.join(BACKUP_DIR).join(timestamp);
     let manifest_path = session_dir.join("manifest.json");
 
@@ -665,7 +842,7 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
     // a missing blob cannot leave a half-undone tree.
     let mut missing: Vec<String> = Vec::new();
     for entry in &manifest.entries {
-        validate_restore_path(&entry.path)?;
+        check_restore_policy(project_root, &session_dir, &entry.path, guard)?;
         match entry.action {
             FileAction::Modified | FileAction::Deleted => {
                 let backup = session_dir.join(&entry.path);
@@ -690,6 +867,7 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
         }
         .into());
     }
+    classify_restore_write_dests(project_root, &manifest)?;
 
     // Phase 2: apply restores only after every required blob exists.
     let mut restored = 0;
@@ -698,11 +876,8 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
         match entry.action {
             FileAction::Modified => {
                 let backup = session_dir.join(&entry.path);
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent).with_context(|| {
-                        format!("creating parent dir for restore target {}", entry.path)
-                    })?;
-                }
+                ensure_restore_parent_dir(&target, &entry.path)?;
+                refuse_restore_onto_non_regular(&target, &entry.path)?;
                 std::fs::copy(&backup, &target)
                     .with_context(|| format!("restoring modified file {}", entry.path))?;
                 restored += 1;
@@ -710,6 +885,7 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
             FileAction::Created => {
                 // File was newly created by the apply; remove it if still present.
                 // Already gone is fine (idempotent undo of create).
+                refuse_restore_onto_non_regular(&target, &entry.path)?;
                 if target.exists() {
                     std::fs::remove_file(&target).with_context(|| {
                         format!("removing created file {} during undo", entry.path)
@@ -719,11 +895,8 @@ pub fn restore_session(project_root: &Path, timestamp: &str) -> anyhow::Result<u
             }
             FileAction::Deleted => {
                 let backup = session_dir.join(&entry.path);
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent).with_context(|| {
-                        format!("creating parent dir for restore target {}", entry.path)
-                    })?;
-                }
+                ensure_restore_parent_dir(&target, &entry.path)?;
+                refuse_restore_onto_non_regular(&target, &entry.path)?;
                 std::fs::copy(&backup, &target)
                     .with_context(|| format!("restoring deleted file {}", entry.path))?;
                 restored += 1;
@@ -742,6 +915,94 @@ pub fn remove_session(project_root: &Path, timestamp: &str) -> anyhow::Result<()
         std::fs::remove_dir_all(&session_dir)
             .with_context(|| format!("removing consumed backup session {timestamp}"))?;
     }
+    Ok(())
+}
+
+/// Why `__external__*` restore must not trust this session.
+///
+/// Distinguishes missing sidecar, non-regular (symlink or other), unreadable,
+/// and wrong bytes. `None` means a regular `.origin` with the expected bytes.
+/// `Path::is_file` is not used: it follows symlinks.
+fn session_origin_untrusted_reason(session_dir: &Path) -> Option<String> {
+    let origin = session_dir.join(ORIGIN_SIDECAR);
+    match std::fs::symlink_metadata(&origin) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Some(format!("missing {ORIGIN_SIDECAR}"))
+        }
+        Err(e) => Some(format!("unreadable {ORIGIN_SIDECAR}: {e}")),
+        Ok(meta) if meta.file_type().is_symlink() => {
+            Some("not a regular file (symlink)".to_string())
+        }
+        Ok(meta) if meta.file_type().is_file() => match std::fs::read(&origin) {
+            Ok(bytes) if bytes == ORIGIN_SIDECAR_BYTES => None,
+            Ok(_) => Some(format!("wrong bytes in {ORIGIN_SIDECAR}")),
+            Err(e) => Some(format!("unreadable {ORIGIN_SIDECAR}: {e}")),
+        },
+        Ok(_) => Some("not a regular file".to_string()),
+    }
+}
+
+/// Restore must not follow a dest symlink (or write onto a directory /
+/// FIFO / other special node). Missing dest is fine; only a regular
+/// file (or no entry) may be copied or unlinked.
+fn refuse_restore_onto_non_regular(
+    target: &Path,
+    entry_path: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+    match classify_path_entry(target) {
+        PathEntryKind::Missing | PathEntryKind::RegularFile => Ok(()),
+        PathEntryKind::RealDirectory | PathEntryKind::Special => {
+            Err(crate::exit::InvalidInputError {
+                msg: format!(
+                    "refusing restore onto non-regular destination (symlink or special file): {entry_path}"
+                ),
+            })
+        }
+    }
+}
+
+fn is_external_manifest_path(entry_path: &str) -> bool {
+    if entry_path == "__external__" || entry_path.starts_with("__external__/") {
+        return true;
+    }
+    entry_path.starts_with("__external_")
+        && entry_path.len() > 14
+        && entry_path
+            .as_bytes()
+            .get(11)
+            .is_some_and(|b| b.is_ascii_alphabetic())
+        && entry_path[12..].starts_with("__/")
+}
+
+/// Path traversal, untrusted `__external__*`, and contained restore policy.
+fn check_restore_policy(
+    project_root: &Path,
+    session_dir: &Path,
+    entry_path: &str,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<()> {
+    validate_restore_path(entry_path)?;
+    let external = is_external_manifest_path(entry_path);
+    if external && let Some(reason) = session_origin_untrusted_reason(session_dir) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!(
+                "refusing external restore from untrusted session ({reason}): {entry_path}"
+            ),
+        }
+        .into());
+    }
+    let target = resolve_restore_path(project_root, entry_path);
+    if let Some(g) = guard {
+        if external {
+            return Err(crate::fallback::EditError::guard_rejected(format!(
+                "contained restore refuses paths outside the project root: {entry_path}"
+            )));
+        }
+        g.check_path(&target.to_string_lossy())
+            .map_err(crate::fallback::EditError::guard_rejected)?;
+    }
+    refuse_restore_onto_non_regular(&target, entry_path)?;
     Ok(())
 }
 
@@ -770,6 +1031,40 @@ fn validate_restore_path(entry_path: &str) -> anyhow::Result<()> {
                 }));
             }
         }
+    }
+    Ok(())
+}
+
+/// Classify dest kind (and dest parents for write restores).
+///
+/// Created-file undo only deletes the dest and does not mkdir parents,
+/// but a symlink/dir dest is still `invalid_input` (same as apply).
+/// Preview and apply share this so dest honesty is not apply-only.
+pub(crate) fn classify_restore_write_dests(
+    project_root: &Path,
+    manifest: &Manifest,
+) -> Result<(), crate::exit::InvalidInputError> {
+    for entry in &manifest.entries {
+        let target = resolve_restore_path(project_root, &entry.path);
+        refuse_restore_onto_non_regular(&target, &entry.path)?;
+        match entry.action {
+            FileAction::Created => {}
+            FileAction::Modified | FileAction::Deleted => {
+                crate::ops::file::ensure_parent_components_are_directories(&target)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Classify dest parent then create missing directories for a restore write.
+fn ensure_restore_parent_dir(target: &Path, entry_path: &str) -> anyhow::Result<()> {
+    crate::ops::file::ensure_parent_components_are_directories(target)?;
+    if let Some(parent) = target.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating parent dir for restore target {entry_path}"))?;
     }
     Ok(())
 }
@@ -991,6 +1286,56 @@ mod tests {
         );
         // Disk left as-is (mutated content not partially restored).
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "mutated");
+    }
+
+    #[test]
+    fn list_sessions_missing_manifest_warns_instead_of_silent_skip() {
+        let dir = TempDir::new().unwrap();
+        let session_dir = dir.path().join(BACKUP_DIR).join("incomplete-no-manifest");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        let (sessions, warnings) = collect_listed_sessions(dir.path()).unwrap();
+        assert!(
+            sessions.is_empty(),
+            "dir without manifest is not a usable session: {sessions:?}"
+        );
+        assert_eq!(
+            warnings,
+            vec![missing_manifest_warning(&session_dir)],
+            "list must warn instead of pretending zero sessions"
+        );
+        assert_eq!(
+            warnings[0],
+            format!(
+                "warning: backup session {} has no manifest.json",
+                session_dir.display()
+            )
+        );
+
+        // Public list still succeeds and stays silent (warnings stay on
+        // collect_listed_sessions).
+        assert!(list_sessions(dir.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_sessions_corrupt_manifest_warns_instead_of_silent_skip() {
+        let dir = TempDir::new().unwrap();
+        let session_dir = dir.path().join(BACKUP_DIR).join("corrupt-manifest");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let manifest_path = session_dir.join("manifest.json");
+        std::fs::write(&manifest_path, "not-json").unwrap();
+
+        let (sessions, warnings) = collect_listed_sessions(dir.path()).unwrap();
+        assert!(sessions.is_empty(), "corrupt JSON is not a usable session");
+        assert_eq!(warnings.len(), 1, "got: {warnings:?}");
+        assert!(
+            warnings[0].starts_with(&format!(
+                "warning: corrupted backup manifest {}",
+                manifest_path.display()
+            )),
+            "corrupt list must name the file, got: {}",
+            warnings[0]
+        );
     }
 
     #[test]
@@ -1486,6 +1831,24 @@ mod tests {
     }
 
     #[test]
+    fn restore_path_from_latest_backup_ignores_junk_session_dir() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("data.txt");
+        std::fs::write(&file, "before").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap();
+
+        std::fs::create_dir_all(dir.path().join(BACKUP_DIR).join("bad-session")).unwrap();
+        std::fs::write(&file, "after").unwrap();
+
+        let ok = restore_path_from_latest_backup(dir.path(), &file).unwrap();
+        assert!(ok);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "before");
+    }
+
+    #[test]
     fn restore_path_from_latest_backup_missing_returns_false() {
         let dir = tempfile::TempDir::new().unwrap();
         let file = dir.path().join("never_backed_up.txt");
@@ -1688,6 +2051,487 @@ mod tests {
         assert!(
             shallow.is_empty(),
             "max_depth=1 should not reach crates/pkg: {shallow:?}"
+        );
+    }
+
+    #[test]
+    fn list_sessions_under_missing_manifest_returns_warnings() {
+        let dir = TempDir::new().unwrap();
+        let session_dir = dir.path().join(BACKUP_DIR).join("incomplete-no-manifest");
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        let listings = list_sessions_under(
+            dir.path(),
+            &ListSessionsOptions {
+                descendants: false,
+                ancestors: false,
+                max_depth: Some(8),
+            },
+        )
+        .unwrap();
+        assert_eq!(listings.len(), 1, "warning-only root must still be listed");
+        assert!(
+            listings[0].sessions.is_empty(),
+            "missing manifest is not usable: {:?}",
+            listings[0].sessions
+        );
+        assert_eq!(
+            listings[0].warnings,
+            vec![missing_manifest_warning(&session_dir)]
+        );
+        assert!(
+            listings[0].warnings[0].contains("manifest.json"),
+            "warning must name manifest.json: {:?}",
+            listings[0].warnings
+        );
+    }
+
+    #[test]
+    fn is_under_backup_dir_detects_normalized_paths() {
+        assert!(is_under_backup_dir(Path::new(
+            ".patchloom/backups/evil/manifest.json"
+        )));
+        assert!(is_under_backup_dir(Path::new(
+            "/proj/.patchloom/backups/id/blob"
+        )));
+        assert!(is_under_backup_dir(Path::new(
+            "foo/../.patchloom/backups/x"
+        )));
+        assert!(is_under_backup_dir(Path::new(".patchloom/./backups/x")));
+        assert!(is_under_backup_dir(Path::new(".patchloom/backups")));
+        assert!(!is_under_backup_dir(Path::new(".patchloom/other")));
+        assert!(!is_under_backup_dir(Path::new("src/main.rs")));
+        assert!(!is_under_backup_dir(Path::new("backups/foo")));
+    }
+
+    #[test]
+    fn is_under_backup_dir_detects_case_fold() {
+        assert!(is_under_backup_dir(Path::new(
+            ".PATCHLOOM/backups/x/manifest.json"
+        )));
+        assert!(is_under_backup_dir(Path::new(".Patchloom/BACKUPS/x")));
+        assert!(is_under_backup_dir(Path::new(
+            "/proj/.patchloom/BACKUPS/id/blob"
+        )));
+        assert!(is_under_backup_dir(Path::new(
+            "foo/../.PATCHLOOM/backups/x"
+        )));
+        assert!(!is_under_backup_dir(Path::new(".PATCHLOOM/other")));
+        assert!(!is_under_backup_dir(Path::new("BACKUPS/foo")));
+    }
+
+    #[test]
+    fn finalize_writes_origin_sidecar() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+        assert!(
+            dir.path()
+                .join(BACKUP_DIR)
+                .join(&ts)
+                .join(ORIGIN_SIDECAR)
+                .is_file(),
+            "BackupSession must write {ORIGIN_SIDECAR}"
+        );
+    }
+
+    #[test]
+    fn file_create_refuses_backup_dir_write() {
+        let dir = TempDir::new().unwrap();
+        let target = dir
+            .path()
+            .join(BACKUP_DIR)
+            .join("evil")
+            .join("manifest.json");
+        let err = crate::api::file_create(
+            &target,
+            "{\"forged\":true}\n",
+            false,
+            crate::api::ApplyMode::Apply,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input, got: {err:#}"
+        );
+        assert!(!target.exists(), "forged backup manifest must not exist");
+    }
+
+    #[test]
+    fn file_create_refuses_case_fold_backup_dir_write() {
+        let dir = TempDir::new().unwrap();
+        let target = dir
+            .path()
+            .join(".PATCHLOOM")
+            .join("backups")
+            .join("x")
+            .join("manifest.json");
+        let err = crate::api::file_create(
+            &target,
+            "{\"forged\":true}\n",
+            false,
+            crate::api::ApplyMode::Apply,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input, got: {err:#}"
+        );
+        assert!(
+            !target.exists(),
+            "forged case-fold backup manifest must not exist"
+        );
+    }
+
+    #[test]
+    fn writers_refuse_backup_dir_targets() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join(BACKUP_DIR).join("evil").join("x.txt");
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::fs::write(&dest, "old").unwrap();
+
+        let err = crate::api::replace_text(
+            &dest,
+            "old",
+            "new",
+            &crate::api::ReplaceOptions::default(),
+            crate::api::ApplyMode::Apply,
+            None,
+        )
+        .unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "old");
+
+        let err =
+            crate::api::file_append(&dest, "more", crate::api::ApplyMode::Apply, None).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "old");
+
+        let err =
+            crate::api::file_prepend(&dest, "pre", crate::api::ApplyMode::Apply, None).unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "old");
+
+        let src = dir.path().join("src.txt");
+        std::fs::write(&src, "moved").unwrap();
+        let err = crate::api::file_rename(&src, &dest, true, crate::api::ApplyMode::Apply, None)
+            .unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "old");
+        assert_eq!(std::fs::read_to_string(&src).unwrap(), "moved");
+    }
+
+    fn write_forged_session(
+        project: &Path,
+        ts: &str,
+        entry_path: &str,
+        action: FileAction,
+        blob: Option<&[u8]>,
+        with_origin: bool,
+    ) {
+        let session_dir = project.join(BACKUP_DIR).join(ts);
+        std::fs::create_dir_all(&session_dir).unwrap();
+        if let Some(bytes) = blob {
+            let blob_path = session_dir.join(entry_path);
+            if let Some(parent) = blob_path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(blob_path, bytes).unwrap();
+        }
+        let manifest = Manifest {
+            timestamp: ts.to_string(),
+            entries: vec![ManifestEntry {
+                path: entry_path.to_string(),
+                action,
+            }],
+        };
+        std::fs::write(
+            session_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+        if with_origin {
+            std::fs::write(session_dir.join(ORIGIN_SIDECAR), ORIGIN_SIDECAR_BYTES).unwrap();
+        }
+    }
+
+    #[test]
+    fn restore_contain_refuses_forged_external() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-undo-target");
+        std::fs::write(&outside_file, "keep me").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            ext_path.starts_with("__external"),
+            "expected external prefix, got {ext_path}"
+        );
+        let ts = "forged-contain";
+        write_forged_session(
+            dir.path(),
+            ts,
+            &ext_path,
+            FileAction::Modified,
+            Some(b"pwned"),
+            true,
+        );
+
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            crate::containment::AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+        let err = restore_session_with_guard(dir.path(), ts, Some(&guard)).unwrap_err();
+        assert!(
+            crate::api::is_guard_rejected(&err) || crate::exit::is_invalid_input(&err),
+            "contained restore must fail, got: {err:#}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep me");
+    }
+
+    #[test]
+    fn restore_contain_refuses_created_external_delete() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-created-target");
+        std::fs::write(&outside_file, "do not delete").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-created";
+        write_forged_session(dir.path(), ts, &ext_path, FileAction::Created, None, true);
+
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            crate::containment::AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+        let err = restore_session_with_guard(dir.path(), ts, Some(&guard)).unwrap_err();
+        assert!(
+            crate::api::is_guard_rejected(&err) || crate::exit::is_invalid_input(&err),
+            "contained restore must fail, got: {err:#}"
+        );
+        assert!(
+            outside_file.exists(),
+            "Created + __external__ must not delete under contain"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&outside_file).unwrap(),
+            "do not delete"
+        );
+    }
+
+    #[test]
+    fn restore_forged_external_without_origin_refused() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-untrusted");
+        std::fs::write(&outside_file, "keep").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-no-origin";
+        write_forged_session(
+            dir.path(),
+            ts,
+            &ext_path,
+            FileAction::Modified,
+            Some(b"pwned"),
+            false,
+        );
+
+        let err = restore_session(dir.path(), ts).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "untrusted external restore must be invalid_input, got: {err:#}"
+        );
+        assert!(
+            msg.contains("missing .origin"),
+            "missing sidecar must name that case, got: {msg}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// A `.origin` *symlink* to a regular file (even one whose contents match
+    /// the sidecar) must not make `__external__` restore trusted.
+    #[cfg(unix)]
+    #[test]
+    fn restore_forged_external_symlink_origin_refused() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-symlink-origin");
+        std::fs::write(&outside_file, "keep").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-symlink-origin";
+        write_forged_session(
+            dir.path(),
+            ts,
+            &ext_path,
+            FileAction::Modified,
+            Some(b"pwned"),
+            false,
+        );
+        // Decoy regular file with the exact sidecar bytes. `Path::is_file`
+        // would follow this link and treat the session as trusted.
+        let decoy = dir.path().join("README");
+        std::fs::write(&decoy, ORIGIN_SIDECAR_BYTES).unwrap();
+        let origin = dir.path().join(BACKUP_DIR).join(ts).join(ORIGIN_SIDECAR);
+        std::os::unix::fs::symlink(&decoy, &origin).unwrap();
+
+        let err = restore_session(dir.path(), ts).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "symlink .origin must not trust external restore, got: {err:#}"
+        );
+        assert!(
+            msg.contains("symlink") && msg.contains("not a regular file"),
+            "symlink .origin must name symlink / not a regular file, got: {msg}"
+        );
+        assert!(
+            !msg.contains("missing"),
+            "symlink .origin must not look like a missing sidecar, got: {msg}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// Regular `.origin` whose bytes are not the BackupSession sidecar.
+    #[test]
+    fn restore_forged_external_wrong_origin_bytes_refused() {
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-wrong-origin");
+        std::fs::write(&outside_file, "keep").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-wrong-origin";
+        write_forged_session(
+            dir.path(),
+            ts,
+            &ext_path,
+            FileAction::Modified,
+            Some(b"pwned"),
+            false,
+        );
+        std::fs::write(
+            dir.path().join(BACKUP_DIR).join(ts).join(ORIGIN_SIDECAR),
+            b"not-a-backup-session\n",
+        )
+        .unwrap();
+
+        let err = restore_session(dir.path(), ts).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "wrong .origin bytes must not trust external restore, got: {err:#}"
+        );
+        assert!(
+            msg.contains("wrong bytes"),
+            "wrong .origin bytes must name that case, got: {msg}"
+        );
+        assert!(
+            !msg.contains("missing"),
+            "wrong bytes must not look like a missing sidecar, got: {msg}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// Regular `.origin` that cannot be read is unreadable, not missing.
+    #[cfg(unix)]
+    #[test]
+    fn restore_forged_external_unreadable_origin_refused() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("forged-unreadable-origin");
+        std::fs::write(&outside_file, "keep").unwrap();
+
+        let ext_path = sanitize_rel_path(&outside_file, dir.path())
+            .to_string_lossy()
+            .into_owned();
+        let ts = "forged-unreadable-origin";
+        write_forged_session(
+            dir.path(),
+            ts,
+            &ext_path,
+            FileAction::Modified,
+            Some(b"pwned"),
+            false,
+        );
+        let origin = dir.path().join(BACKUP_DIR).join(ts).join(ORIGIN_SIDECAR);
+        std::fs::write(&origin, ORIGIN_SIDECAR_BYTES).unwrap();
+        std::fs::set_permissions(&origin, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&origin).is_ok() {
+            std::fs::set_permissions(&origin, std::fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+
+        let err = restore_session(dir.path(), ts).unwrap_err();
+        let msg = err.to_string();
+        let _ = std::fs::set_permissions(&origin, std::fs::Permissions::from_mode(0o644));
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "unreadable .origin must be invalid_input, got: {err:#}"
+        );
+        assert!(
+            msg.contains("unreadable"),
+            "unreadable .origin must name that case, got: {msg}"
+        );
+        assert!(
+            !msg.contains("missing"),
+            "unreadable .origin must not look like a missing sidecar, got: {msg}"
+        );
+        assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// Undo must not `fs::copy` through a dest that is now a symlink.
+    #[cfg(unix)]
+    #[test]
+    fn restore_refuses_dest_symlink_leaves_target() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("app.toml");
+        std::fs::write(&dest, "original dest").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&dest).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        std::fs::write(&dest, "modified dest").unwrap();
+        std::fs::remove_file(&dest).unwrap();
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        std::fs::write(&outside_file, "do not overwrite").unwrap();
+        std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+        let err = restore_session(dir.path(), &ts).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "restore onto dest symlink must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest entry must remain a symlink"
         );
     }
 }

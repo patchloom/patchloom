@@ -1,5 +1,7 @@
 //! Unified execution engine for single-operation and multi-operation execution.
 //!
+//! size-waiver: single execute_single / stage / commit path for CLI, MCP, and library (policy #1408).
+//!
 //! This module provides `execute_single()`, a lightweight entry point that
 //! wraps one `Operation` into a minimal `Plan` and runs it through the existing
 //! `execute_and_collect()` + `commit_changes()` path.
@@ -151,6 +153,8 @@ impl ExecutionResult {
     /// Commit the staged changes to disk with backup.
     ///
     /// Returns the backup session timestamp when a session was created.
+    /// Failures after backup finalize map to [`crate::exit::MutationAfterBackupError`]
+    /// so [`crate::exit::backup_session_from_error`] can peel the session id.
     pub fn commit(self) -> anyhow::Result<Option<String>> {
         if !self.has_changes {
             return Ok(None);
@@ -162,7 +166,27 @@ impl ExecutionResult {
             &self.cwd,
             &self.exec_result.renames,
         )
-        .map_err(|e| anyhow::anyhow!("{}", e.message))
+        .map_err(commit_error_to_anyhow)
+    }
+}
+
+/// Map [`super::CommitError`] to a peelable root error.
+///
+/// CLI `tx` / `plan_exec` call `commit_changes` directly and keep
+/// `CommitError`. Library `execute_as_edit_result` and CLI
+/// `write_mode::commit_then_format` go through this mapping.
+fn commit_error_to_anyhow(err: super::CommitError) -> anyhow::Error {
+    match err.backup_session {
+        Some(session) if err.rollback_ok => {
+            crate::exit::MutationAfterBackupError::restored(session, err.message).into()
+        }
+        Some(session) => crate::exit::MutationAfterBackupError::restore_failed(
+            session,
+            "rollback failed",
+            err.message,
+        )
+        .into(),
+        None => anyhow::anyhow!("{}", err.message),
     }
 }
 
@@ -205,6 +229,9 @@ pub fn execute_precomputed(
             g.check_path(rel_path)
                 .map_err(crate::fallback::EditError::guard_rejected)?;
         }
+    }
+    for (rel_path, _, _) in &changes {
+        crate::backup::refuse_user_write_under_backup_dir(&options.cwd().join(rel_path))?;
     }
 
     let cwd = options.cwd().to_path_buf();
@@ -278,6 +305,7 @@ fn execute_plan_inner(
                 .into());
             }
         }
+        crate::backup::refuse_declared_paths_under_backup_dir(options.cwd(), op)?;
     }
     // TidyFix-specific constraints when callers skip validate_plan_operations.
     for op in &operations {
@@ -726,6 +754,83 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "old\n");
         report.commit().unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+    }
+
+    /// Engine `commit` must keep `backup_session` on `CommitError` so library
+    /// `execute_as_edit_result` and CLI `commit_then_format` can peel it.
+    #[test]
+    fn engine_commit_fail_preserves_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("target.txt");
+        fs::write(&path, "original\n").unwrap();
+        let global = GlobalFlags::test_default();
+        let report = stage(WriteRequest {
+            source: WriteSource::Precomputed(vec![(
+                "target.txt".to_string(),
+                "original\n".to_string(),
+                "changed\n".to_string(),
+            )]),
+            options: test_options(dir.path(), &global),
+        })
+        .unwrap();
+        assert!(report.has_changes);
+
+        let _write_fail = crate::tx::WriteFailGuard::fail_paths_containing("target.txt");
+        let err = report.commit().expect_err("injected write failure");
+        let session = crate::exit::backup_session_from_error(&err)
+            .expect("hosts must peel backup_session after engine commit fail");
+        assert!(
+            !session.is_empty(),
+            "peeled session must be the finalized id"
+        );
+        let typed = err
+            .downcast_ref::<crate::exit::MutationAfterBackupError>()
+            .expect("CommitError with session maps to MutationAfterBackupError");
+        assert!(typed.restored, "rollback should succeed for a single fail");
+        assert_eq!(typed.session, session);
+        let sessions = crate::backup::list_sessions(dir.path()).unwrap();
+        assert!(
+            sessions.iter().any(|s| s.timestamp == session),
+            "peeled session {session:?} must match list_sessions: {sessions:?}"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original\n");
+    }
+
+    /// Same peel when restore after the failed write also fails.
+    #[test]
+    fn engine_commit_fail_restore_failed_preserves_backup_session() {
+        let dir = TempDir::new().unwrap();
+        let good = dir.path().join("a_good.txt");
+        fs::write(&good, "original\n").unwrap();
+        let global = GlobalFlags::test_default();
+        let report = stage(WriteRequest {
+            source: WriteSource::Precomputed(vec![
+                (
+                    "a_good.txt".to_string(),
+                    "original\n".to_string(),
+                    "changed\n".to_string(),
+                ),
+                (
+                    "z_fail/child.txt".to_string(),
+                    String::new(),
+                    "fail\n".to_string(),
+                ),
+            ]),
+            options: test_options(dir.path(), &global),
+        })
+        .unwrap();
+
+        let _write_fail = crate::tx::WriteFailGuard::fail_paths_containing("z_fail");
+        let _restore_fail = crate::tx::RestoreFailGuard::engage();
+        let err = report.commit().expect_err("injected write + restore fail");
+        let session = crate::exit::backup_session_from_error(&err)
+            .expect("hosts must peel backup_session after restore-failed commit");
+        assert!(!session.is_empty());
+        let typed = err
+            .downcast_ref::<crate::exit::MutationAfterBackupError>()
+            .expect("restore-failed CommitError maps to MutationAfterBackupError");
+        assert!(!typed.restored, "restore was injected to fail");
+        assert_eq!(typed.session, session);
     }
 
     #[test]

@@ -276,7 +276,7 @@ pub(super) fn run_fix(
         .map(crate::ops::read::parse_line_range)
         .transpose()?;
 
-    let quiet = global.quiet;
+    let quiet = global.quiet || global.json || global.jsonl;
     let dedent_ref = dedent.as_deref();
     let indent_ref = indent.as_deref();
     // policy_from_flags reads ensure/trim/eol from GlobalFlags. Overlay the
@@ -384,6 +384,7 @@ pub(super) fn run_fix(
     // write-policy fields use the effective check-parity defaults above.
     let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
 
-    let refused = crate::ops::file::explicit_multi_path_non_text_refused(&paths, &cwd);
+    let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(&paths);
+    let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
     tidy_fix_output(global, result, &dirty_rel_paths, &cwd, skipped, refused)
 }

@@ -10,7 +10,7 @@
 [![Release](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/release.json&logo=github)](https://github.com/patchloom/patchloom/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](./LICENSE)
 
-[![Tests](https://img.shields.io/badge/tests-4400%2B%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-4600%2B%20passing-brightgreen)](#)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/SebTardif/6a26adf6bfae45f530465f626c9154f4/raw/coverage.json)](https://github.com/patchloom/patchloom/actions/workflows/ci.yml)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13097/badge)](https://www.bestpractices.dev/projects/13097)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/patchloom/patchloom/badge)](https://securityscorecards.dev/viewer/?uri=github.com/patchloom/patchloom)
@@ -518,7 +518,7 @@ flowchart LR
 
 ## Status
 
-4400+ tests across 24 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+4600+ tests across 24 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 | Component | Status |
 |---|---|
@@ -543,7 +543,9 @@ at your option.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-For local verification before opening a pull request, run `make check`. It matches the main Linux CI gate: formatting, clippy, unit tests (including feature-matrix jobs), integration tests, PTY tests, release-notes structure, test hygiene, and generated-doc freshness (`check-patchloom-md`, `check-readme`). While iterating locally, `make check-fast` is the same except it skips only `check-patchloom-md` (it still runs `check-readme` so a drifted test-count badge fails before CI).
+For local verification before opening a pull request, run `make check`. It covers the main Linux test and lint gate: formatting, clippy, unit tests (including feature-matrix jobs), integration tests, PTY tests, release-notes structure, test hygiene, generated-doc freshness (`check-patchloom-md`, `check-readme`), `server-json-test`, and `verify-homebrew-version-test`. It is not every GitHub required check: `audit`, `deny`, and Windows stay in GitHub Actions. While iterating locally, `make check-fast` is the same except it skips only `check-patchloom-md` (it still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`).
+
+Pull request titles must use one Conventional Commits prefix (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`; no commas or `+`). See [CONTRIBUTING.md](./CONTRIBUTING.md#pull-request-titles).
 
 All commits must be signed off with `git commit -s`.
 

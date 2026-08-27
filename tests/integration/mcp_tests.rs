@@ -23,6 +23,43 @@ fn test_mcp_setup_documents_surface_core_honesty() {
     );
 }
 
+/// MCP execute_plan must not be documented as running format/validate like CLI tx.
+#[test]
+fn test_mcp_setup_execute_plan_strips_lifecycle() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("MCP `execute_plan` strips `format`/`validate`")
+            || doc.contains("strips `format` and `validate`"),
+        "mcp-setup must state that MCP strips format/validate"
+    );
+    assert!(
+        !doc.contains("format` steps, `validate` steps: same as CLI"),
+        "mcp-setup must not say MCP plans run format/validate like CLI tx"
+    );
+}
+
+/// doc_update filters via the selector string, not a predicate field.
+#[test]
+fn test_mcp_setup_doc_update_selector_not_predicate_field() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        !doc.contains("| `doc_update` | Update array elements matching a predicate |"),
+        "doc_update must not be described as taking a predicate field"
+    );
+    let update_idx = doc
+        .find("`doc_update`")
+        .expect("mcp-setup must list doc_update");
+    let row = doc[update_idx..].lines().next().unwrap_or("");
+    assert!(
+        row.contains("selector") && (row.contains("wildcard") || row.contains("wildcards")),
+        "doc_update row must mention selector predicates/wildcards: {row}"
+    );
+    assert!(
+        row.contains("doc_delete_where"),
+        "doc_update row must point at doc_delete_where for the predicate tool: {row}"
+    );
+}
+
 /// #2060: setup docs must list package version + protocol_version on server_info
 /// (not only cwd/surface), matching the tool payload and agent-rules.
 #[test]
@@ -144,6 +181,201 @@ fn test_mcp_http_host_requires_http_flag() {
         .assert()
         .failure()
         .stderr(predicates::str::contains("--http"));
+}
+
+/// Unauthenticated `--host 0.0.0.0` must fail closed before bind.
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_non_loopback_refused_without_allow_flag() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "mcp-server", "--http", "--host", "0.0.0.0"])
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "non-loopback HTTP must fail without --allow-unauthenticated"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        !combined.contains("listening"),
+        "must refuse before bind, got: {combined}"
+    );
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!("expected JSON invalid_input on stdout: {e}; stdout={stdout} stderr={stderr}")
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let msg = v["error"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("--allow-unauthenticated"),
+        "error must name the opt-in flag: {msg}"
+    );
+    assert!(
+        msg.contains("no authentication") || msg.contains("unauthenticated"),
+        "error must say HTTP has no auth: {msg}"
+    );
+}
+
+/// Loopback `--http` still starts without `--allow-unauthenticated`.
+#[cfg(feature = "mcp-http")]
+#[tokio::test]
+async fn test_mcp_http_loopback_starts_without_allow_flag() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut child = tokio::process::Command::new(&bin)
+        .args(["mcp-server", "--http", "--host", "127.0.0.1", "--port", "0"])
+        .current_dir(dir.path())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn loopback mcp-server --http");
+
+    let stderr = child.stderr.take().unwrap();
+    let mut reader = tokio::io::BufReader::new(stderr);
+    let mut line = String::new();
+    tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line)
+        .await
+        .expect("failed to read loopback HTTP banner");
+    assert!(
+        line.contains("MCP HTTP server listening"),
+        "loopback --http must start without --allow-unauthenticated: {line}"
+    );
+    assert!(
+        line.contains("127.0.0.1"),
+        "banner should show loopback bind: {line}"
+    );
+    child.kill().await.ok();
+}
+
+/// `--quiet` and `--json` must not print the HTTP listening banner.
+#[cfg(feature = "mcp-http")]
+#[tokio::test]
+async fn test_mcp_http_quiet_suppresses_banner() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let bin = assert_cmd::cargo::cargo_bin("patchloom");
+    let mut child = tokio::process::Command::new(&bin)
+        .args([
+            "--quiet",
+            "mcp-server",
+            "--http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+        ])
+        .current_dir(dir.path())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn quiet mcp-server --http");
+
+    let stderr = child.stderr.take().unwrap();
+    let collector = tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(stderr);
+        let mut all = String::new();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match tokio::io::AsyncBufReadExt::read_line(&mut reader, &mut line).await {
+                Ok(0) => break,
+                Ok(_) => all.push_str(&line),
+                Err(_) => break,
+            }
+        }
+        all
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    assert!(
+        child.try_wait().expect("try_wait").is_none(),
+        "quiet --http server should still be running"
+    );
+    child.kill().await.ok();
+    let stderr = collector.await.expect("stderr collector");
+    assert!(
+        !stderr.contains("listening"),
+        "--quiet must not print the listening banner: {stderr}"
+    );
+}
+
+/// Occupied bind is a typed `invalid_input` under `--json`, not a bare anyhow.
+#[cfg(feature = "mcp-http")]
+#[test]
+fn test_mcp_http_bind_failure_is_invalid_input_json() {
+    if !has_mcp_http_support() {
+        return;
+    }
+    let holder = std::net::TcpListener::bind("127.0.0.1:0").expect("hold a port");
+    let port = holder.local_addr().expect("local_addr").port();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "mcp-server",
+            "--http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|e| panic!("expected JSON invalid_input on stdout: {e}; stdout={stdout}"));
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let msg = v["error"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("failed to bind"),
+        "error must name the bind failure: {msg}"
+    );
+    drop(holder);
+}
+
+/// mcp-setup must not present `--host 0.0.0.0` as a one-line default.
+#[test]
+fn test_mcp_setup_does_not_advertise_bare_all_interfaces_http() {
+    let doc = fs::read_to_string(repo_root().join("docs/getting-started/mcp-setup.md")).unwrap();
+    assert!(
+        doc.contains("--allow-unauthenticated"),
+        "mcp-setup must document --allow-unauthenticated"
+    );
+    assert!(
+        doc.contains("127.0.0.1"),
+        "mcp-setup must show loopback first"
+    );
+    for line in doc.lines() {
+        let trimmed = line.trim();
+        // Command examples only. Prose may mention 0.0.0.0 to warn against it.
+        if trimmed.starts_with("patchloom ") && trimmed.contains("--host 0.0.0.0") {
+            assert!(
+                trimmed.contains("--allow-unauthenticated") || trimmed.ends_with('\\'),
+                "0.0.0.0 command must include --allow-unauthenticated (or continue to a line that does): {trimmed}"
+            );
+        }
+    }
+    let idx = doc
+        .find("patchloom mcp-server --http --host 0.0.0.0")
+        .expect("all-interfaces example should still exist with the flag");
+    let window = &doc[idx..idx.saturating_add(200).min(doc.len())];
+    assert!(
+        window.contains("--allow-unauthenticated"),
+        "0.0.0.0 command example must include --allow-unauthenticated nearby"
+    );
 }
 
 #[cfg(feature = "mcp-http")]

@@ -1450,6 +1450,38 @@ fn test_doc_set_toml_apply() {
 }
 
 #[test]
+fn test_doc_set_toml_null_json_no_stderr_warning() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, "[package]\nname = \"old\"\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "set"])
+        .arg(&file)
+        .args(["package.name", "null", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("TOML has no null"),
+        "null-to-empty must not warn under --json: {stderr}"
+    );
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("name = \"\""),
+        "TOML null maps to empty string: {content}"
+    );
+}
+
+#[test]
 fn test_doc_len_array() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.json");

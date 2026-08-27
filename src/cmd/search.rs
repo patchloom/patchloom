@@ -173,19 +173,27 @@ struct SearchAssertCountOutput {
     error_kind: Option<&'static str>,
 }
 
+/// First walk plus merged hits. Remask reuses `scanned`; keep this off
+/// library [`SearchResults`] (public API).
+struct CollectedSearch {
+    results: SearchResults,
+    scanned: Vec<std::path::PathBuf>,
+}
+
 pub(crate) fn collect_matches(
     args: &SearchArgs,
     global: &GlobalFlags,
 ) -> anyhow::Result<SearchResults> {
-    collect_matches_with_list(args, global, None)
+    Ok(collect_matches_with_list(args, global, None)?.results)
 }
 
 /// Like [`collect_matches`], with a pre-read `--files-from` list (stdin once).
-pub(crate) fn collect_matches_with_list(
+/// Returns the first walk so no-match / assert-count-0 remask can reuse it.
+fn collect_matches_with_list(
     args: &SearchArgs,
     global: &GlobalFlags,
     files_from_preload: Option<&[String]>,
-) -> anyhow::Result<SearchResults> {
+) -> anyhow::Result<CollectedSearch> {
     crate::verbose!(
         "search: pattern={:?} literal={} paths={:?}",
         args.pattern,
@@ -228,18 +236,17 @@ pub(crate) fn collect_matches_with_list(
         before_context: args.before_context,
         after_context: args.after_context,
         context: args.context,
-        quiet: global.quiet,
+        quiet: global.quiet || global.json || global.jsonl,
     };
     let file_results =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
             ops_search::search_one_file(path, &matcher, &search_params, cwd_ref)
         });
 
-    Ok(ops_search::merge_file_results(
-        file_results,
-        count_only,
-        args.max_results,
-    ))
+    Ok(CollectedSearch {
+        results: ops_search::merge_file_results(file_results, count_only, args.max_results),
+        scanned: file_paths,
+    })
 }
 
 /// Explicit multi-file lists only: co-listed non-text / unreadable paths.
@@ -564,7 +571,8 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         }
         return Ok(exit::FAILURE);
     }
-    let results = collect_matches_with_list(&args, global, files_from_list.as_deref())?;
+    let CollectedSearch { results, scanned } =
+        collect_matches_with_list(&args, global, files_from_list.as_deref())?;
     let skipped = if files_from_list.is_some() {
         // Use preloaded list (stdin cannot be re-read).
         Ok(files_from_list
@@ -611,14 +619,6 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
                 return Ok(exit::FAILURE);
             }
-            let scanned = crate::files::collect_file_paths_opts_with_list(
-                &args.paths,
-                global,
-                false,
-                Some(&cwd),
-                files_from_list.as_deref(),
-                None,
-            )?;
             if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
                 global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
                 return Ok(exit::FAILURE);
@@ -696,14 +696,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             return Ok(exit::FAILURE);
         }
         // Multi-path / dir walk: unreadable may have masked the scan (#1894).
-        let scanned = crate::files::collect_file_paths_opts_with_list(
-            &args.paths,
-            global,
-            false,
-            Some(&cwd),
-            files_from_list.as_deref(),
-            None,
-        )?;
+        // Reuse the first walk; do not collect_file_paths again on miss.
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);
@@ -881,6 +874,80 @@ mod tests {
         );
         let code = run(args, &GlobalFlags::test_default()).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
+    }
+
+    #[test]
+    fn collect_matches_with_list_returns_first_walk() {
+        let dir = make_test_dir();
+        let path = dir.path().to_string_lossy().into_owned();
+        let args = make_args("zzz_no_match_zzz", vec![path]);
+        let global = GlobalFlags::test_default();
+        let collected = collect_matches_with_list(&args, &global, None).unwrap();
+        assert!(collected.results.matches.is_empty());
+        let cwd = global.resolve_cwd().unwrap();
+        let walked = crate::files::collect_file_paths_opts_with_list(
+            &args.paths,
+            &global,
+            false,
+            Some(&cwd),
+            None,
+            None,
+        )
+        .unwrap();
+        let mut scanned = collected.scanned;
+        let mut walked = walked;
+        scanned.sort();
+        walked.sort();
+        assert_eq!(scanned, walked);
+        assert!(
+            !scanned.is_empty(),
+            "fixture walk must include hello.txt / code.rs"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn no_match_dir_unreadable_is_invalid_input_not_no_matches() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let locked = dir.path().join("locked.txt");
+        fs::write(&locked, "needle\n").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_to_string(&locked).is_ok() {
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let args = make_args("needle", vec![dir.path().to_string_lossy().into_owned()]);
+        let code = run(args, &GlobalFlags::test_default());
+        let _ = fs::set_permissions(&locked, fs::Permissions::from_mode(0o644));
+        assert_eq!(
+            code.unwrap(),
+            exit::FAILURE,
+            "masked unreadable walk must not be pattern no_matches"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn assert_count_zero_dir_unreadable_is_invalid_input() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let locked = dir.path().join("locked.txt");
+        fs::write(&locked, "needle\n").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        if fs::read_to_string(&locked).is_ok() {
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+            return;
+        }
+        let mut args = make_args("needle", vec![dir.path().to_string_lossy().into_owned()]);
+        args.assert_count = Some(0);
+        let code = run(args, &GlobalFlags::test_default());
+        let _ = fs::set_permissions(&locked, fs::Permissions::from_mode(0o644));
+        assert_eq!(
+            code.unwrap(),
+            exit::FAILURE,
+            "assert-count 0 must not succeed when the scan is masked"
+        );
     }
 
     #[test]

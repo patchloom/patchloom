@@ -246,7 +246,8 @@ fn file_write_cross(
     // Fallback: rename directly.
     if let Operation::FileRename { to, force, .. } = _op {
         let dst = Path::new(&to);
-        if !force && dst.exists() {
+        crate::ops::file::refuse_non_regular_destination(dst, &to)?;
+        if !force && crate::ops::file::path_entry_exists(dst) {
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                 msg: format!(
                     "destination already exists: {} (use force to overwrite)",
@@ -264,7 +265,7 @@ fn file_write_cross(
             guard,
             |backup| {
                 backup.save_before_write(src)?;
-                if dst.exists() && force {
+                if crate::ops::file::path_entry_exists(dst) && force {
                     backup.save_before_write(dst)?;
                 }
                 Ok(())

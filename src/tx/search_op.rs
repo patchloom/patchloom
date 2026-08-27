@@ -1,13 +1,15 @@
-use super::execute::{TxState, read_and_probe, read_file_content};
+use super::execute::TxState;
 use super::output::{TxSearchMatch, TxSearchResult};
 use crate::plan::Operation;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Execute a search operation within a transaction.
 ///
-/// If `path` is a directory, walks it (respecting `.gitignore`) and searches
-/// each non-binary file, mirroring the standalone `search` command behavior.
+/// If `path` is a directory, walks it in parallel (respecting `.gitignore`)
+/// and searches each non-binary file, mirroring the standalone `search`
+/// command. Scanned files are not inserted into pending unless a prior write
+/// already staged them.
 pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Result<()> {
     crate::verbose!(
         "search_op: path={}, pattern_len={}, regex={}, case_insensitive={}",
@@ -84,11 +86,12 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
     let ctx_after = after_context.or(*context).unwrap_or(0);
 
     let resolved = tx.cwd.join(path);
-    // Use the shared advanced ignore collection when available for parity with
-    // api::search_directory / CLI (respects .gitignore + custom_ignore_filenames + exclude_patterns).
-    // Then apply include globs.
+    let is_dir = resolved.is_dir();
+    // Parallel collect (same WalkBuilder::build_parallel engine as CLI) when
+    // the files/cli walker is available. Search is read-only: do not insert
+    // scanned files into pending unless a prior write already staged them.
     #[cfg(any(feature = "cli", feature = "files"))]
-    let candidate_paths: Vec<PathBuf> = if resolved.is_dir() {
+    let candidate_paths: Vec<PathBuf> = if is_dir {
         crate::files::collect_file_paths_with_ignores(
             &resolved,
             custom_ignore_filenames,
@@ -99,7 +102,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         vec![resolved.clone()]
     };
     #[cfg(not(any(feature = "cli", feature = "files")))]
-    let candidate_paths: Vec<PathBuf> = if resolved.is_dir() {
+    let candidate_paths: Vec<PathBuf> = if is_dir {
         let mut paths = Vec::new();
         for entry in WalkBuilder::new(&resolved).build() {
             let entry = entry?;
@@ -115,7 +118,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
 
     let glob_matcher = crate::files::build_glob_matcher(globs)?;
     // glob_roots used for relative glob matching; use the search root (dir or parent of file)
-    let glob_root = if resolved.is_dir() {
+    let glob_root = if is_dir {
         resolved.clone()
     } else {
         resolved.parent().unwrap_or(&resolved).to_path_buf()
@@ -131,89 +134,57 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         candidate_paths
     };
 
+    let is_multi_file = file_paths.len() > 1;
+    let scan = TxSearchScan {
+        cwd: tx.cwd,
+        is_multi_file,
+        re: &re,
+        invert_match: *invert_match,
+        multiline: *multiline,
+        ctx_before,
+        ctx_after,
+    };
     let mut all_matches = Vec::new();
 
+    let mut pending_paths = Vec::new();
+    let mut disk_paths = Vec::new();
     for file_path in &file_paths {
-        // For directory walks, read the file once and check for binary content
-        // in the same buffer (avoids double-reading text files: 8 KiB probe +
-        // full re-read). For single-file paths, skip the binary check.
-        if file_paths.len() > 1 {
-            if !read_and_probe(tx.pending, tx.existed_before, file_path)? {
-                continue; // binary file, skip
-            }
+        if tx.pending.contains_key(file_path) {
+            pending_paths.push(file_path);
         } else {
-            read_file_content(tx.pending, tx.existed_before, file_path)?;
+            disk_paths.push(file_path.clone());
         }
-        let content = &tx.pending[file_path].1;
-        let lines: Vec<&str> = content.lines().collect();
+    }
 
-        let is_multi_file = file_paths.len() > 1;
-        if *multiline {
-            // Multiline mode: search the full content so patterns can span lines.
-            for m in re.find_iter(content) {
-                let line_idx = content[..m.start()].matches('\n').count();
-                let match_end_line = line_idx + m.as_str().matches('\n').count();
-                let start = line_idx.saturating_sub(ctx_before);
-                let end = (match_end_line + 1 + ctx_after).min(lines.len());
-                let matched_text = m.as_str().to_string();
-                let text = if is_multi_file {
-                    let display_path = file_path
-                        .strip_prefix(tx.cwd)
-                        .unwrap_or(file_path)
-                        .to_string_lossy();
-                    format!("{display_path}:{matched_text}")
-                } else {
-                    matched_text
-                };
-                let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |p| p + 1);
-                all_matches.push(TxSearchMatch {
-                    line: line_idx + 1,
-                    column: col + 1,
-                    text,
-                    context_before: lines[start..line_idx.min(lines.len())]
-                        .iter()
-                        .map(|s| s.to_string())
-                        .collect(),
-                    context_after: if match_end_line + 1 < lines.len() {
-                        lines[match_end_line + 1..end]
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect()
-                    } else {
-                        vec![]
-                    },
+    // Already-staged writes: search the in-tx buffer, leave pending as-is.
+    for file_path in pending_paths {
+        let content = &tx.pending[file_path].1;
+        all_matches.extend(collect_tx_search_matches(content, file_path, &scan));
+    }
+
+    if is_dir {
+        #[cfg(any(feature = "cli", feature = "files"))]
+        {
+            let disk_results: Vec<anyhow::Result<Vec<TxSearchMatch>>> =
+                crate::files::par_process_files(&disk_paths, None, &[], |file_path| {
+                    match search_disk_file(file_path, true, &scan) {
+                        Ok(ms) if ms.is_empty() => None,
+                        other => Some(other),
+                    }
                 });
+            for result in disk_results {
+                all_matches.extend(result?);
             }
-        } else {
-            for (i, line) in lines.iter().enumerate() {
-                let found = re.find(line);
-                let is_match = if *invert_match {
-                    found.is_none()
-                } else {
-                    found.is_some()
-                };
-                if is_match {
-                    let start = i.saturating_sub(ctx_before);
-                    let end = (i + 1 + ctx_after).min(lines.len());
-                    let text = if is_multi_file {
-                        let display_path = file_path
-                            .strip_prefix(tx.cwd)
-                            .unwrap_or(file_path)
-                            .to_string_lossy();
-                        format!("{display_path}:{}", line)
-                    } else {
-                        line.to_string()
-                    };
-                    let column = found.map_or(1, |m| m.start() + 1);
-                    all_matches.push(TxSearchMatch {
-                        line: i + 1,
-                        column,
-                        text,
-                        context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
-                        context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
-                    });
-                }
+        }
+        #[cfg(not(any(feature = "cli", feature = "files")))]
+        {
+            for file_path in &disk_paths {
+                all_matches.extend(search_disk_file(file_path, true, &scan)?);
             }
+        }
+    } else {
+        for file_path in &disk_paths {
+            all_matches.extend(search_disk_file(file_path, false, &scan)?);
         }
     }
 
@@ -233,7 +204,7 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         .into());
     }
 
-    // Cap after assertion check. Append order matches walk order.
+    // Cap after assertion check. match_count is the true total (honesty).
     let truncated = *max_results > 0 && all_matches.len() > *max_results;
     if *max_results > 0 {
         all_matches.truncate(*max_results);
@@ -247,6 +218,130 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         truncated,
     });
     Ok(())
+}
+
+/// Shared match options for one search op (avoids 9-arg helpers).
+struct TxSearchScan<'a> {
+    cwd: &'a Path,
+    is_multi_file: bool,
+    re: &'a regex::Regex,
+    invert_match: bool,
+    multiline: bool,
+    ctx_before: usize,
+    ctx_after: usize,
+}
+
+/// Search `content` without touching tx pending.
+fn collect_tx_search_matches(
+    content: &str,
+    file_path: &Path,
+    scan: &TxSearchScan<'_>,
+) -> Vec<TxSearchMatch> {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut matches = Vec::new();
+    if scan.multiline {
+        for m in scan.re.find_iter(content) {
+            let line_idx = content[..m.start()].matches('\n').count();
+            let match_end_line = line_idx + m.as_str().matches('\n').count();
+            let start = line_idx.saturating_sub(scan.ctx_before);
+            let end = (match_end_line + 1 + scan.ctx_after).min(lines.len());
+            let matched_text = m.as_str().to_string();
+            let text = if scan.is_multi_file {
+                let display_path = file_path
+                    .strip_prefix(scan.cwd)
+                    .unwrap_or(file_path)
+                    .to_string_lossy();
+                format!("{display_path}:{matched_text}")
+            } else {
+                matched_text
+            };
+            let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |p| p + 1);
+            matches.push(TxSearchMatch {
+                line: line_idx + 1,
+                column: col + 1,
+                text,
+                context_before: lines[start..line_idx.min(lines.len())]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                context_after: if match_end_line + 1 < lines.len() {
+                    lines[match_end_line + 1..end]
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    vec![]
+                },
+            });
+        }
+    } else {
+        for (i, line) in lines.iter().enumerate() {
+            let found = scan.re.find(line);
+            let is_match = if scan.invert_match {
+                found.is_none()
+            } else {
+                found.is_some()
+            };
+            if is_match {
+                let start = i.saturating_sub(scan.ctx_before);
+                let end = (i + 1 + scan.ctx_after).min(lines.len());
+                let text = if scan.is_multi_file {
+                    let display_path = file_path
+                        .strip_prefix(scan.cwd)
+                        .unwrap_or(file_path)
+                        .to_string_lossy();
+                    format!("{display_path}:{line}")
+                } else {
+                    line.to_string()
+                };
+                let column = found.map_or(1, |m| m.start() + 1);
+                matches.push(TxSearchMatch {
+                    line: i + 1,
+                    column,
+                    text,
+                    context_before: lines[start..i].iter().map(|s| s.to_string()).collect(),
+                    context_after: lines[i + 1..end].iter().map(|s| s.to_string()).collect(),
+                });
+            }
+        }
+    }
+    matches
+}
+
+/// Load from disk into a stack buffer. Directory walks soft-skip non-text;
+/// sole-path search stays strict.
+fn search_disk_file(
+    file_path: &Path,
+    is_dir_walk: bool,
+    scan: &TxSearchScan<'_>,
+) -> anyhow::Result<Vec<TxSearchMatch>> {
+    let content = if is_dir_walk {
+        match crate::files::try_read_text_file(file_path) {
+            Ok(s) => s,
+            Err(
+                crate::files::SoftTextSkip::Binary
+                | crate::files::SoftTextSkip::InvalidUtf8
+                | crate::files::SoftTextSkip::NotRegularFile,
+            ) => return Ok(Vec::new()),
+            Err(crate::files::SoftTextSkip::Unreadable) => {
+                return match std::fs::read(file_path) {
+                    Ok(_) => Err(anyhow::anyhow!("failed to read {}", file_path.display())),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                        Err(anyhow::Error::new(e)
+                            .context(format!("failed to read {}", file_path.display())))
+                    }
+                    Err(e) => Err(crate::exit::InvalidInputError {
+                        msg: format!("failed to read {}: {e}", file_path.display()),
+                    }
+                    .into()),
+                };
+            }
+        }
+    } else {
+        let display = file_path.display().to_string();
+        crate::files::load_text_strict(file_path, &display)?
+    };
+    Ok(collect_tx_search_matches(&content, file_path, scan))
 }
 
 #[cfg(test)]
@@ -656,5 +751,52 @@ mod tests {
             &["eee"],
             "context_after should be the line after the match, not a match line"
         );
+    }
+
+    #[test]
+    fn search_only_does_not_insert_into_pending() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "alpha\n").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "beta\n").unwrap();
+
+        let op = search_op(".", "alpha");
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        execute_search_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 1);
+        assert!(
+            f.pending.is_empty(),
+            "search-only files must not stay in pending: {:?}",
+            f.pending.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            f.existed_before.is_empty() && f.write_targets.is_empty(),
+            "search-only must not mark write/existed_before"
+        );
+    }
+
+    #[test]
+    fn search_uses_already_pending_content() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("staged.txt");
+        std::fs::write(&file, "disk only\n").unwrap();
+
+        let op = search_op("staged.txt", "pending");
+        let mut f = TxStateFixture::new();
+        f.pending
+            .insert(file.clone(), ("disk only\n".into(), "pending hit\n".into()));
+        f.existed_before.insert(file.clone());
+        f.write_targets.insert(file.clone());
+        {
+            let mut tx = f.state(dir.path());
+            execute_search_op(&op, &mut tx).unwrap();
+        }
+        assert_eq!(
+            f.searches[0].match_count, 1,
+            "search must see in-tx pending content, not disk"
+        );
+        assert_eq!(f.pending.len(), 1, "must not add extra pending entries");
+        assert_eq!(f.pending[&file].1, "pending hit\n");
     }
 }

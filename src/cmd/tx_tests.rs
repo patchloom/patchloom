@@ -1208,6 +1208,7 @@ mod integrity {
             &pending,
             &deletions,
             &existed_before,
+            true,
         );
         assert_eq!(
             fs::read_to_string(&f).unwrap(),

@@ -75,16 +75,7 @@ pub(crate) fn apply_yaml_mapping_diff(
                         && let Some(scalar) = existing.as_scalar()
                         && scalar.is_quoted()
                     {
-                        let raw = scalar.value();
-                        let quote_char = raw.chars().next().unwrap_or('"');
-                        let quoted = if quote_char == '\'' {
-                            // Single-quoted: escape internal single quotes as ''
-                            format!("'{}'", new_str.replace('\'', "''"))
-                        } else {
-                            // Double-quoted: escape internal backslashes and double quotes
-                            format!("\"{}\"", new_str.replace('\\', "\\\\").replace('"', "\\\""))
-                        };
-                        scalar.set_value(&quoted);
+                        set_quoted_scalar(scalar, new_str);
                     } else {
                         mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
                     }
@@ -151,6 +142,21 @@ pub(super) fn apply_yaml_sequence_diff(
     Ok(all_applied)
 }
 
+/// Rewrite a quoted scalar in place, keeping the existing quote character
+/// and applying the matching escape rules.
+fn set_quoted_scalar(scalar: &yaml_edit::Scalar, new_str: &str) {
+    let raw = scalar.value();
+    let quote_char = raw.chars().next().unwrap_or('"');
+    let quoted = if quote_char == '\'' {
+        // Single-quoted: escape internal single quotes as ''
+        format!("'{}'", new_str.replace('\'', "''"))
+    } else {
+        // Double-quoted: escape internal backslashes and double quotes
+        format!("\"{}\"", new_str.replace('\\', "\\\\").replace('"', "\\\""))
+    };
+    scalar.set_value(&quoted);
+}
+
 /// yaml-edit 0.3 `Sequence::set` copies an `ALIAS` child as-is and still
 /// returns true. Refuse that no-op so the caller can dump or splice.
 fn try_sequence_set(
@@ -160,6 +166,14 @@ fn try_sequence_set(
 ) -> anyhow::Result<bool> {
     if seq.get(index).is_some_and(|n| n.as_alias().is_some()) {
         return Ok(false);
+    }
+    if let Some(new_str) = new_val.as_str()
+        && let Some(node) = seq.get(index)
+        && let Some(scalar) = node.as_scalar()
+        && scalar.is_quoted()
+    {
+        set_quoted_scalar(scalar, new_str);
+        return Ok(true);
     }
     Ok(seq.set(index, json_to_yaml_node(new_val)?))
 }
@@ -324,16 +338,6 @@ fn collect_mapping_alias_rewrites(
             {
                 out.push(rewrite);
             }
-            continue;
-        }
-        if old_val == new_val {
-            continue;
-        }
-        if let (serde_json::Value::Object(_), serde_json::Value::Object(_)) = (old_val, new_val)
-            && let Some(rewrite) =
-                alias_object_rewrite(mapping.get(key.as_str()), Some(key), old_val, new_val, None)?
-        {
-            out.push(rewrite);
         }
     }
     Ok(())
@@ -1101,6 +1105,18 @@ mod tests {
         assert!(
             result.contains("\"Jane Doe\""),
             "double quotes not preserved: {result}"
+        );
+    }
+
+    #[test]
+    fn sequence_scalar_set_preserves_double_quote_style() {
+        let yaml = "items:\n  - \"foo\"\n";
+        let old = json!({"items": ["foo"]});
+        let new = json!({"items": ["bar"]});
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(
+            result.contains("- \"bar\""),
+            "double quotes not preserved on sequence item: {result}"
         );
     }
 

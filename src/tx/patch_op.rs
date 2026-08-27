@@ -40,7 +40,19 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 diff,
                 |path| {
                     let file_path = tx.cwd.join(path);
-                    Ok(read_file_content(tx.pending, tx.existed_before, &file_path)?.to_string())
+                    match read_file_content(tx.pending, tx.existed_before, &file_path) {
+                        Ok(s) => Ok(s.to_string()),
+                        Err(e)
+                            if options.on_stale == crate::ops::patch::OnStale::Merge
+                                && crate::exit::classify_typed_error(&e)
+                                    .is_some_and(|(k, _)| k == "not_found") =>
+                        {
+                            // Merge check treats missing dest as empty; apply must too
+                            // so dest occupancy matches dest_exists after the write.
+                            Ok(String::new())
+                        }
+                        Err(e) => Err(e),
+                    }
                 },
                 options,
             )?;
@@ -65,6 +77,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                     ) {
                         return Err(crate::exit::AlreadyExistsError { msg }.into());
                     }
+                    crate::ops::file::ensure_parent_components_are_directories(&to_path)?;
                     // Ensure source is in pending (loader already did); record rename
                     // so commit uses fs::rename then write dest content.
                     if !tx.existed_before.contains(&from_path)
@@ -96,12 +109,11 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                         dest_exists(tx, &file_path),
                         None,
                         result.copy_from.is_some(),
-                        result.is_creation
-                            && result.copy_from.is_none()
-                            && result.content.is_empty(),
+                        result.is_creation && result.copy_from.is_none(),
                     ) {
                         return Err(crate::exit::AlreadyExistsError { msg }.into());
                     }
+                    crate::ops::file::ensure_parent_components_are_directories(&file_path)?;
                     tx.write_file(&file_path, result.content);
                 }
             }
@@ -129,6 +141,13 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     }
                     .into());
                 }
+                if dest_exists(tx, &dest) {
+                    return Err(crate::exit::AlreadyExistsError {
+                        msg: crate::ops::patch::create_dest_exists_msg(&path),
+                    }
+                    .into());
+                }
+                crate::ops::file::ensure_parent_components_are_directories(&dest)?;
                 tx.write_file(&dest, content);
             }
             BeginPatchOp::Delete { path } => {
@@ -139,7 +158,7 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     }
                     .into());
                 }
-                if !crate::ops::file::path_entry_exists(&dest) && !tx.pending.contains_key(&dest) {
+                if !dest_exists(tx, &dest) {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
                         format!("file not found: {path}"),
@@ -165,6 +184,13 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     }
                     .into());
                 }
+                if !dest_exists(tx, &dest) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file not found: {path}"),
+                    )
+                    .into());
+                }
                 let original = read_file_content(tx.pending, tx.existed_before, &dest)?.to_string();
                 let updated = apply_codex_hunks(&original, &hunks)?;
                 if let Some(new_path) = move_to {
@@ -178,6 +204,7 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                         }
                         .into());
                     }
+                    crate::ops::file::ensure_parent_components_are_directories(&new_dest)?;
                     tx.renames.push((dest.clone(), new_dest.clone()));
                     tx.write_file(&new_dest, updated);
                     if let Some((orig, _)) = tx.pending.get(&dest) {

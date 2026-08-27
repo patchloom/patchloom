@@ -1228,6 +1228,51 @@ fn test_tx_file_rename_moves_file() {
     );
 }
 
+/// CLI collateral skip set must include rename dests (not only `changes`).
+/// After strict format rollback, the dest must be gone (exit 7).
+#[test]
+fn test_tx_strict_format_rollback_removes_rename_dest() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old.txt");
+    let dest = dir.path().join("new.txt");
+    fs::write(&src, "content\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "strict": true,
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "new.txt"}
+        ],
+        "format": [{
+            "cmd": shell_false(),
+            "timeout": 5
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .assert()
+        .code(6); // VALIDATION_FAILED
+
+    assert!(
+        src.exists(),
+        "source should be restored after strict format rollback"
+    );
+    assert_eq!(fs::read_to_string(&src).unwrap(), "content\n");
+    assert!(
+        !dest.exists(),
+        "rename dest must be gone after strict format rollback"
+    );
+}
+
 /// Symlink rename must not rewrite the target even when CLI write policy is set (#2091).
 #[cfg(unix)]
 #[test]
@@ -3999,6 +4044,140 @@ fn test_tx_patch_apply_in_plan() {
 }
 
 #[test]
+fn test_tx_begin_patch_move_dest_exists_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("from.rs"), "fn a() {}\n").unwrap();
+    fs::write(dir.path().join("taken.rs"), "keep\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "*** Begin Patch\n*** Update File: from.rs\n*** Move to: taken.rs\n@@\n-fn a() {}\n+fn b() {}\n*** End Patch\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "--apply"])
+        .arg(&plan_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("taken.rs")).unwrap(),
+        "keep\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("from.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+}
+
+fn assert_tx_dest_parent_invalid_input(dir: &TempDir, plan_file: &std::path::Path) {
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "dest-parent file apply={apply}: {stdout}"
+        );
+    }
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+}
+
+#[test]
+fn test_tx_patch_apply_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "--- /dev/null\n+++ b/notdir/out.rs\n@@ -0,0 +1 @@\n+hello\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "must not write dest under a file parent"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_tx_patch_apply_dest_parent_dangling_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken")).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "--- /dev/null\n+++ b/broken/out.rs\n@@ -0,0 +1 @@\n+hello\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{stdout}");
+}
+
+#[test]
+fn test_tx_begin_patch_add_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "*** Begin Patch\n*** Add File: notdir/out.rs\n+hello\n*** End Patch\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "Begin Patch Add must not write dest under a file parent"
+    );
+}
+
+#[test]
 fn test_tx_patch_apply_begin_patch() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
@@ -5115,7 +5294,7 @@ fn test_tx_strict_mode_reverts_on_format_failure() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // File should be restored to original content.
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
@@ -5156,7 +5335,7 @@ fn test_tx_strict_format_fail_restores_binary_delete() {
         .unwrap();
     assert_eq!(
         output.status.code(),
-        Some(7),
+        Some(6), // VALIDATION_FAILED
         "strict format fail should exit ROLLBACK: {}",
         String::from_utf8_lossy(&output.stdout)
     );
@@ -5210,7 +5389,7 @@ fn test_tx_strict_mode_reverts_on_validate_failure() {
         .unwrap();
     assert_eq!(
         output.status.code(),
-        Some(7), // ROLLBACK
+        Some(6), // VALIDATION_FAILED
         "stdout={} stderr={}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -5252,7 +5431,7 @@ fn test_tx_strict_mode_restores_modified_empty_file_on_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     assert!(file.exists(), "modified empty file should not be deleted");
     assert_eq!(fs::read_to_string(&file).unwrap(), "");
@@ -5285,7 +5464,7 @@ fn test_tx_strict_mode_removes_created_files_on_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // Newly created file should be removed.
     assert!(!new_file.exists());
@@ -6043,7 +6222,7 @@ fn test_tx_json_output_on_strict_validation_failure_preserves_reason() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    assert_eq!(output.status.code(), Some(6)); // VALIDATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["error_kind"], "validation_failed");
@@ -6086,7 +6265,7 @@ fn test_tx_strict_mode_restores_deleted_empty_file_on_failure() {
         .arg(&plan_file)
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     assert!(file.exists(), "deleted empty file should be restored");
     assert_eq!(fs::read_to_string(&file).unwrap(), "");
@@ -6121,7 +6300,7 @@ fn test_tx_strict_mode_restores_deleted_empty_file_absolute_path() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     assert!(
         file.exists(),
@@ -6157,7 +6336,7 @@ fn test_tx_strict_mode_restores_deleted_file_on_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // Deleted file should be restored.
     assert_eq!(fs::read_to_string(&file).unwrap(), "keep me\n");
@@ -6190,7 +6369,7 @@ fn test_tx_default_strict_reverts_on_format_failure() {
         .arg(plan_file.to_str().unwrap())
         .arg("--apply")
         .assert()
-        .code(7);
+        .code(6); // VALIDATION_FAILED
 
     assert_eq!(fs::read_to_string(&file).unwrap(), "original\n");
 }
@@ -6361,6 +6540,11 @@ fn test_tx_json_output_on_format_failure_redacts_shell_command() {
         error.contains("backup session") || error.contains("undo"),
         "error should hint undo: {error}"
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("tx:"),
+        "format failure under --json must not print a human tx: line: {stderr}"
+    );
 }
 
 #[test]
@@ -6395,7 +6579,7 @@ fn test_tx_json_output_on_strict_format_failure_preserves_error_kind() {
         .output()
         .unwrap();
 
-    assert_eq!(output.status.code(), Some(7)); // ROLLBACK
+    assert_eq!(output.status.code(), Some(6)); // VALIDATION_FAILED
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     assert_eq!(json["error_kind"], "format_failed");
@@ -9355,7 +9539,7 @@ fn test_tx_strict_rollback_restores_collateral_files() {
         .arg("plan.json")
         .arg("--apply")
         .assert()
-        .code(7); // ROLLBACK
+        .code(6); // VALIDATION_FAILED
 
     // The tx file should be restored.
     assert_eq!(
@@ -9761,6 +9945,330 @@ fn test_tx_ast_extract_to_file_existing_target_already_exists() {
     assert_eq!(
         v["error_kind"], "already_exists",
         "extract into existing file without force: {stdout}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();
+    fs::create_dir(dir.path().join("dest.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "dest.rs",
+            "force": true
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "dest dir force={apply}: {stdout}"
+        );
+    }
+    assert!(
+        dir.path().join("dest.rs").is_dir(),
+        "dest directory must remain"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "notdir/out.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "dest-parent file apply={apply}: {stdout}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dest_parent_dangling_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\n").unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "broken/out.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--check")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{stdout}");
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn stay() {}\nfn go() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": "src.rs",
+            "target": "notdir/out.rs",
+            "symbols": ["go"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "ast.move must not write dest under a file parent"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_split_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn keep() {}\nfn go() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.split",
+            "source": "src.rs",
+            "targets": [{ "path": "notdir/out.rs", "symbols": ["go"] }],
+            "keep_in_source": ["keep"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    assert_tx_dest_parent_invalid_input(&dir, &plan_file);
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "ast.split must not write dest under a file parent"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn stay() {}\nfn go() {}\n").unwrap();
+    fs::create_dir(dir.path().join("out.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": "src.rs",
+            "target": "out.rs",
+            "symbols": ["go"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "ast.move dest-dir apply={apply}: {stdout}"
+        );
+    }
+    assert!(
+        dir.path().join("out.rs").is_dir(),
+        "must not replace a directory dest"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_split_dest_dir_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn keep() {}\nfn go() {}\n").unwrap();
+    fs::create_dir(dir.path().join("out.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.split",
+            "source": "src.rs",
+            "targets": [{ "path": "out.rs", "symbols": ["go"] }],
+            "keep_in_source": ["keep"]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    for apply in [false, true] {
+        let mut cmd = patchloom_in(dir.path());
+        cmd.arg("--json").arg("tx").arg(plan_file.to_str().unwrap());
+        if apply {
+            cmd.arg("--apply");
+        } else {
+            cmd.arg("--check");
+        }
+        let assert = cmd.assert().code(1);
+        let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+        let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+        assert_eq!(
+            v["error_kind"], "invalid_input",
+            "ast.split dest-dir apply={apply}: {stdout}"
+        );
+    }
+    assert!(
+        dir.path().join("out.rs").is_dir(),
+        "must not replace a directory dest"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_after_delete_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\nfn keep() {}\n").unwrap();
+    fs::write(dir.path().join("dest.rs"), "// already here\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.delete", "path": "dest.rs"},
+            {
+                "op": "ast.extract_to_file",
+                "source": "src.rs",
+                "symbol": "take_me",
+                "target": "dest.rs"
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let dest = fs::read_to_string(dir.path().join("dest.rs")).unwrap();
+    assert!(
+        dest.contains("fn take_me"),
+        "delete then extract must recreate dest: {dest}"
+    );
+    assert!(
+        !dest.contains("already here"),
+        "deleted dest content must not remain: {dest}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_to_file_dangling_dest_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("src.rs"), "fn take_me() {}\n").unwrap();
+    std::os::unix::fs::symlink("missing.rs", dir.path().join("dest.rs")).unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "src.rs",
+            "symbol": "take_me",
+            "target": "dest.rs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let assert = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(1);
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
+    let v: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert_eq!(
+        v["error_kind"], "already_exists",
+        "dangling dest symlink must refuse extract: {stdout}"
+    );
+    assert!(
+        dir.path().join("dest.rs").symlink_metadata().is_ok(),
+        "dangling dest must remain"
     );
 }
 
@@ -10528,6 +11036,48 @@ fn test_tx_verify_cli_and_plan_unique_names_deduped() {
     assert_eq!(
         count, 1,
         "unique_names must appear once when CLI and plan both request it: {err}"
+    );
+}
+
+#[test]
+fn test_tx_verify_pass_json_no_human_stderr() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn foo() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": "a.rs",
+            "old": "foo",
+            "new": "qux"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path().to_str().unwrap())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .arg("--verify")
+        .arg("unique_names")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("tx:"),
+        "passing --verify must not print human lines under --json: {stderr}"
     );
 }
 

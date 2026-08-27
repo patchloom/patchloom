@@ -1,6 +1,6 @@
 //! Unit tests for tidy check/fix.
 
-use super::check::{check_file, collect_issues, render_issues};
+use super::check::{check_file, collect_issues, collect_issues_with_list, render_issues};
 use super::fix::eol_mode_to_str;
 use super::*;
 use crate::cli::global::GlobalFlags;
@@ -753,5 +753,72 @@ fn check_file_skips_trailing_ws_when_disabled() {
     assert!(
         !issues.iter().any(|i| i.issue == "trailing whitespace"),
         "should not find trailing ws with check_trailing_ws=false"
+    );
+}
+
+/// Empty-scan remask must reuse the first collect walk (search remask lock).
+#[test]
+fn collect_issues_with_list_returns_first_walk() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("clean.txt"), b"hello\nworld\n").unwrap();
+    let global = GlobalFlags::test_with_cwd(tmp.path());
+    let paths = vec![".".to_string()];
+    let collected = collect_issues_with_list(&paths, &global, None).unwrap();
+    assert!(
+        collected.issues.is_empty(),
+        "clean tree must produce no issues: {:?}",
+        collected.issues
+    );
+    let cwd = global.resolve_cwd().unwrap();
+    let walked = crate::files::collect_file_paths_opts_with_list(
+        &paths,
+        &global,
+        true,
+        Some(&cwd),
+        None,
+        None,
+    )
+    .unwrap();
+    let mut scanned = collected.scanned;
+    let mut walked = walked;
+    scanned.sort();
+    walked.sort();
+    assert_eq!(scanned, walked);
+    assert!(
+        !scanned.is_empty(),
+        "clean tree walk must include clean.txt"
+    );
+    assert!(
+        crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd).is_none(),
+        "readable clean collect must not remask"
+    );
+}
+
+/// Remask after a clean collect of unreadable files uses the first walk.
+#[test]
+#[cfg(unix)]
+fn empty_scan_remask_reuses_first_walk() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let locked = tmp.path().join("locked.txt");
+    std::fs::write(&locked, "trail  \n").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read_to_string(&locked).is_ok() {
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        return;
+    }
+    let global = GlobalFlags::test_with_cwd(tmp.path());
+    let paths = vec![".".to_string()];
+    let collected = collect_issues_with_list(&paths, &global, None).unwrap();
+    let cwd = global.resolve_cwd().unwrap();
+    let masked = crate::ops::file::empty_scan_masked_by_unreadable(&collected.scanned, &cwd);
+    let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644));
+    assert!(
+        collected.issues.is_empty(),
+        "unreadable file is soft-skipped as no issues"
+    );
+    assert!(
+        masked.is_some(),
+        "first-walk remask must fail closed after a clean unreadable collect"
     );
 }

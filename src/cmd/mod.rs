@@ -142,6 +142,11 @@ pub enum Command {
         #[cfg(feature = "mcp-http")]
         #[arg(long, requires_all = ["http", "tls_cert"])]
         tls_key: Option<std::path::PathBuf>,
+
+        /// Permit Streamable HTTP on a non-loopback bind. HTTP has no authentication.
+        #[cfg(feature = "mcp-http")]
+        #[arg(long, requires = "http")]
+        allow_unauthenticated: bool,
     },
     /// Generate shell completions for bash, zsh, fish, or elvish.
     #[command(display_order = 58)]
@@ -157,7 +162,8 @@ fn load_project_config(global: &mut crate::cli::global::GlobalFlags) {
     let Ok(cwd) = global.resolve_cwd() else {
         return;
     };
-    if let Some((config, _)) = crate::config::find_and_load(&cwd) {
+    let warn = !global.quiet && !global.json && !global.jsonl;
+    if let Some((config, _)) = crate::config::find_and_load_opts(&cwd, warn) {
         crate::config::apply_config(global, &config);
     }
 }
@@ -181,6 +187,8 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             tls_cert,
             #[cfg(feature = "mcp-http")]
             tls_key,
+            #[cfg(feature = "mcp-http")]
+            allow_unauthenticated,
         } => {
             load_project_config(&mut global);
             #[cfg(feature = "mcp-http")]
@@ -192,6 +200,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
                     port,
                     tls_cert.as_deref(),
                     tls_key.as_deref(),
+                    allow_unauthenticated,
                 );
             }
             mcp::run_mcp_server(&global, log)
@@ -200,6 +209,13 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::AgentRules(args) => agent_rules::run(args, &global),
         Command::Init(args) => init::run(args, &global),
         Command::Completions { shell } => {
+            if global.json || global.jsonl {
+                global.emit_error_json_kind(
+                    Some("invalid_input"),
+                    "completions does not support --json/--jsonl; omit those flags to print a shell script",
+                )?;
+                return Ok(crate::exit::FAILURE);
+            }
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
             Ok(crate::exit::SUCCESS)

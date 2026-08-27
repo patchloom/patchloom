@@ -76,6 +76,9 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
+    // Dest symlink / FIFO / socket: do not follow (EXDEV copy would
+    // overwrite the target). Same invalid_input class as force-create.
+    crate::ops::file::refuse_non_regular_destination(&dst, &args.to)?;
 
     // Same-file no-op check. On case-insensitive filesystems (macOS APFS),
     // canonicalize treats case differences as identical. Allow the rename
@@ -461,6 +464,44 @@ mod tests {
 
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::FAILURE);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_refuses_dest_symlink() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dest = dir.path().join("app.toml");
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        fs::write(&src, "payload\n").unwrap();
+        fs::write(&outside_file, "do not overwrite").unwrap();
+        std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+        for force in [false, true] {
+            let mut global = GlobalFlags::test_with_cwd(dir.path());
+            global.apply = true;
+            let args = RenameArgs {
+                from: src.to_string_lossy().into_owned(),
+                to: dest.to_string_lossy().into_owned(),
+                force,
+                write: Default::default(),
+            };
+            let err = run(args, &global).unwrap_err();
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "CLI rename dest symlink force={force} must be invalid_input, got: {err:#}"
+            );
+            assert_eq!(
+                fs::read_to_string(&outside_file).unwrap(),
+                "do not overwrite"
+            );
+            assert!(src.exists(), "source must remain when dest is a symlink");
+            assert!(
+                dest.symlink_metadata().unwrap().file_type().is_symlink(),
+                "dest must remain a symlink"
+            );
+        }
     }
 
     #[test]

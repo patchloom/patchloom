@@ -398,6 +398,38 @@ fn test_create_rejects_parent_that_is_a_file() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn test_create_rejects_dangling_symlink_parent_check_and_apply() {
+    let dir = TempDir::new().unwrap();
+    let broken = dir.path().join("broken");
+    std::os::unix::fs::symlink(dir.path().join("missing"), &broken).unwrap();
+    let child = broken.join("new.txt");
+
+    for flags in [&["--check"][..], &["--apply"][..]] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .arg("--json")
+            .arg("create")
+            .arg(&child)
+            .arg("--content")
+            .arg("x\n")
+            .args(flags)
+            .arg("--cwd")
+            .arg(dir.path())
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "flags={flags:?} stdout={}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let json: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+        assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // output format
 // ---------------------------------------------------------------------------

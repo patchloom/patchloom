@@ -98,6 +98,11 @@ pub struct Output {
 /// filesystem root. Returns the parsed config and its directory, or `None` if
 /// no config file is found.
 pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
+    find_and_load_opts(start, false)
+}
+
+/// Like [`find_and_load`], optionally printing read/parse warnings (CLI text).
+pub fn find_and_load_opts(start: &Path, warn: bool) -> Option<(ProjectConfig, PathBuf)> {
     let mut dir = start.to_path_buf();
     loop {
         let candidate = dir.join(".patchloom.toml");
@@ -105,14 +110,18 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
             let content = match std::fs::read_to_string(&candidate) {
                 Ok(c) => c,
                 Err(e) => {
-                    eprintln!("warning: could not read {}: {}", candidate.display(), e);
+                    if warn {
+                        eprintln!("warning: could not read {}: {}", candidate.display(), e);
+                    }
                     return None;
                 }
             };
             match toml_edit::de::from_str::<ProjectConfig>(&content) {
                 Ok(config) => return Some((config, dir)),
                 Err(e) => {
-                    eprintln!("warning: malformed {}: {}", candidate.display(), e);
+                    if warn {
+                        eprintln!("warning: malformed {}: {}", candidate.display(), e);
+                    }
                     return None;
                 }
             }
@@ -133,6 +142,7 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
 /// Apply config values as defaults into GlobalFlags (CLI flags still win where set).
 /// Available for library tx execution as well as CLI.
 pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &ProjectConfig) {
+    let show_warn = !global.quiet && !global.json && !global.jsonl;
     // Write policy: config provides defaults, CLI flags win.
     if !global.ensure_final_newline && config.write_policy.ensure_final_newline == Some(true) {
         global.ensure_final_newline = true;
@@ -143,10 +153,10 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             Some("crlf") => global.normalize_eol = Some(crate::cli::global::EolMode::Crlf),
             Some("cr") => global.normalize_eol = Some(crate::cli::global::EolMode::Cr),
             Some("keep") => {} // explicit keep = default behavior, no-op
-            Some(invalid) => {
+            Some(invalid) if show_warn => {
                 eprintln!("{}", invalid_normalize_eol_warning(invalid));
             }
-            None => {}
+            Some(_) | None => {}
         }
     }
     if !global.trim_trailing_whitespace
@@ -207,7 +217,9 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             "never" => crate::cli::global::ColorMode::Never,
             "auto" => crate::cli::global::ColorMode::Auto,
             invalid => {
-                eprintln!("{}", invalid_output_color_warning(invalid));
+                if show_warn {
+                    eprintln!("{}", invalid_output_color_warning(invalid));
+                }
                 crate::cli::global::ColorMode::Auto
             }
         };

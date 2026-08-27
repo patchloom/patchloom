@@ -807,10 +807,20 @@ pub(crate) struct ExecutePlanParams {
     /// Path (relative to cwd) to a plan file (JSON, YAML, or TOML).
     /// Used only if `plan` is not provided.
     pub plan_path: Option<String>,
-    /// Enforce strict mode (rollback on format/validate failure). Defaults to true.
-    /// Overrides plan's strict field if provided.
-    #[serde(default = "default_strict_true")]
-    pub strict: bool,
+    /// Optional override of the plan's `strict` field. Applied only when present
+    /// so `{"plan":{"strict":false}}` is not overwritten. MCP still strips
+    /// plan.format/validate (lifecycle shells are not run from submitted plans).
+    #[serde(default)]
+    pub strict: Option<bool>,
+}
+
+/// Apply MCP top-level `strict` only when the caller sent it.
+/// Omitted leaves `plan.strict` unchanged so `{"plan":{"strict":false}}`
+/// is not overwritten by a default true.
+pub(crate) fn apply_execute_plan_strict_override(plan: &mut Plan, top_level: Option<bool>) {
+    if let Some(strict) = top_level {
+        plan.strict = Some(strict);
+    }
 }
 
 #[cfg(test)]
@@ -838,5 +848,33 @@ mod tests {
             .expect("from/to aliases must deserialize");
         assert_eq!(p.old, "v1");
         assert_eq!(p.new_text.as_deref(), Some("v2"));
+    }
+
+    #[test]
+    fn execute_plan_params_omitted_strict_does_not_overwrite_plan() {
+        let p: ExecutePlanParams =
+            serde_json::from_str(r#"{"plan":{"version":1,"strict":false,"operations":[]}}"#)
+                .expect("plan-only payload must deserialize");
+        assert_eq!(p.strict, None, "omitted top-level strict must stay None");
+        let mut plan = p.plan.expect("inline plan");
+        assert_eq!(plan.strict, Some(false));
+        apply_execute_plan_strict_override(&mut plan, p.strict);
+        assert_eq!(
+            plan.strict,
+            Some(false),
+            "omitted top-level strict must not overwrite plan.strict=false"
+        );
+    }
+
+    #[test]
+    fn execute_plan_params_top_level_strict_overrides_plan() {
+        let p: ExecutePlanParams = serde_json::from_str(
+            r#"{"strict":true,"plan":{"version":1,"strict":false,"operations":[]}}"#,
+        )
+        .expect("top-level strict must deserialize");
+        assert_eq!(p.strict, Some(true));
+        let mut plan = p.plan.expect("inline plan");
+        apply_execute_plan_strict_override(&mut plan, p.strict);
+        assert_eq!(plan.strict, Some(true));
     }
 }

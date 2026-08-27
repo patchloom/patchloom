@@ -1432,6 +1432,91 @@ index 0000000..e69de29\n";
 }
 
 #[test]
+fn apply_patch_file_second_create_same_dest_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    let patch = "\
+--- /dev/null
++++ b/new.rs
+@@ -0,0 +1 @@
++first
+--- /dev/null
++++ b/new.rs
+@@ -0,0 +1 @@
++second
+";
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_already_exists(&err),
+        "expected already_exists, got: {err}"
+    );
+    assert!(
+        !dir.path().join("new.rs").exists(),
+        "apply must not write dest after refuse"
+    );
+}
+
+/// Dest under a file parent is invalid_input on Preview and Apply.
+#[test]
+fn apply_patch_file_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = "\
+--- /dev/null
++++ b/notdir/out.rs
+@@ -0,0 +1 @@
++hello
+";
+    for mode in [ApplyMode::Preview, ApplyMode::Apply] {
+        let err = apply_patch_file(patch, dir.path(), mode, None).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input for {mode:?}, got: {err}"
+        );
+        assert!(
+            err.to_string().contains("not a directory"),
+            "message should name the parent: {err}"
+        );
+    }
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "must not write dest under a file parent"
+    );
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+}
+
+#[test]
+fn apply_patch_file_recreate_after_rename_from() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "fn main() {}\n").unwrap();
+    let patch = "\
+diff --git a/old.rs b/new.rs
+similarity index 100%
+rename from old.rs
+rename to new.rs
+diff --git a/old.rs b/old.rs
+new file mode 100644
+--- /dev/null
++++ b/old.rs
+@@ -0,0 +1 @@
++replaced
+";
+    let preview = apply_patch_file(patch, dir.path(), ApplyMode::Preview, None).unwrap();
+    assert!(
+        preview
+            .iter()
+            .any(|r| r.path.ends_with("new.rs") || r.changed),
+        "rename+recreate preview must not be already_exists: {preview:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.rs")).unwrap(),
+        "fn main() {}\n"
+    );
+}
+
+#[test]
 fn apply_patch_file_empty_create_writes_empty_dest() {
     let dir = TempDir::new().unwrap();
     let patch = "\
@@ -1755,14 +1840,14 @@ fn apply_patch_file_mid_write_after_create_restores_orphan() {
 fn write_if_apply_many_restores_on_second_write_failure() {
     let dir = TempDir::new().unwrap();
     let a = dir.path().join("a.txt");
-    let b = dir.path().join("b.txt");
+    // Missing parent: dest-parent classify allows Missing, but atomic_write
+    // does not mkdir and NamedTempFile::new_in fails after `a` is written.
+    // Dest-as-directory cannot be this fixture: restore refuses dest-dir
+    // before rolling back the sibling.
+    let b = dir.path().join("no_such_dir").join("b.txt");
     fs::write(&a, "aaa\n").unwrap();
-    fs::write(&b, "bbb\n").unwrap();
 
     let policy = crate::write::WritePolicy::default();
-    // Replace b with a directory so the second atomic_write fails after a writes.
-    fs::remove_file(&b).unwrap();
-    fs::create_dir(&b).unwrap();
     let files: [(&std::path::Path, &str); 2] = [(&a, "AAA\n"), (&b, "BBB\n")];
     assert!(
         super::write_if_apply_many(&files, ApplyMode::Apply, &policy, None, dir.path()).is_err()
@@ -1771,6 +1856,31 @@ fn write_if_apply_many_restores_on_second_write_failure() {
         fs::read_to_string(&a).unwrap(),
         "aaa\n",
         "first write must be rolled back when later write fails"
+    );
+}
+
+/// Dest that is already a directory is refused before any sibling write.
+#[test]
+fn write_if_apply_many_dest_dir_does_not_write_sibling() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "aaa\n").unwrap();
+    fs::create_dir(&b).unwrap();
+
+    let policy = crate::write::WritePolicy::default();
+    let files: [(&std::path::Path, &str); 2] = [(&a, "AAA\n"), (&b, "BBB\n")];
+    let err = super::write_if_apply_many(&files, ApplyMode::Apply, &policy, None, dir.path())
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("directory"),
+        "dest-dir must be invalid_input, got: {msg}"
+    );
+    assert_eq!(
+        fs::read_to_string(&a).unwrap(),
+        "aaa\n",
+        "sibling must stay original when dest-dir is refused up front"
     );
 }
 
@@ -7947,11 +8057,66 @@ fn file_create_dangling_symlink_is_already_exists() {
         crate::fallback::error_kind_str(&err),
         Some("already_exists")
     );
-    // force overwrites the dangling entry with a regular file
-    let r = file_create(&link, "y\n", true, ApplyMode::Apply, None).unwrap();
-    assert!(r.applied);
-    assert!(link.is_file());
-    assert_eq!(fs::read_to_string(&link).unwrap(), "y\n");
+    // force must not follow or replace a dest symlink
+    let err = file_create(&link, "y\n", true, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "force-create on dest symlink must be invalid_input, got: {err:#}"
+    );
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+}
+
+/// `file.create` force must not follow a dest symlink and overwrite the target.
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_create_force_refuses_dest_symlink() {
+    let dir = TempDir::new().unwrap();
+    let dest = dir.path().join("app.toml");
+    let outside = TempDir::new().unwrap();
+    let outside_file = outside.path().join("secret");
+    fs::write(&outside_file, "do not overwrite").unwrap();
+    std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+    let err = file_create(&dest, "pwned\n", true, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "force-create on dest symlink must be invalid_input, got: {err:#}"
+    );
+    assert_eq!(
+        fs::read_to_string(&outside_file).unwrap(),
+        "do not overwrite"
+    );
+    assert!(dest.symlink_metadata().unwrap().file_type().is_symlink());
+}
+
+#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_rename_refuses_dest_symlink() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src.txt");
+    let dest = dir.path().join("app.toml");
+    let outside = TempDir::new().unwrap();
+    let outside_file = outside.path().join("secret");
+    fs::write(&src, "payload\n").unwrap();
+    fs::write(&outside_file, "do not overwrite").unwrap();
+    std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+    for force in [false, true] {
+        let err = file_rename(&src, &dest, force, ApplyMode::Apply, None).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "file.rename dest symlink force={force} must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(src.exists(), "source must remain when dest is a symlink");
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest must remain a symlink"
+        );
+    }
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]

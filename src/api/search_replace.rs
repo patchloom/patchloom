@@ -15,6 +15,9 @@ use super::{ApplyMode, EditResult, ReplaceOptions};
 pub struct ApplySearchReplaceOptions {
     /// When true, update every exact match. Default false (unique, or error).
     pub replace_all: bool,
+    /// Remap dest onto this path when dest is that path or a suffix
+    /// (same rule as Begin Patch `file_hint`). Used by [`super::apply_patch`].
+    pub file_hint: Option<PathBuf>,
 }
 
 /// Parse then apply a SEARCH/REPLACE or DiffFenced document.
@@ -77,7 +80,7 @@ pub fn apply_search_replace_blocks(
                 msg: "SEARCH/REPLACE path must not be empty".into(),
             }));
         }
-        let dest = resolve_search_replace_path(cwd, &block.path, guard)?;
+        let dest = resolve_search_replace_path(cwd, &block.path, opts.file_hint.as_deref(), guard)?;
         let display = block.path.clone();
 
         if let Some(idx) = planned.iter().position(|p| p.path == dest) {
@@ -142,6 +145,7 @@ fn map_parse_err(e: SearchReplaceParseError) -> anyhow::Error {
 fn resolve_search_replace_path(
     cwd: &Path,
     dest: &str,
+    file_hint: Option<&Path>,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<PathBuf> {
     let path = Path::new(dest);
@@ -153,7 +157,7 @@ fn resolve_search_replace_path(
     let joined = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        cwd.join(path)
+        crate::ops::begin_patch::resolve_begin_patch_dest(cwd, dest, file_hint)
     };
     if path.is_absolute() && guard.is_none() {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
@@ -255,7 +259,10 @@ mod tests {
         let results = apply_search_replace_blocks(
             &blocks,
             dir.path(),
-            &ApplySearchReplaceOptions { replace_all: true },
+            &ApplySearchReplaceOptions {
+                replace_all: true,
+                ..Default::default()
+            },
             ApplyMode::Apply,
             None,
         )
@@ -377,6 +384,31 @@ fn new() {}
             .expect("apply_patch detects SEARCH/REPLACE");
         assert!(result.applied);
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), "fn new() {}\n");
+    }
+
+    #[test]
+    fn apply_patch_search_replace_repo_relative_dest_uses_file_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let dest = src.join("foo.rs");
+        std::fs::write(&dest, "fn old() {}\n").unwrap();
+        let input = "\
+<<<<<<< SEARCH
+src/foo.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+";
+        crate::api::apply_patch(&dest, input, ApplyMode::Apply, None)
+            .expect("repo-relative dest remaps onto apply_patch path");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "fn new() {}\n");
+        assert!(
+            !src.join("src").join("foo.rs").exists(),
+            "must not join dest under path.parent() as src/src/foo.rs"
+        );
     }
 
     #[test]

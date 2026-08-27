@@ -196,8 +196,8 @@ AST tools so `list_tools` stays honest about what is callable.
 | `doc_append` | Append a value to an array |
 | `doc_prepend` | Prepend a value to an array |
 | `doc_ensure` | Set a value only if the selector path does not exist |
-| `doc_delete_where` | Delete array elements matching a predicate |
-| `doc_update` | Update array elements matching a predicate |
+| `doc_delete_where` | Delete array elements matching a `predicate` field (`field=value`) |
+| `doc_update` | Update values at selector paths that use predicates or wildcards (`items[name=a].v`, `items[*].enabled`). Not a `predicate` field; `doc_delete_where` is the predicate tool. |
 | `doc_move` | Move a value from one selector path to another |
 | `doc_get` | Read a value by selector path (read-only) |
 | `doc_query` | Query a structured file: has, keys, len, select, or flatten (read-only) |
@@ -227,7 +227,7 @@ AST tools so `list_tools` stays honest about what is callable.
 | `apply_patch` | Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE / DiffFenced document (unique unless `replace_all`) |
 | `batch_replace` | Replace the same text across multiple files atomically |
 | `batch_tidy` | Fix whitespace in multiple files atomically |
-| `execute_plan` | Execute a full multi-op transaction plan atomically (recommended for complex/multi-file edits; equivalent to CLI `tx`). Supports inline plan or plan_path. |
+| `execute_plan` | Execute a full multi-op transaction plan atomically (recommended for complex/multi-file edits). Supports inline plan or plan_path. MCP strips `format`/`validate`; CLI `tx` still runs those lifecycle steps. |
 | `ast_list` | List symbol definitions (functions, classes, structs, enums, methods) in a file or directory (20 languages). Filter by kind. |
 | `ast_read` | Read a specific symbol's source code by name from a file. |
 | `ast_rename` | Rename identifiers across files using AST-aware renaming (skips strings and comments). |
@@ -257,14 +257,16 @@ AST tools so `list_tools` stays honest about what is callable.
 | Path security | No restriction | Paths must stay within working directory |
 | Error format | stderr text | MCP error response with structured content |
 | Discovery | Agent reads AGENTS.md | Agent discovers tools via MCP protocol |
+| Lifecycle steps | CLI `tx` runs `format`/`validate` | MCP `execute_plan` strips `format`/`validate` |
 
 ## Multi-step plans and concurrency guidance (important for agents)
 
 For any work involving more than one edit (especially on the same file or related files), **prefer the `execute_plan` tool** over issuing many individual tools:
 
 - One `execute_plan` call = atomic execution of a mixed plan (doc.set + md.replace_section + create + replace + ...).
-- Plans support `strict: true` (default) for full rollback on format/validate failures.
-- Plans can include `write_policy`, `format` steps, `validate` steps: same as CLI `tx`.
+- MCP `execute_plan` strips `format` and `validate` lifecycle steps from the submitted plan. Those steps do not run (they are CLI `tx` / project-config only). Use `.patchloom.toml` if the workspace needs lifecycle shells.
+- Top-level MCP `strict` overrides the plan only when the caller sends it. Omitting it leaves `plan.strict` unchanged (so `{"plan":{"strict":false}}` is honored).
+- `write_policy` on the plan is still accepted.
 
 Example inline plan (JSON):
 
@@ -476,26 +478,37 @@ Each individual tool validates every path before execution.
 
 By default, the MCP server uses stdio transport (ideal for local IDE/agent integration). With `--http`, the server switches to Streamable HTTP transport, allowing remote MCP clients to connect over the network.
 
+Streamable HTTP has no authentication and no token. The default bind is loopback (`127.0.0.1`). Binding a non-loopback address (`0.0.0.0`, a LAN IP, or a public IP) is refused unless you pass `--allow-unauthenticated`.
+
 ### Basic HTTP
 
 ```bash
-# Default: listen on 127.0.0.1:8080
+# Default: listen on 127.0.0.1:8080 (loopback)
 patchloom mcp-server --http
 
-# Custom port
+# Custom port on loopback
 patchloom mcp-server --http --port 3000
 
-# Listen on all interfaces
-patchloom mcp-server --http --host 0.0.0.0
+# Explicit loopback bind
+patchloom mcp-server --http --host 127.0.0.1
 ```
 
 The MCP endpoint is served at `/mcp` (e.g., `http://127.0.0.1:8080/mcp`).
 
+Do not copy-paste `--host 0.0.0.0` as a default. All-interfaces HTTP is unauthenticated (there is no token) and requires an explicit opt-in:
+
+```bash
+# All interfaces: unauthenticated, opt-in required
+patchloom mcp-server --http --host 0.0.0.0 --allow-unauthenticated
+```
+
 ### HTTPS with native TLS
+
+TLS encrypts the connection but still does not authenticate clients. Non-loopback binds still need `--allow-unauthenticated`. There is no bearer token.
 
 ```bash
 patchloom mcp-server --http --host 0.0.0.0 --port 443 \
-  --tls-cert cert.pem --tls-key key.pem
+  --tls-cert cert.pem --tls-key key.pem --allow-unauthenticated
 ```
 
 Both `--tls-cert` and `--tls-key` must be provided together. The server uses rustls (no OpenSSL dependency).
@@ -505,8 +518,9 @@ Both `--tls-cert` and `--tls-key` must be provided together. The server uses rus
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--http` | off | Use Streamable HTTP transport instead of stdio |
-| `--host` | `127.0.0.1` | Bind address (requires `--http`) |
+| `--host` | `127.0.0.1` | Bind address (requires `--http`). Non-loopback binds require `--allow-unauthenticated` |
 | `--port` | `8080` | Bind port (requires `--http`). Use `0` for an OS-assigned ephemeral port (printed in the startup banner) |
+| `--allow-unauthenticated` | off | Permit HTTP on a non-loopback bind. Streamable HTTP has no token or other client auth |
 | `--tls-cert` | none | TLS certificate PEM file; enables HTTPS (requires `--http` and `--tls-key`) |
 | `--tls-key` | none | TLS private key PEM file (requires `--http` and `--tls-cert`) |
 

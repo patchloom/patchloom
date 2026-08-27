@@ -9,12 +9,15 @@ use crate::diff::{DiffResult, format_diff_result_colored};
 use crate::exit;
 use crate::ops::patch::{
     ApplyHunksOptions, ApplyHunksResult, ApplyHunksStatus, OnStale, PatchFile, apply_hunks,
-    apply_hunks_with_options, parse_patch, unsupported_git_meta_msg,
+    apply_hunks_with_options, parse_patch, record_staged_patch_dest, staged_path_exists,
+    unsupported_git_meta_msg,
 };
 use crate::plan::Operation;
 use crate::tx::engine::WriteSource;
 use clap::Args;
 use serde::Serialize;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Args)]
 #[command(after_help = "\
@@ -264,8 +267,13 @@ struct PatchFilesOutput {
     backup_session: Option<String>,
 }
 
-fn dest_clobber_check_result(cwd: &std::path::Path, pf: &PatchFile) -> Option<PatchFileResult> {
-    let dest_exists = crate::ops::file::path_entry_exists(&cwd.join(&pf.path));
+fn dest_clobber_check_result(
+    cwd: &Path,
+    pf: &PatchFile,
+    created: &HashSet<PathBuf>,
+    deleted: &HashSet<PathBuf>,
+) -> Option<PatchFileResult> {
+    let dest_exists = staged_path_exists(&cwd.join(&pf.path), created, deleted);
     let msg = pf.dest_clobber_msg(dest_exists)?;
     let (from, to, action) = if pf.rename_from.is_some() {
         (
@@ -287,6 +295,26 @@ fn dest_clobber_check_result(cwd: &std::path::Path, pf: &PatchFile) -> Option<Pa
         to,
         action,
     })
+}
+
+/// File / dangling / special dest parent is invalid_input (same as create/rename).
+fn dest_parent_check_result(cwd: &Path, pf: &PatchFile) -> Option<PatchFileResult> {
+    if pf.is_deletion {
+        return None;
+    }
+    let dest = cwd.join(&pf.path);
+    match crate::ops::file::ensure_parent_components_are_directories(&dest) {
+        Ok(()) => None,
+        Err(e) => Some(PatchFileResult {
+            path: pf.path.clone(),
+            status: "error",
+            error: Some(e.msg),
+            conflicts: None,
+            from: None,
+            to: None,
+            action: None,
+        }),
+    }
 }
 
 fn patch_load_rel(pf: &PatchFile) -> &str {
@@ -668,6 +696,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut any_would_change = false;
         let mut any_problem = false;
         let mut results = Vec::new();
+        let mut created = HashSet::new();
+        let mut deleted = HashSet::new();
         for pf in &patch_files {
             if let Some(reason) = pf.unsupported.as_deref() {
                 results.push(PatchFileResult {
@@ -682,7 +712,12 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 any_problem = true;
                 continue;
             }
-            if let Some(row) = dest_clobber_check_result(&cwd, pf) {
+            if let Some(row) = dest_clobber_check_result(&cwd, pf, &created, &deleted) {
+                results.push(row);
+                any_problem = true;
+                continue;
+            }
+            if let Some(row) = dest_parent_check_result(&cwd, pf) {
                 results.push(row);
                 any_problem = true;
                 continue;
@@ -775,6 +810,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         to,
                         action,
                     });
+                    record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
                 }
                 Err(_) => {
                     any_problem = true;
@@ -817,6 +853,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let mut results = Vec::new();
         let mut all_ok = true;
         let mut any_would_change = false;
+        let mut created = HashSet::new();
+        let mut deleted = HashSet::new();
         for pf in &patch_files {
             if let Some(reason) = pf.unsupported.as_deref() {
                 all_ok = false;
@@ -831,7 +869,12 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 });
                 continue;
             }
-            if let Some(row) = dest_clobber_check_result(&cwd, pf) {
+            if let Some(row) = dest_clobber_check_result(&cwd, pf, &created, &deleted) {
+                all_ok = false;
+                results.push(row);
+                continue;
+            }
+            if let Some(row) = dest_parent_check_result(&cwd, pf) {
                 all_ok = false;
                 results.push(row);
                 continue;
@@ -882,6 +925,14 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         any_would_change = true;
                     }
                     results.push(patch_file_result(&pf.path, &applied));
+                    if applied.content != original
+                        || is_path_rename
+                        || pf.copy_from.is_some()
+                        || pf.is_creation
+                        || pf.is_deletion
+                    {
+                        record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
+                    }
                 }
                 Err(msg) => {
                     all_ok = false;
@@ -902,12 +953,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         emit_patch_files_output(global, all_ok, &results, Some(false), None)?;
         let has_errors = results.iter().any(|r| r.status == "error");
         let has_conflicts = results.iter().any(|r| r.status == "conflict");
+        let has_already_exists = results.iter().any(|r| r.status == "already_exists");
         // Identity / already-applied (content == original): exit 0 so agents
         // do not loop on exit 2 forever (parity with patch check).
         // Errors use shared kind→exit (invalid_input → 1), not always ambiguous.
         // When --allow-conflicts, derive kind from non-conflict rows so a
         // read/stale error is not masked as conflicts (exit 8).
-        return Ok(if has_errors {
+        return Ok(if has_errors || has_already_exists {
             if apply_options.allow_conflicts {
                 let non_conflict: Vec<PatchFileResult> = results
                     .iter()
@@ -946,7 +998,10 @@ fn run_search_replace_check(
     let results = match crate::api::apply_search_replace_document(
         diff_text,
         cwd,
-        &crate::api::ApplySearchReplaceOptions { replace_all },
+        &crate::api::ApplySearchReplaceOptions {
+            replace_all,
+            ..Default::default()
+        },
         crate::api::ApplyMode::Preview,
         None,
     ) {
@@ -1155,6 +1210,30 @@ mod tests {
             to: None,
             action: None,
         }
+    }
+
+    #[test]
+    fn dest_parent_check_result_file_parent_is_error() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("notdir"), "file\n").unwrap();
+        let pf = PatchFile {
+            path: "notdir/out.rs".into(),
+            hunks: vec![],
+            is_deletion: false,
+            is_creation: true,
+            rename_from: None,
+            copy_from: None,
+            unsupported: None,
+        };
+        let row = dest_parent_check_result(dir.path(), &pf).expect("file parent");
+        assert_eq!(row.status, "error");
+        assert!(
+            row.error
+                .as_deref()
+                .is_some_and(|m| m.contains("not a directory")),
+            "unexpected: {:?}",
+            row.error
+        );
     }
 
     #[test]

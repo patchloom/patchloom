@@ -556,6 +556,199 @@ fn test_patch_check_copy_and_empty_create_dest_honesty() {
     assert!(!dir.path().join("secret.bin").exists());
 }
 
+/// `--- /dev/null` create *with hunks* must refuse dest (same as empty-create).
+/// Apply used to clobber; check used to report stale/ambiguous.
+#[test]
+fn test_patch_create_with_hunks_dest_exists_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("new.rs"), "existing\n").unwrap();
+    let patch = dir.path().join("create.patch");
+    fs::write(
+        &patch,
+        "--- /dev/null\n\
+         +++ b/new.rs\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(json["files"][0]["status"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "existing\n"
+    );
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "already_exists", "{apply_json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "existing\n",
+        "apply must not clobber dest"
+    );
+}
+
+/// Second create of a dest this document just created must refuse (check = apply).
+#[test]
+fn test_patch_check_second_create_same_dest_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    let patch = dir.path().join("double-create.patch");
+    fs::write(
+        &patch,
+        "--- /dev/null\n\
+         +++ b/new.rs\n\
+         @@ -0,0 +1 @@\n\
+         +first\n\
+         --- /dev/null\n\
+         +++ b/new.rs\n\
+         @@ -0,0 +1 @@\n\
+         +second\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert!(
+        !dir.path().join("new.rs").exists(),
+        "check must not write dest"
+    );
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "already_exists", "{apply_json}");
+    assert!(
+        !dir.path().join("new.rs").exists(),
+        "apply must not write dest after refuse"
+    );
+}
+
+/// Merge check used to miss dests from a regular update write, so a later
+/// create of the same dest looked free while apply used pending dest_exists.
+#[test]
+fn test_patch_merge_check_update_then_create_same_dest() {
+    let dir = TempDir::new().unwrap();
+    let patch = dir.path().join("upd-create.patch");
+    fs::write(
+        &patch,
+        "--- a/dest.txt\n\
+         +++ b/dest.txt\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n\
+         --- /dev/null\n\
+         +++ b/dest.txt\n\
+         @@ -0,0 +1 @@\n\
+         +world\n",
+    )
+    .unwrap();
+
+    let merge_out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "merge", "--check"])
+        .arg(&patch)
+        .output()
+        .unwrap();
+    assert_eq!(
+        merge_out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&merge_out.stdout),
+        String::from_utf8_lossy(&merge_out.stderr)
+    );
+    let merge_json: serde_json::Value = serde_json::from_slice(&merge_out.stdout).unwrap();
+    assert_eq!(merge_json["error_kind"], "already_exists", "{merge_json}");
+    assert!(
+        !dir.path().join("dest.txt").exists(),
+        "merge --check must not write dest"
+    );
+
+    let apply_out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "merge", "--apply"])
+        .arg(&patch)
+        .output()
+        .unwrap();
+    assert_eq!(
+        apply_out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&apply_out.stdout),
+        String::from_utf8_lossy(&apply_out.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&apply_out.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "already_exists", "{apply_json}");
+    assert!(
+        !dir.path().join("dest.txt").exists(),
+        "merge apply must not write dest after refuse"
+    );
+}
+
+/// Recreate after `rename from` must succeed: dest is freed in staged view.
+#[test]
+fn test_patch_check_recreate_after_rename_from() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.rs"), "fn main() {}\n").unwrap();
+    let patch = dir.path().join("rename-recreate.patch");
+    fs::write(
+        &patch,
+        "diff --git a/old.rs b/new.rs\n\
+         similarity index 100%\n\
+         rename from old.rs\n\
+         rename to new.rs\n\
+         diff --git a/old.rs b/old.rs\n\
+         new file mode 100644\n\
+         --- /dev/null\n\
+         +++ b/old.rs\n\
+         @@ -0,0 +1 @@\n\
+         +replaced\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 2, "{json}");
+    assert_ne!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.rs")).unwrap(),
+        "fn main() {}\n",
+        "check must not rewrite dest"
+    );
+}
+
 #[test]
 fn test_patch_apply_empty_create_lists_dest_in_json() {
     // fixrealloop R9: apply wrote a 0-byte dest with applied:true but files[].
@@ -1613,6 +1806,178 @@ fn test_patch_apply_begin_patch_writes_file() {
 }
 
 #[test]
+fn test_patch_begin_patch_add_dest_exists_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("new.rs"), "keep\n").unwrap();
+    let patch_file = dir.path().join("add.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Add File: new.rs\n+fn added() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "keep\n"
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .code(1);
+    assert_eq!(
+        fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+        "keep\n",
+        "Begin Patch Add must not clobber dest"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_move_dest_exists_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("from.rs"), "fn a() {}\n").unwrap();
+    fs::write(dir.path().join("taken.rs"), "keep\n").unwrap();
+    let patch_file = dir.path().join("move.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Update File: from.rs\n*** Move to: taken.rs\n@@\n-fn a() {}\n+fn b() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "already_exists", "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("taken.rs")).unwrap(),
+        "keep\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("from.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "already_exists", "{apply_json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("taken.rs")).unwrap(),
+        "keep\n",
+        "Begin Patch Move must not clobber dest"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_double_delete_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("gone.rs"), "bye\n").unwrap();
+    let patch_file = dir.path().join("dbl.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Delete File: gone.rs\n*** Delete File: gone.rs\n*** End Patch\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+    assert!(
+        dir.path().join("gone.rs").exists(),
+        "failed apply must not delete"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_delete_then_update_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.rs"), "fn a() {}\n").unwrap();
+    let patch_file = dir.path().join("du.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Delete File: a.rs\n*** Update File: a.rs\n@@\n-fn a() {}\n+fn b() {}\n*** End Patch\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_delete_then_add_applies() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("swap.rs"), "old\n").unwrap();
+    let patch_file = dir.path().join("da.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Delete File: swap.rs\n*** Add File: swap.rs\n+new\n*** End Patch\n",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_to_string(dir.path().join("swap.rs")).unwrap(),
+        "new\n"
+    );
+}
+
+#[test]
 fn test_patch_apply_begin_patch_ambiguous_json() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();
@@ -1876,5 +2241,149 @@ fn test_patch_apply_mixed_search_replace_and_begin_patch_is_parse_error() {
     assert_eq!(
         fs::read_to_string(dir.path().join("code.rs")).unwrap(),
         "fn old() {}\n"
+    );
+}
+
+fn patch_apply_json(dir: &TempDir, patch: &std::path::Path) -> (i32, serde_json::Value) {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--json")
+        .arg("patch")
+        .arg("apply")
+        .arg(patch)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    let code = output.status.code().unwrap_or(-1);
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON (exit {code}): {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    (code, json)
+}
+
+/// Dest under a file parent is invalid_input on check and apply (not apply-only IO).
+#[test]
+fn test_patch_check_and_apply_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = dir.path().join("create.patch");
+    fs::write(
+        &patch,
+        "--- /dev/null\n\
+         +++ b/notdir/out.rs\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+    assert_eq!(json["applied"], false, "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "must not write dest under a file parent"
+    );
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("notdir")).unwrap(),
+        "i am a file\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_patch_check_dest_parent_dangling_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("broken")).unwrap();
+    let patch = dir.path().join("create.patch");
+    fs::write(
+        &patch,
+        "--- /dev/null\n\
+         +++ b/broken/out.rs\n\
+         @@ -0,0 +1 @@\n\
+         +hello\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert!(
+        !dir.path().join("broken").join("out.rs").exists(),
+        "must not write dest under a dangling parent"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_add_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = dir.path().join("add.patch");
+    fs::write(
+        &patch,
+        "*** Begin Patch\n*** Add File: notdir/out.rs\n+hello\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "Begin Patch Add must not write dest under a file parent"
+    );
+    assert!(
+        !dir.path().join(".patchloom/backups").exists(),
+        "must not create a backup for a path that was never written"
+    );
+}
+
+#[test]
+fn test_patch_begin_patch_move_dest_parent_file_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("from.rs"), "fn a() {}\n").unwrap();
+    fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+    let patch = dir.path().join("move.patch");
+    fs::write(
+        &patch,
+        "*** Begin Patch\n*** Update File: from.rs\n*** Move to: notdir/out.rs\n@@\n-fn a() {}\n+fn b() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch);
+    assert_eq!(code, 1, "check: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "check: {json}");
+
+    let (code, json) = patch_apply_json(&dir, &patch);
+    assert_eq!(code, 1, "apply: {json}");
+    assert_eq!(json["error_kind"], "invalid_input", "apply: {json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("from.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+    assert!(
+        !dir.path().join("notdir").join("out.rs").exists(),
+        "Begin Patch Move must not write dest under a file parent"
     );
 }

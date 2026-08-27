@@ -765,6 +765,7 @@ pub(crate) fn apply_mutation(
     prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
     perform_mutation: impl FnOnce() -> anyhow::Result<()>,
 ) -> anyhow::Result<(bool, Option<String>)> {
+    crate::backup::refuse_user_write_under_backup_dir(path)?;
     if mode != ApplyMode::Apply {
         return Ok((false, None));
     }
@@ -825,6 +826,9 @@ fn apply_cross_file_mutation(
     prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
     perform_mutation: impl FnOnce() -> anyhow::Result<()>,
 ) -> anyhow::Result<(bool, Option<String>)> {
+    if let Some(d) = dst {
+        crate::backup::refuse_user_write_under_backup_dir(d)?;
+    }
     if mode != ApplyMode::Apply {
         // Still enforce entry containment on preview/check so hosts see
         // guard_rejected without mutating (#2115).
@@ -882,14 +886,24 @@ pub(crate) fn write_if_apply_many(
     guard: Option<&PathGuard>,
     backup_root: &Path,
 ) -> anyhow::Result<(bool, Option<String>)> {
-    if mode != ApplyMode::Apply {
-        return Ok((false, None));
-    }
     if files.is_empty() {
         return Ok((false, None));
     }
     for (path, _) in files {
+        crate::backup::refuse_user_write_under_backup_dir(path)?;
+    }
+    if mode != ApplyMode::Apply {
+        return Ok((false, None));
+    }
+    for (path, _) in files {
         ensure_contained(guard, path)?;
+        if crate::ops::file::is_real_directory(path) {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("target is a directory: {}", path.display()),
+            }
+            .into());
+        }
+        crate::ops::file::ensure_parent_components_are_directories(path)?;
     }
     let mut backup = BackupSession::new(backup_root)?;
     for (path, _) in files {

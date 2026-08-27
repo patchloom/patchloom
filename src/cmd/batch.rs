@@ -5,6 +5,7 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::plan::{Operation, Plan};
 use clap::Args;
+use std::path::Path;
 
 /// Maximum number of operations in a single batch. Prevents unbounded
 /// memory allocation from accidentally or maliciously large inputs.
@@ -134,7 +135,12 @@ macro_rules! md_phc {
     }};
 }
 
+#[cfg(test)]
 fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
+    parse_line_at(line, line_num, None)
+}
+
+fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Result<Operation> {
     let tokens = tokenize(line).map_err(|e| {
         anyhow::Error::new(crate::exit::ParseErrorError {
             msg: format!("line {line_num}: {e}"),
@@ -222,7 +228,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
         }
 
         // -- replace -----------------------------------------------------------
-        "replace" => parse_replace_line(args, line_num),
+        "replace" => parse_replace_line(args, line_num, cwd),
 
         // -- file operations ---------------------------------------------------
         // Content is path + remainder (joined). Agents write unquoted multi-word
@@ -589,11 +595,28 @@ fn batch_replace_cli_shape_hint(line_num: usize, flag: &str) -> anyhow::Error {
     })
 }
 
+/// Whether `p` names an existing file. Absolute paths use `Path::is_file`.
+/// Relative paths join `cwd` when given; otherwise they use the process cwd.
+fn path_is_file_under_cwd(p: &str, cwd: Option<&Path>) -> bool {
+    let path = Path::new(p);
+    if path.is_absolute() {
+        path.is_file()
+    } else if let Some(cwd) = cwd {
+        cwd.join(p).is_file()
+    } else {
+        path.is_file()
+    }
+}
+
 /// Parse batch `replace path old new [--flags…]` (#1724).
 ///
 /// First three non-flag tokens are path/old/new. Remaining tokens are optional
 /// CLI-style flags shared with `patchloom replace`.
-fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operation> {
+fn parse_replace_line(
+    args: &[String],
+    line_num: usize,
+    cwd: Option<&Path>,
+) -> anyhow::Result<Operation> {
     if args.len() < 3 {
         return Err(anyhow::Error::new(crate::exit::ParseErrorError {
             msg: format!(
@@ -754,20 +777,15 @@ fn parse_replace_line(args: &[String], line_num: usize) -> anyhow::Result<Operat
 
     // Agents often paste CLI order (`replace OLD --new NEW path` → batch line
     // `replace OLD NEW path`). Batch is PATH OLD NEW. When the first token is
-    // not a file and the third token is, fail early with the correct order.
-    {
-        use std::path::Path;
-        let path_p = Path::new(&path);
-        let new_p = Path::new(&new_text);
-        if !path_p.is_file() && new_p.is_file() {
-            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
-                msg: format!(
-                    "line {line_num}: batch replace order is PATH OLD NEW \
-                     (first arg '{path}' is not a file; third arg '{new_text}' is a file). \
-                     CLI is `replace OLD --new NEW path`; batch is `replace path old new`"
-                ),
-            }));
-        }
+    // not a file and the third token is (resolved under --cwd), fail early.
+    if !path_is_file_under_cwd(&path, cwd) && path_is_file_under_cwd(&new_text, cwd) {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: batch replace order is PATH OLD NEW \
+                 (first arg '{path}' is not a file; third arg '{new_text}' is a file). \
+                 CLI is `replace OLD --new NEW path`; batch is `replace path old new`"
+            ),
+        }));
     }
 
     if command_position
@@ -1071,14 +1089,16 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         })?
     };
 
-    // Parse lines into operations.
+    // Parse lines into operations. Replace-order file checks use --cwd,
+    // not the process cwd (notes.md under --cwd vs process-cwd Cargo.toml).
+    let cwd = global.resolve_cwd()?;
     let mut operations = Vec::new();
     for (i, line) in input.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        match parse_line(trimmed, i + 1) {
+        match parse_line_at(trimmed, i + 1, Some(&cwd)) {
             Ok(op) => operations.push(op),
             Err(e) => {
                 global.emit_error_json_kind(Some("parse_error"), &e.to_string())?;

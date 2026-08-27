@@ -215,44 +215,73 @@ fn commit_and_finalize(
     // Snapshot non-tx files before lifecycle steps so we can restore
     // collateral changes on strict rollback (#1111.7).
     let collateral_snapshot = if ctx.strict && ctx.plan.has_lifecycle_steps() {
-        let tx_paths: std::collections::HashSet<PathBuf> =
-            result.changes.iter().map(|(p, _, _)| p.clone()).collect();
+        let tx_paths =
+            crate::tx::tx_paths_for_collateral(&result.changes, &result.deletions, &result.renames);
         crate::tx::snapshot_non_tx_files(ctx.cwd, &tx_paths)
     } else {
         std::collections::HashMap::new()
     };
 
-    if let Some(err) = run_lifecycle(ctx.plan, ctx.base_cwd, ctx.cwd) {
+    if let Some(err) = run_lifecycle(
+        ctx.plan,
+        ctx.base_cwd,
+        ctx.cwd,
+        global.quiet || global.json || global.jsonl,
+    ) {
         if ctx.strict {
-            // Backup restore keeps binary / invalid-UTF-8 bytes that soft-empty
-            // pending originals cannot reconstruct via string rollback.
-            let used_backup = apply_backup_session
-                .as_ref()
-                .is_some_and(|ts| crate::backup::restore_session(ctx.cwd, ts).is_ok());
-            if !used_backup {
-                crate::tx::rollback_strict(
-                    &result.changes,
-                    &result.pending,
-                    &result.deletions,
-                    &result.existed_before,
-                );
+            match crate::tx::revert_strict_lifecycle(
+                ctx.cwd,
+                &result.changes,
+                &result.pending,
+                &result.deletions,
+                &result.existed_before,
+                apply_backup_session.as_deref(),
+                &collateral_snapshot,
+            ) {
+                Ok(()) => {
+                    let rollback_msg = format!(
+                        "rollback: strict mode -- all changes reverted ({})",
+                        err.message
+                    );
+                    // Kind is format_failed / validation_failed / verification_failed.
+                    // Exit must match exit_code_from_tx_output (MCP/library), not
+                    // ROLLBACK (that is error_kind: rollback only).
+                    let code = match err.kind {
+                        "format_failed" | "validation_failed" | "verification_failed" => {
+                            exit::VALIDATION_FAILED
+                        }
+                        _ => exit::ROLLBACK,
+                    };
+                    if ctx.structured {
+                        let ok = emit_error_json(
+                            err.kind,
+                            &rollback_msg,
+                            apply_backup_session.as_deref(),
+                            ctx.compact,
+                        );
+                        return Ok(exit_after_emit(ok, code));
+                    }
+                    eprintln!("tx: {rollback_msg}");
+                    return Ok(code);
+                }
+                Err(detail) => {
+                    let failed_msg = format!(
+                        "rollback_failed: could not fully revert changes ({detail}; {})",
+                        err.message
+                    );
+                    if ctx.structured {
+                        let ok = emit_error_json(
+                            "rollback_failed",
+                            &failed_msg,
+                            apply_backup_session.as_deref(),
+                            ctx.compact,
+                        );
+                        return Ok(exit_after_emit(ok, exit::FAILURE));
+                    }
+                    eprintln!("tx: {failed_msg}");
+                    return Ok(exit::FAILURE);
+                }
             }
-            crate::tx::restore_collateral_files(&collateral_snapshot);
-            let rollback_msg = format!(
-                "rollback: strict mode -- all changes reverted ({})",
-                err.message
-            );
-            if ctx.structured {
-                let ok = emit_error_json(
-                    err.kind,
-                    &rollback_msg,
-                    apply_backup_session.as_deref(),
-                    ctx.compact,
-                );
-                return Ok(exit_after_emit(ok, exit::ROLLBACK));
-            }
-            eprintln!("tx: {rollback_msg}");
-            return Ok(exit::ROLLBACK);
         }
         // Non-strict: writes kept. Report applied changes + backup for undo.
         if ctx.structured {
@@ -586,7 +615,7 @@ pub(crate) fn run_parsed_plan(
             eprintln!("tx: {msg}");
             return Ok(exit::VALIDATION_FAILED);
         }
-        if !global.quiet {
+        if !global.quiet && !global.json && !global.jsonl {
             for m in &messages {
                 eprintln!("tx: {m}");
             }

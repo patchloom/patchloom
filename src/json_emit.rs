@@ -80,13 +80,11 @@ pub(crate) fn serialize_structured<T: Serialize>(value: &T, compact: bool) -> St
 }
 
 /// Print structured JSON to stdout. Returns whether primary serialization
-/// succeeded. On failure, still prints a non-empty fallback envelope and
-/// logs a one-line diagnostic to stderr.
+/// succeeded. On failure, still prints a non-empty fallback envelope
+/// (`ok: false`, `error_kind: operation_failed`) and does not eprint
+/// (stdout is the agent contract).
 pub(crate) fn print_structured<T: Serialize>(value: &T, compact: bool) -> bool {
     let emit = serialize_structured(value, compact);
-    if !emit.primary_ok {
-        eprintln!("failed to serialize structured output (printed fallback envelope)");
-    }
     println!("{}", emit.json);
     emit.primary_ok
 }
@@ -177,6 +175,19 @@ mod tests {
             "error={err}"
         );
         assert!(err.contains("forced serialize failure"), "error={err}");
+    }
+
+    #[test]
+    fn print_structured_force_fail_still_prints_fallback() {
+        let _g = ForceSerializeFailGuard::engage();
+        let ok = print_structured(
+            &Simple {
+                ok: true,
+                status: "success",
+            },
+            true,
+        );
+        assert!(!ok);
     }
 
     #[test]

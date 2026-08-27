@@ -3,7 +3,8 @@
 //! Single-file `apply_patch` delegates to the tx engine via `execute_as_edit_result`.
 //! Multi-file `apply_patch_file` retains a direct implementation.
 
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use crate::containment::PathGuard;
 use crate::plan::Operation;
@@ -55,7 +56,10 @@ pub fn apply_patch(
         let results = super::apply_search_replace_document(
             patch_text,
             cwd,
-            &super::ApplySearchReplaceOptions::default(),
+            &super::ApplySearchReplaceOptions {
+                file_hint: Some(abs.clone()),
+                ..super::ApplySearchReplaceOptions::default()
+            },
             mode,
             guard,
         )?;
@@ -146,6 +150,9 @@ fn patch_write(
         let write_path = cwd.join(&pf.path);
         if let Some(msg) = pf.dest_clobber_msg(crate::ops::file::path_entry_exists(&write_path)) {
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError { msg }));
+        }
+        if !pf.is_deletion {
+            crate::ops::file::ensure_parent_components_are_directories(&write_path)?;
         }
         if pf.copy_from.is_some() && !crate::ops::file::path_entry_exists(&load_path) {
             return Err(std::io::Error::new(
@@ -277,6 +284,8 @@ pub fn apply_patch_file(
     }
 
     let mut staged: Vec<StageOp> = Vec::new();
+    let mut created: HashSet<PathBuf> = HashSet::new();
+    let mut deleted: HashSet<PathBuf> = HashSet::new();
     for pf in &patch_files {
         if let Some(reason) = pf.unsupported.as_deref() {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
@@ -290,13 +299,20 @@ pub fn apply_patch_file(
             .unwrap_or(pf.path.as_str());
         let load_path = cwd.join(load_rel);
         let write_path = cwd.join(&pf.path);
-        if let Some(msg) = pf.dest_clobber_msg(crate::ops::file::path_entry_exists(&write_path)) {
+        if let Some(msg) = pf.dest_clobber_msg(crate::ops::patch::staged_path_exists(
+            &write_path,
+            &created,
+            &deleted,
+        )) {
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError { msg }));
+        }
+        if !pf.is_deletion {
+            crate::ops::file::ensure_parent_components_are_directories(&write_path)?;
         }
 
         if let Some(from) = pf.copy_from.as_ref() {
             let from_path = cwd.join(from);
-            if !crate::ops::file::path_entry_exists(&from_path) {
+            if !crate::ops::patch::staged_path_exists(&from_path, &created, &deleted) {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     format!("file not found: {from}"),
@@ -317,6 +333,7 @@ pub fn apply_patch_file(
                 original: original.clone(),
                 new_content: original,
             });
+            crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
             continue;
         }
 
@@ -332,6 +349,7 @@ pub fn apply_patch_file(
                 display: pf.path.clone(),
                 original,
             });
+            crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
             continue;
         }
 
@@ -386,6 +404,7 @@ pub fn apply_patch_file(
                 is_creation: pf.is_creation,
             });
         }
+        crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
     }
 
     // Phase 2: one backup session, then all-or-nothing mutate.
@@ -443,6 +462,7 @@ pub fn apply_patch_file(
                         new_content,
                         ..
                     } => {
+                        crate::ops::file::ensure_parent_components_are_directories(write_path)?;
                         if let Some(parent) = write_path.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -470,6 +490,7 @@ pub fn apply_patch_file(
                     } => {
                         // fs::rename preserves case-only renames and binary bytes
                         // (write-dest+delete-src would delete the only inode).
+                        crate::ops::file::ensure_parent_components_are_directories(to)?;
                         if let Some(parent) = to.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -482,6 +503,7 @@ pub fn apply_patch_file(
                         }
                     }
                     StageOp::CopyFile { from, to, .. } => {
+                        crate::ops::file::ensure_parent_components_are_directories(to)?;
                         if let Some(parent) = to.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()

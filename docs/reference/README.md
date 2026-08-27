@@ -367,10 +367,10 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **What it does:** Previews or restores files from a backup created by a previous write `--apply`. Before any `--apply` write, patchloom saves originals under `.patchloom/backups/<timestamp>/`. **Default is dry-run** (same singularity as other write commands): bare `patchloom undo` prints what would be restored, exits `2` (`CHANGES_DETECTED`), and does not change files. Pass `--apply` to restore (exit `0`). There is no `--latest`; without `--session`, the most recent backup is used. Dry-run JSON includes `status: "changes_detected"` and a `hint` field reminding agents to pass `--apply`.
 - **Use when:** An `--apply` operation produced an undesirable result and you want to revert. Especially useful when the working tree was not committed before applying changes.
 - **Notable flags:**
-  - `--list` shows available backup sessions. `--json` emits the full session list as one array, while `--jsonl` emits one session object per line.
+  - `--list` shows available backup sessions. `--json` emits `{ "items": [...], "warnings": [...] }` (each item still has `timestamp`, `project_root`, `file_count`, `entries`). `--jsonl` emits one session object per line, then a `type: warnings` trailer when listing warnings exist (no stderr).
   - `--session <timestamp>` targets a specific session (defaults to most recent).
   - `--apply` actually restores files (required for a real restore; omitted = preview only).
-- **Failure behavior:** No backup sessions (`--list` empty, or restore with no sessions) exits `3` (`NO_MATCHES`). With `--json`/`--jsonl`, the error envelope includes `error_kind: "no_matches"` so agents can branch without scraping stderr.
+- **Failure behavior:** No backup sessions (`--list` empty, or restore with no sessions) exits `3` (`NO_MATCHES`) with `error_kind: "no_matches"`. If session directories exist but none have a readable `manifest.json`, `--list` exits `1` with `error_kind: "invalid_input"` (not `no_matches`) and the warning text (including the path) in the error message.
 - **Agent trap:** Do not treat exit `2` from bare `undo` as a completed restore. Re-run with `--apply`.
 - **Prefer instead:** Use `git checkout` or `git stash` when working in a committed git repo.
 - **Related:** `tx`, `replace`, `tidy`
@@ -426,10 +426,11 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **Notable flags:**
   - `--log <path>`: Log tool calls to a JSONL file (also settable via `PATCHLOOM_MCP_LOG` env var).
   - `--http`: Use Streamable HTTP transport instead of stdio.
-  - `--host <addr>` (default: `127.0.0.1`): Bind address (requires `--http`).
+  - `--host <addr>` (default: `127.0.0.1`): Bind address (requires `--http`). Non-loopback binds require `--allow-unauthenticated`.
   - `--port <port>` (default: `8080`): Bind port (requires `--http`).
+  - `--allow-unauthenticated`: Permit HTTP on a non-loopback bind. Streamable HTTP has no token.
   - `--tls-cert <path>` / `--tls-key <path>`: TLS certificate and key PEM files for HTTPS (requires `--http`; both must be provided together).
-- **Failure behavior:** Invalid bind address or TLS config fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
+- **Failure behavior:** Invalid bind address, TLS config, or unauthenticated non-loopback `--host` without `--allow-unauthenticated` fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`
 

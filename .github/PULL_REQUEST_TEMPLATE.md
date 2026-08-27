@@ -15,6 +15,7 @@ List the checks you ran.
 ## Checklist
 
 - [ ] All commits in this pull request are signed off with `git commit -s`
+- [ ] PR title uses one Conventional Commits prefix (`feat`/`fix`/`docs`/`style`/`refactor`/`perf`/`test`/`build`/`ci`/`chore`/`revert`; no commas or `+`)
 - [ ] I linked the issue or discussion first if this is non-trivial feature work
 - [ ] I ran the relevant test, lint, and format steps for the files I changed
 - [ ] I updated docs or examples if CLI behavior, flags, or output changed

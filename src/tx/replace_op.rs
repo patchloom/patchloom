@@ -3,7 +3,7 @@
 //! size-waiver: accepted single-domain bulk (policy #1408). Path + glob replace
 //! with fuzzy/context fallback co-located; do not split for LOC alone.
 
-use super::execute::{TxState, read_and_probe, read_file_content};
+use super::execute::{TxState, read_file_content};
 use crate::api::MatchMode;
 use crate::ops::replace::{
     InsertSide, ReplacementTextParams, build_replacement_text, compile_replace_regex,
@@ -13,6 +13,7 @@ use crate::ops::replace::{
 use crate::plan::Operation;
 use crate::tx::output::merge_match_modes;
 use globset::Glob;
+#[cfg(not(any(feature = "cli", feature = "files")))]
 use ignore::WalkBuilder;
 use std::collections::HashSet;
 use std::path::Path;
@@ -31,6 +32,18 @@ fn record_replace_match(
 
 /// Soft exact no-match (zero writes) for multi-op honesty. Listed in
 /// `refused[]` with reason `no_matches` when other ops still succeed.
+/// Stage on-disk original then write. Glob scan must not pending-insert misses.
+fn write_glob_hit(tx: &mut TxState<'_>, path: &Path, original: &str, new_content: String) {
+    if !tx.pending.contains_key(path) {
+        tx.existed_before.insert(path.to_path_buf());
+        tx.pending.insert(
+            path.to_path_buf(),
+            (original.to_string(), original.to_string()),
+        );
+    }
+    tx.write_file(path, new_content);
+}
+
 fn record_soft_no_match(tx: &mut TxState<'_>, path: &Path) {
     record_replace_match_with_reason(
         tx,
@@ -507,16 +520,27 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         let mut candidate_paths = Vec::new();
         let mut seen_paths = HashSet::new();
 
-        let walker = WalkBuilder::new(tx.cwd).build();
-        for entry in walker {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-            if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-                continue;
+        // Parallel collect (same WalkBuilder::build_parallel engine as CLI)
+        // when the files/cli walker is available. Pending-only paths are
+        // added below; this walk is on-disk only.
+        #[cfg(any(feature = "cli", feature = "files"))]
+        let walked = crate::files::collect_file_paths_with_ignores(tx.cwd, &[], &[], false)?;
+        #[cfg(not(any(feature = "cli", feature = "files")))]
+        let walked = {
+            let mut paths = Vec::new();
+            for entry in WalkBuilder::new(tx.cwd).build() {
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(_) => continue,
+                };
+                if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                    paths.push(entry.into_path());
+                }
             }
-            let file_path = entry.path().to_path_buf();
+            paths
+        };
+
+        for file_path in walked {
             if matches_pattern(&file_path) && seen_paths.insert(file_path.clone()) {
                 candidate_paths.push(file_path);
             }
@@ -548,21 +572,26 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         }
 
         for file_path in candidate_paths {
-            match read_and_probe(tx.pending, tx.existed_before, &file_path) {
-                Ok(false) => continue, // binary file, skip
-                Ok(true) => {}
-                Err(e) => {
-                    if !tx.structured && !tx.quiet {
-                        eprintln!("tx: replace: skipping {}: {e}", file_path.display());
+            // Scan from pending when a prior write staged the path; otherwise
+            // read a local buffer. Do not pending-insert read-only misses.
+            let content = if let Some((_, staged)) = tx.pending.get(&file_path) {
+                staged.clone()
+            } else {
+                match crate::files::try_read_text_file(&file_path) {
+                    Ok(s) => s,
+                    Err(
+                        crate::files::SoftTextSkip::Binary
+                        | crate::files::SoftTextSkip::InvalidUtf8
+                        | crate::files::SoftTextSkip::NotRegularFile,
+                    ) => continue,
+                    Err(crate::files::SoftTextSkip::Unreadable) => {
+                        if !tx.structured && !tx.quiet {
+                            eprintln!("tx: replace: skipping {}: unreadable", file_path.display());
+                        }
+                        continue;
                     }
-                    continue;
                 }
-            }
-            let content = tx
-                .pending
-                .get(&file_path)
-                .map(|(_, c)| c.clone())
-                .expect("read_and_probe guarantees entry exists in pending");
+            };
             let replacement = build_replacement_text(&ReplacementTextParams {
                 from: old,
                 to: new_text,
@@ -636,7 +665,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             piece,
                             &content[match_end..],
                         );
-                        tx.write_file(&file_path, new_content);
+                        write_glob_hit(tx, &file_path, &content, new_content);
                         record_replace_match(tx, &file_path, MatchMode::Anchored, None, 1, None);
                         total_matches += 1;
                         continue;
@@ -656,7 +685,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     .into());
                 }
                 total_matches += match_count;
-                tx.write_file(&file_path, replaced.into_owned());
+                write_glob_hit(tx, &file_path, &content, replaced.into_owned());
                 record_replace_match(tx, &file_path, MatchMode::Exact, None, match_count, None);
             } else if let Some((n, total)) = (*nth).and_then(|n| {
                 let total = crate::ops::replace::count_nth_candidates(
@@ -783,7 +812,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                             to_text,
                             &content[match_end..]
                         );
-                        tx.write_file(&file_path, new_content);
+                        write_glob_hit(tx, &file_path, &content, new_content);
                         record_replace_match(
                             tx,
                             &file_path,
@@ -1154,6 +1183,54 @@ mod tests {
         assert_eq!(count, 2); // a.txt and b.txt matched
         // c.rs should not be modified
         assert!(!f.pending.contains_key(&dir.path().join("c.rs")));
+        assert_eq!(
+            f.pending[&dir.path().join("a.txt")].0,
+            "old value",
+            "glob hit must keep on-disk original, not empty"
+        );
+    }
+
+    #[test]
+    fn replace_glob_no_match_does_not_insert_pending() {
+        let dir = TempDir::new().unwrap();
+        let miss = dir.path().join("miss.txt");
+        std::fs::write(&miss, "nothing here\n").unwrap();
+
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("*.txt".into()),
+            regex: false,
+            old: "absent".into(),
+            new_text: Some("new".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: true,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(count, 0);
+        assert!(
+            f.pending.is_empty(),
+            "glob miss must not clone into pending: {:?}",
+            f.pending.keys().collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1398,6 +1475,80 @@ mod tests {
         assert!(
             !f.pending.contains_key(&dir.path().join("binary.dat")),
             "binary file should be skipped, not loaded into pending"
+        );
+    }
+
+    #[test]
+    fn replace_glob_pending_only_and_skips_pruned_dirs() {
+        let dir = TempDir::new().unwrap();
+        let on_disk = dir.path().join("a.txt");
+        std::fs::write(&on_disk, "old value").unwrap();
+
+        let git_dir = dir.path().join(".git");
+        std::fs::create_dir_all(&git_dir).unwrap();
+        let git_secret = git_dir.join("secret.txt");
+        std::fs::write(&git_secret, "old value").unwrap();
+
+        let backup_dir = dir.path().join(".patchloom");
+        std::fs::create_dir_all(&backup_dir).unwrap();
+        let backup = backup_dir.join("backup.txt");
+        std::fs::write(&backup, "old value").unwrap();
+
+        let staged = dir.path().join("staged.txt");
+        assert!(!staged.exists(), "pending-only path must not exist on disk");
+
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("*.txt".into()),
+            regex: false,
+            old: "old".into(),
+            new_text: Some("new".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+
+        let mut f = TxStateFixture::new();
+        f.pending
+            .insert(staged.clone(), ("old value".into(), "old value".into()));
+        let mut tx = f.state(dir.path());
+        let count = execute_replace_op(&op, &mut tx).unwrap();
+        drop(tx);
+
+        assert_eq!(count, 2, "on-disk a.txt and pending-only staged.txt");
+        assert_eq!(f.pending[&on_disk].1, "new value");
+        assert_eq!(f.pending[&staged].1, "new value");
+        assert_eq!(
+            std::fs::read_to_string(&git_secret).unwrap(),
+            "old value",
+            ".git/ files must not be walked or replaced"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&backup).unwrap(),
+            "old value",
+            ".patchloom/ files must not be walked or replaced"
+        );
+        assert!(
+            !f.pending.contains_key(&git_secret),
+            ".git/secret.txt must not enter pending"
+        );
+        assert!(
+            !f.pending.contains_key(&backup),
+            ".patchloom/backup.txt must not enter pending"
         );
     }
 

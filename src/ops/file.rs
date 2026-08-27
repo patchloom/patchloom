@@ -1,3 +1,4 @@
+//! size-waiver: dest classify, dest-parent, append/prepend, rename_or_copy (policy #1408).
 use std::path::{Path, PathBuf};
 
 use crate::ops::replace::preferred_line_ending;
@@ -73,11 +74,12 @@ pub fn classify_path_entry(path: &Path) -> PathEntryKind {
         Err(_) => PathEntryKind::Missing,
         Ok(meta) => {
             let ft = meta.file_type();
-            // Symlinks report is_dir/is_file false for the link itself on Unix;
-            // real directories are never symlinks.
+            // Unix: the link itself reports is_dir/is_file false.
+            // Windows: a dest file symlink can report is_file() == true;
+            // exclude those so dest-symlink refuse does not treat them as RegularFile.
             if ft.is_dir() && !ft.is_symlink() {
                 PathEntryKind::RealDirectory
-            } else if ft.is_file() {
+            } else if ft.is_file() && !ft.is_symlink() {
                 PathEntryKind::RegularFile
             } else {
                 PathEntryKind::Special
@@ -132,8 +134,12 @@ pub fn is_regular_file_for_backup(path: &Path) -> bool {
 /// Shared by CLI direct-rename and tx commit (#2091 dedup). Force overwrite
 /// must not delete a pre-existing dest on partial failure (backup holds bytes).
 /// Uses [`path_entry_exists`] so dangling dest entries count as present.
+/// Dest symlink / non-regular entries are refused before rename or EXDEV
+/// copy so `std::fs::copy` cannot follow the dest and overwrite the target.
 pub fn rename_or_copy(src: &Path, dst: &Path) -> anyhow::Result<()> {
     use anyhow::Context;
+
+    refuse_non_regular_destination(dst, &dst.to_string_lossy())?;
 
     match std::fs::rename(src, dst) {
         Ok(()) => Ok(()),
@@ -184,13 +190,52 @@ fn is_cross_device_rename_error(e: &std::io::Error) -> bool {
     }
 }
 
-/// Walk ancestors of `path` and ensure every existing component is a directory.
+/// Refuse a destination that is a symlink (do not follow).
+///
+/// Force-create must not write through a live link and overwrite the
+/// target. Missing dest and regular files are allowed. Directory dests
+/// are refused by a separate check.
+pub fn refuse_symlink_destination(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => Err(crate::exit::InvalidInputError {
+            msg: format!("refusing to write through symlink destination: {display}"),
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// Refuse a destination that is a symlink or other non-regular entry.
+///
+/// Same-device `fs::rename` replaces the dest inode (does not follow).
+/// Cross-device `std::fs::copy` follows a dest symlink and would
+/// overwrite the target. Rename refuses dest symlink (and FIFO /
+/// socket / device) on every device so policy matches force-create.
+pub fn refuse_non_regular_destination(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    match classify_path_entry(path) {
+        PathEntryKind::Special => Err(crate::exit::InvalidInputError {
+            msg: format!("refusing to write through symlink destination: {display}"),
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// Walk ancestors of `path` and ensure every existing component can host a dest.
 ///
 /// Missing parents are fine (`create_dir_all` creates them on apply). An
 /// ancestor that exists as a file (or other non-dir) makes
 /// `create_dir_all` / tempfile placement fail at commit with a bare IO
 /// error and can leave a spurious backup entry for a path that was never
 /// written. Call this before staging `file.create` / rename destinations.
+///
+/// A symlink whose target is a directory is allowed (macOS `/tmp` points at
+/// `/private/tmp`). Dangling links, FIFO/socket/device, and symlink-to-file
+/// are refused.
 pub fn ensure_parent_components_are_directories(
     path: &Path,
 ) -> Result<(), crate::exit::InvalidInputError> {
@@ -199,16 +244,24 @@ pub fn ensure_parent_components_are_directories(
         if p.as_os_str().is_empty() {
             break;
         }
-        if p.exists() {
-            if !p.is_dir() {
+        match classify_path_entry(p) {
+            PathEntryKind::RealDirectory => {
+                // An existing directory implies higher ancestors are also dirs.
+                break;
+            }
+            PathEntryKind::Missing => {
+                current = p.parent();
+            }
+            PathEntryKind::Special if p.is_dir() => {
+                // Followed a symlink (or other special) to a real directory.
+                break;
+            }
+            _ => {
                 return Err(crate::exit::InvalidInputError {
                     msg: format!("parent path is not a directory: {}", p.display()),
                 });
             }
-            // An existing directory implies higher ancestors are also dirs.
-            break;
         }
-        current = p.parent();
     }
     Ok(())
 }
@@ -567,6 +620,83 @@ mod tests {
         assert_eq!(fs::read_to_string(&dst).unwrap(), "payload\n");
     }
 
+    /// Dest symlink must refuse before rename or EXDEV copy so the
+    /// outside target is not overwritten.
+    #[cfg(unix)]
+    #[test]
+    fn rename_or_copy_refuses_dest_symlink() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dest = dir.path().join("dest.txt");
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        fs::write(&src, "payload\n").unwrap();
+        fs::write(&outside_file, "do not overwrite").unwrap();
+        std::os::unix::fs::symlink(&outside_file, &dest).unwrap();
+
+        let err = rename_or_copy(&src, &dest).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dest symlink must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(src.exists(), "source must remain after dest-symlink refuse");
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest must remain a symlink"
+        );
+    }
+
+    /// Windows dest file symlinks can report `FileType::is_file()`; they
+    /// must still classify as Special so rename refuse does not follow.
+    #[cfg(windows)]
+    #[test]
+    fn dest_file_symlink_is_special_and_rename_refuses() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dest = dir.path().join("dest.txt");
+        let outside = TempDir::new().unwrap();
+        let outside_file = outside.path().join("secret");
+        fs::write(&src, "payload\n").unwrap();
+        fs::write(&outside_file, "do not overwrite").unwrap();
+        if let Err(e) = std::os::windows::fs::symlink_file(&outside_file, &dest) {
+            // File symlinks need Developer Mode or admin.
+            eprintln!("skip dest file symlink test: {e}");
+            return;
+        }
+
+        assert_eq!(
+            classify_path_entry(&dest),
+            PathEntryKind::Special,
+            "Windows dest file symlink must not classify as RegularFile"
+        );
+        assert!(!is_regular_file_for_backup(&dest));
+        let err = refuse_non_regular_destination(&dest, "dest.txt").unwrap_err();
+        assert!(
+            err.msg.contains("symlink destination"),
+            "unexpected refuse message: {}",
+            err.msg
+        );
+
+        let err = rename_or_copy(&src, &dest).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dest file symlink must be invalid_input, got: {err:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&outside_file).unwrap(),
+            "do not overwrite"
+        );
+        assert!(src.exists(), "source must remain after dest-symlink refuse");
+        assert!(
+            dest.symlink_metadata().unwrap().file_type().is_symlink(),
+            "dest must remain a symlink"
+        );
+    }
+
     #[test]
     fn append_crlf_file_without_final_newline_uses_crlf_separator() {
         // Windows file missing final newline must not gain a bare LF.
@@ -625,6 +755,50 @@ mod tests {
         let path = blocking.join("b").join("c.txt");
         let err = ensure_parent_components_are_directories(&path).unwrap_err();
         assert!(err.msg.contains("not a directory"), "got: {}", err.msg);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_parents_rejects_dangling_symlink_parent() {
+        let dir = TempDir::new().unwrap();
+        let broken = dir.path().join("broken");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &broken).unwrap();
+        let path = broken.join("new.txt");
+        let err = ensure_parent_components_are_directories(&path).unwrap_err();
+        assert!(
+            err.msg.contains("not a directory"),
+            "dangling parent must refuse: {}",
+            err.msg
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_parents_ok_when_parent_is_symlink_to_dir() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        fs::create_dir(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let path = link.join("new.txt");
+        ensure_parent_components_are_directories(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_parents_rejects_symlink_to_file_parent() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("f.txt");
+        fs::write(&file, "x\n").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        let path = link.join("new.txt");
+        let err = ensure_parent_components_are_directories(&path).unwrap_err();
+        assert!(
+            err.msg.contains("not a directory"),
+            "symlink-to-file parent must refuse: {}",
+            err.msg
+        );
     }
 
     #[test]

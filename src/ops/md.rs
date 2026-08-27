@@ -883,19 +883,6 @@ pub fn table_append_in(
     Ok(out)
 }
 
-/// Append a table row under a unique heading. Section miss/ambiguous map to
-/// [`TableAppendError::NoTable`] for this helper; CLI/tx call `find_section`
-/// first so agents get typed `no_matches` / `ambiguous`.
-pub fn table_append_for_tx(
-    content: &str,
-    heading: &str,
-    row: &str,
-) -> Result<String, TableAppendError> {
-    let (body_start, body_end) =
-        find_section(content, heading).map_err(|_| TableAppendError::NoTable)?;
-    table_append_in(content, body_start, body_end, row)
-}
-
 /// Strip inline code spans (between backticks) from a line so that
 /// we don't false-positive on code examples. Handles multi-backtick
 /// spans (e.g. `` `code` ``, ``` ``code`` ```).

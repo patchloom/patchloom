@@ -22,12 +22,12 @@ use crate::cli::global::GlobalFlags;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
 use ignore::WalkBuilder;
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "files"))]
 use ignore::WalkState;
 use std::path::Path;
 #[cfg(any(feature = "cli", feature = "files"))]
 use std::path::PathBuf;
-#[cfg(feature = "cli")]
+#[cfg(any(feature = "cli", feature = "files"))]
 use std::sync::Mutex;
 
 /// Compute a display-friendly relative path by stripping a `base` prefix.
@@ -98,7 +98,8 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// | Text | `Ok(String)` |
 /// | Binary | `Err(BinaryError)` — `target is a binary file: {display}` (`error_kind: binary`) |
 /// | Invalid UTF-8 | `Err(InvalidEncodingError)` — `target is not valid UTF-8 text: {display}` (`error_kind: invalid_encoding`) |
-/// | Not a file | `Err(InvalidInputError)` — `target is not a file: {display}` |
+/// | Not a file (directory, FIFO, …) | `Err(InvalidInputError)` — `target is not a file: {display}` |
+/// | Dangling symlink / special name | `Err(InvalidInputError)` — `target is not a file: {display}` (not IO NotFound) |
 /// | IO NotFound | `Err` with `io::Error` + context `failed to read {display}` (`is_io_not_found`) |
 /// | IO other (permission, …) | `Err(InvalidInputError)` — `failed to read {display}: {os error}` |
 ///
@@ -112,11 +113,26 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// Directory walks and multi-path soft-skip must use [`read_text_file`] (or
 /// `tx::read_and_probe`), not this function.
 pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
-    if path.exists() && !path.is_file() {
-        return Err(crate::exit::InvalidInputError {
-            msg: format!("target is not a file: {display}"),
+    use crate::ops::file::{PathEntryKind, classify_path_entry};
+    match classify_path_entry(path) {
+        PathEntryKind::RealDirectory => {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("target is not a file: {display}"),
+            }
+            .into());
         }
-        .into());
+        PathEntryKind::Special if !path.exists() || !path.is_file() => {
+            // Dangling symlink / FIFO / socket / symlink-to-dir: present
+            // special name, not a missing path. Must not look like IO
+            // NotFound (agents would create over the name). Live file
+            // symlinks follow via fs::read (#1230).
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("target is not a file: {display}"),
+            }
+            .into());
+        }
+        // RegularFile, live file symlink (Special + exists + is_file), Missing.
+        PathEntryKind::RegularFile | PathEntryKind::Special | PathEntryKind::Missing => {}
     }
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
@@ -426,8 +442,14 @@ pub(crate) fn collect_file_paths_opts_with_list(
     if let Some(depth) = max_depth {
         builder.max_depth(Some(depth));
     }
-    // Never enter .git or .patchloom (even when hidden files are included).
-    builder.filter_entry(|e| !should_skip_walk_dirname(e.file_name()));
+    // Never enter .git / .patchloom; prune exclude prefixes (vendor/**) at walk
+    // time so we do not descend into trees that apply_exclude_globs would drop.
+    let exclude_set = build_glob_matcher(&global.exclude)?;
+    attach_walk_entry_filter(
+        &mut builder,
+        exclude_set.clone(),
+        root.map(Path::to_path_buf),
+    );
     // Support advanced layered ignores (e.g. .agentignore) for parity with library
     // `collect_file_paths_with_ignores` and `api::SearchOptions` (#821).
     for name in &global.ignore_file {
@@ -492,7 +514,7 @@ pub(crate) fn collect_file_paths_opts_with_list(
         .filter(|p| p.is_file())
         .collect();
 
-    // Apply runtime exclude patterns (shared helper for parity with with_ignores).
+    // File-level excludes (*.rs) and defense-in-depth after walk-time prune.
     apply_exclude_globs(&mut paths, &global.exclude, root)?;
 
     for f in explicit_files {
@@ -686,12 +708,15 @@ pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
 
     // Metadata-first: `File::open` on a FIFO blocks until a writer connects.
     if !is_openable_regular_file(path) {
-        // Entry exists but is not a regular file (FIFO/socket/dir/…) → clear
-        // refused reason. Missing path (no metadata) → unreadable.
-        return match std::fs::symlink_metadata(path) {
-            Ok(meta) if !meta.file_type().is_file() => Err(SoftTextSkip::NotRegularFile),
-            Ok(_) => Err(SoftTextSkip::Unreadable),
-            Err(_) => Err(SoftTextSkip::Unreadable),
+        // Same kind as dest-symlink refuse: classify_path_entry, not raw
+        // FileType::is_file. Windows dangling file symlinks report is_file
+        // true; they must skip as NotRegularFile, not Unreadable.
+        use crate::ops::file::{PathEntryKind, classify_path_entry};
+        return match classify_path_entry(path) {
+            PathEntryKind::Missing | PathEntryKind::RegularFile => Err(SoftTextSkip::Unreadable),
+            PathEntryKind::Special | PathEntryKind::RealDirectory => {
+                Err(SoftTextSkip::NotRegularFile)
+            }
         };
     }
 
@@ -797,6 +822,31 @@ pub fn collect_file_paths(root: &Path, include_hidden: bool) -> anyhow::Result<V
     collect_file_paths_with_ignores(root, &[], &[], include_hidden)
 }
 
+/// Whether `path` is excluded by the same rules as [`apply_exclude_globs`].
+///
+/// Checks the full path, the filename fallback, and (when `root` is set) the
+/// path relative to that root so `vendor/**` matches `<root>/vendor/lib.rs`.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn exclude_path_matches(path: &Path, root: Option<&Path>, matcher: &GlobSet) -> bool {
+    if glob_matches_path(path, matcher) {
+        return true;
+    }
+    if let Some(r) = root
+        && let Ok(rel) = path.strip_prefix(r)
+        && !rel.as_os_str().is_empty()
+        && matcher.is_match(rel)
+    {
+        return true;
+    }
+    false
+}
+
+/// Drop paths that match exclude globs (post-filter).
+#[cfg(any(feature = "cli", feature = "files"))]
+fn apply_exclude_globset(paths: &mut Vec<PathBuf>, matcher: &GlobSet, root: Option<&Path>) {
+    paths.retain(|p| !exclude_path_matches(p, root, matcher));
+}
+
 /// Apply exclude glob patterns to a list of paths (post-filter).
 /// Shared to avoid duplication between collect_file_paths_with_ignores and
 /// the advanced logic in collect_file_paths_opts.
@@ -810,31 +860,44 @@ fn apply_exclude_globs(
     patterns: &[String],
     root: Option<&Path>,
 ) -> anyhow::Result<()> {
-    if patterns.is_empty() {
-        return Ok(());
+    if let Some(ex) = build_glob_matcher(patterns)? {
+        apply_exclude_globset(paths, &ex, root);
     }
-    let mut exb = globset::GlobSetBuilder::new();
-    for pat in patterns {
-        exb.add(globset::Glob::new(pat)?);
-    }
-    let ex = exb.build()?;
-    paths.retain(|p| {
-        // Check full path and filename (existing behavior).
-        if glob_matches_path(p, &ex) {
+    Ok(())
+}
+
+/// True when exclude globs would drop every descendant of `dir`.
+///
+/// Requires a synthetic child *and* grandchild to match so a glob that only
+/// hits one path shape does not prune the rest. Same matcher as
+/// [`apply_exclude_globs`]; no extra exclude syntax.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn should_prune_excluded_directory(dir: &Path, root: Option<&Path>, matcher: &GlobSet) -> bool {
+    const SENTINEL: &str = "__walk_prune__";
+    let child = dir.join(SENTINEL);
+    let nested = child.join(SENTINEL);
+    exclude_path_matches(&child, root, matcher) && exclude_path_matches(&nested, root, matcher)
+}
+
+/// Skip `.git` / `.patchloom` and directories fully covered by exclude globs.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn attach_walk_entry_filter(
+    builder: &mut WalkBuilder,
+    exclude: Option<GlobSet>,
+    root: Option<PathBuf>,
+) {
+    builder.filter_entry(move |e| {
+        if should_skip_walk_dirname(e.file_name()) {
             return false;
         }
-        // Also check the relative path so patterns like `vendor/**` work
-        // when collected paths are absolute.
-        if let Some(r) = root
-            && let Ok(rel) = p.strip_prefix(r)
-            && !rel.as_os_str().is_empty()
-            && ex.is_match(rel)
+        if let Some(ref matcher) = exclude
+            && e.file_type().is_some_and(|ft| ft.is_dir())
+            && should_prune_excluded_directory(e.path(), root.as_deref(), matcher)
         {
             return false;
         }
         true
     });
-    Ok(())
 }
 
 /// Directory basenames we never descend into when walking the tree.
@@ -845,6 +908,58 @@ fn apply_exclude_globs(
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn should_skip_walk_dirname(name: &std::ffi::OsStr) -> bool {
     name == ".git" || name == ".patchloom"
+}
+
+/// Parallel file listing from a configured [`WalkBuilder`].
+///
+/// Same engine as CLI [`collect_file_paths_opts`] (`build_parallel` + batched
+/// merge). Callers still apply exclude globs / explicit-file keepers.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn collect_files_from_walk_builder(builder: WalkBuilder) -> Vec<PathBuf> {
+    let collected: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    // Flush-on-drop so a thread-local batch merges when the worker is dropped.
+    struct FlushOnDrop<'a> {
+        batch: Vec<PathBuf>,
+        target: &'a Mutex<Vec<PathBuf>>,
+    }
+    impl Drop for FlushOnDrop<'_> {
+        fn drop(&mut self) {
+            if !self.batch.is_empty() {
+                self.target
+                    .lock()
+                    .expect("file list mutex")
+                    .append(&mut self.batch);
+            }
+        }
+    }
+
+    builder.build_parallel().run(|| {
+        let mut state = FlushOnDrop {
+            batch: Vec::with_capacity(256),
+            target: &collected,
+        };
+        Box::new(move |result| {
+            let Ok(entry) = result else {
+                return WalkState::Continue;
+            };
+            if should_skip_walk_dirname(entry.file_name()) {
+                return WalkState::Skip;
+            }
+            if entry.file_type().is_some_and(|ft| ft.is_file()) {
+                state.batch.push(entry.into_path());
+                if state.batch.len() >= 256 {
+                    state
+                        .target
+                        .lock()
+                        .expect("file list mutex")
+                        .append(&mut state.batch);
+                }
+            }
+            WalkState::Continue
+        })
+    });
+    collected.into_inner().expect("all walkers done")
 }
 
 /// Collect files while respecting .gitignore + custom ignore files (e.g. .agentignore)
@@ -863,18 +978,13 @@ pub fn collect_file_paths_with_ignores(
     if include_hidden {
         builder.hidden(false);
     }
-    // Do not enter .git / .patchloom (filter before build so children are never visited).
-    builder.filter_entry(|e| !should_skip_walk_dirname(e.file_name()));
+    // Do not enter .git / .patchloom; prune exclude prefixes before descending.
+    let exclude_set = build_glob_matcher(exclude_patterns)?;
+    attach_walk_entry_filter(&mut builder, exclude_set.clone(), Some(root.to_path_buf()));
     for name in custom_ignore_filenames {
         builder.add_custom_ignore_filename(name);
     }
-    let mut paths: Vec<PathBuf> = Vec::new();
-    for entry in builder.build().filter_map(Result::ok) {
-        if entry.file_type().is_some_and(|ft| ft.is_file()) {
-            paths.push(entry.into_path());
-        }
-    }
-
+    let mut paths = collect_files_from_walk_builder(builder);
     apply_exclude_globs(&mut paths, exclude_patterns, Some(root))?;
     Ok(paths)
 }
@@ -1195,6 +1305,64 @@ mod tests {
         );
     }
 
+    /// Create a file symlink; return false when the OS refuses (Windows
+    /// without Developer Mode / admin).
+    fn try_symlink_file(target: &std::path::Path, link: &std::path::Path) -> bool {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link).is_ok()
+        }
+        #[cfg(windows)]
+        {
+            match std::os::windows::fs::symlink_file(target, link) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("skip file symlink test: {e}");
+                    false
+                }
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (target, link);
+            false
+        }
+    }
+
+    #[test]
+    fn load_text_strict_dangling_symlink_is_invalid_input() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        if !try_symlink_file(&dir.path().join("missing-target"), &link) {
+            return;
+        }
+        let err = load_text_strict(&link, "dangling.txt").unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "dangling must be InvalidInputError, got: {err:#}"
+        );
+        assert!(
+            !crate::exit::is_io_not_found(&err),
+            "dangling must not look missing: {err:#}"
+        );
+        assert!(err.to_string().contains("not a file"), "msg: {err}");
+    }
+
+    #[test]
+    fn load_text_strict_live_symlink_to_text_ok() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let target = dir.path().join("real.txt");
+        std::fs::write(&target, "hello via link\n").unwrap();
+        let link = dir.path().join("live.txt");
+        if !try_symlink_file(&target, &link) {
+            return;
+        }
+        assert_eq!(
+            load_text_strict(&link, "live.txt").unwrap(),
+            "hello via link\n"
+        );
+    }
+
     #[test]
     fn load_text_strict_missing_is_io_not_found() {
         let dir = tempfile::TempDir::new().unwrap();
@@ -1411,6 +1579,38 @@ mod tests {
         assert!(SoftTextSkip::Binary.is_content_skip());
         assert!(!SoftTextSkip::Unreadable.is_content_skip());
         assert_eq!(SoftTextSkip::InvalidUtf8.as_reason(), "invalid_utf8");
+    }
+
+    /// Dangling symlink is a present special entry, not missing/unreadable.
+    #[cfg(unix)]
+    #[test]
+    fn try_read_text_file_dangling_symlink_is_not_regular() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing-target"), &link).unwrap();
+        assert_eq!(
+            try_read_text_file(&link).unwrap_err(),
+            SoftTextSkip::NotRegularFile
+        );
+    }
+
+    /// Windows dangling file symlink reports `FileType::is_file()`; soft
+    /// read must still skip as NotRegularFile, not Unreadable.
+    #[cfg(windows)]
+    #[test]
+    fn try_read_text_file_dangling_file_symlink_is_not_regular() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("dangling.txt");
+        if let Err(e) = std::os::windows::fs::symlink_file(dir.path().join("missing-target"), &link)
+        {
+            // File symlinks need Developer Mode or admin.
+            eprintln!("skip dangling file symlink test: {e}");
+            return;
+        }
+        assert_eq!(
+            try_read_text_file(&link).unwrap_err(),
+            SoftTextSkip::NotRegularFile
+        );
     }
 
     /// Soft text load must not open FIFOs (blocks forever).
@@ -1866,5 +2066,191 @@ mod explicit_exclude_tests {
             !paths.iter().any(|p| p.to_string_lossy().contains("vendor")),
             "vendor walk contents still excluded: {paths:?}"
         );
+    }
+
+    #[test]
+    fn excluded_directory_tree_is_omitted() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("vendor/pkg/deep")).unwrap();
+        fs::write(root.join("vendor/pkg/deep/lib.js"), "v\n").unwrap();
+        fs::write(root.join("vendor/top.js"), "v\n").unwrap();
+        fs::write(root.join("app.js"), "a\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["vendor/**".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths = collect_file_paths_opts_with_list(
+            &[".".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+            None,
+        )
+        .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(rels.iter().any(|r| r == "app.js"), "kept app.js: {rels:?}");
+        assert!(
+            !rels.iter().any(|r| r.contains("vendor")),
+            "vendor/** must omit the tree: {rels:?}"
+        );
+    }
+
+    #[test]
+    fn extension_exclude_still_collects_other_files_under_dir() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "fn x() {}\n").unwrap();
+        fs::write(root.join("src/keep.md"), "ok\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["*.rs".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths = collect_file_paths_opts_with_list(
+            &[".".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+            None,
+        )
+        .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(
+            rels.iter().any(|r| r == "src/keep.md"),
+            "*.rs must not prune src/: {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.ends_with(".rs")),
+            "*.rs still excludes rust files: {rels:?}"
+        );
+    }
+
+    #[test]
+    fn vendor_star_exclude_omits_nested_like_double_star() {
+        // globset `*` matches `/` (literal_separator is off). `vendor/*` is
+        // the same exclude language as `vendor/**`.
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("vendor/pkg")).unwrap();
+        fs::write(root.join("vendor/top.js"), "t\n").unwrap();
+        fs::write(root.join("vendor/pkg/deep.js"), "d\n").unwrap();
+        fs::write(root.join("app.js"), "a\n").unwrap();
+        let global = GlobalFlags {
+            exclude: vec!["vendor/*".into()],
+            ..GlobalFlags::test_default()
+        };
+        let paths = collect_file_paths_opts_with_list(
+            &[".".into()],
+            &global,
+            false,
+            Some(root),
+            None,
+            None,
+        )
+        .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(rels.iter().any(|r| r == "app.js"), "kept app.js: {rels:?}");
+        assert!(
+            !rels.iter().any(|r| r.contains("vendor")),
+            "vendor/* omits the tree: {rels:?}"
+        );
+    }
+}
+
+#[cfg(all(test, any(feature = "cli", feature = "files")))]
+mod walk_prune_tests {
+    use super::*;
+    use std::path::Path;
+
+    fn matcher(pat: &str) -> globset::GlobSet {
+        build_glob_matcher(&[pat.into()]).unwrap().unwrap()
+    }
+
+    #[test]
+    fn prune_vendor_double_star() {
+        let m = matcher("vendor/**");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("vendor"),
+            Some(root),
+            &m
+        ));
+        assert!(!should_prune_excluded_directory(
+            &root.join("src"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn prune_vendor_star_same_as_double_star() {
+        // globset `*` matches `/`; `vendor/*` covers every descendant.
+        let m = matcher("vendor/*");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("vendor"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn do_not_prune_extension_glob() {
+        let m = matcher("*.rs");
+        let root = Path::new("/project");
+        assert!(!should_prune_excluded_directory(
+            &root.join("src"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn prune_nested_node_modules_prefix() {
+        let m = matcher("**/node_modules/**");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("src/node_modules"),
+            Some(root),
+            &m
+        ));
+    }
+
+    #[test]
+    fn prune_target_double_star() {
+        let m = matcher("target/**");
+        let root = Path::new("/project");
+        assert!(should_prune_excluded_directory(
+            &root.join("target"),
+            Some(root),
+            &m
+        ));
     }
 }

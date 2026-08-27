@@ -123,6 +123,38 @@ fn test_agent_rules_json_output() {
     );
 }
 
+#[test]
+fn test_agent_rules_quiet_suppresses_text() {
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--quiet", "agent-rules"])
+        .assert()
+        .success()
+        .stdout(predicates::str::is_empty());
+}
+
+#[test]
+fn test_agent_rules_quiet_with_global_json_still_emits() {
+    // Agents often pass --json --quiet together; structured stdout must remain.
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--quiet", "agent-rules"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).expect("json under --quiet");
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["format"], "markdown");
+    assert!(
+        v["content"]
+            .as_str()
+            .is_some_and(|c| c.contains("# Patchloom")),
+        "content should be agent rules markdown"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // init command
 // ---------------------------------------------------------------------------

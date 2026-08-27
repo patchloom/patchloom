@@ -2,7 +2,7 @@ use crate::cli::global::GlobalFlags;
 use crate::cmd::output::WritePhase;
 use crate::cmd::output::execute_via_engine;
 use crate::exit;
-use crate::ops::md::{dedupe_headings_in, find_section, lint_agents_content};
+use crate::ops::md::{dedupe_headings_in, lint_agents_content};
 use crate::plan::Operation;
 use anyhow::Context;
 use clap::Args;
@@ -614,74 +614,20 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        MdAction::TableAppend {
-            mut file,
-            heading,
-            row,
-        } => {
+        MdAction::TableAppend { file, heading, row } => {
             crate::verbose!("md: table-append file={}, heading={:?}", file, heading);
-            // Pre-validate: distinguish "heading not found" (NO_MATCHES)
-            // from "no table under heading" (error), which the engine
-            // conflates into a single None.
-            let cwd = global.resolve_cwd()?;
-            file = global.rewrite_user_path_arg(&cwd, &file)?;
-            let path = cwd.join(&file);
-            let content = match crate::files::load_text_strict(&path, &file) {
-                Ok(s) => s,
-                Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
-                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
-                    let msg = crate::exit::agent_error_message(&e);
-                    global.emit_error_json_kind(Some(kind), &msg)?;
-                    return Ok(exit::FAILURE);
-                }
-                Err(e) => return Err(e).with_context(|| format!("reading {file}")),
+            let op = Operation::MdTableAppend {
+                path: file.clone(),
+                heading: heading.clone(),
+                row,
             };
-            match find_section(&content, &heading) {
-                Err(crate::ops::md::SectionError::NotFound) => {
-                    let msg = format!("heading {:?} not found in {file}", heading);
-                    global.emit_error_json_kind(Some("no_matches"), &msg)?;
-                    Ok(exit::NO_MATCHES)
-                }
-                Err(e @ crate::ops::md::SectionError::Ambiguous { .. }) => {
-                    let err = e.into_anyhow(&heading);
-                    let msg = err.to_string();
-                    global.emit_error_json_kind(Some("ambiguous"), &msg)?;
-                    Ok(exit::AMBIGUOUS)
-                }
-                Ok((body_start, body_end)) => {
-                    // Verify the table exists and the row is valid.
-                    if let Err(e) =
-                        crate::ops::md::table_append_in(&content, body_start, body_end, &row)
-                    {
-                        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                            msg: format!("{e} under heading {:?}", heading),
-                        }));
-                    }
-                    let op = Operation::MdTableAppend {
-                        path: file.clone(),
-                        heading: heading.clone(),
-                        row,
-                    };
-                    let file_owned = file.clone();
-                    execute_via_engine(
-                        op,
-                        global,
-                        |phase, diff, _backup| MdOutput {
-                            ok: true,
-                            path: file_owned.clone(),
-                            has_changes: match phase {
-                                WritePhase::Check(changed) => Some(changed),
-                                _ => None,
-                            },
-                            diff,
-                            applied: phase.applied_flag(),
-                            backup_session: _backup,
-                        },
-                        &format!("would modify {file}"),
-                        &format!("modified {file}"),
-                    )
-                }
-            }
+            execute_md_op(
+                op,
+                global,
+                &file,
+                &format!("would modify {file}"),
+                &format!("modified {file}"),
+            )
         }
 
         MdAction::MoveSection {

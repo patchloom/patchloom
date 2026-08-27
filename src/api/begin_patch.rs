@@ -1,5 +1,6 @@
 //! Disk apply for Codex `*** Begin Patch` (#2219).
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::containment::PathGuard;
@@ -57,6 +58,20 @@ pub(crate) fn apply_begin_patch_ops(
     }
 
     let mut staged: Vec<StageOp> = Vec::new();
+    // Same pending/delete view as tx `dest_exists` so Preview (`patch check`)
+    // agrees with apply on Delete-then-Add / Add-then-Delete in one document.
+    let mut created: HashMap<PathBuf, String> = HashMap::new();
+    let mut deleted: HashSet<PathBuf> = HashSet::new();
+    let staged_exists =
+        |path: &Path, created: &HashMap<PathBuf, String>, deleted: &HashSet<PathBuf>| {
+            if created.contains_key(path) {
+                return true;
+            }
+            if deleted.contains(path) {
+                return false;
+            }
+            path_entry_exists(path)
+        };
     for op in ops {
         match op {
             BeginPatchOp::Add { path, content } => {
@@ -70,19 +85,18 @@ pub(crate) fn apply_begin_patch_ops(
                         ),
                     }));
                 }
-                let original = if path_entry_exists(&dest) {
-                    match crate::files::load_text_strict(&dest, path) {
-                        Ok(s) => s,
-                        Err(e) if crate::exit::is_load_text_strict_fail(&e) => String::new(),
-                        Err(e) => return Err(e),
-                    }
-                } else {
-                    String::new()
-                };
+                if staged_exists(&dest, &created, &deleted) {
+                    return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
+                        msg: crate::ops::patch::create_dest_exists_msg(path),
+                    }));
+                }
+                crate::ops::file::ensure_parent_components_are_directories(&dest)?;
+                created.insert(dest.clone(), content.clone());
+                deleted.remove(&dest);
                 staged.push(StageOp::Write {
                     write_path: dest,
                     display: path.clone(),
-                    original,
+                    original: String::new(),
                     new_content: content.clone(),
                     is_creation: true,
                 });
@@ -95,14 +109,18 @@ pub(crate) fn apply_begin_patch_ops(
                         msg: format!("{} is a directory, not a file", dest.display()),
                     }));
                 }
-                if !path_entry_exists(&dest) {
+                if !staged_exists(&dest, &created, &deleted) {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
                         format!("file not found: {path}"),
                     )
                     .into());
                 }
-                let original = crate::files::load_text_strict(&dest, path).unwrap_or_default();
+                let original = created.get(&dest).cloned().unwrap_or_else(|| {
+                    crate::files::load_text_strict(&dest, path).unwrap_or_default()
+                });
+                created.remove(&dest);
+                deleted.insert(dest.clone());
                 staged.push(StageOp::Delete {
                     path: dest,
                     display: path.clone(),
@@ -124,12 +142,23 @@ pub(crate) fn apply_begin_patch_ops(
                         ),
                     }));
                 }
-                let original = crate::files::load_text_strict(&dest, path)?;
+                if !staged_exists(&dest, &created, &deleted) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        format!("file not found: {path}"),
+                    )
+                    .into());
+                }
+                let original = if let Some(s) = created.get(&dest) {
+                    s.clone()
+                } else {
+                    crate::files::load_text_strict(&dest, path)?
+                };
                 let updated = apply_codex_hunks(&original, hunks)?;
                 if let Some(new_path) = move_to {
                     let new_dest = resolve_begin_patch_dest(cwd, new_path, None);
                     super::ensure_contained_entry(guard, &new_dest)?;
-                    if path_entry_exists(&new_dest) {
+                    if staged_exists(&new_dest, &created, &deleted) {
                         return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                             msg: format!(
                                 "destination already exists: {} (Begin Patch Move refuses overwrite; remove dest)",
@@ -137,6 +166,11 @@ pub(crate) fn apply_begin_patch_ops(
                             ),
                         }));
                     }
+                    crate::ops::file::ensure_parent_components_are_directories(&new_dest)?;
+                    created.remove(&dest);
+                    deleted.insert(dest.clone());
+                    created.insert(new_dest.clone(), updated.clone());
+                    deleted.remove(&new_dest);
                     staged.push(StageOp::Rename {
                         from: dest,
                         to: new_dest,
@@ -146,6 +180,8 @@ pub(crate) fn apply_begin_patch_ops(
                         new_content: updated,
                     });
                 } else {
+                    created.insert(dest.clone(), updated.clone());
+                    deleted.remove(&dest);
                     staged.push(StageOp::Write {
                         write_path: dest,
                         display: path.clone(),
@@ -200,6 +236,7 @@ pub(crate) fn apply_begin_patch_ops(
                         new_content,
                         ..
                     } => {
+                        crate::ops::file::ensure_parent_components_are_directories(write_path)?;
                         if let Some(parent) = write_path.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -225,6 +262,7 @@ pub(crate) fn apply_begin_patch_ops(
                         new_content,
                         ..
                     } => {
+                        crate::ops::file::ensure_parent_components_are_directories(to)?;
                         if let Some(parent) = to.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -317,6 +355,7 @@ mod tests {
     use super::*;
     use crate::api::{is_already_exists, is_ambiguous, is_guard_rejected, is_no_match};
     use crate::containment::PathGuard;
+    use crate::exit::is_invalid_input;
     use crate::ops::begin_patch::looks_like_begin_patch;
 
     fn update_patch(path: &str, old: &str, new: &str) -> String {
@@ -464,6 +503,63 @@ mod tests {
     }
 
     #[test]
+    fn apply_begin_patch_add_dest_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("new.rs"), "keep\n").unwrap();
+        let patch = "\
+*** Begin Patch
+*** Add File: new.rs
++fn added() {}
+*** End Patch
+";
+        let err =
+            apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None).expect_err("exists");
+        assert!(is_already_exists(&err));
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("new.rs")).unwrap(),
+            "keep\n"
+        );
+    }
+
+    #[test]
+    fn apply_begin_patch_delete_then_add_same_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("swap.rs"), "old\n").unwrap();
+        let patch = "\
+*** Begin Patch
+*** Delete File: swap.rs
+*** Add File: swap.rs
++new
+*** End Patch
+";
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Preview, None)
+            .expect("preview delete-then-add");
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None)
+            .expect("apply delete-then-add");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("swap.rs")).unwrap(),
+            "new\n"
+        );
+    }
+
+    #[test]
+    fn apply_begin_patch_add_then_delete_missing_dest() {
+        let dir = tempfile::tempdir().unwrap();
+        let patch = "\
+*** Begin Patch
+*** Add File: brand.rs
++hello
+*** Delete File: brand.rs
+*** End Patch
+";
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Preview, None)
+            .expect("preview add-then-delete");
+        apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None)
+            .expect("apply add-then-delete");
+        assert!(!dir.path().join("brand.rs").exists());
+    }
+
+    #[test]
     fn apply_begin_patch_path_guard() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("in.rs"), "fn old() {}\n").unwrap();
@@ -526,6 +622,38 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(other_dir.join("main.rs")).unwrap(),
             "fn changed() {}\n"
+        );
+    }
+
+    #[test]
+    fn apply_begin_patch_add_dest_parent_file_is_invalid_input() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notdir"), "i am a file\n").unwrap();
+        let patch = "\
+*** Begin Patch
+*** Add File: notdir/out.rs
++hello
+*** End Patch
+";
+        for mode in [ApplyMode::Preview, ApplyMode::Apply] {
+            let err =
+                apply_begin_patch(patch, dir.path(), None, mode, None).expect_err("file parent");
+            assert!(
+                is_invalid_input(&err),
+                "expected invalid_input for {mode:?}, got: {err}"
+            );
+            assert!(
+                err.to_string().contains("not a directory"),
+                "message should name the parent: {err}"
+            );
+        }
+        assert!(
+            !dir.path().join("notdir").join("out.rs").exists(),
+            "must not write dest under a file parent"
+        );
+        assert!(
+            !dir.path().join(".patchloom/backups").exists(),
+            "must not create a backup for a path that was never written"
         );
     }
 

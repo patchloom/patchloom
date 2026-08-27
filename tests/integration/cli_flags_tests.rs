@@ -18,6 +18,24 @@ fn test_completions_supported_shells() {
 }
 
 #[test]
+fn test_completions_json_is_invalid_input() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "completions", "bash"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error_kind"], "invalid_input");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("_patchloom"),
+        "must not dump a bash script under --json: {stdout}"
+    );
+}
+
+#[test]
 fn test_glob_filters_by_pattern() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("keep.rs"), "fn main() {}\n").unwrap();
@@ -861,6 +879,46 @@ fn test_config_malformed_toml_warns_on_stderr() {
         .assert()
         .success()
         .stderr(predicate::str::contains("warning: malformed"));
+}
+
+#[test]
+fn test_config_malformed_toml_json_no_stderr_warning() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "this is not valid { toml [",
+    )
+    .unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "hello", "--cwd"])
+        .arg(dir.path())
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("warning: malformed").not());
+}
+
+#[test]
+fn test_config_invalid_eol_json_no_stderr_warning() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[write_policy]\nnormalize_eol = \"bogus\"\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "hello", "--cwd"])
+        .arg(dir.path())
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("normalize_eol").not());
 }
 
 /// Verify the Python agent driver's `_PATCHLOOM_SUBCOMMANDS` set stays in

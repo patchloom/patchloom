@@ -1761,6 +1761,43 @@ rename to \"caf\\303\\251-new.rs\"
         };
         let via_file = pf.dest_clobber_msg(true).expect("PatchFile copy dest");
         assert_eq!(via_file, copy_dest_exists_msg("dst.rs"));
+
+        // `--- /dev/null` create with hunks must refuse dest the same as empty-create.
+        let create_diff = "\
+--- /dev/null
++++ b/new.rs
+@@ -0,0 +1 @@
++hello
+";
+        let created = parse_patch(create_diff).expect("create-with-hunks parse");
+        assert_eq!(created.len(), 1);
+        assert!(created[0].is_creation && !created[0].hunks.is_empty());
+        let via_create = created[0]
+            .dest_clobber_msg(true)
+            .expect("create-with-hunks dest");
+        assert_eq!(via_create, create_dest_exists_msg("new.rs"));
+    }
+
+    #[test]
+    fn record_staged_patch_dest_marks_update_write() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut created = std::collections::HashSet::new();
+        let mut deleted = std::collections::HashSet::new();
+        let pf = PatchFile {
+            path: "dest.txt".into(),
+            hunks: Vec::new(),
+            is_creation: false,
+            is_deletion: false,
+            rename_from: None,
+            copy_from: None,
+            unsupported: None,
+        };
+        record_staged_patch_dest(dir.path(), &pf, &mut created, &mut deleted);
+        let dest = dir.path().join("dest.txt");
+        assert!(
+            staged_path_exists(&dest, &created, &deleted),
+            "update write occupies dest like tx pending"
+        );
     }
 
     #[test]

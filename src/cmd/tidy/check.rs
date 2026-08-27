@@ -140,6 +140,13 @@ fn editorconfig_check_props(_path: &Path) -> (Option<crate::write::EolMode>, boo
     (None, true)
 }
 
+/// First walk plus issues. Remask reuses `scanned`; keep this off the
+/// public [`TidyIssue`] surface (crate-private, not a library type).
+pub(super) struct CollectedIssues {
+    pub issues: Vec<TidyIssue>,
+    pub scanned: Vec<std::path::PathBuf>,
+}
+
 /// Collect all issues from the given paths, honouring .gitignore and optional
 /// glob filtering.  Uses `collect_file_paths_opts` with `include_hidden=true`
 /// so dotfiles are also checked.  File scanning is parallelized.
@@ -148,14 +155,16 @@ pub(super) fn collect_issues(
     paths: &[String],
     global: &GlobalFlags,
 ) -> anyhow::Result<Vec<TidyIssue>> {
-    collect_issues_with_list(paths, global, None)
+    Ok(collect_issues_with_list(paths, global, None)?.issues)
 }
 
+/// Like [`collect_issues`], with a pre-read `--files-from` list (stdin once).
+/// Returns the first walk so empty-scan remask can reuse it.
 pub(super) fn collect_issues_with_list(
     paths: &[String],
     global: &GlobalFlags,
     files_from_preload: Option<&[String]>,
-) -> anyhow::Result<Vec<TidyIssue>> {
+) -> anyhow::Result<CollectedIssues> {
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, paths)?;
     let glob_matcher = crate::build_glob_matcher_from_global(global)?;
@@ -171,7 +180,7 @@ pub(super) fn collect_issues_with_list(
     crate::files::ensure_files_from_nonempty(global, &file_paths)?;
     let glob_roots = crate::collect_glob_roots_from_global(paths, global, Some(&cwd))?;
 
-    let quiet = global.quiet;
+    let quiet = global.quiet || global.json || global.jsonl;
     let eol_target = global.normalize_eol;
     let respect_ec = global.respect_editorconfig;
     let file_issues: Vec<Vec<TidyIssue>> =
@@ -196,7 +205,10 @@ pub(super) fn collect_issues_with_list(
             }
         });
 
-    Ok(file_issues.into_iter().flatten().collect())
+    Ok(CollectedIssues {
+        issues: file_issues.into_iter().flatten().collect(),
+        scanned: file_paths,
+    })
 }
 
 /// JSON wrapper for tidy check output.
@@ -303,17 +315,11 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
     };
     let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(paths);
     let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
-    let issues = collect_issues_with_list(paths, global, files_from_list.as_deref())?;
+    let CollectedIssues { issues, scanned } =
+        collect_issues_with_list(paths, global, files_from_list.as_deref())?;
     if issues.is_empty() {
         // Unreadable paths soft-skipped as "clean" would mask permission failures.
-        let scanned = crate::files::collect_file_paths_opts_with_list(
-            paths,
-            global,
-            true,
-            Some(&cwd),
-            files_from_list.as_deref(),
-            None,
-        )?;
+        // Reuse the first walk; do not collect_file_paths again on a clean tree.
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&scanned, &cwd) {
             global.emit_error_json_kind(Some("invalid_input"), &err.msg)?;
             return Ok(exit::FAILURE);

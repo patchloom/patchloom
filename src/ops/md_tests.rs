@@ -262,9 +262,10 @@ mod basic {
     }
 
     #[test]
-    fn table_append_for_tx_basic() {
+    fn table_append_compose_find_section_then_append() {
         let content = "# API\n| Name | Value |\n|---|---|\n| a | 1 |\n";
-        let result = table_append_for_tx(content, "API", "| b | 2 |").unwrap();
+        let (body_start, body_end) = find_section(content, "API").unwrap();
+        let result = table_append_in(content, body_start, body_end, "| b | 2 |").unwrap();
         assert!(result.contains("| a | 1 |\n| b | 2 |\n"));
     }
 

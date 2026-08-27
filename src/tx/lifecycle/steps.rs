@@ -4,8 +4,6 @@ use crate::exec;
 use crate::plan::{self, Plan};
 use crate::tx::output::{describe_exit_status, describe_lifecycle_cwd};
 use crate::write::{WritePolicy, atomic_write};
-#[cfg(any(feature = "cli", feature = "files"))]
-use ignore::WalkBuilder;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -42,6 +40,7 @@ fn run_lifecycle_steps(
     label: &str,
     error_label: &str,
     kind: &'static str,
+    quiet: bool,
 ) -> Result<(), LifecycleError> {
     let lifecycle_cwd = describe_lifecycle_cwd(base_cwd, cwd);
     for (index, (cmd, timeout, required)) in steps.enumerate() {
@@ -68,7 +67,9 @@ fn run_lifecycle_steps(
                     lifecycle_cwd
                 );
                 let msg = lifecycle_failure_msg(&header, &stderr_head);
-                eprintln!("tx: {msg}");
+                if !quiet {
+                    eprintln!("tx: {msg}");
+                }
                 if required {
                     return Err(LifecycleError { message: msg, kind });
                 }
@@ -79,7 +80,9 @@ fn run_lifecycle_steps(
                     index + 1,
                     lifecycle_cwd
                 );
-                eprintln!("tx: {msg}");
+                if !quiet {
+                    eprintln!("tx: {msg}");
+                }
                 if required {
                     return Err(LifecycleError { message: msg, kind });
                 }
@@ -94,6 +97,7 @@ pub(crate) fn run_format_steps(
     steps: &[plan::FormatStep],
     base_cwd: &Path,
     cwd: &Path,
+    quiet: bool,
 ) -> Result<(), LifecycleError> {
     run_lifecycle_steps(
         steps.iter().map(|s| (s.cmd.clone(), s.timeout, true)),
@@ -102,6 +106,7 @@ pub(crate) fn run_format_steps(
         "format step",
         "format step",
         "format_failed",
+        quiet,
     )
 }
 
@@ -109,6 +114,7 @@ pub(crate) fn run_validate_steps(
     steps: &[plan::ValidationStep],
     base_cwd: &Path,
     cwd: &Path,
+    quiet: bool,
 ) -> Result<(), LifecycleError> {
     run_lifecycle_steps(
         steps
@@ -119,6 +125,7 @@ pub(crate) fn run_validate_steps(
         "required validation",
         "validation",
         "validation_failed",
+        quiet,
     )
 }
 
@@ -126,6 +133,27 @@ pub(crate) fn run_validate_steps(
 /// Files above this threshold are extremely unlikely to be reformatted by
 /// standard formatters and snapshotting them wastes memory.
 pub(crate) const COLLATERAL_SNAPSHOT_MAX_SIZE: u64 = 1_048_576; // 1 MiB
+
+/// Paths the transaction already owns: change targets, deletions, and
+/// rename from/to. Used as the skip set for [`snapshot_non_tx_files`].
+///
+/// Rename dests are often also in `changes`, but force-overwrite dests
+/// with identical content (and empty-file deletes historically) can be
+/// absent from `changes`. Omitting them lets the post-commit dest be
+/// snapshotted as collateral and written back after rollback.
+pub(crate) fn tx_paths_for_collateral(
+    changes: &[(PathBuf, String, String)],
+    deletions: &HashSet<PathBuf>,
+    renames: &[(PathBuf, PathBuf)],
+) -> HashSet<PathBuf> {
+    let mut tx_paths: HashSet<PathBuf> = changes.iter().map(|(p, _, _)| p.clone()).collect();
+    tx_paths.extend(deletions.iter().cloned());
+    for (from, to) in renames {
+        tx_paths.insert(from.clone());
+        tx_paths.insert(to.clone());
+    }
+    tx_paths
+}
 
 /// Snapshot the content of non-binary text files under `cwd` that are NOT
 /// already tracked by the transaction. This captures the pre-format state of
@@ -144,12 +172,14 @@ pub(crate) fn snapshot_non_tx_files(
         cwd.display(),
         tx_paths.len()
     );
-    let walker = WalkBuilder::new(cwd).hidden(false).build();
-    for entry in walker.flatten() {
-        let path = entry.path().to_path_buf();
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
+    // include_hidden=true matches WalkBuilder.hidden(false); the collector
+    // still prunes .git / .patchloom via attach_walk_entry_filter.
+    // Walk errors stay soft (empty snapshot), matching flatten() swallow.
+    let walked = match crate::files::collect_file_paths_with_ignores(cwd, &[], &[], true) {
+        Ok(paths) => paths,
+        Err(_) => return snapshot,
+    };
+    for path in walked {
         if tx_paths.contains(&path) {
             crate::verbose!(
                 "tx: collateral snapshot: skipping tx file {}",
@@ -192,10 +222,17 @@ pub(crate) fn snapshot_non_tx_files(
 /// Restore any files that were modified by format/validate steps but were
 /// not part of the transaction. Compares current content against the
 /// snapshot and writes back the original content for any files that changed.
+///
+/// Returns `Ok(())` when every needed write succeeded. Returns `Err` with
+/// the paths that failed so callers can emit `rollback_failed` instead of
+/// claiming a full revert.
 #[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
+pub(crate) fn restore_collateral_files(
+    snapshot: &HashMap<PathBuf, String>,
+) -> Result<(), Vec<PathBuf>> {
     let noop_policy = WritePolicy::default();
     let mut restored = 0usize;
+    let mut failed = Vec::new();
     for (path, original) in snapshot {
         // Soft content load: skip binary / unreadable collateral (do not
         // rewrite non-text via atomic_write as UTF-8).
@@ -208,11 +245,8 @@ pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
                 "tx: collateral restore: reverting {} (changed by formatter)",
                 path.display()
             );
-            if let Err(e) = atomic_write(path, original, &noop_policy) {
-                eprintln!(
-                    "tx: rollback: failed to restore collateral file {}: {e}",
-                    path.display()
-                );
+            if atomic_write(path, original, &noop_policy).is_err() {
+                failed.push(path.clone());
             } else {
                 restored += 1;
             }
@@ -221,6 +255,59 @@ pub(crate) fn restore_collateral_files(snapshot: &HashMap<PathBuf, String>) {
     if restored > 0 {
         crate::verbose!("tx: collateral restore: reverted {} file(s)", restored);
     }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(failed)
+    }
+}
+
+/// Undo a committed transaction after a strict format/validate failure.
+///
+/// Prefers [`crate::backup::restore_session`]. Falls back to
+/// [`rollback_strict`] only when no backup session exists. A failed
+/// `restore_session` (or the test [`super::commit::RestoreFailGuard`])
+/// does **not** run string rollback: a partial backup restore must not be
+/// overwritten.
+///
+/// Returns `Ok(())` only when backup restore (when attempted) and
+/// collateral restore both succeed. Callers must emit `rollback_failed`
+/// on `Err` and must not claim that all changes were reverted.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn revert_strict_lifecycle(
+    cwd: &Path,
+    changes: &[(PathBuf, String, String)],
+    pending: &HashMap<PathBuf, (String, String)>,
+    deletions: &HashSet<PathBuf>,
+    existed_before: &HashSet<PathBuf>,
+    backup_session: Option<&str>,
+    collateral: &HashMap<PathBuf, String>,
+) -> Result<(), String> {
+    let mut errors: Vec<String> = Vec::new();
+    if let Some(ts) = backup_session {
+        let force_fail =
+            super::commit::FORCE_RESTORE_FAIL.with(|f| f.load(std::sync::atomic::Ordering::SeqCst));
+        if force_fail {
+            errors.push(format!("backup restore failed for session {ts}"));
+        } else if let Err(e) = crate::backup::restore_session(cwd, ts) {
+            errors.push(format!("backup restore failed for session {ts}: {e}"));
+        }
+    } else {
+        rollback_strict(changes, pending, deletions, existed_before, true);
+    }
+    if let Err(failed) = restore_collateral_files(collateral) {
+        for path in failed {
+            errors.push(format!(
+                "failed to restore collateral file {}",
+                path.display()
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 pub(crate) fn rollback_strict(
@@ -228,13 +315,16 @@ pub(crate) fn rollback_strict(
     pending: &HashMap<PathBuf, (String, String)>,
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
+    quiet: bool,
 ) {
     let noop_policy = WritePolicy::default();
     for (path, original, _) in changes {
         if !existed_before.contains(path) {
             // File was created during this tx. Whether it was also deleted
             // does not matter: it should not exist after rollback.
-            if let Err(e) = std::fs::remove_file(path) {
+            if let Err(e) = std::fs::remove_file(path)
+                && !quiet
+            {
                 eprintln!(
                     "tx: rollback: failed to remove created file {}: {e}",
                     path.display()
@@ -242,7 +332,9 @@ pub(crate) fn rollback_strict(
             }
         } else if !deletions.contains(path) {
             // File existed before and was modified (not deleted): restore.
-            if let Err(e) = atomic_write(path, original, &noop_policy) {
+            if let Err(e) = atomic_write(path, original, &noop_policy)
+                && !quiet
+            {
                 eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
             }
         }
@@ -254,18 +346,35 @@ pub(crate) fn rollback_strict(
         {
             // Ensure parent directory exists before restoring; the directory
             // may have been removed if the deletion was the last file in it.
+            // Classify first so a file/special parent is not passed to
+            // create_dir_all (best-effort: eprint and skip, not fail-closed).
             if let Some(parent) = path.parent()
                 && !parent.as_os_str().is_empty()
-                && !parent.exists()
-                && let Err(e) = std::fs::create_dir_all(parent)
             {
-                eprintln!(
-                    "tx: rollback: failed to create dir {}: {e}",
-                    parent.display()
-                );
-                continue;
+                if let Err(e) = crate::ops::file::ensure_parent_components_are_directories(path) {
+                    if !quiet {
+                        eprintln!(
+                            "tx: rollback: failed to create dir {}: {e}",
+                            parent.display()
+                        );
+                    }
+                    continue;
+                }
+                if !parent.exists()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    if !quiet {
+                        eprintln!(
+                            "tx: rollback: failed to create dir {}: {e}",
+                            parent.display()
+                        );
+                    }
+                    continue;
+                }
             }
-            if let Err(e) = atomic_write(path, orig, &noop_policy) {
+            if let Err(e) = atomic_write(path, orig, &noop_policy)
+                && !quiet
+            {
                 eprintln!(
                     "tx: rollback: failed to restore deleted {}: {e}",
                     path.display()
@@ -276,16 +385,21 @@ pub(crate) fn rollback_strict(
 }
 
 /// Run format and validation lifecycle steps. Returns `None` on success.
-pub(crate) fn run_lifecycle(plan: &Plan, base_cwd: &Path, cwd: &Path) -> Option<LifecycleError> {
+pub(crate) fn run_lifecycle(
+    plan: &Plan,
+    base_cwd: &Path,
+    cwd: &Path,
+    quiet: bool,
+) -> Option<LifecycleError> {
     plan.format
         .as_deref()
-        .map(|steps| run_format_steps(steps, base_cwd, cwd))
+        .map(|steps| run_format_steps(steps, base_cwd, cwd, quiet))
         .unwrap_or(Ok(()))
         .err()
         .or_else(|| {
             plan.validate
                 .as_deref()
-                .and_then(|steps| run_validate_steps(steps, base_cwd, cwd).err())
+                .and_then(|steps| run_validate_steps(steps, base_cwd, cwd, quiet).err())
         })
 }
 
