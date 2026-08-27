@@ -439,13 +439,10 @@ pub fn find_backup_roots(path: &Path) -> Vec<PathBuf> {
 /// List available backup sessions, most recent first.
 ///
 /// Session directories without a readable `manifest.json` (or with corrupt
-/// JSON) are omitted from the returned vec but reported on stderr so
-/// `undo --list` is not silently empty while dirs exist.
+/// JSON) are omitted. This helper does not print. CLI `undo --list` puts
+/// listing warnings on the JSON envelope or a `--jsonl` trailer.
 pub fn list_sessions(project_root: &Path) -> anyhow::Result<Vec<Manifest>> {
-    let (sessions, warnings) = collect_listed_sessions(project_root)?;
-    for warning in warnings {
-        eprintln!("{warning}");
-    }
+    let (sessions, _warnings) = collect_listed_sessions(project_root)?;
     Ok(sessions)
 }
 
@@ -473,8 +470,8 @@ fn corrupted_manifest_warning(manifest_path: &Path, err: &impl std::fmt::Display
     )
 }
 
-/// Collect sessions plus stderr-bound warnings (missing/corrupt/unreadable
-/// manifests, dropped `read_dir` dirents). Callers eprint the warnings.
+/// Collect sessions plus listing warnings (missing/corrupt/unreadable
+/// manifests, dropped `read_dir` dirents). Does not print.
 fn collect_listed_sessions(project_root: &Path) -> anyhow::Result<(Vec<Manifest>, Vec<String>)> {
     let backup_dir = project_root.join(BACKUP_DIR);
     if !backup_dir.exists() {
@@ -618,9 +615,8 @@ pub fn list_sessions_under(
 
     let mut out = Vec::new();
     for root in unique_roots {
-        // Do not call `list_sessions` here: that eprints warnings. Undo and
-        // JSON hosts need the strings on the listing so they are not
-        // stderr-only (and so undo does not double-eprint).
+        // Need warning strings on the listing (CLI undo --json / jsonl).
+        // list_sessions drops them.
         let (sessions, warnings) = collect_listed_sessions(&root)?;
         if !sessions.is_empty() || !warnings.is_empty() {
             out.push(SessionListing {
@@ -1295,7 +1291,8 @@ mod tests {
             )
         );
 
-        // Public list still succeeds (warnings go to stderr).
+        // Public list still succeeds and stays silent (warnings stay on
+        // collect_listed_sessions).
         assert!(list_sessions(dir.path()).unwrap().is_empty());
     }
 
@@ -1806,6 +1803,24 @@ mod tests {
 
         std::fs::write(&file, "after").unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "after");
+
+        let ok = restore_path_from_latest_backup(dir.path(), &file).unwrap();
+        assert!(ok);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "before");
+    }
+
+    #[test]
+    fn restore_path_from_latest_backup_ignores_junk_session_dir() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("data.txt");
+        std::fs::write(&file, "before").unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap();
+
+        std::fs::create_dir_all(dir.path().join(BACKUP_DIR).join("bad-session")).unwrap();
+        std::fs::write(&file, "after").unwrap();
 
         let ok = restore_path_from_latest_backup(dir.path(), &file).unwrap();
         assert!(ok);
