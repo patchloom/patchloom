@@ -211,7 +211,6 @@ pub(crate) fn commit_changes(
     let write_result = (|| -> anyhow::Result<()> {
         // Apply renames first via fs::rename (preserves hardlinks #1739).
         for (from, to) in &rename_pairs {
-            crate::ops::file::ensure_parent_components_are_directories(to)?;
             if let Some(parent) = to.parent()
                 && !parent.as_os_str().is_empty()
                 && !parent.exists()
@@ -248,7 +247,6 @@ pub(crate) fn commit_changes(
                 injected_write_failure(path)?;
                 atomic_write(path, new_content, &noop_policy)?;
             } else {
-                crate::ops::file::ensure_parent_components_are_directories(path)?;
                 if let Some(parent) = path.parent()
                     && !parent.as_os_str().is_empty()
                     && !parent.exists()

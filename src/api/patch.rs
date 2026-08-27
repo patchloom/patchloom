@@ -151,9 +151,6 @@ fn patch_write(
         if let Some(msg) = pf.dest_clobber_msg(crate::ops::file::path_entry_exists(&write_path)) {
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError { msg }));
         }
-        if !pf.is_deletion {
-            crate::ops::file::ensure_parent_components_are_directories(&write_path)?;
-        }
         if pf.copy_from.is_some() && !crate::ops::file::path_entry_exists(&load_path) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
@@ -305,9 +302,6 @@ pub fn apply_patch_file(
             &deleted,
         )) {
             return Err(anyhow::Error::new(crate::exit::AlreadyExistsError { msg }));
-        }
-        if !pf.is_deletion {
-            crate::ops::file::ensure_parent_components_are_directories(&write_path)?;
         }
 
         if let Some(from) = pf.copy_from.as_ref() {
@@ -462,7 +456,6 @@ pub fn apply_patch_file(
                         new_content,
                         ..
                     } => {
-                        crate::ops::file::ensure_parent_components_are_directories(write_path)?;
                         if let Some(parent) = write_path.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -490,7 +483,6 @@ pub fn apply_patch_file(
                     } => {
                         // fs::rename preserves case-only renames and binary bytes
                         // (write-dest+delete-src would delete the only inode).
-                        crate::ops::file::ensure_parent_components_are_directories(to)?;
                         if let Some(parent) = to.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()
@@ -503,7 +495,6 @@ pub fn apply_patch_file(
                         }
                     }
                     StageOp::CopyFile { from, to, .. } => {
-                        crate::ops::file::ensure_parent_components_are_directories(to)?;
                         if let Some(parent) = to.parent()
                             && !parent.as_os_str().is_empty()
                             && !parent.exists()

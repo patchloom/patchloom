@@ -604,10 +604,6 @@ fn test_undo_json_invalid_session_sets_error_kind() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Dest-parent classify: preview and apply share invalid_input
-// ---------------------------------------------------------------------------
-
 fn backup_session_dirs(root: &Path) -> Vec<PathBuf> {
     let backups = root.join(".patchloom/backups");
     if !backups.is_dir() {
@@ -621,25 +617,6 @@ fn backup_session_dirs(root: &Path) -> Vec<PathBuf> {
         .collect();
     dirs.sort();
     dirs
-}
-
-fn delete_nested_then_block_parent(dir: &TempDir) {
-    let nested = dir.path().join("nested");
-    fs::create_dir_all(&nested).unwrap();
-    fs::write(nested.join("child.txt"), "hello\n").unwrap();
-
-    Command::cargo_bin("patchloom")
-        .unwrap()
-        .args(["delete", "nested/child.txt", "--apply", "--cwd"])
-        .arg(dir.path())
-        .assert()
-        .code(0);
-
-    assert!(
-        !nested.join("child.txt").exists(),
-        "delete --apply should remove nested/child.txt"
-    );
-    fs::remove_dir(&nested).unwrap();
 }
 
 fn undo_json(dir: &TempDir, apply: bool) -> (Option<i32>, serde_json::Value) {
@@ -658,79 +635,6 @@ fn undo_json(dir: &TempDir, apply: bool) -> (Option<i32>, serde_json::Value) {
         )
     });
     (output.status.code(), json)
-}
-
-fn assert_undo_dest_parent_invalid(dir: &TempDir, apply: bool) -> serde_json::Value {
-    let label = if apply { "apply" } else { "preview" };
-    let (code, json) = undo_json(dir, apply);
-    assert_eq!(code, Some(1), "{label}: {json}");
-    assert_eq!(json["ok"], false, "{label}: {json}");
-    assert_eq!(json["error_kind"], "invalid_input", "{label}: {json}");
-    assert_ne!(
-        json["status"], "changes_detected",
-        "{label} must not report preview-ok: {json}"
-    );
-    let err = json["error"].as_str().unwrap_or("");
-    assert!(
-        err.contains("not a directory"),
-        "{label} message must name non-dir parent: {json}"
-    );
-    json
-}
-
-#[test]
-fn test_undo_preview_and_apply_dest_parent_file_is_invalid_input() {
-    let dir = TempDir::new().unwrap();
-    delete_nested_then_block_parent(&dir);
-    fs::write(dir.path().join("nested"), "i am a file\n").unwrap();
-
-    let sessions_before = backup_session_dirs(dir.path());
-    assert_eq!(
-        sessions_before.len(),
-        1,
-        "delete --apply should leave one backup session"
-    );
-
-    assert_undo_dest_parent_invalid(&dir, false);
-    assert_undo_dest_parent_invalid(&dir, true);
-
-    assert_eq!(
-        fs::read_to_string(dir.path().join("nested")).unwrap(),
-        "i am a file\n"
-    );
-    assert!(
-        !dir.path().join("nested").join("child.txt").exists(),
-        "must not write dest under a file parent"
-    );
-    let sessions_after = backup_session_dirs(dir.path());
-    assert_eq!(
-        sessions_after, sessions_before,
-        "failed undo must not consume the session or create a backup-of-undo"
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn test_undo_preview_and_apply_dest_parent_dangling_is_invalid_input() {
-    let dir = TempDir::new().unwrap();
-    delete_nested_then_block_parent(&dir);
-    std::os::unix::fs::symlink(dir.path().join("missing"), dir.path().join("nested")).unwrap();
-
-    let sessions_before = backup_session_dirs(dir.path());
-    assert_eq!(sessions_before.len(), 1);
-
-    assert_undo_dest_parent_invalid(&dir, false);
-    assert_undo_dest_parent_invalid(&dir, true);
-
-    assert!(
-        !dir.path().join("nested").join("child.txt").exists(),
-        "must not write dest under a dangling parent"
-    );
-    let sessions_after = backup_session_dirs(dir.path());
-    assert_eq!(
-        sessions_after, sessions_before,
-        "failed undo must not consume the session or create a backup-of-undo"
-    );
 }
 
 fn create_then_replace_dest_with_dir(dir: &TempDir) {
