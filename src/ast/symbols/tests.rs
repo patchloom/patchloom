@@ -935,3 +935,23 @@ func (e *External) DoWork() {}
         "orphan method should stay top-level"
     );
 }
+
+#[test]
+fn extract_proto_symbols() {
+    let source = r#"
+syntax = "proto3";
+package demo;
+message Ping { string id = 1; }
+enum Status { UNKNOWN = 0; }
+service Greeter { rpc SayHello (Ping) returns (Ping); }
+"#;
+    let symbols = extract_symbols(source, Language::Protobuf);
+    let ping = find_symbol(&symbols, "Ping").expect("Ping");
+    assert_eq!(ping.kind, SymbolKind::Struct);
+    let status = find_symbol(&symbols, "Status").expect("Status");
+    assert_eq!(status.kind, SymbolKind::Enum);
+    let greeter = find_symbol(&symbols, "Greeter").expect("Greeter");
+    assert_eq!(greeter.kind, SymbolKind::Interface);
+    let say = find_symbol(&symbols, "SayHello").expect("SayHello");
+    assert_eq!(say.kind, SymbolKind::Method);
+}
