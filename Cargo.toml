@@ -113,7 +113,7 @@ tree-sitter-toml-ng = { version = "0.7", optional = true }
 tree-sitter-yaml = { version = "0.7", optional = true }
 tree-sitter-json = { version = "0.24", optional = true }
 tree-sitter-xml = { version = "0.7", optional = true }
-tree-sitter-proto = { version = "0.4", optional = true }
+tree-sitter-proto = { version = "0.5", optional = true }
 tree-sitter-c = { version = "0.24", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-java = { version = "0.23", optional = true }
