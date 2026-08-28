@@ -71,6 +71,48 @@ async fn test_mcp_doc_set_yaml_pure_alias_becomes_merge() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+async fn test_mcp_doc_set_yaml_sequence_alias_item_becomes_merge() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.yaml"),
+        "shared: &shared\n  timeout: 30\n  retries: 3\nitems:\n  - *shared\n  - *shared\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "config.yaml",
+            "selector": "items[0].timeout",
+            "value": 60
+        }),
+    )
+    .await;
+    assert!(!is_error, "doc_set should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_set ok field: {val}");
+
+    let content = fs::read_to_string(dir.path().join("config.yaml")).unwrap();
+    assert!(
+        content.contains("&shared") && content.contains("- <<: *shared"),
+        "MCP doc_set must convert sequence alias to merge:\n{content}"
+    );
+    assert!(
+        content.contains("timeout: 60"),
+        "local override missing:\n{content}"
+    );
+    assert!(
+        content.contains("  - *shared"),
+        "untouched second item must stay a pure alias:\n{content}"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// #2197: MCP `doc_set` selector `.` replaces the document root.
 #[tokio::test]
 async fn test_mcp_doc_set_dot_replaces_root() {

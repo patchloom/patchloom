@@ -2320,6 +2320,52 @@ fn test_tx_doc_set_yaml_pure_alias_becomes_merge() {
     );
 }
 
+/// Plan/tx interior edit of a sequence-item YAML alias becomes a merge override.
+#[test]
+fn test_tx_doc_set_yaml_sequence_alias_item_becomes_merge() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "shared: &shared\n  timeout: 30\n  retries: 3\nitems:\n  - *shared\n  - *shared\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "items[0].timeout",
+            "value": 60
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&shared") && content.contains("- <<: *shared"),
+        "tx doc.set must convert sequence alias to merge:\n{content}"
+    );
+    assert!(
+        content.contains("timeout: 60"),
+        "local override missing:\n{content}"
+    );
+    assert!(
+        content.contains("  - *shared"),
+        "untouched second item must stay a pure alias:\n{content}"
+    );
+}
+
 #[test]
 fn test_tx_doc_set_selector_in_plan() {
     let dir = TempDir::new().unwrap();

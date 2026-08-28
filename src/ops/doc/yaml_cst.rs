@@ -748,6 +748,26 @@ mod tests {
         );
     }
 
+    /// yaml-edit 0.3 `Sequence::set` copies an ALIAS child as-is and still
+    /// returns true. Product owner is [`try_sequence_set`], which refuses.
+    #[test]
+    fn yaml_edit_set_on_sequence_alias_item_is_noop() {
+        let yaml = "shared: &shared\n  timeout: 30\nitems:\n  - *shared\n";
+        let doc = parse_yaml(yaml);
+        let root = doc.as_mapping().unwrap();
+        let seq = root.get_sequence("items").expect("items sequence");
+        let ok = seq.set(0, json_to_yaml_node(&json!({"timeout": 60})).unwrap());
+        assert!(
+            ok,
+            "yaml-edit 0.3 Sequence::set reports success on alias item"
+        );
+        let result = doc.to_string();
+        assert!(
+            result.contains("- *shared"),
+            "0.3 Sequence::set must leave the alias item:\n{result}"
+        );
+    }
+
     /// Merge writes already work on 0.3 if the replacement CST already has
     /// `<<: *name`. That is the write-side contract (jelmer/yaml-edit#39).
     #[test]
