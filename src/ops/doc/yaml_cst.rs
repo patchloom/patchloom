@@ -53,14 +53,7 @@ pub(crate) fn apply_yaml_mapping_diff(
                             if !apply_yaml_sequence_diff(&seq, old_arr, new_arr)? {
                                 all_applied = false;
                             }
-                        } else if !apply_yaml_sequence_resize(
-                            &seq,
-                            old_arr,
-                            new_arr,
-                            mapping,
-                            key.as_str(),
-                            new_val,
-                        ) {
+                        } else if !apply_yaml_sequence_resize(&seq, old_arr, new_arr) {
                             all_applied = false;
                         }
                     } else {
@@ -191,9 +184,6 @@ fn apply_yaml_sequence_resize(
     seq: &yaml_edit::Sequence,
     old_arr: &[serde_json::Value],
     new_arr: &[serde_json::Value],
-    _mapping: &yaml_edit::Mapping,
-    _key: &str,
-    _new_val: &serde_json::Value,
 ) -> bool {
     if new_arr.len() < old_arr.len() && try_remove_subsequence(seq, old_arr, new_arr) {
         return true;
@@ -1048,10 +1038,7 @@ mod tests {
 
         let old = vec![json!("a"), json!("b"), json!("c")];
         let new = vec![json!("a"), json!("c")];
-        let new_val = json!(["a", "c"]);
-        assert!(apply_yaml_sequence_resize(
-            &seq, &old, &new, &mapping, "items", &new_val
-        ));
+        assert!(apply_yaml_sequence_resize(&seq, &old, &new));
         // yaml-edit leaves the next item over-indented; caller
         // `fix_yaml_block_indentation` repairs that. Lock items a, c only.
         assert_eq!(doc.to_string(), "items:\n  - a\n    - c\n");
@@ -1066,11 +1053,17 @@ mod tests {
 
         let old = vec![json!("a")];
         let new = vec![json!("a"), json!("b")];
-        let new_val = json!(["a", "b"]);
         // Growth is not handled by CST path, returns false.
-        assert!(!apply_yaml_sequence_resize(
-            &seq, &old, &new, &mapping, "items", &new_val
-        ));
+        assert!(!apply_yaml_sequence_resize(&seq, &old, &new));
+    }
+
+    #[test]
+    fn yaml_file_after_partial_alias_splice_invalid_yaml_returns_none() {
+        let old = json!({"k": 1});
+        assert!(
+            super::super::yaml_file_after_partial_alias_splice("{\n", &old).is_none(),
+            "unclosed '{{' fragment must dump, not CST the pre-splice file"
+        );
     }
 
     #[test]
