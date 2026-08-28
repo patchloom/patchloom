@@ -378,12 +378,9 @@ fn try_preserve_yaml(
         return Ok(Some(cleanup_yaml_cst_whitespace(spliced)));
     }
     let (file, cst_old) = if let Some(spliced) = promoted.as_deref() {
-        match yaml_edit::YamlFile::from_str(spliced) {
-            Ok(reparsed) => {
-                let cst_old = parse_yaml_semantic(spliced).unwrap_or_else(|| old_value.clone());
-                (reparsed, cst_old)
-            }
-            Err(_) => (file, old_value.clone()),
+        match yaml_file_after_partial_alias_splice(spliced, old_value) {
+            Some(pair) => pair,
+            None => return Ok(None),
         }
     } else {
         (file, old_value.clone())
@@ -408,6 +405,19 @@ fn try_preserve_yaml(
         }
     }
     Ok(None)
+}
+
+/// After an alias splice that is not yet semantic-eq, reparse for leftover CST diffs.
+/// Parse failure must dump (None), not CST the pre-splice document.
+fn yaml_file_after_partial_alias_splice(
+    spliced: &str,
+    old_value: &serde_json::Value,
+) -> Option<(yaml_edit::YamlFile, serde_json::Value)> {
+    use std::str::FromStr;
+
+    let reparsed = yaml_edit::YamlFile::from_str(spliced).ok()?;
+    let cst_old = parse_yaml_semantic(spliced).unwrap_or_else(|| old_value.clone());
+    Some((reparsed, cst_old))
 }
 
 fn try_preserve_yaml_object(

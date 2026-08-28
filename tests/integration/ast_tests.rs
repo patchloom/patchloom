@@ -43,6 +43,25 @@ fn test_ast_list_basic() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_list_proto() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("svc.proto");
+    fs::write(
+        &f,
+        "syntax = \"proto3\";\npackage demo;\nmessage Ping { string id = 1; }\nenum Status { UNKNOWN = 0; }\nservice Greeter { rpc SayHello (Ping) returns (Ping); }\n",
+    )
+    .unwrap();
+    patchloom_in(dir.path())
+        .args(["ast", "list", "svc.proto", "--json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Ping"))
+        .stdout(predicates::str::contains("Greeter"))
+        .stdout(predicates::str::contains("SayHello"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_list_quiet_suppresses_text() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("lib.rs");
@@ -886,6 +905,40 @@ fn test_ast_rename_apply_exits_0() {
     assert!(
         !content.contains("old_name"),
         "old symbol name should be replaced: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_rename_proto() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("svc.proto");
+    fs::write(
+        &f,
+        "syntax = \"proto3\";\npackage demo;\nmessage Ping { string id = 1; }\nenum Status { UNKNOWN = 0; }\nservice Greeter { rpc SayHello (Ping) returns (Ping); }\n",
+    )
+    .unwrap();
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "rename",
+            "svc.proto",
+            "--old",
+            "Ping",
+            "--new",
+            "Pong",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+    let content = fs::read_to_string(&f).unwrap();
+    assert!(
+        content.contains("Pong"),
+        "ast rename --apply should rename proto message: {content}"
+    );
+    assert!(
+        !content.contains("message Ping"),
+        "old proto message name should be replaced: {content}"
     );
 }
 
