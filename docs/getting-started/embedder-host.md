@@ -76,10 +76,10 @@ Do not expose only `doc_set` if agents need list updates by name. See
    `not_found`). Sole explicit replace/search/tidy paths use the same
    classification via `sole_explicit_non_text` so agents do not mis-branch
    on `not_found` for a present non-file entry.
-9. **Doc presentation honesty:** library `EditResult.style_changed` (and
+9. **Doc presentation:** library `EditResult.style_changed` (and
    `is_style_changed`) mirrors CLI/MCP when YAML block-sequence layout
-   collapses; values can still be correct (#2088). Warn hosts/agents; do not
-   treat as failure.
+   collapses or when `&` / `*` / `<<:` identity is dropped; values can
+   still be correct (#2088). Warn hosts/agents; do not treat as failure.
 10. **Morph-class freeform on disk:** `apply_fragment_to_file(path, fragment,
    FragmentPlacement::After|Before|Replace(...), unique, mode, guard)` strips
    lazy markers and applies via the replace path (#2032).

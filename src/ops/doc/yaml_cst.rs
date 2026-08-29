@@ -41,8 +41,12 @@ pub(crate) fn apply_yaml_mapping_diff(
                         if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
                             all_applied = false;
                         }
-                    } else {
-                        mapping.set(key.as_str(), json_to_yaml_mapping(new_val)?);
+                    } else if !try_mapping_set(
+                        mapping,
+                        key.as_str(),
+                        json_to_yaml_mapping(new_val)?,
+                    ) {
+                        all_applied = false;
                     }
                 }
                 // Both arrays: update via the existing sequence node to
@@ -56,8 +60,8 @@ pub(crate) fn apply_yaml_mapping_diff(
                         } else if !apply_yaml_sequence_resize(&seq, old_arr, new_arr) {
                             all_applied = false;
                         }
-                    } else {
-                        mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
+                    } else if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?) {
+                        all_applied = false;
                     }
                 }
                 // Type changed or scalar change.
@@ -69,8 +73,8 @@ pub(crate) fn apply_yaml_mapping_diff(
                         && scalar.is_quoted()
                     {
                         set_quoted_scalar(scalar, new_str);
-                    } else {
-                        mapping.set(key.as_str(), json_to_yaml_node(new_val)?);
+                    } else if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?) {
+                        all_applied = false;
                     }
                 }
             }
@@ -171,6 +175,17 @@ fn try_sequence_set(
     Ok(seq.set(index, json_to_yaml_node(new_val)?))
 }
 
+/// yaml-edit 0.3 `Mapping::set` on an existing `key: *alias` inlines the
+/// replacement. Refuse that so [`rewrite_yaml_alias_object_edits`] stays
+/// the only alias writer.
+fn try_mapping_set(mapping: &yaml_edit::Mapping, key: &str, value: impl yaml_edit::AsYaml) -> bool {
+    if mapping.get(key).is_some_and(|n| n.as_alias().is_some()) {
+        return false;
+    }
+    mapping.set(key, value);
+    true
+}
+
 /// Handle different-length array diffs while preserving comments.
 ///
 /// Deletion is handled via targeted `Sequence::remove()` calls.
@@ -265,6 +280,9 @@ pub(crate) fn rewrite_yaml_alias_object_edits(
     if rewrites.is_empty() {
         return Ok(None);
     }
+    if !alias_cst_counts_match_block_lines(text, &rewrites, &seq_alias_seen, &map_alias_seen) {
+        return Ok(None);
+    }
     apply_alias_line_rewrites(text, &rewrites)
 }
 
@@ -279,16 +297,30 @@ fn collect_mapping_alias_rewrites(
     let (Some(old_map), Some(new_map)) = (old.as_object(), new.as_object()) else {
         return Ok(());
     };
-    for (key, new_val) in new_map {
+    // File order from the CST, then any semantic keys yaml-edit did not
+    // surface. Deleted keys must still consume a file-wide `*alias` index.
+    let mut keys: Vec<String> = mapping
+        .keys()
+        .filter_map(|k| k.as_scalar().map(|s| s.as_string()))
+        .collect();
+    for k in old_map.keys() {
+        if !keys.iter().any(|existing| existing == k) {
+            keys.push(k.clone());
+        }
+    }
+    for key in &keys {
         let Some(old_val) = old_map.get(key) else {
             continue;
         };
-        // Walk every child sequence so occurrence indexes match file-wide
-        // `- *alias` hits, including lists under unchanged sibling keys.
-        if let (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr)) =
-            (old_val, new_val)
+        let new_val = new_map.get(key);
+        if let serde_json::Value::Array(old_arr) = old_val
             && let Some(seq) = mapping.get_sequence(key.as_str())
         {
+            let empty: &[serde_json::Value] = &[];
+            let new_arr = new_val
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(empty);
             collect_sequence_alias_rewrites(
                 &seq,
                 old_arr,
@@ -298,13 +330,18 @@ fn collect_mapping_alias_rewrites(
                 out,
             )?;
         }
-        if let (serde_json::Value::Object(_), serde_json::Value::Object(_)) = (old_val, new_val)
+        if old_val.is_object()
             && let Some(child) = mapping.get_mapping(key.as_str())
         {
+            let empty_obj = serde_json::json!({});
+            let child_new = match new_val {
+                Some(v) if v.is_object() => v,
+                _ => &empty_obj,
+            };
             collect_mapping_alias_rewrites(
                 &child,
                 old_val,
-                new_val,
+                child_new,
                 seq_alias_seen,
                 map_alias_seen,
                 out,
@@ -314,17 +351,21 @@ fn collect_mapping_alias_rewrites(
         if let Some(node) = mapping.get(key.as_str())
             && let Some(alias) = node.as_alias()
         {
-            // Count every `key: *alias` so nth indexes match file-wide hits,
-            // including unchanged siblings (`cfg: *shared` under two list items).
             let name = alias.name();
             let occ = map_alias_seen
                 .entry((key.clone(), name.clone()))
                 .or_insert(0);
             let this = *occ;
             *occ += 1;
-            if old_val != new_val
-                && let Some(rewrite) =
-                    alias_object_rewrite(Some(node), Some(key), old_val, new_val, Some(this))?
+            if let Some(new_val) = new_val
+                && old_val != new_val
+                && let Some(rewrite) = alias_object_rewrite(
+                    Some(node),
+                    Some(key.as_str()),
+                    old_val,
+                    new_val,
+                    Some(this),
+                )?
             {
                 out.push(rewrite);
             }
@@ -473,6 +514,61 @@ fn format_alias_block_body(
     Ok(body)
 }
 
+/// Block-line regex indexes are only sound when every CST `*alias` is a
+/// block `key: *alias` / `- *alias` line. Flow `[*alias]` / `{k: *alias}`
+/// inflate CST counts; splicing would rewrite a later block site.
+fn alias_cst_counts_match_block_lines(
+    text: &str,
+    rewrites: &[AliasLineRewrite],
+    seq_alias_seen: &std::collections::HashMap<String, usize>,
+    map_alias_seen: &std::collections::HashMap<(String, String), usize>,
+) -> bool {
+    for rewrite in rewrites {
+        if let Some(key) = rewrite.key.as_deref() {
+            let cst = map_alias_seen
+                .get(&(key.to_string(), rewrite.alias.clone()))
+                .copied()
+                .unwrap_or(0);
+            let Some(hits) =
+                mapping_alias_line_re(key, &rewrite.alias).map(|re| re.find_iter(text).count())
+            else {
+                return false;
+            };
+            if cst != hits {
+                return false;
+            }
+        } else {
+            let cst = seq_alias_seen.get(&rewrite.alias).copied().unwrap_or(0);
+            let Some(hits) =
+                sequence_alias_line_re(&rewrite.alias).map(|re| re.find_iter(text).count())
+            else {
+                return false;
+            };
+            if cst != hits {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn mapping_alias_line_re(key: &str, alias: &str) -> Option<regex::Regex> {
+    let key_re = regex::escape(key);
+    let alias_re = regex::escape(alias);
+    regex::Regex::new(&format!(
+        r"(?m)^([ \t]*){key_re}:[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
+    ))
+    .ok()
+}
+
+fn sequence_alias_line_re(alias: &str) -> Option<regex::Regex> {
+    let alias_re = regex::escape(alias);
+    regex::Regex::new(&format!(
+        r"(?m)^([ \t]*)-[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
+    ))
+    .ok()
+}
+
 fn apply_alias_line_rewrites(
     text: &str,
     rewrites: &[AliasLineRewrite],
@@ -503,13 +599,8 @@ fn apply_alias_line_rewrites(
 }
 
 fn replace_unique_alias_line(text: &str, rewrite: &AliasLineRewrite) -> Option<String> {
-    let alias_re = regex::escape(&rewrite.alias);
     if let Some(key) = rewrite.key.as_deref() {
-        let key_re = regex::escape(key);
-        let mapping_re = regex::Regex::new(&format!(
-            r"(?m)^([ \t]*){key_re}:[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
-        ))
-        .ok()?;
+        let mapping_re = mapping_alias_line_re(key, &rewrite.alias)?;
         let hits: Vec<regex::Match<'_>> = mapping_re.find_iter(text).collect();
         let idx = match rewrite.seq_occurrence {
             Some(i) => i,
@@ -527,10 +618,7 @@ fn replace_unique_alias_line(text: &str, rewrite: &AliasLineRewrite) -> Option<S
         return Some(splice_match(text, *hit, &replacement));
     }
 
-    let seq_re = regex::Regex::new(&format!(
-        r"(?m)^([ \t]*)-[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
-    ))
-    .ok()?;
+    let seq_re = sequence_alias_line_re(&rewrite.alias)?;
     let hits: Vec<regex::Match<'_>> = seq_re.find_iter(text).collect();
     let idx = rewrite.seq_occurrence?;
     let hit = hits.get(idx)?;
@@ -794,17 +882,21 @@ mod tests {
     }
 
     /// CST fallback when rewrite is skipped: `get_mapping` is None, so
-    /// `apply_yaml_mapping_diff` `set`s the whole object. Must inline and
-    /// keep `&shared` (not mutate the definition).
+    /// `try_mapping_set` refuses. Must keep `*shared` and `&shared`.
     #[test]
-    fn mapping_diff_on_alias_key_inlines_and_keeps_anchor() {
+    fn mapping_diff_on_alias_key_refuses_and_keeps_anchor() {
         let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\n";
         let old = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"timeout": 30, "retries": 3}});
         let new = json!({"shared": {"timeout": 30, "retries": 3}, "service_a": {"timeout": 60, "retries": 3}});
-        let result = apply_and_serialize(yaml, &old, &new);
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        assert!(
+            !apply_yaml_mapping_diff(&mapping, &old, &new).unwrap(),
+            "alias key must be refused"
+        );
         assert_eq!(
-            result,
-            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a:\n  timeout: 60\n  retries: 3\n"
+            doc.to_string(),
+            "shared: &shared\n  timeout: 30\n  retries: 3\nservice_a: *shared\n"
         );
     }
 
@@ -1059,11 +1151,215 @@ mod tests {
 
     #[test]
     fn yaml_file_after_partial_alias_splice_invalid_yaml_returns_none() {
-        let old = json!({"k": 1});
         assert!(
-            super::super::yaml_file_after_partial_alias_splice("{\n", &old).is_none(),
+            super::super::yaml_file_after_partial_alias_splice("{\n").is_none(),
             "unclosed '{{' fragment must dump, not CST the pre-splice file"
         );
+    }
+
+    #[test]
+    fn yaml_file_after_partial_alias_splice_valid_leftover_returns_some() {
+        let spliced = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+service_a:
+  <<: *shared
+  timeout: 60
+items:
+  - *shared
+";
+        let dummy = json!({"k": "must-not-be-used"});
+        let some = super::super::yaml_file_after_partial_alias_splice(spliced);
+        assert!(
+            some.is_some(),
+            "valid leftover alias YAML after a successful sibling splice must reparse"
+        );
+        let (_, cst_old) = some.unwrap();
+        assert_ne!(
+            cst_old, dummy,
+            "cst_old must be the semantic reparse, not the pre-splice tree"
+        );
+        assert_eq!(cst_old["service_a"]["timeout"], json!(60));
+        assert_eq!(cst_old["items"][0]["timeout"], json!(30));
+    }
+
+    #[test]
+    fn yaml_file_after_partial_alias_splice_truncated_merge_returns_none() {
+        assert!(
+            super::super::yaml_file_after_partial_alias_splice("{\n  <<: *shared\n").is_none(),
+            "truncated merge block must dump"
+        );
+    }
+
+    /// yaml-edit accepts a dangling `*missing` alias; serde_yaml_ng does not.
+    /// The helper must dump instead of CST-ing `old_value`.
+    #[test]
+    fn yaml_file_after_partial_alias_splice_yaml_edit_ok_serde_fail_returns_none() {
+        use std::str::FromStr;
+        let spliced = "key: *missing\n";
+        assert!(
+            yaml_edit::YamlFile::from_str(spliced).is_ok(),
+            "fixture must be accepted by yaml-edit"
+        );
+        assert!(
+            serde_yaml_ng::from_str::<serde_json::Value>(spliced).is_err(),
+            "fixture must be rejected by serde_yaml_ng"
+        );
+        assert!(
+            super::super::yaml_file_after_partial_alias_splice(spliced).is_none(),
+            "yaml-edit-ok / serde-fail leftover must dump, not Some(old_value)"
+        );
+    }
+
+    /// Leftover `key: *alias` that the line splice skips (unsafe key) must
+    /// not be inlined by Mapping::set.
+    #[test]
+    fn try_mapping_set_refuses_existing_alias_key() {
+        let yaml = "shared: &shared\n  timeout: 30\n  retries: 3\n\"foo:bar\": *shared\n";
+        let old = json!({
+            "shared": {"timeout": 30, "retries": 3},
+            "foo:bar": {"timeout": 30, "retries": 3}
+        });
+        let new = json!({
+            "shared": {"timeout": 30, "retries": 3},
+            "foo:bar": {"timeout": 60, "retries": 3}
+        });
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let applied = apply_yaml_mapping_diff(&mapping, &old, &new).unwrap();
+        assert!(
+            !applied,
+            "Mapping::set on an existing alias key must be refused"
+        );
+        let result = doc.to_string();
+        assert!(
+            result.contains("*shared"),
+            "leftover alias must stay *shared, not inline:\n{result}"
+        );
+        assert!(
+            !result.contains("timeout: 60"),
+            "refused alias set must not inline the expanded mapping:\n{result}"
+        );
+    }
+
+    /// Two same-key `*shared` mapping sites. Deleting the first must still
+    /// consume its file-wide nth so the remaining site is rewritten.
+    #[test]
+    fn collect_mapping_alias_rewrites_counts_deleted_keys() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+  retries: 3
+left:
+  cfg: *shared
+right:
+  cfg: *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30, "retries": 3},
+            "left": {"cfg": {"timeout": 30, "retries": 3}},
+            "right": {"cfg": {"timeout": 30, "retries": 3}}
+        });
+        let new = json!({
+            "shared": {"timeout": 30, "retries": 3},
+            "right": {"cfg": {"timeout": 60, "retries": 3}}
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+            .unwrap()
+            .expect("remaining mapping alias site must be rewritten");
+        assert!(
+            result.contains("left:\n  cfg: *shared"),
+            "deleted first site must keep *alias identity, not be rewritten:\n{result}"
+        );
+        assert!(
+            !result.contains("right:\n  cfg: *shared"),
+            "remaining site must be rewritten, not left as the first hit:\n{result}"
+        );
+        assert!(
+            result.contains("timeout: 60"),
+            "remaining site must carry the edited value:\n{result}"
+        );
+    }
+
+    /// Mixed flow `[*shared]` and later block `- *shared`. Editing the
+    /// flow site is CST occ=0; the line splice only matches block lines,
+    /// so it must dump instead of rewriting the unedited block item.
+    #[test]
+    fn rewrite_mixed_flow_and_block_alias_does_not_rewrite_unedited_block() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: [*shared]
+block:
+  - *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "flow": [{"timeout": 30}],
+            "block": [{"timeout": 30}]
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "flow": [{"timeout": 60}],
+            "block": [{"timeout": 30}]
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
+        match result {
+            None => {}
+            Some(text) => {
+                assert!(
+                    text.lines().any(|l| l.trim() == "- *shared"),
+                    "unedited block site must stay - *shared:\n{text}"
+                );
+                assert!(
+                    !text.contains("- <<: *shared"),
+                    "must not rewrite the unedited block site into a merge:\n{text}"
+                );
+            }
+        }
+    }
+
+    /// Probe: flow `{cfg: *shared}` plus later block `cfg: *shared`.
+    #[test]
+    fn rewrite_mixed_flow_mapping_and_block_alias_does_not_rewrite_unedited_block() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: {cfg: *shared}
+block:
+  cfg: *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "flow": {"cfg": {"timeout": 30}},
+            "block": {"cfg": {"timeout": 30}}
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "flow": {"cfg": {"timeout": 60}},
+            "block": {"cfg": {"timeout": 30}}
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
+        match result {
+            None => {}
+            Some(text) => {
+                assert!(
+                    text.contains("cfg: *shared"),
+                    "unedited block mapping site must stay cfg: *shared:\n{text}"
+                );
+                assert!(
+                    !text.contains("<<: *shared"),
+                    "must not rewrite the unedited block mapping site into a merge:\n{text}"
+                );
+            }
+        }
     }
 
     #[test]

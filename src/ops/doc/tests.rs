@@ -2766,3 +2766,42 @@ fn presentation_style_changed_flags_yaml_sequence_indent() {
         &FileFormat::Yaml
     ));
 }
+
+#[test]
+fn presentation_style_changed_flags_yaml_alias_identity() {
+    let before = "shared: &shared\n  timeout: 30\nservice_a: *shared\n";
+    let after = "shared:\n  timeout: 30\nservice_a:\n  timeout: 30\n";
+    assert!(
+        presentation_style_changed(before, after, &FileFormat::Yaml),
+        "dump that drops &/* identity must set style_changed"
+    );
+    let after_indent = "env:\n  - name: FEATURE_FLAG\n    value: on\n";
+    let before_indent = "env:\n  - name: FEATURE_FLAG\n    value: off\n";
+    assert!(
+        !presentation_style_changed(before_indent, after_indent, &FileFormat::Yaml),
+        "indent-only same block sequence must stay false"
+    );
+}
+
+#[test]
+fn presentation_style_changed_flags_yaml_alias_dump() {
+    let yaml = "\
+shared: &shared
+  timeout: 30
+flow: {cfg: *shared}
+block:
+  cfg: *shared
+";
+    let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+    let mut new = old.clone();
+    new["flow"]["cfg"]["timeout"] = json!(60);
+    let dumped = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+    assert!(
+        !dumped.contains("&shared") && !dumped.contains("*shared"),
+        "fixture must dump without alias identity:\n{dumped}"
+    );
+    assert!(
+        presentation_style_changed(yaml, &dumped, &FileFormat::Yaml),
+        "alias-inlining dump must set style_changed:\n{dumped}"
+    );
+}

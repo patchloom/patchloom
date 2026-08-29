@@ -291,6 +291,15 @@ fn symbol_kind_from_str() {
         SymbolKind::from_str_loose("struct"),
         Some(SymbolKind::Struct)
     );
+    assert_eq!(
+        SymbolKind::from_str_loose("message"),
+        Some(SymbolKind::Struct)
+    );
+    assert_eq!(
+        SymbolKind::from_str_loose("service"),
+        Some(SymbolKind::Interface)
+    );
+    assert_eq!(SymbolKind::from_str_loose("rpc"), Some(SymbolKind::Method));
     assert_eq!(SymbolKind::from_str_loose("CONST"), Some(SymbolKind::Const));
     assert_eq!(SymbolKind::from_str_loose("unknown"), None);
     // Dead aliases must not appear in parse_kind_filter help.

@@ -107,10 +107,11 @@ pub(crate) fn yaml_style_honesty_markdown() -> &'static str {
 \n\
 `doc.*` (CLI, plan, MCP) may re-emit **canonical YAML presentation** while \
 keeping values correct (for example collapsing indented block sequences under \
-a key). When **block-sequence indent presentation** shifts, write JSON reports \
-`style_changed: true` on CLI `doc --json` and on plan/MCP `changes[]` entries \
-for modified files. Detection is a block-sequence indent fingerprint (not every \
-possible formatting change). Do not claim a pure surgical text edit when \
+a key, or expanding aliases). When **block-sequence indent** or YAML \
+alias/anchor/merge identity (`&name`, `*name`, `<<:`) changes, write JSON \
+reports `style_changed: true` on CLI `doc --json` and on plan/MCP `changes[]` \
+entries for modified files. Detection covers those two fingerprints, not every \
+possible formatting change. Do not claim a pure surgical text edit when \
 `style_changed` is true.\n\n"
 }
 
@@ -272,5 +273,9 @@ mod tests {
         assert!(t.contains("changes[]") || t.contains("changes"));
         assert!(t.contains("CLI") || t.contains("doc --json"));
         assert!(t.contains("MCP") || t.contains("plan"));
+        assert!(
+            t.contains("*name") && t.contains("<<:"),
+            "style_changed contract must name alias/merge identity"
+        );
     }
 }
