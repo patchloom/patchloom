@@ -2114,6 +2114,98 @@ deployment: {}
         );
     }
 
+    /// Deleting a local override of an inherited key must expand that site
+    /// (drop `<<`). CST remove of the override leaves `<<`, which re-injects
+    /// the inherited value.
+    #[test]
+    fn yaml_inherited_local_override_delete_keeps_anchor() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+  env:
+    - name: B
+      value: \"2\"
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["deployment"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment: {}
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert!(
+            reparsed["deployment"].get("env").is_none(),
+            "overridden env must be gone from deployment:\n{result}"
+        );
+        assert_eq!(
+            reparsed["defaults"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+    }
+
+    /// Deleting a local-only key must keep `<<`. The key is not on the
+    /// merge source, so remove cannot re-inject it.
+    #[test]
+    fn yaml_inherited_local_only_delete_keeps_merge() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+  replicas: 3
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["deployment"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("replicas");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert!(
+            reparsed["deployment"].get("replicas").is_none(),
+            "replicas must be gone:\n{result}"
+        );
+        assert_eq!(
+            reparsed["deployment"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+        assert_eq!(
+            reparsed["defaults"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+    }
+
     /// Replacing a merge map with a non-superset object must expand that
     /// site only. Keeping `<<` would leak inherited keys.
     #[test]
