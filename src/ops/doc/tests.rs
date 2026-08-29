@@ -2323,6 +2323,51 @@ items:
         );
     }
 
+    /// Deleting the last inherited key on a merge-only sequence item must
+    /// write `{}` so the item is an empty object, not null. Dumping loses
+    /// `&defaults`.
+    #[test]
+    fn yaml_inherited_sequence_item_empty_expand_keeps_anchor() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+items:
+  - <<: *defaults
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0].as_object_mut().unwrap().shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+items:
+  - {}
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            reparsed["items"][0],
+            json!({}),
+            "empty merge-only item must reparse as {{}}, not null:\n{result}"
+        );
+        assert!(
+            reparsed["items"][0].get("env").is_none(),
+            "inherited env must be gone from the sequence item:\n{result}"
+        );
+        assert_eq!(
+            reparsed["defaults"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+    }
+
     /// Nested `<<` (`deployment` → `mid` → `base`): deleting a local
     /// override of an inherited key must expand that site and keep both
     /// anchors. A walk that only inspects `mid`'s local keys misses `env`.

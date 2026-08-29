@@ -58,8 +58,7 @@ pub(crate) fn apply_yaml_mapping_diff(
                     if let Some(child) = mapping.get_mapping(key.as_str()) {
                         if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
                             all_applied = false;
-                        } else if new_val.as_object().is_some_and(|o| o.is_empty())
-                            && child.entries().next().is_none()
+                        } else if empty_object_site_needs_flow(&child, new_val)
                             && !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?)
                         {
                             // In-place drop of the last `<<` leaves an empty
@@ -152,6 +151,12 @@ pub(super) fn apply_yaml_sequence_diff(
                     && let Some(child_mapping) = node.as_mapping()
                 {
                     if !apply_yaml_mapping_diff(child_mapping, o, n)? {
+                        all_applied = false;
+                    } else if empty_object_site_needs_flow(child_mapping, n)
+                        && !try_sequence_set(seq, i, n)?
+                    {
+                        // Same empty-after-expand hole as nested mapping
+                        // keys: `- <<: *anchor` becomes `-` (null), not `- {}`.
                         all_applied = false;
                     }
                     continue;
@@ -338,6 +343,12 @@ fn merge_value_has_key(
             .any(|item| merge_value_has_key(&item, key, registry, depth + 1, visited));
     }
     false
+}
+
+/// Empty CST mapping after drop_merge serializes as null (`key:\n  ` or
+/// `-`). Callers parent-set `json_to_yaml_node({})` so the site is `{}`.
+fn empty_object_site_needs_flow(mapping: &yaml_edit::Mapping, new: &serde_json::Value) -> bool {
+    new.as_object().is_some_and(|o| o.is_empty()) && mapping.entries().next().is_none()
 }
 
 /// yaml-edit 0.3 `Mapping::set` on an existing `key: *alias` inlines the
