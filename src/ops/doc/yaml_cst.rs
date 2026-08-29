@@ -1333,19 +1333,10 @@ block:
         });
         let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
         let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
-        match result {
-            None => {}
-            Some(text) => {
-                assert!(
-                    text.lines().any(|l| l.trim() == "- *shared"),
-                    "unedited block site must stay - *shared:\n{text}"
-                );
-                assert!(
-                    !text.contains("- <<: *shared"),
-                    "must not rewrite the unedited block site into a merge:\n{text}"
-                );
-            }
-        }
+        assert!(
+            result.is_none(),
+            "flow-site edit cannot splice {{[ *alias ]}}; must dump, got {result:?}"
+        );
     }
 
     /// Probe: flow `{cfg: *shared}` plus later block `cfg: *shared`.
@@ -1371,19 +1362,10 @@ block:
         });
         let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
         let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
-        match result {
-            None => {}
-            Some(text) => {
-                assert!(
-                    text.contains("cfg: *shared"),
-                    "unedited block mapping site must stay cfg: *shared:\n{text}"
-                );
-                assert!(
-                    !text.contains("<<: *shared"),
-                    "must not rewrite the unedited block mapping site into a merge:\n{text}"
-                );
-            }
-        }
+        assert!(
+            result.is_none(),
+            "flow-site edit cannot splice {{cfg: *alias}}; must dump, got {result:?}"
+        );
     }
 
     /// Mixed flow `{cfg: *shared}` plus later block `cfg: *shared`. Editing
