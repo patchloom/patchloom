@@ -1426,6 +1426,45 @@ block:
         );
     }
 
+    /// Mixed flow `[*shared]` plus later block `- *shared`. Editing the
+    /// block item must splice only that line.
+    #[test]
+    fn rewrite_mixed_flow_sequence_block_edit_splices_block_only() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: [*shared]
+block:
+  - *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "flow": [{"timeout": 30}],
+            "block": [{"timeout": 30}]
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "flow": [{"timeout": 30}],
+            "block": [{"timeout": 60}]
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+            .unwrap()
+            .expect("block-site edit must splice, not dump");
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+flow: [*shared]
+block:
+  - <<: *shared
+    timeout: 60
+"
+        );
+    }
+
     /// Pure prepend must not emit a sequence alias rewrite (zip would treat
     /// the inserted object as an edit of `- *shared`).
     #[test]

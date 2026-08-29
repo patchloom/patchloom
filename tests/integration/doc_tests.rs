@@ -1453,6 +1453,34 @@ fn test_doc_set_yaml_mixed_flow_block_alias_keeps_flow() {
 }
 
 #[test]
+fn test_doc_set_yaml_mixed_flow_sequence_block_alias_keeps_flow() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "shared: &shared\n  timeout: 30\nflow: [*shared]\nblock:\n  - *shared\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("block[0].timeout")
+        .arg("60")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "shared: &shared\n  timeout: 30\nflow: [*shared]\nblock:\n  - <<: *shared\n    timeout: 60\n"
+    );
+}
+
+#[test]
 fn test_doc_set_yaml_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.yaml");

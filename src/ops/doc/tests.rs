@@ -1681,6 +1681,39 @@ block:
         assert_eq!(reparsed["shared"]["timeout"], json!(30));
     }
 
+    /// Mixed flow `[*shared]` plus later block `- *shared`. Editing the
+    /// block item must splice and leave the flow sibling (and `&shared`).
+    #[test]
+    fn yaml_mixed_flow_sequence_block_alias_block_edit_keeps_flow_sibling() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: [*shared]
+block:
+  - *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["block"][0]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+flow: [*shared]
+block:
+  - <<: *shared
+    timeout: 60
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["block"][0]["timeout"], json!(60));
+        assert_eq!(reparsed["flow"][0]["timeout"], json!(30));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
     /// Pure prepend must not zip `new[0]` onto `- *shared`. The inserted
     /// object is spliced in; the alias item and its trailing comment stay.
     #[test]
