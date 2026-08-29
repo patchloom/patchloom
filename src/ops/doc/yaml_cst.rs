@@ -38,7 +38,14 @@ pub(crate) fn apply_yaml_mapping_diff(
                 // preserved).
                 (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
                     if let Some(child) = mapping.get_mapping(key.as_str()) {
-                        if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
+                        // Delete / non-superset of an inherited key cannot
+                        // drop `<<` via CST remove. Expand this site only.
+                        if merge_site_drops_inherited(&child, old_val, new_val) {
+                            if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?)
+                            {
+                                all_applied = false;
+                            }
+                        } else if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
                             all_applied = false;
                         }
                     } else if !try_mapping_set(
@@ -177,6 +184,85 @@ fn try_sequence_set(
         return Ok(true);
     }
     Ok(seq.set(index, json_to_yaml_node(new_val)?))
+}
+
+/// yaml-edit 0.3 tokenizes `<<` as `MERGE_KEY`, so `Mapping::get("<<")`
+/// never hits. Walk keys the same way yaml-edit's own merge tests do.
+fn mapping_has_merge_key(mapping: &yaml_edit::Mapping) -> bool {
+    mapping
+        .keys()
+        .any(|k| k.as_scalar().is_some_and(|s| s.as_string() == "<<"))
+}
+
+/// True when this CST mapping has `<<` and `new` omits a key that the
+/// merge would restore. `Mapping::remove` cannot drop inherited keys, and
+/// removing a local override of an inherited key leaves `<<` to re-inject
+/// it, so the caller must expand this site (drop `<<`, write remaining local).
+fn merge_site_drops_inherited(
+    mapping: &yaml_edit::Mapping,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+) -> bool {
+    if !mapping_has_merge_key(mapping) {
+        return false;
+    }
+    let Some(old_map) = old.as_object() else {
+        return false;
+    };
+    let Some(new_map) = new.as_object() else {
+        return true;
+    };
+    old_map.keys().any(|k| {
+        if new_map.contains_key(k) {
+            return false;
+        }
+        // Inherited only: CST has no local key, so remove is a no-op.
+        if mapping.get(k.as_str()).is_none() {
+            return true;
+        }
+        // Local override: expand only if `<<` would put K back.
+        merge_source_has_key(mapping, k)
+    })
+}
+
+/// `Mapping::get("<<")` misses MERGE_KEY. Walk entries and resolve `*alias`
+/// against the document tree so a local override can be distinguished from
+/// a local-only key.
+fn merge_source_has_key(mapping: &yaml_edit::Mapping, key: &str) -> bool {
+    let registry = yaml_edit::AsYaml::as_node(mapping).map(|node| {
+        let root = node.ancestors().last().unwrap_or_else(|| node.clone());
+        yaml_edit::AnchorRegistry::from_tree(&root)
+    });
+    mapping.iter().any(|(k, v)| {
+        k.as_scalar().is_some_and(|s| s.as_string() == "<<")
+            && merge_value_has_key(&v, key, registry.as_ref())
+    })
+}
+
+fn merge_value_has_key(
+    node: &yaml_edit::YamlNode,
+    key: &str,
+    registry: Option<&yaml_edit::AnchorRegistry>,
+) -> bool {
+    if let Some(map) = node.as_mapping() {
+        return map.get(key).is_some();
+    }
+    if let Some(alias) = node.as_alias() {
+        let Some(registry) = registry else {
+            return false;
+        };
+        let Some(target) = registry.resolve(&alias.name()) else {
+            return false;
+        };
+        return yaml_edit::YamlNode::from_syntax(target.clone())
+            .is_some_and(|resolved| merge_value_has_key(&resolved, key, Some(registry)));
+    }
+    if let Some(seq) = node.as_sequence() {
+        return seq
+            .values()
+            .any(|item| merge_value_has_key(&item, key, registry));
+    }
+    false
 }
 
 /// yaml-edit 0.3 `Mapping::set` on an existing `key: *alias` inlines the
