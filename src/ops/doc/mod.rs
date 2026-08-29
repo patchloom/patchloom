@@ -307,7 +307,10 @@ fn fix_yaml_block_indentation(text: &str) -> String {
         }
 
         let indent = line.len() - trimmed.len();
-        let is_mapping_entry = indent > 0 && (trimmed.contains(": ") || trimmed.ends_with(':'));
+        // `- name: A` is a sequence item, not a mapping sibling of `value:`.
+        let is_mapping_entry = indent > 0
+            && !is_yaml_sequence_item(trimmed)
+            && (trimmed.contains(": ") || trimmed.ends_with(':'));
 
         if is_mapping_entry
             && let Some(expected) = expected_sibling_indent(&lines, i, indent)
@@ -353,7 +356,7 @@ fn expected_sibling_indent(lines: &[&str], i: usize, current_indent: usize) -> O
     if let Some(next_line) = lines[i + 1..].iter().find(|l| is_significant(l)) {
         let nt = next_line.trim_start();
         let ni = next_line.len() - nt.len();
-        let next_is_entry = nt.contains(": ") || nt.ends_with(':');
+        let next_is_entry = !is_yaml_sequence_item(nt) && (nt.contains(": ") || nt.ends_with(':'));
 
         if ni < current_indent && ni > 0 && next_is_entry {
             // Verify: prev line must be a parent (indent < ni, ends ':')
@@ -363,7 +366,11 @@ fn expected_sibling_indent(lines: &[&str], i: usize, current_indent: usize) -> O
                 .rev()
                 .find(|l| is_significant(l))
                 .is_some_and(|l| {
-                    let pi = l.len() - l.trim_start().len();
+                    let t = l.trim_start();
+                    if is_yaml_sequence_item(t) {
+                        return false;
+                    }
+                    let pi = l.len() - t.len();
                     (pi < ni && l.trim_end().ends_with(':')) || pi == ni
                 });
             if prev_ok {
@@ -380,13 +387,24 @@ fn expected_sibling_indent(lines: &[&str], i: usize, current_indent: usize) -> O
 
         // Prev must be a complete mapping entry (has a value after the colon,
         // so it is a sibling rather than a parent). A parent key ends with ':'
-        // alone; a complete entry has ': <value>'.
-        if pi < current_indent && pi > 0 && pt.contains(": ") && !is_yaml_parent_line(pt) {
+        // alone; a complete entry has ': <value>'. A sequence item
+        // (`- name: A`) is not a mapping sibling of the next key.
+        if pi < current_indent
+            && pi > 0
+            && pt.contains(": ")
+            && !is_yaml_parent_line(pt)
+            && !is_yaml_sequence_item(pt)
+        {
             return Some(pi);
         }
     }
 
     None
+}
+
+/// Block sequence item (`- ` or a lone `-`), not a mapping sibling.
+fn is_yaml_sequence_item(trimmed: &str) -> bool {
+    trimmed == "-" || trimmed.starts_with("- ")
 }
 
 /// Check if a trimmed YAML line is a parent key (value is on the next line).
@@ -486,7 +504,6 @@ fn try_preserve_yaml_object(
     old_value: &serde_json::Value,
     new_value: &serde_json::Value,
 ) -> anyhow::Result<Option<String>> {
-    let has_array_growth = yaml_splice::has_array_growth_diffs(old_value, new_value);
     let all_cst_applied = apply_yaml_mapping_diff(mapping, old_value, new_value)?;
     // yaml_edit's Mapping::remove() can leave trailing whitespace on the
     // line preceding the removed key and may shift the indentation of the
@@ -498,7 +515,9 @@ fn try_preserve_yaml_object(
     // `<<: *anchor` / `*alias` form match parse_doc's flattened model.
     // Without this, verification always fails on merge-key documents and the
     // non-preserving fallback expands every anchor/alias into full copies.
-    if yaml_semantic_eq(&result, new_value) && !has_array_growth && all_cst_applied {
+    // Array growth applied as a new local key (inherited via `<<` only)
+    // is already in the CST; do not require !has_array_growth or we dump.
+    if yaml_semantic_eq(&result, new_value) && all_cst_applied {
         return Ok(Some(result));
     }
 

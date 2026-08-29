@@ -60,8 +60,12 @@ pub(crate) fn apply_yaml_mapping_diff(
                         } else if !apply_yaml_sequence_resize(&seq, old_arr, new_arr) {
                             all_applied = false;
                         }
-                    } else if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?) {
-                        all_applied = false;
+                    } else {
+                        // Inherited via `<<` only: insert a local override
+                        // beside the merge. Rewriting the map inlines `<<`.
+                        if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?) {
+                            all_applied = false;
+                        }
                     }
                 }
                 // Type changed or scalar change.

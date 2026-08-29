@@ -1422,6 +1422,55 @@ fn test_doc_set_yaml_sequence_alias_item_becomes_merge() {
         .stdout(predicate::str::starts_with("3"));
 }
 
+/// `doc set --apply` that appends to an array inherited only via `<<`
+/// must keep the merge key and add a local `env:` override.
+#[test]
+fn test_doc_set_yaml_inherited_array_growth_keeps_merge_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("deployment.env")
+        .arg(r#"[{"name":"A","value":"1"},{"name":"B","value":"2"}]"#)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+  env:
+    - name: A
+      value: '1'
+    - name: B
+      value: '2'
+"
+    );
+}
+
 /// Mixed flow `{cfg: *shared}` plus later block `cfg: *shared`. `doc set` on
 /// the block site must splice and leave the flow sibling.
 #[test]
@@ -3757,7 +3806,7 @@ fn test_doc_merge_multi_doc_selector() {
 }
 
 #[test]
-fn style_changed_true_on_yaml_sequence_collapse() {
+fn style_changed_false_when_yaml_sequence_item_indent_stays() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("app.yaml");
     std::fs::write(
@@ -3785,16 +3834,20 @@ fn style_changed_true_on_yaml_sequence_collapse() {
     let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(v["ok"], true);
     assert_eq!(v["changed"], true);
-    assert_eq!(
+    assert_ne!(
         v["style_changed"], true,
-        "CLI doc --json must report style_changed when sequence indent collapses: {v}"
+        "CLI doc --json must not flag style when sequence indent stays: {v}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "env:\n  - name: FEATURE_FLAG\n    value: on\nlimits:\n  rate: 1\n"
     );
 }
 
-/// #2070 multi-surface: plan/tx `changes[]` must also report style_changed
-/// when YAML block-sequence indent collapses (CLI alone is not enough for agents).
+/// #2070 multi-surface: plan/tx `changes[]` must not flag style_changed
+/// when YAML block-sequence item indent stays (CLI already locks this).
 #[test]
-fn style_changed_true_on_tx_plan_yaml_sequence_collapse() {
+fn style_changed_false_on_tx_plan_yaml_sequence_item_indent() {
     let dir = tempfile::TempDir::new().unwrap();
     let path = dir.path().join("app.yaml");
     std::fs::write(
@@ -3830,8 +3883,8 @@ fn style_changed_true_on_tx_plan_yaml_sequence_collapse() {
     assert!(!changes.is_empty(), "expected at least one change: {v}");
     let style = changes.iter().any(|c| c["style_changed"] == true);
     assert!(
-        style,
-        "tx plan changes[] must report style_changed when sequence indent collapses: {v}"
+        !style,
+        "tx plan changes[] must not flag style when sequence indent stays: {v}"
     );
 }
 

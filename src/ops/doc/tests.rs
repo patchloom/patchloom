@@ -1974,6 +1974,101 @@ staging:
         assert_eq!(reparsed["staging"]["timeout"], json!(30));
     }
 
+    /// Growing an array inherited only via `<<: *anchor` must add a local
+    /// `env:` override beside the merge key. Dumping loses `&defaults`.
+    #[test]
+    fn yaml_inherited_array_growth_keeps_merge_key() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["deployment"]["env"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name": "B", "value": "2"}));
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        // Inserted override uses serde_yaml_ng quote style ('1' / '2').
+        // Anchor/merge and the original defaults.env quotes stay.
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+  env:
+    - name: A
+      value: '1'
+    - name: B
+      value: '2'
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            reparsed["deployment"]["env"],
+            json!([{"name": "A", "value": "1"}, {"name": "B", "value": "2"}])
+        );
+        assert_eq!(
+            reparsed["defaults"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+    }
+
+    /// Shrinking the same inherited array still keeps `<<` and adds a local
+    /// override (does not trip array-growth; indent fixer must not flatten).
+    #[test]
+    fn yaml_inherited_array_shrink_keeps_merge_key() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+    - name: B
+      value: \"2\"
+deployment:
+  <<: *defaults
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["deployment"]["env"].as_array_mut().unwrap().pop();
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+    - name: B
+      value: \"2\"
+deployment:
+  <<: *defaults
+  env:
+    - name: A
+      value: '1'
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            reparsed["deployment"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+        assert_eq!(
+            reparsed["defaults"]["env"],
+            json!([{"name": "A", "value": "1"}, {"name": "B", "value": "2"}])
+        );
+    }
+
     /// Multi-document stream: unrelated edit in one doc keeps that doc's merges.
     #[test]
     fn yaml_multi_doc_unrelated_edit_preserves_merges() {
@@ -2193,7 +2288,7 @@ mod security {
         assert!(leaf.get("a").is_none());
     }
 
-    fn nest_get<'a>(v: &'a serde_json::Value, depth: usize) -> Option<&'a serde_json::Value> {
+    fn nest_get(v: &serde_json::Value, depth: usize) -> Option<&serde_json::Value> {
         let mut cursor = v;
         for _ in 0..depth {
             cursor = cursor.get("n")?;
@@ -2201,10 +2296,7 @@ mod security {
         Some(cursor)
     }
 
-    fn nest_get_mut<'a>(
-        v: &'a mut serde_json::Value,
-        depth: usize,
-    ) -> Option<&'a mut serde_json::Value> {
+    fn nest_get_mut(v: &mut serde_json::Value, depth: usize) -> Option<&mut serde_json::Value> {
         let mut cursor = v;
         for _ in 0..depth {
             cursor = cursor.get_mut("n")?;
@@ -2350,10 +2442,8 @@ mod regression {
 
     #[test]
     fn yaml_nested_array_growth_detected() {
-        // Regression: has_array_growth_diffs must recurse into same-length
-        // array elements to detect nested growth (e.g., adding a port to
-        // the first server's ports array while the outer array stays the
-        // same length).
+        // Regression: nested array growth (add a port on the first server
+        // while the outer array stays the same length) must not be dropped.
         let yaml = "# config comment\nservers:\n  - name: web\n    ports:\n      - 80\n";
         let old = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
         let mut new = old.clone();
@@ -2445,6 +2535,25 @@ mod regression {
 
 mod yaml_cst_cleanup {
     use super::*;
+
+    #[test]
+    fn fix_yaml_block_indentation_keeps_sequence_item_fields() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+  env:
+    - name: A
+      value: '1'
+    - name: B
+      value: '2'
+";
+        let fixed = super::super::fix_yaml_block_indentation(yaml);
+        assert_eq!(fixed, yaml);
+    }
 
     #[test]
     fn delete_last_key_no_trailing_whitespace() {
