@@ -91,7 +91,8 @@ pub fn presentation_style_changed(original: &str, new_text: &str, format: &FileF
     }
     match format {
         FileFormat::Yaml => {
-            yaml_block_sequence_indents(original) != yaml_block_sequence_indents(new_text)
+            yaml_block_sequence_indent_levels(original)
+                != yaml_block_sequence_indent_levels(new_text)
                 || yaml_alias_identity_counts(original) != yaml_alias_identity_counts(new_text)
         }
         // JSON/TOML pretty-print drift is not flagged here (comment/order
@@ -163,7 +164,7 @@ fn count_yaml_prefixed_idents(s: &str, prefix: char) -> usize {
 }
 
 /// Indent levels of every block-sequence entry line (`- …`), for style compare.
-fn yaml_block_sequence_indents(text: &str) -> Vec<usize> {
+fn yaml_block_sequence_indent_levels(text: &str) -> std::collections::BTreeSet<usize> {
     text.lines()
         .filter_map(|line| {
             let trimmed = line.trim_start();

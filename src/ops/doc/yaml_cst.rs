@@ -38,7 +38,14 @@ pub(crate) fn apply_yaml_mapping_diff(
                 // preserved).
                 (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
                     if let Some(child) = mapping.get_mapping(key.as_str()) {
-                        if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
+                        // Delete / non-superset of an inherited key cannot
+                        // drop `<<` via CST remove. Expand this site only.
+                        if merge_site_drops_inherited(&child, old_val, new_val) {
+                            if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?)
+                            {
+                                all_applied = false;
+                            }
+                        } else if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
                             all_applied = false;
                         }
                     } else if !try_mapping_set(
@@ -177,6 +184,36 @@ fn try_sequence_set(
         return Ok(true);
     }
     Ok(seq.set(index, json_to_yaml_node(new_val)?))
+}
+
+/// yaml-edit 0.3 tokenizes `<<` as `MERGE_KEY`, so `Mapping::get("<<")`
+/// never hits. Walk keys the same way yaml-edit's own merge tests do.
+fn mapping_has_merge_key(mapping: &yaml_edit::Mapping) -> bool {
+    mapping
+        .keys()
+        .any(|k| k.as_scalar().is_some_and(|s| s.as_string() == "<<"))
+}
+
+/// True when this CST mapping has `<<` and `new` omits a key that only
+/// existed via the merge. `Mapping::remove` cannot drop inherited keys,
+/// so the caller must expand this site (drop `<<`, write remaining local).
+fn merge_site_drops_inherited(
+    mapping: &yaml_edit::Mapping,
+    old: &serde_json::Value,
+    new: &serde_json::Value,
+) -> bool {
+    if !mapping_has_merge_key(mapping) {
+        return false;
+    }
+    let Some(old_map) = old.as_object() else {
+        return false;
+    };
+    let Some(new_map) = new.as_object() else {
+        return true;
+    };
+    old_map
+        .keys()
+        .any(|k| mapping.get(k.as_str()).is_none() && !new_map.contains_key(k))
 }
 
 /// yaml-edit 0.3 `Mapping::set` on an existing `key: *alias` inlines the
