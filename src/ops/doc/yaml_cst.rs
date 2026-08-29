@@ -12,6 +12,15 @@ pub(crate) fn apply_yaml_mapping_diff(
     let (Some(old_map), Some(new_map)) = (old.as_object(), new.as_object()) else {
         return Ok(true);
     };
+
+    // Delete / non-superset of an inherited key cannot drop `<<` via CST
+    // remove. Expand this site in place (root, nested child, or sequence
+    // item) so leftover local keys stay CST-shaped.
+    let expanded = merge_site_drops_inherited(mapping, old, new);
+    if expanded {
+        drop_merge_key_entries(mapping);
+    }
+
     let mut all_applied = true;
 
     // Remove keys that no longer exist.
@@ -28,6 +37,14 @@ pub(crate) fn apply_yaml_mapping_diff(
     for (key, new_val) in new_map {
         if let Some(old_val) = old_map.get(key) {
             if old_val == new_val {
+                // After expanding, leftover inherited keys are no longer in
+                // the CST. Write them locally so they survive without `<<`.
+                if expanded
+                    && mapping.get(key).is_none()
+                    && !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?)
+                {
+                    all_applied = false;
+                }
                 continue;
             }
             match (old_val, new_val) {
@@ -35,17 +52,20 @@ pub(crate) fn apply_yaml_mapping_diff(
                 // pre-existing keys inside the sub use in-place set_value (preserves
                 // sibling inline comments). Brand-new keys inside may not attach on the
                 // cloned sub view (structure check will catch and fallback with comments
-                // preserved).
+                // preserved). Expand of a child merge site happens at the
+                // start of the recursive apply_yaml_mapping_diff call.
                 (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
                     if let Some(child) = mapping.get_mapping(key.as_str()) {
-                        // Delete / non-superset of an inherited key cannot
-                        // drop `<<` via CST remove. Expand this site only.
-                        if merge_site_drops_inherited(&child, old_val, new_val) {
-                            if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?)
-                            {
-                                all_applied = false;
-                            }
-                        } else if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
+                        if !apply_yaml_mapping_diff(&child, old_val, new_val)? {
+                            all_applied = false;
+                        } else if new_val.as_object().is_some_and(|o| o.is_empty())
+                            && child.entries().next().is_none()
+                            && !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?)
+                        {
+                            // In-place drop of the last `<<` leaves an empty
+                            // block mapping that serializes as null
+                            // (`key:\n  `), not `{}`. Parent-set only that
+                            // empty object so sibling anchors survive.
                             all_applied = false;
                         }
                     } else if !try_mapping_set(
@@ -194,6 +214,24 @@ fn mapping_has_merge_key(mapping: &yaml_edit::Mapping) -> bool {
         .any(|k| k.as_scalar().is_some_and(|s| s.as_string() == "<<"))
 }
 
+/// `Mapping::remove("<<")` also misses MERGE_KEY. Detach merge entries
+/// in place so leftover local keys stay CST-shaped.
+fn drop_merge_key_entries(mapping: &yaml_edit::Mapping) {
+    let merge_entries: Vec<_> = mapping
+        .entries()
+        .filter(|entry| {
+            entry
+                .key_node()
+                .as_ref()
+                .and_then(yaml_edit::YamlNode::as_scalar)
+                .is_some_and(|s| s.as_string() == "<<")
+        })
+        .collect();
+    for entry in merge_entries {
+        entry.remove();
+    }
+}
+
 /// True when this CST mapping has `<<` and `new` omits a key that the
 /// merge would restore. `Mapping::remove` cannot drop inherited keys, and
 /// removing a local override of an inherited key leaves `<<` to re-inject
@@ -212,6 +250,10 @@ fn merge_site_drops_inherited(
     let Some(new_map) = new.as_object() else {
         return true;
     };
+    let registry = yaml_edit::AsYaml::as_node(mapping).map(|node| {
+        let root = node.ancestors().last().unwrap_or_else(|| node.clone());
+        yaml_edit::AnchorRegistry::from_tree(&root)
+    });
     old_map.keys().any(|k| {
         if new_map.contains_key(k) {
             return false;
@@ -221,21 +263,40 @@ fn merge_site_drops_inherited(
             return true;
         }
         // Local override: expand only if `<<` would put K back.
-        merge_source_has_key(mapping, k)
+        merge_source_has_key(mapping, k, registry.as_ref())
     })
 }
 
 /// `Mapping::get("<<")` misses MERGE_KEY. Walk entries and resolve `*alias`
 /// against the document tree so a local override can be distinguished from
 /// a local-only key.
-fn merge_source_has_key(mapping: &yaml_edit::Mapping, key: &str) -> bool {
-    let registry = yaml_edit::AsYaml::as_node(mapping).map(|node| {
-        let root = node.ancestors().last().unwrap_or_else(|| node.clone());
-        yaml_edit::AnchorRegistry::from_tree(&root)
-    });
+fn merge_source_has_key(
+    mapping: &yaml_edit::Mapping,
+    key: &str,
+    registry: Option<&yaml_edit::AnchorRegistry>,
+) -> bool {
+    merge_source_has_key_at(
+        mapping,
+        key,
+        registry,
+        0,
+        &mut std::collections::HashSet::new(),
+    )
+}
+
+fn merge_source_has_key_at(
+    mapping: &yaml_edit::Mapping,
+    key: &str,
+    registry: Option<&yaml_edit::AnchorRegistry>,
+    depth: usize,
+    visited: &mut std::collections::HashSet<String>,
+) -> bool {
+    if depth >= crate::ops::doc::navigate::MAX_MERGE_DEPTH {
+        return false;
+    }
     mapping.iter().any(|(k, v)| {
         k.as_scalar().is_some_and(|s| s.as_string() == "<<")
-            && merge_value_has_key(&v, key, registry.as_ref())
+            && merge_value_has_key(&v, key, registry, depth, visited)
     })
 }
 
@@ -243,24 +304,38 @@ fn merge_value_has_key(
     node: &yaml_edit::YamlNode,
     key: &str,
     registry: Option<&yaml_edit::AnchorRegistry>,
+    depth: usize,
+    visited: &mut std::collections::HashSet<String>,
 ) -> bool {
+    if depth >= crate::ops::doc::navigate::MAX_MERGE_DEPTH {
+        return false;
+    }
     if let Some(map) = node.as_mapping() {
-        return map.get(key).is_some();
+        if map.get(key).is_some() {
+            return true;
+        }
+        // Nested inherit: walk this map's own `<<` the same way.
+        return merge_source_has_key_at(map, key, registry, depth + 1, visited);
     }
     if let Some(alias) = node.as_alias() {
         let Some(registry) = registry else {
             return false;
         };
-        let Some(target) = registry.resolve(&alias.name()) else {
+        let name = alias.name();
+        if !visited.insert(name.clone()) {
+            return false;
+        }
+        let Some(target) = registry.resolve(&name) else {
             return false;
         };
-        return yaml_edit::YamlNode::from_syntax(target.clone())
-            .is_some_and(|resolved| merge_value_has_key(&resolved, key, Some(registry)));
+        return yaml_edit::YamlNode::from_syntax(target.clone()).is_some_and(|resolved| {
+            merge_value_has_key(&resolved, key, Some(registry), depth + 1, visited)
+        });
     }
     if let Some(seq) = node.as_sequence() {
         return seq
             .values()
-            .any(|item| merge_value_has_key(&item, key, registry));
+            .any(|item| merge_value_has_key(&item, key, registry, depth + 1, visited));
     }
     false
 }
