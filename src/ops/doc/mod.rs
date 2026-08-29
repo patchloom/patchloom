@@ -92,6 +92,7 @@ pub fn presentation_style_changed(original: &str, new_text: &str, format: &FileF
     match format {
         FileFormat::Yaml => {
             yaml_block_sequence_indents(original) != yaml_block_sequence_indents(new_text)
+                || yaml_alias_identity_counts(original) != yaml_alias_identity_counts(new_text)
         }
         // JSON/TOML pretty-print drift is not flagged here (comment/order
         // preservation paths already minimize noise).
@@ -108,6 +109,57 @@ pub fn style_changed_for_path(path: &str, original: &str, new_text: &str) -> boo
         return false;
     };
     presentation_style_changed(original, new_text, &fmt)
+}
+
+/// Counts of `&name`, `*name`, and `<<:` tokens, ignoring full-line and
+/// trailing comments so comment-only edits do not flag style.
+fn yaml_alias_identity_counts(text: &str) -> (usize, usize, usize) {
+    let mut anchors = 0usize;
+    let mut aliases = 0usize;
+    let mut merges = 0usize;
+    for line in text.lines() {
+        let code = yaml_line_without_comment(line);
+        anchors += count_yaml_prefixed_idents(code, '&');
+        aliases += count_yaml_prefixed_idents(code, '*');
+        merges += code.matches("<<:").count();
+    }
+    (anchors, aliases, merges)
+}
+
+fn yaml_line_without_comment(line: &str) -> &str {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with('#') {
+        return "";
+    }
+    match line.find(" #") {
+        Some(i) => &line[..i],
+        None => line,
+    }
+}
+
+fn count_yaml_prefixed_idents(s: &str, prefix: char) -> usize {
+    let chars: Vec<char> = s.chars().collect();
+    let mut n = 0usize;
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i] == prefix {
+            let next_ok = chars
+                .get(i + 1)
+                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == '_');
+            if next_ok {
+                n += 1;
+                i += 2;
+                while i < chars.len()
+                    && (chars[i].is_ascii_alphanumeric() || chars[i] == '_' || chars[i] == '-')
+                {
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        i += 1;
+    }
+    n
 }
 
 /// Indent levels of every block-sequence entry line (`- …`), for style compare.
