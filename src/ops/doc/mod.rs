@@ -429,6 +429,15 @@ fn try_preserve_yaml(
     {
         return Ok(Some(cleanup_yaml_cst_whitespace(spliced)));
     }
+    // Leftover array growth: splice the alias-rewritten text. A yaml-edit
+    // re-serialize of `- <<: *alias` plus overrides drops indent, then
+    // parse_yaml_semantic fails and we dump.
+    if let Some(spliced) = promoted.as_deref()
+        && let Some(reparsed) = parse_yaml_semantic(spliced)
+        && let Some(grown) = yaml_splice::splice_yaml_array_diffs(spliced, &reparsed, new_value)?
+    {
+        return Ok(Some(grown));
+    }
     let (file, cst_old) = if let Some(spliced) = promoted.as_deref() {
         match yaml_file_after_partial_alias_splice(spliced) {
             Some(pair) => pair,
@@ -1045,12 +1054,21 @@ pub fn diff_values(
 /// `"<<"` key whose value is the referenced mapping.  This function walks
 /// the tree and flattens those entries into the parent object, matching
 /// YAML merge-key semantics (existing keys take precedence).
+///
+/// Recursion stops at `MAX_MERGE_DEPTH` (128, same cap as `deep_merge`).
 fn resolve_yaml_merge_keys(value: &mut serde_json::Value) {
+    resolve_yaml_merge_keys_inner(value, 0);
+}
+
+fn resolve_yaml_merge_keys_inner(value: &mut serde_json::Value, depth: usize) {
+    if depth >= navigate::MAX_MERGE_DEPTH {
+        return;
+    }
     match value {
         serde_json::Value::Object(map) => {
             // First, recurse into all child values (including the merge value itself).
             for v in map.values_mut() {
-                resolve_yaml_merge_keys(v);
+                resolve_yaml_merge_keys_inner(v, depth + 1);
             }
 
             // Then resolve `<<` if present.
@@ -1080,7 +1098,7 @@ fn resolve_yaml_merge_keys(value: &mut serde_json::Value) {
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                resolve_yaml_merge_keys(v);
+                resolve_yaml_merge_keys_inner(v, depth + 1);
             }
         }
         _ => {}
