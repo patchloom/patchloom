@@ -95,6 +95,51 @@ fn test_ast_list_proto() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_list_proto_kind_message() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("svc.proto");
+    fs::write(
+        &f,
+        "syntax = \"proto3\";\npackage demo;\nmessage Ping { string id = 1; }\nenum Status { UNKNOWN = 0; }\nservice Greeter { rpc SayHello (Ping) returns (Ping); }\n",
+    )
+    .unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "list", "svc.proto", "--json", "--kind", "message"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    assert!(
+        !text.contains("unknown symbol kind"),
+        "message must be accepted as a proto kind alias: {text}"
+    );
+    let val: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("ast list --json must be single JSON document: {e}\n{text}"));
+    let arr = val
+        .as_array()
+        .unwrap_or_else(|| panic!("ast list --json must be a JSON array, got: {val}"));
+    let names: Vec<&str> = arr
+        .iter()
+        .filter_map(|v| v.get("name").and_then(|n| n.as_str()))
+        .collect();
+    assert!(
+        names.contains(&"Ping"),
+        "ast list --kind message must list Ping, got {names:?}"
+    );
+    let kinds: Vec<&str> = arr
+        .iter()
+        .filter_map(|v| v.get("kind").and_then(|k| k.as_str()))
+        .collect();
+    assert!(
+        kinds.iter().all(|k| *k == "struct"),
+        "serialized kind must stay struct, got {kinds:?}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_list_quiet_suppresses_text() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("lib.rs");

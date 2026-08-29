@@ -47,15 +47,15 @@ impl SymbolKind {
     pub fn from_str_loose(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "fn" | "func" | "function" => Some(Self::Function),
-            "struct" => Some(Self::Struct),
+            "struct" | "message" => Some(Self::Struct),
             "enum" => Some(Self::Enum),
             "trait" => Some(Self::Trait),
             "impl" => Some(Self::Impl),
             "class" => Some(Self::Class),
-            "method" => Some(Self::Method),
+            "method" | "rpc" => Some(Self::Method),
             "const" | "constant" => Some(Self::Const),
             "type" => Some(Self::Type),
-            "interface" => Some(Self::Interface),
+            "interface" | "service" => Some(Self::Interface),
             "mod" | "module" => Some(Self::Module),
             _ => None,
         }
