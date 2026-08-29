@@ -8559,13 +8559,13 @@ fn file_rename_symlink_to_directory() {
     );
 }
 
-/// Library doc_set surfaces style_changed when YAML sequence indent collapses (#2088).
+/// Library doc_set keeps block-sequence item indent (`- name` / `value`).
+/// Collapse would be `style_changed` (#2088); CST now leaves it false.
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
-fn doc_set_style_changed_on_yaml_sequence_indent() {
+fn doc_set_keeps_yaml_sequence_item_indent() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("cfg.yaml");
-    // Indented block sequence; emitter often collapses indent on rewrite.
     fs::write(&file, "env:\n  - name: FEATURE_FLAG\n    value: off\n").unwrap();
     let r = doc_set(
         &file,
@@ -8577,15 +8577,17 @@ fn doc_set_style_changed_on_yaml_sequence_indent() {
     .expect("doc_set");
     assert!(r.applied);
     assert!(r.changed);
+    assert_eq!(
+        r.new_content,
+        "env:\n  - name: FEATURE_FLAG\n    value: on\n"
+    );
     assert!(
-        r.style_changed,
-        "expected style_changed when YAML sequence presentation drifts; new=\n{}",
+        !r.style_changed,
+        "kept sequence indent must not flag style; new=\n{}",
         r.new_content
     );
-    assert!(crate::api::is_style_changed(&r));
+    assert!(!crate::api::is_style_changed(&r));
 
-    // Same presentation after second apply of same structure → typically false
-    // when re-serializing already-collapsed form.
     let r2 = doc_set(
         &file,
         "env.0.value",
@@ -8595,7 +8597,6 @@ fn doc_set_style_changed_on_yaml_sequence_indent() {
     )
     .expect("second doc_set");
     assert!(r2.applied);
-    // Non-doc op leaves style_changed false.
     let txt = dir.path().join("n.txt");
     fs::write(&txt, "a\n").unwrap();
     let cr = file_create(&txt, "b\n", true, ApplyMode::Apply, None).expect("create");

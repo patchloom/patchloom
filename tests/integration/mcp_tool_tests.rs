@@ -2471,10 +2471,10 @@ async fn test_mcp_doc_update_round_trip() {
     client.cancel().await.unwrap();
 }
 
-/// #2070 multi-surface: MCP doc_update must surface style_changed on YAML
-/// block-sequence indent collapse (same honesty as CLI/tx).
+/// #2070 multi-surface: MCP doc_update must not flag style_changed when
+/// YAML block-sequence item indent stays (same honesty as CLI/tx).
 #[tokio::test]
-async fn test_mcp_doc_update_yaml_style_changed() {
+async fn test_mcp_doc_update_yaml_style_unchanged_when_indent_stays() {
     if !has_mcp_support() {
         return;
     }
@@ -2503,8 +2503,8 @@ async fn test_mcp_doc_update_yaml_style_changed() {
         .unwrap_or_else(|| panic!("changes array: {val}"));
     let style = changes.iter().any(|c| c["style_changed"] == true);
     assert!(
-        style,
-        "MCP doc_update changes[] must report style_changed on sequence indent collapse: {val}"
+        !style,
+        "MCP doc_update changes[] must not flag style when sequence indent stays: {val}"
     );
     client.cancel().await.unwrap();
 }
