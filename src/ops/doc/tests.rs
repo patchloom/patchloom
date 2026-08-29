@@ -2288,7 +2288,7 @@ mod security {
         assert!(leaf.get("a").is_none());
     }
 
-    fn nest_get<'a>(v: &'a serde_json::Value, depth: usize) -> Option<&'a serde_json::Value> {
+    fn nest_get(v: &serde_json::Value, depth: usize) -> Option<&serde_json::Value> {
         let mut cursor = v;
         for _ in 0..depth {
             cursor = cursor.get("n")?;
@@ -2296,10 +2296,7 @@ mod security {
         Some(cursor)
     }
 
-    fn nest_get_mut<'a>(
-        v: &'a mut serde_json::Value,
-        depth: usize,
-    ) -> Option<&'a mut serde_json::Value> {
+    fn nest_get_mut(v: &mut serde_json::Value, depth: usize) -> Option<&mut serde_json::Value> {
         let mut cursor = v;
         for _ in 0..depth {
             cursor = cursor.get_mut("n")?;
