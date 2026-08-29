@@ -280,6 +280,9 @@ pub(crate) fn rewrite_yaml_alias_object_edits(
     if rewrites.is_empty() {
         return Ok(None);
     }
+    if !alias_cst_counts_match_block_lines(text, &rewrites, &seq_alias_seen, &map_alias_seen) {
+        return Ok(None);
+    }
     apply_alias_line_rewrites(text, &rewrites)
 }
 
@@ -511,6 +514,61 @@ fn format_alias_block_body(
     Ok(body)
 }
 
+/// Block-line regex indexes are only sound when every CST `*alias` is a
+/// block `key: *alias` / `- *alias` line. Flow `[*alias]` / `{k: *alias}`
+/// inflate CST counts; splicing would rewrite a later block site.
+fn alias_cst_counts_match_block_lines(
+    text: &str,
+    rewrites: &[AliasLineRewrite],
+    seq_alias_seen: &std::collections::HashMap<String, usize>,
+    map_alias_seen: &std::collections::HashMap<(String, String), usize>,
+) -> bool {
+    for rewrite in rewrites {
+        if let Some(key) = rewrite.key.as_deref() {
+            let cst = map_alias_seen
+                .get(&(key.to_string(), rewrite.alias.clone()))
+                .copied()
+                .unwrap_or(0);
+            let Some(hits) =
+                mapping_alias_line_re(key, &rewrite.alias).map(|re| re.find_iter(text).count())
+            else {
+                return false;
+            };
+            if cst != hits {
+                return false;
+            }
+        } else {
+            let cst = seq_alias_seen.get(&rewrite.alias).copied().unwrap_or(0);
+            let Some(hits) =
+                sequence_alias_line_re(&rewrite.alias).map(|re| re.find_iter(text).count())
+            else {
+                return false;
+            };
+            if cst != hits {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn mapping_alias_line_re(key: &str, alias: &str) -> Option<regex::Regex> {
+    let key_re = regex::escape(key);
+    let alias_re = regex::escape(alias);
+    regex::Regex::new(&format!(
+        r"(?m)^([ \t]*){key_re}:[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
+    ))
+    .ok()
+}
+
+fn sequence_alias_line_re(alias: &str) -> Option<regex::Regex> {
+    let alias_re = regex::escape(alias);
+    regex::Regex::new(&format!(
+        r"(?m)^([ \t]*)-[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
+    ))
+    .ok()
+}
+
 fn apply_alias_line_rewrites(
     text: &str,
     rewrites: &[AliasLineRewrite],
@@ -541,13 +599,8 @@ fn apply_alias_line_rewrites(
 }
 
 fn replace_unique_alias_line(text: &str, rewrite: &AliasLineRewrite) -> Option<String> {
-    let alias_re = regex::escape(&rewrite.alias);
     if let Some(key) = rewrite.key.as_deref() {
-        let key_re = regex::escape(key);
-        let mapping_re = regex::Regex::new(&format!(
-            r"(?m)^([ \t]*){key_re}:[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
-        ))
-        .ok()?;
+        let mapping_re = mapping_alias_line_re(key, &rewrite.alias)?;
         let hits: Vec<regex::Match<'_>> = mapping_re.find_iter(text).collect();
         let idx = match rewrite.seq_occurrence {
             Some(i) => i,
@@ -565,10 +618,7 @@ fn replace_unique_alias_line(text: &str, rewrite: &AliasLineRewrite) -> Option<S
         return Some(splice_match(text, *hit, &replacement));
     }
 
-    let seq_re = regex::Regex::new(&format!(
-        r"(?m)^([ \t]*)-[ \t]*\*{alias_re}([ \t]*(?:#.*)?)?[ \t]*\r?$"
-    ))
-    .ok()?;
+    let seq_re = sequence_alias_line_re(&rewrite.alias)?;
     let hits: Vec<regex::Match<'_>> = seq_re.find_iter(text).collect();
     let idx = rewrite.seq_occurrence?;
     let hit = hits.get(idx)?;
@@ -1232,6 +1282,84 @@ right:
             result.contains("timeout: 60"),
             "remaining site must carry the edited value:\n{result}"
         );
+    }
+
+    /// Mixed flow `[*shared]` and later block `- *shared`. Editing the
+    /// flow site is CST occ=0; the line splice only matches block lines,
+    /// so it must dump instead of rewriting the unedited block item.
+    #[test]
+    fn rewrite_mixed_flow_and_block_alias_does_not_rewrite_unedited_block() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: [*shared]
+block:
+  - *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "flow": [{"timeout": 30}],
+            "block": [{"timeout": 30}]
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "flow": [{"timeout": 60}],
+            "block": [{"timeout": 30}]
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
+        match result {
+            None => {}
+            Some(text) => {
+                assert!(
+                    text.lines().any(|l| l.trim() == "- *shared"),
+                    "unedited block site must stay - *shared:\n{text}"
+                );
+                assert!(
+                    !text.contains("- <<: *shared"),
+                    "must not rewrite the unedited block site into a merge:\n{text}"
+                );
+            }
+        }
+    }
+
+    /// Probe: flow `{cfg: *shared}` plus later block `cfg: *shared`.
+    #[test]
+    fn rewrite_mixed_flow_mapping_and_block_alias_does_not_rewrite_unedited_block() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: {cfg: *shared}
+block:
+  cfg: *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "flow": {"cfg": {"timeout": 30}},
+            "block": {"cfg": {"timeout": 30}}
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "flow": {"cfg": {"timeout": 60}},
+            "block": {"cfg": {"timeout": 30}}
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
+        match result {
+            None => {}
+            Some(text) => {
+                assert!(
+                    text.contains("cfg: *shared"),
+                    "unedited block mapping site must stay cfg: *shared:\n{text}"
+                );
+                assert!(
+                    !text.contains("<<: *shared"),
+                    "must not rewrite the unedited block mapping site into a merge:\n{text}"
+                );
+            }
+        }
     }
 
     #[test]
