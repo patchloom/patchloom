@@ -2137,6 +2137,45 @@ mod security {
         // Should not panic; at depth 128 it clones instead of recursing
         assert!(base.is_object());
     }
+
+    #[test]
+    fn resolve_yaml_merge_keys_depth_guard_caps_recursion() {
+        // 200-level nest (same pattern as cmd/doc_tests deep_merge_depth_guard)
+        // with a `<<` merge key at the innermost object. Without a depth cap
+        // the walker resolves that key; with MAX_MERGE_DEPTH (128) it stops
+        // and the merge key remains.
+        let mut inner = json!({"<<": {"from_merge": 1}});
+        for _ in 0..200 {
+            inner = json!({"nested": inner});
+        }
+        super::super::resolve_yaml_merge_keys(&mut inner);
+        assert!(inner.is_object());
+        assert!(
+            inner.get("nested").is_some(),
+            "top-level 'nested' key must exist"
+        );
+        let mut cursor = &inner;
+        for _ in 0..10 {
+            cursor = cursor
+                .get("nested")
+                .expect("nesting should be at least 10 levels deep");
+        }
+        assert!(cursor.is_object());
+        // Walk past the 128 cap; merge keys beyond it stay unresolved.
+        cursor = &inner;
+        for _ in 0..150 {
+            cursor = cursor
+                .get("nested")
+                .expect("nesting should continue past the merge-key depth cap");
+        }
+        while let Some(next) = cursor.get("nested") {
+            cursor = next;
+        }
+        assert!(
+            cursor.get("<<").is_some(),
+            "merge key beyond MAX_MERGE_DEPTH must remain unresolved"
+        );
+    }
 }
 
 mod regression {

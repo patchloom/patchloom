@@ -598,7 +598,7 @@ pub fn move_at_path(
     Ok(())
 }
 
-const MAX_MERGE_DEPTH: usize = 128;
+pub(crate) const MAX_MERGE_DEPTH: usize = 128;
 
 pub fn deep_merge(base: &mut serde_json::Value, other: &serde_json::Value) {
     deep_merge_inner(base, other, 0);
