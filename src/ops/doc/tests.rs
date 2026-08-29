@@ -2158,45 +2158,88 @@ port: 8080
 mod security {
     use super::*;
 
+    fn nest_n(depth: usize, leaf: serde_json::Value) -> serde_json::Value {
+        let mut v = leaf;
+        for _ in 0..depth {
+            v = json!({"n": v});
+        }
+        v
+    }
+
     #[test]
     fn deep_merge_depth_limit() {
-        // Build a deeply nested structure beyond MAX_MERGE_DEPTH (128)
-        let mut deep_val = json!("leaf");
-        for _ in 0..130 {
-            deep_val = json!({"n": deep_val});
+        // Depth 10 still key-merges. Depth 128 clones the remaining
+        // subtree, so the leaf is other's keys only.
+        let mut base = nest_n(150, json!({"a": 1}));
+        if let Some(mid) = nest_get_mut(&mut base, 10) {
+            mid.as_object_mut()
+                .unwrap()
+                .insert("from_base".into(), json!(true));
         }
-        let mut base = json!({});
-        deep_merge(&mut base, &deep_val);
-        // Should not panic; at depth 128 it clones instead of recursing
-        assert!(base.is_object());
+        let mut other = nest_n(150, json!({"b": 2}));
+        if let Some(mid) = nest_get_mut(&mut other, 10) {
+            mid.as_object_mut()
+                .unwrap()
+                .insert("from_other".into(), json!(true));
+        }
+        deep_merge(&mut base, &other);
+
+        let mid = nest_get(&base, 10).expect("depth 10");
+        assert_eq!(mid.get("from_base"), Some(&json!(true)));
+        assert_eq!(mid.get("from_other"), Some(&json!(true)));
+
+        let leaf = nest_get(&base, 150).expect("depth 150");
+        assert_eq!(leaf, &json!({"b": 2}));
+        assert!(leaf.get("a").is_none());
+    }
+
+    fn nest_get<'a>(v: &'a serde_json::Value, depth: usize) -> Option<&'a serde_json::Value> {
+        let mut cursor = v;
+        for _ in 0..depth {
+            cursor = cursor.get("n")?;
+        }
+        Some(cursor)
+    }
+
+    fn nest_get_mut<'a>(
+        v: &'a mut serde_json::Value,
+        depth: usize,
+    ) -> Option<&'a mut serde_json::Value> {
+        let mut cursor = v;
+        for _ in 0..depth {
+            cursor = cursor.get_mut("n")?;
+        }
+        Some(cursor)
     }
 
     #[test]
     fn resolve_yaml_merge_keys_depth_guard_caps_recursion() {
-        // 200-level nest (same pattern as cmd/doc_tests deep_merge_depth_guard)
-        // with a `<<` merge key at the innermost object. Without a depth cap
-        // the walker resolves that key; with MAX_MERGE_DEPTH (128) it stops
-        // and the merge key remains.
-        let mut inner = json!({"<<": {"from_merge": 1}});
-        for _ in 0..200 {
+        // `<<` at depth 10 must resolve. `<<` at depth 151 must stay.
+        // A cap of 2 would leave the shallow key; no cap flattens the leaf.
+        let mut inner = json!({"<<": {"deep": 1}});
+        for _ in 0..140 {
+            inner = json!({"nested": inner});
+        }
+        inner = json!({"nested": inner, "<<": {"shallow": 1}});
+        for _ in 0..10 {
             inner = json!({"nested": inner});
         }
         super::super::resolve_yaml_merge_keys(&mut inner);
-        assert!(inner.is_object());
-        assert!(
-            inner.get("nested").is_some(),
-            "top-level 'nested' key must exist"
-        );
+
         let mut cursor = &inner;
         for _ in 0..10 {
             cursor = cursor
                 .get("nested")
                 .expect("nesting should be at least 10 levels deep");
         }
-        assert!(cursor.is_object());
-        // Walk past the 128 cap; merge keys beyond it stay unresolved.
+        assert_eq!(cursor.get("shallow"), Some(&json!(1)));
+        assert!(
+            cursor.get("<<").is_none(),
+            "merge key at depth 10 must resolve:\n{cursor}"
+        );
+
         cursor = &inner;
-        for _ in 0..150 {
+        for _ in 0..151 {
             cursor = cursor
                 .get("nested")
                 .expect("nesting should continue past the merge-key depth cap");
@@ -2208,6 +2251,7 @@ mod security {
             cursor.get("<<").is_some(),
             "merge key beyond MAX_MERGE_DEPTH must remain unresolved"
         );
+        assert!(cursor.get("deep").is_none());
     }
 }
 
