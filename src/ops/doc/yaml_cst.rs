@@ -351,6 +351,11 @@ fn collect_mapping_alias_rewrites(
         if let Some(node) = mapping.get(key.as_str())
             && let Some(alias) = node.as_alias()
         {
+            // Flow `{key: *alias}` is not a block `key: *alias` line. Counting
+            // it inflates nth so a later block site dumps or splices wrong.
+            if mapping.is_flow_style() {
+                continue;
+            }
             let name = alias.name();
             let occ = map_alias_seen
                 .entry((key.clone(), name.clone()))
@@ -382,11 +387,21 @@ fn collect_sequence_alias_rewrites(
     map_alias_seen: &mut std::collections::HashMap<(String, String), usize>,
     out: &mut Vec<AliasLineRewrite>,
 ) -> anyhow::Result<()> {
+    // Index zip is wrong on pure prepend/append (`new[0]` is the inserted
+    // object, `old[0]` is still `- *alias`). Leave those to splice.
+    if is_pure_array_extend(old_arr, new_arr) {
+        return Ok(());
+    }
+    let skip_flow_aliases = seq.is_flow_style();
     for (i, old_val) in old_arr.iter().enumerate() {
         let Some(node) = seq.get(i) else {
             continue;
         };
         if let Some(alias) = node.as_alias() {
+            // Flow `[*alias]` is not a block `- *alias` line.
+            if skip_flow_aliases {
+                continue;
+            }
             let name = alias.name();
             let occ = seq_alias_seen.entry(name.clone()).or_insert(0);
             let this = *occ;
@@ -417,6 +432,16 @@ fn collect_sequence_alias_rewrites(
         }
     }
     Ok(())
+}
+
+/// True when `new_arr` is `old_arr` with a prefix or suffix added.
+fn is_pure_array_extend(old_arr: &[serde_json::Value], new_arr: &[serde_json::Value]) -> bool {
+    let old_len = old_arr.len();
+    let new_len = new_arr.len();
+    if new_len <= old_len || old_len == 0 {
+        return false;
+    }
+    &new_arr[new_len - old_len..] == old_arr || &new_arr[..old_len] == old_arr
 }
 
 fn alias_object_rewrite(
@@ -1360,6 +1385,73 @@ block:
                 );
             }
         }
+    }
+
+    /// Mixed flow `{cfg: *shared}` plus later block `cfg: *shared`. Editing
+    /// the block site must splice only that line.
+    #[test]
+    fn rewrite_mixed_flow_mapping_block_edit_splices_block_only() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: {cfg: *shared}
+block:
+  cfg: *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "flow": {"cfg": {"timeout": 30}},
+            "block": {"cfg": {"timeout": 30}}
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "flow": {"cfg": {"timeout": 30}},
+            "block": {"cfg": {"timeout": 60}}
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+            .unwrap()
+            .expect("block-site edit must splice, not dump");
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+flow: {cfg: *shared}
+block:
+  cfg:
+    <<: *shared
+    timeout: 60
+"
+        );
+    }
+
+    /// Pure prepend must not emit a sequence alias rewrite (zip would treat
+    /// the inserted object as an edit of `- *shared`).
+    #[test]
+    fn rewrite_sequence_alias_pure_prepend_returns_none() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+items:
+  - *shared  # inherited
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "items": [{"timeout": 30}]
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "items": [{"name": "x"}, {"timeout": 30}]
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
+        assert!(
+            result.is_none(),
+            "pure prepend must not rewrite - *shared, got {result:?}"
+        );
     }
 
     #[test]

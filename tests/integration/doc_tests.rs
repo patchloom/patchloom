@@ -1422,6 +1422,36 @@ fn test_doc_set_yaml_sequence_alias_item_becomes_merge() {
         .stdout(predicate::str::starts_with("3"));
 }
 
+/// Mixed flow `{cfg: *shared}` plus later block `cfg: *shared`. `doc set` on
+/// the block site must splice and leave the flow sibling.
+#[test]
+fn test_doc_set_yaml_mixed_flow_block_alias_keeps_flow() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "shared: &shared\n  timeout: 30\nflow: {cfg: *shared}\nblock:\n  cfg: *shared\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("block.cfg.timeout")
+        .arg("60")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "shared: &shared\n  timeout: 30\nflow: {cfg: *shared}\nblock:\n  cfg:\n    <<: *shared\n    timeout: 60\n"
+    );
+}
+
 #[test]
 fn test_doc_set_yaml_apply() {
     let dir = TempDir::new().unwrap();

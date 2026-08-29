@@ -1647,6 +1647,74 @@ service_a: *shared  # inherited
         assert_eq!(reparsed["service_a"]["retries"], json!(3));
     }
 
+    /// Mixed flow `{cfg: *shared}` plus later block `cfg: *shared`. Editing
+    /// the block site must splice and leave the flow sibling (and `&shared`).
+    #[test]
+    fn yaml_mixed_flow_block_alias_block_edit_keeps_flow_sibling() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+flow: {cfg: *shared}
+block:
+  cfg: *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["block"]["cfg"]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+flow: {cfg: *shared}
+block:
+  cfg:
+    <<: *shared
+    timeout: 60
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["block"]["cfg"]["timeout"], json!(60));
+        assert_eq!(reparsed["flow"]["cfg"]["timeout"], json!(30));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
+    /// Pure prepend must not zip `new[0]` onto `- *shared`. The inserted
+    /// object is spliced in; the alias item and its trailing comment stay.
+    #[test]
+    fn yaml_sequence_alias_pure_prepend_keeps_alias() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+items:
+  - *shared  # inherited
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({"name": "x"}));
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+items:
+  - name: x
+  - *shared  # inherited
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!({"name": "x"}));
+        assert_eq!(reparsed["items"][1]["timeout"], json!(30));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
     /// Multi-doc streams serialize per document. A pure alias in doc 1 must
     /// become a merge without dumping doc 0.
     #[test]
