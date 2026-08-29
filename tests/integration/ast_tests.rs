@@ -51,13 +51,46 @@ fn test_ast_list_proto() {
         "syntax = \"proto3\";\npackage demo;\nmessage Ping { string id = 1; }\nenum Status { UNKNOWN = 0; }\nservice Greeter { rpc SayHello (Ping) returns (Ping); }\n",
     )
     .unwrap();
-    patchloom_in(dir.path())
+    let out = patchloom_in(dir.path())
         .args(["ast", "list", "svc.proto", "--json"])
         .assert()
         .success()
-        .stdout(predicates::str::contains("Ping"))
-        .stdout(predicates::str::contains("Greeter"))
-        .stdout(predicates::str::contains("SayHello"));
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let val: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("ast list --json must be single JSON document: {e}\n{text}"));
+    let arr = val
+        .as_array()
+        .unwrap_or_else(|| panic!("ast list --json must be a JSON array, got: {val}"));
+    fn collect_name_kinds(items: &[serde_json::Value], out: &mut Vec<(String, String)>) {
+        for v in items {
+            let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("");
+            let kind = v.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+            out.push((name.to_string(), kind.to_string()));
+            if let Some(children) = v.get("children").and_then(|c| c.as_array()) {
+                collect_name_kinds(children, out);
+            }
+        }
+    }
+    let mut pairs = Vec::new();
+    collect_name_kinds(arr, &mut pairs);
+    for expected in [
+        ("Ping", "struct"),
+        ("Status", "enum"),
+        ("Greeter", "interface"),
+        ("SayHello", "method"),
+    ] {
+        assert!(
+            pairs
+                .iter()
+                .any(|(n, k)| n == expected.0 && k == expected.1),
+            "missing ({}, {}) in {pairs:?}",
+            expected.0,
+            expected.1
+        );
+    }
 }
 
 #[test]
@@ -932,13 +965,9 @@ fn test_ast_rename_proto() {
         .assert()
         .code(0);
     let content = fs::read_to_string(&f).unwrap();
-    assert!(
-        content.contains("Pong"),
-        "ast rename --apply should rename proto message: {content}"
-    );
-    assert!(
-        !content.contains("message Ping"),
-        "old proto message name should be replaced: {content}"
+    assert_eq!(
+        content,
+        "syntax = \"proto3\";\npackage demo;\nmessage Pong { string id = 1; }\nenum Status { UNKNOWN = 0; }\nservice Greeter { rpc SayHello (Pong) returns (Pong); }\n"
     );
 }
 
