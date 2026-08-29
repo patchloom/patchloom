@@ -1715,6 +1715,137 @@ items:
         assert_eq!(reparsed["shared"]["timeout"], json!(30));
     }
 
+    /// Shrink-first + edit remaining must not rewrite `*gone` as if it
+    /// were `*keep`. Length shifts leave the remaining item to splice.
+    #[test]
+    fn yaml_sequence_alias_shrink_first_does_not_rewrite_gone() {
+        let yaml = "\
+gone: &gone
+  timeout: 10
+keep: &keep
+  timeout: 30
+items:
+  - *gone
+  - *keep
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"].as_array_mut().unwrap().remove(0);
+        new["items"][0]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+gone: &gone
+  timeout: 10
+keep: &keep
+  timeout: 30
+items:
+  - timeout: 60
+"
+        );
+        assert!(
+            !result.contains("*gone") || result.contains("&gone"),
+            "must not rewrite the removed - *gone site:\n{result}"
+        );
+        assert!(
+            !result.contains("<<: *gone"),
+            "must not treat *gone as the remaining edit:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"], json!([{"timeout": 60}]));
+        assert_eq!(reparsed["gone"]["timeout"], json!(10));
+        assert_eq!(reparsed["keep"]["timeout"], json!(30));
+    }
+
+    /// Prepend on sequence A must not steal file-wide nth from sequence B.
+    #[test]
+    fn yaml_sequence_alias_prepend_does_not_steal_sibling_nth() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+first:
+  - *shared
+second:
+  - *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["first"]
+            .as_array_mut()
+            .unwrap()
+            .insert(0, json!({"name": "x"}));
+        new["second"][0]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+first:
+  - name: x
+  - *shared
+second:
+  - <<: *shared
+    timeout: 60
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["first"][0], json!({"name": "x"}));
+        assert_eq!(reparsed["first"][1]["timeout"], json!(30));
+        assert_eq!(reparsed["second"][0]["timeout"], json!(60));
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
+    /// Insert-middle + edit later `- *shared` must keep alias identity
+    /// off the inserted object (length shift is unaligned).
+    #[test]
+    fn yaml_sequence_alias_insert_middle_does_not_rewrite_later_alias() {
+        let yaml = "\
+shared: &shared
+  timeout: 30
+items:
+  - name: a
+  - *shared
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"]
+            .as_array_mut()
+            .unwrap()
+            .insert(1, json!({"name": "mid"}));
+        new["items"][2]["timeout"] = json!(60);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+items:
+  - name: a
+  - name: mid
+  - timeout: 60
+"
+        );
+        assert!(
+            result.contains("&shared"),
+            "anchor definition must remain:\n{result}"
+        );
+        assert!(
+            !result.contains("- *shared") && !result.contains("<<: *shared"),
+            "unaligned insert must dump the later item, not zip - *shared:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            reparsed["items"],
+            json!([{"name": "a"}, {"name": "mid"}, {"timeout": 60}])
+        );
+        assert_eq!(reparsed["shared"]["timeout"], json!(30));
+    }
+
     /// Multi-doc streams serialize per document. A pure alias in doc 1 must
     /// become a merge without dumping doc 0.
     #[test]

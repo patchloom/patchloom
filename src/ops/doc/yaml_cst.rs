@@ -387,12 +387,11 @@ fn collect_sequence_alias_rewrites(
     map_alias_seen: &mut std::collections::HashMap<(String, String), usize>,
     out: &mut Vec<AliasLineRewrite>,
 ) -> anyhow::Result<()> {
-    // Index zip is wrong on pure prepend/append (`new[0]` is the inserted
-    // object, `old[0]` is still `- *alias`). Leave those to splice.
-    if is_pure_array_extend(old_arr, new_arr) {
-        return Ok(());
-    }
+    // Index zip is only sound when lengths match. Always walk old items so
+    // file-wide nth stays correct; leave length shifts to splice.
+    let aligned = old_arr.len() == new_arr.len();
     let skip_flow_aliases = seq.is_flow_style();
+    let empty_obj = serde_json::json!({});
     for (i, old_val) in old_arr.iter().enumerate() {
         let Some(node) = seq.get(i) else {
             continue;
@@ -406,6 +405,9 @@ fn collect_sequence_alias_rewrites(
             let occ = seq_alias_seen.entry(name.clone()).or_insert(0);
             let this = *occ;
             *occ += 1;
+            if !aligned {
+                continue;
+            }
             let Some(new_val) = new_arr.get(i) else {
                 continue;
             };
@@ -418,13 +420,20 @@ fn collect_sequence_alias_rewrites(
                 out.push(rewrite);
             }
         } else if let Some(child) = node.as_mapping()
-            && let (Some(new_val), serde_json::Value::Object(_)) = (new_arr.get(i), old_val)
-            && new_val.is_object()
+            && matches!(old_val, serde_json::Value::Object(_))
         {
+            let child_new = if aligned {
+                new_arr
+                    .get(i)
+                    .filter(|v| v.is_object())
+                    .unwrap_or(&empty_obj)
+            } else {
+                &empty_obj
+            };
             collect_mapping_alias_rewrites(
                 child,
                 old_val,
-                new_val,
+                child_new,
                 seq_alias_seen,
                 map_alias_seen,
                 out,
@@ -432,16 +441,6 @@ fn collect_sequence_alias_rewrites(
         }
     }
     Ok(())
-}
-
-/// True when `new_arr` is `old_arr` with a prefix or suffix added.
-fn is_pure_array_extend(old_arr: &[serde_json::Value], new_arr: &[serde_json::Value]) -> bool {
-    let old_len = old_arr.len();
-    let new_len = new_arr.len();
-    if new_len <= old_len || old_len == 0 {
-        return false;
-    }
-    &new_arr[new_len - old_len..] == old_arr || &new_arr[..old_len] == old_arr
 }
 
 fn alias_object_rewrite(
@@ -1452,6 +1451,121 @@ items:
             result.is_none(),
             "pure prepend must not rewrite - *shared, got {result:?}"
         );
+    }
+
+    /// Shrink-first + edit remaining must not zip `*gone` with the
+    /// surviving object (that would rewrite `*gone` as if it were `*keep`).
+    #[test]
+    fn rewrite_sequence_alias_shrink_first_does_not_rewrite_removed_item() {
+        use std::str::FromStr;
+        let yaml = "\
+gone: &gone
+  timeout: 10
+keep: &keep
+  timeout: 30
+items:
+  - *gone
+  - *keep
+";
+        let old = json!({
+            "gone": {"timeout": 10},
+            "keep": {"timeout": 30},
+            "items": [{"timeout": 10}, {"timeout": 30}]
+        });
+        let new = json!({
+            "gone": {"timeout": 10},
+            "keep": {"timeout": 30},
+            "items": [{"timeout": 60}]
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
+        match result {
+            None => {}
+            Some(text) => {
+                assert!(
+                    text.contains("- *gone"),
+                    "removed first alias must keep - *gone identity:\n{text}"
+                );
+                assert!(
+                    !text.contains("<<: *gone"),
+                    "must not rewrite *gone as if it were the remaining edit:\n{text}"
+                );
+            }
+        }
+    }
+
+    /// Prepend on sequence A must still count its `- *shared` so editing
+    /// sequence B rewrites the second site, not the first.
+    #[test]
+    fn rewrite_sequence_alias_prepend_does_not_steal_sibling_nth() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+first:
+  - *shared
+second:
+  - *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "first": [{"timeout": 30}],
+            "second": [{"timeout": 30}]
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "first": [{"name": "x"}, {"timeout": 30}],
+            "second": [{"timeout": 60}]
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new)
+            .unwrap()
+            .expect("aligned sibling edit must splice");
+        assert_eq!(
+            result,
+            "\
+shared: &shared
+  timeout: 30
+first:
+  - *shared
+second:
+  - <<: *shared
+    timeout: 60
+"
+        );
+    }
+
+    /// Insert-middle + edit later `- *shared` must not zip the later alias
+    /// onto the inserted object.
+    #[test]
+    fn rewrite_sequence_alias_insert_middle_does_not_rewrite_later_alias() {
+        use std::str::FromStr;
+        let yaml = "\
+shared: &shared
+  timeout: 30
+items:
+  - name: a
+  - *shared
+";
+        let old = json!({
+            "shared": {"timeout": 30},
+            "items": [{"name": "a"}, {"timeout": 30}]
+        });
+        let new = json!({
+            "shared": {"timeout": 30},
+            "items": [{"name": "a"}, {"name": "mid"}, {"timeout": 60}]
+        });
+        let file = yaml_edit::YamlFile::from_str(yaml).unwrap();
+        let result = rewrite_yaml_alias_object_edits(yaml, &file, &old, &new).unwrap();
+        match result {
+            None => {}
+            Some(text) => {
+                assert!(
+                    text.lines().any(|l| l.trim() == "- *shared"),
+                    "later - *shared must stay an alias:\n{text}"
+                );
+            }
+        }
     }
 
     #[test]

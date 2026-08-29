@@ -429,6 +429,15 @@ fn try_preserve_yaml(
     {
         return Ok(Some(cleanup_yaml_cst_whitespace(spliced)));
     }
+    // Leftover array growth: splice the alias-rewritten text. A yaml-edit
+    // re-serialize of `- <<: *alias` plus overrides drops indent, then
+    // parse_yaml_semantic fails and we dump.
+    if let Some(spliced) = promoted.as_deref()
+        && let Some(reparsed) = parse_yaml_semantic(spliced)
+        && let Some(grown) = yaml_splice::splice_yaml_array_diffs(spliced, &reparsed, new_value)?
+    {
+        return Ok(Some(grown));
+    }
     let (file, cst_old) = if let Some(spliced) = promoted.as_deref() {
         match yaml_file_after_partial_alias_splice(spliced) {
             Some(pair) => pair,
