@@ -1422,6 +1422,55 @@ fn test_doc_set_yaml_sequence_alias_item_becomes_merge() {
         .stdout(predicate::str::starts_with("3"));
 }
 
+/// `doc set --apply` that appends to an array inherited only via `<<`
+/// must keep the merge key and add a local `env:` override.
+#[test]
+fn test_doc_set_yaml_inherited_array_growth_keeps_merge_key() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.yaml");
+    fs::write(
+        &file,
+        "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("deployment.env")
+        .arg(r#"[{"name":"A","value":"1"},{"name":"B","value":"2"}]"#)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+deployment:
+  <<: *defaults
+  env:
+    - name: A
+      value: '1'
+    - name: B
+      value: '2'
+"
+    );
+}
+
 /// Mixed flow `{cfg: *shared}` plus later block `cfg: *shared`. `doc set` on
 /// the block site must splice and leave the flow sibling.
 #[test]

@@ -1,34 +1,4 @@
 // size-waiver: accepted single-domain bulk (policy #1408). YAML comment-preserving splice is one unit; split risks dual writers.
-/// Check if there are any arrays that grew between `old` and `new`.
-pub(super) fn has_array_growth_diffs(old: &serde_json::Value, new: &serde_json::Value) -> bool {
-    if old == new {
-        return false;
-    }
-    match (old, new) {
-        (serde_json::Value::Object(old_map), serde_json::Value::Object(new_map)) => {
-            for (key, new_val) in new_map {
-                if let Some(old_val) = old_map.get(key)
-                    && has_array_growth_diffs(old_val, new_val)
-                {
-                    return true;
-                }
-            }
-            false
-        }
-        (serde_json::Value::Array(old_arr), serde_json::Value::Array(new_arr)) => {
-            if new_arr.len() > old_arr.len() {
-                return true;
-            }
-            // Recurse into same-length elements to detect nested growth.
-            old_arr
-                .iter()
-                .zip(new_arr.iter())
-                .any(|(o, n)| has_array_growth_diffs(o, n))
-        }
-        _ => false,
-    }
-}
-
 /// Text-level fallback for array diffs that the CST path could not
 /// handle (general restructuring where the array is neither a pure
 /// prepend nor a pure append of the original).
@@ -638,37 +608,6 @@ mod tests {
         // First line should be "  - ..." and continuation "    ..."
         let first_line = result.lines().next().unwrap();
         assert!(first_line.starts_with("  - "));
-    }
-
-    // -----------------------------------------------------------------------
-    // has_array_growth_diffs
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn has_array_growth_no_change() {
-        let v = serde_json::json!({"a": [1, 2]});
-        assert!(!has_array_growth_diffs(&v, &v));
-    }
-
-    #[test]
-    fn has_array_growth_detects_growth() {
-        let old = serde_json::json!({"a": [1]});
-        let new = serde_json::json!({"a": [1, 2]});
-        assert!(has_array_growth_diffs(&old, &new));
-    }
-
-    #[test]
-    fn has_array_growth_detects_nested_growth() {
-        let old = serde_json::json!({"a": {"b": [1]}});
-        let new = serde_json::json!({"a": {"b": [1, 2]}});
-        assert!(has_array_growth_diffs(&old, &new));
-    }
-
-    #[test]
-    fn has_array_growth_shrink_is_not_growth() {
-        let old = serde_json::json!({"a": [1, 2, 3]});
-        let new = serde_json::json!({"a": [1]});
-        assert!(!has_array_growth_diffs(&old, &new));
     }
 
     // -----------------------------------------------------------------------
