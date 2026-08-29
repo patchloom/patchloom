@@ -2243,6 +2243,133 @@ deployment:
         );
     }
 
+    /// Deleting a key inherited via a root-level `<<` must expand that site
+    /// (drop root `<<`) and keep `&defaults`. Dumping inlines the merge.
+    #[test]
+    fn yaml_inherited_root_delete_expands_site_keeps_anchor() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+<<: *defaults
+extra: 1
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new.as_object_mut().unwrap().shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+extra: 1
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert!(
+            reparsed.get("env").is_none(),
+            "inherited env must be gone from root:\n{result}"
+        );
+        assert_eq!(reparsed["extra"], json!(1));
+        assert_eq!(
+            reparsed["defaults"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+    }
+
+    /// Deleting a key inherited via `<<` on a sequence item must expand
+    /// that item only and keep `&defaults`. Dumping inlines the merge.
+    #[test]
+    fn yaml_inherited_sequence_item_delete_expands_site_keeps_anchor() {
+        let yaml = "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+items:
+  - <<: *defaults
+    name: api
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0].as_object_mut().unwrap().shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env:
+    - name: A
+      value: \"1\"
+items:
+  - name: api
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert!(
+            reparsed["items"][0].get("env").is_none(),
+            "inherited env must be gone from the sequence item:\n{result}"
+        );
+        assert_eq!(reparsed["items"][0]["name"], json!("api"));
+        assert_eq!(
+            reparsed["defaults"]["env"],
+            json!([{"name": "A", "value": "1"}])
+        );
+    }
+
+    /// Nested `<<` (`deployment` → `mid` → `base`): deleting a local
+    /// override of an inherited key must expand that site and keep both
+    /// anchors. A walk that only inspects `mid`'s local keys misses `env`.
+    #[test]
+    fn yaml_inherited_nested_merge_delete_expands_site_keeps_anchors() {
+        let yaml = "\
+base: &base
+  env: [A]
+mid: &mid
+  <<: *base
+  name: mid
+deployment:
+  <<: *mid
+  env: [B]
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["deployment"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&base") && result.contains("&mid"),
+            "nested anchors must survive expanding deployment:\n{result}"
+        );
+        assert!(
+            result.contains("<<: *base"),
+            "mid must keep its merge:\n{result}"
+        );
+        let deployment = result.split("deployment:").nth(1).unwrap_or_default();
+        assert!(
+            !deployment.contains("<<:"),
+            "deployment must drop <<:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert!(
+            reparsed["deployment"].get("env").is_none(),
+            "deployment.env must be gone:\n{result}"
+        );
+        assert_eq!(reparsed["deployment"]["name"], json!("mid"));
+        assert_eq!(reparsed["base"]["env"], json!(["A"]));
+        assert_eq!(reparsed["mid"]["name"], json!("mid"));
+        assert_eq!(reparsed["mid"]["env"], json!(["A"]));
+    }
+
     /// Multi-document stream: unrelated edit in one doc keeps that doc's merges.
     #[test]
     fn yaml_multi_doc_unrelated_edit_preserves_merges() {

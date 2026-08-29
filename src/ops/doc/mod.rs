@@ -308,6 +308,20 @@ fn fix_yaml_block_indentation(text: &str) -> String {
         }
 
         let indent = line.len() - trimmed.len();
+        // CST remove of `<<` on a dash line leaves `-     name:`. Collapse
+        // extra spaces after `-` when the rest is a mapping key.
+        if is_yaml_sequence_item(trimmed)
+            && let Some(rest) = trimmed.strip_prefix('-')
+        {
+            let rest_trim = rest.trim_start();
+            if rest.len() - rest_trim.len() > 1
+                && (rest_trim.contains(": ") || rest_trim.ends_with(':'))
+                && !is_yaml_sequence_item(rest_trim)
+            {
+                result.push(format!("{}- {rest_trim}", " ".repeat(indent)));
+                continue;
+            }
+        }
         // `- name: A` is a sequence item, not a mapping sibling of `value:`.
         let is_mapping_entry = indent > 0
             && !is_yaml_sequence_item(trimmed)
