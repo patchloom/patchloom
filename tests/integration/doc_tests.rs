@@ -197,6 +197,112 @@ fn test_doc_keys_lists_object_keys() {
 }
 
 #[test]
+fn test_doc_keys_omitted_selector_lists_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("some.toml");
+    fs::write(
+        &file,
+        "[package]\nname = \"x\"\n[dependencies]\nserde = \"1\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("package"))
+        .stdout(predicate::str::contains("dependencies"));
+}
+
+#[test]
+fn test_doc_len_omitted_selector_counts_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("some.toml");
+    fs::write(
+        &file,
+        "[package]\nname = \"x\"\n[dependencies]\nserde = \"1\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("len")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2"));
+}
+
+#[test]
+fn test_doc_get_typo_key_json_did_you_mean() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, "[database]\nport = 5432\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("databse.port")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("did you mean: database?"),
+        "JSON error must carry sibling-key hint: {v}"
+    );
+}
+
+#[test]
+fn test_doc_get_jq_bracket_json_suggests_forms() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"name":"a"}]}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("items[name]")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let blob = format!("{stdout}{stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap_or(serde_json::json!({
+        "error": blob.as_str(),
+        "error_kind": "unknown"
+    }));
+    if v.get("error_kind").and_then(|k| k.as_str()) == Some("invalid_input") {
+        assert_eq!(v["error_kind"], "invalid_input");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("items[0]") && err.contains("items[*]") && err.contains("items[name=…]"),
+            "JSON error must suggest bracket forms: {v}"
+        );
+    } else {
+        assert!(
+            blob.contains("items[0]")
+                && blob.contains("items[*]")
+                && blob.contains("items[name=…]"),
+            "invalid bracket must suggest forms: {blob}"
+        );
+    }
+}
+
+#[test]
 fn test_doc_set_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");

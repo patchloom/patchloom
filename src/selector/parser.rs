@@ -206,7 +206,19 @@ pub fn parse(input: &str) -> Result<Selector, String> {
             let content = &input[start..i];
             i += 1; // skip ']'
 
-            segments.push(parse_bracket_content(content)?);
+            match parse_bracket_content(content) {
+                Ok(seg) => segments.push(seg),
+                Err(e) if e.starts_with("invalid bracket content:") => {
+                    let prefix = &input[..start.saturating_sub(1)];
+                    let examples = if prefix.is_empty() {
+                        "[0], [*], [name=…], [!name]".to_string()
+                    } else {
+                        format!("{prefix}[0], {prefix}[*], {prefix}[name=…], {prefix}[!name]")
+                    };
+                    return Err(format!("{e} (try {examples})"));
+                }
+                Err(e) => return Err(e),
+            }
         } else {
             // Key segment: read until '.', '[', or end.
             let start = i;
@@ -312,6 +324,22 @@ mod tests {
         assert!(
             err.contains("invalid bracket content"),
             "expected 'invalid bracket content', got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_jq_style_bracket_key_suggests_forms() {
+        let err = parse("items[name]").unwrap_err();
+        assert!(
+            err.contains("invalid bracket content: name"),
+            "expected invalid bracket content, got: {err}"
+        );
+        assert!(
+            err.contains("items[0]")
+                && err.contains("items[*]")
+                && err.contains("items[name=…]")
+                && err.contains("items[!name]"),
+            "expected jq-guess forms, got: {err}"
         );
     }
 

@@ -137,6 +137,44 @@ pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<Que
     }
 }
 
+/// Closest sibling object key for a missing selector path, if any.
+///
+/// Walks concrete key/index segments until the first miss, then ranks
+/// sibling keys with [`crate::fallback::find_similar_targets`].
+pub(crate) fn similar_object_key_hint(root: &serde_json::Value, selector: &str) -> Option<String> {
+    let segments = selector::parse(selector).ok()?;
+    let mut current = root;
+    for segment in &segments {
+        match segment {
+            selector::Segment::Key(key) => {
+                if let Some(next) = current.get(key.as_str()) {
+                    current = next;
+                    continue;
+                }
+                if current.is_array()
+                    && let Ok(idx) = key.parse::<usize>()
+                    && let Some(next) = current.get(idx)
+                {
+                    current = next;
+                    continue;
+                }
+                let obj = current.as_object()?;
+                let blob = obj.keys().cloned().collect::<Vec<_>>().join("\n");
+                return crate::fallback::find_similar_targets(&blob, key, 1)
+                    .into_iter()
+                    .next();
+            }
+            selector::Segment::Index(idx) => {
+                current = current.get(*idx)?;
+            }
+            selector::Segment::Wildcard | selector::Segment::Predicate { .. } => {
+                return None;
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,6 +430,25 @@ mod tests {
             }
             QueryResult::NoMatch => panic!("expected match"),
         }
+    }
+
+    #[test]
+    fn similar_object_key_hint_finds_typo() {
+        let doc = serde_json::json!({"database": {"port": 5432}, "name": "app"});
+        assert_eq!(
+            similar_object_key_hint(&doc, "databse.port").as_deref(),
+            Some("database")
+        );
+        assert_eq!(
+            similar_object_key_hint(&doc, "database.prt").as_deref(),
+            Some("port")
+        );
+    }
+
+    #[test]
+    fn similar_object_key_hint_skips_unrelated() {
+        let doc = serde_json::json!({"database": {"port": 5432}});
+        assert_eq!(similar_object_key_hint(&doc, "xyzzy"), None);
     }
 
     #[test]

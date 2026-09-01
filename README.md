@@ -288,7 +288,7 @@ patchloom tx plan.json --apply
 After [installing with MCP support](#install), start the server:
 
 ```bash
-patchloom mcp-server
+PATCHLOOM_MCP_SURFACE=core patchloom mcp-server
 ```
 
 MCP-capable agents call patchloom tools directly as structured JSON, with no shell quoting or command construction. The agent sends `{"path": "config.json", "selector": "version", "value": "2.0"}` instead of building `patchloom doc set config.json version '"2.0"' --apply`.

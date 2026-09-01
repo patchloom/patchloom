@@ -117,6 +117,7 @@ Add to `~/.grok/config.toml`:
 [mcp_servers.patchloom]
 command = "patchloom"
 args = ["mcp-server"]
+env = { PATCHLOOM_MCP_SURFACE = "core" }
 ```
 
 ### Claude Desktop (JSON)
@@ -128,7 +129,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
   "mcpServers": {
     "patchloom": {
       "command": "patchloom",
-      "args": ["mcp-server"]
+      "args": ["mcp-server"],
+      "env": {
+        "PATCHLOOM_MCP_SURFACE": "core"
+      }
     }
   }
 }
@@ -143,7 +147,10 @@ Create `.vscode/mcp.json` in your workspace root:
   "servers": {
     "patchloom": {
       "command": "patchloom",
-      "args": ["mcp-server"]
+      "args": ["mcp-server"],
+      "env": {
+        "PATCHLOOM_MCP_SURFACE": "core"
+      }
     }
   }
 }
@@ -158,7 +165,10 @@ Create `.cursor/mcp.json` in your workspace root:
   "servers": {
     "patchloom": {
       "command": "patchloom",
-      "args": ["mcp-server"]
+      "args": ["mcp-server"],
+      "env": {
+        "PATCHLOOM_MCP_SURFACE": "core"
+      }
     }
   }
 }

@@ -146,7 +146,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if selector exists, returns true/false), \"keys\" (list object keys at selector path), \"len\" (count items at selector path), \"select\" (filter array via selector predicates, e.g. users[role=admin] or items[0].name; there is no separate predicate field), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
+        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (check if selector exists, returns true/false), \"keys\" (list object keys at selector path; omit selector for document root), \"len\" (count items at selector path; omit selector for document root), \"select\" (filter array via selector predicates, e.g. users[role=admin] or items[0].name; there is no separate predicate field), \"flatten\" (list all leaf paths and values). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
     )]
     async fn doc_query(
         &self,
@@ -170,21 +170,11 @@ impl PatchloomService {
                     crate::cmd::doc::DocAction::Has { file, selector }
                 }
                 "keys" => {
-                    let selector = p.selector.ok_or_else(|| {
-                        McpError::invalid_params(
-                            "'keys' action requires a selector".to_string(),
-                            None,
-                        )
-                    })?;
+                    let selector = p.selector.unwrap_or_else(|| ".".to_string());
                     crate::cmd::doc::DocAction::Keys { file, selector }
                 }
                 "len" => {
-                    let selector = p.selector.ok_or_else(|| {
-                        McpError::invalid_params(
-                            "'len' action requires a selector".to_string(),
-                            None,
-                        )
-                    })?;
+                    let selector = p.selector.unwrap_or_else(|| ".".to_string());
                     crate::cmd::doc::DocAction::Len { file, selector }
                 }
                 "select" => {

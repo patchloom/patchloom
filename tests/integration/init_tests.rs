@@ -398,8 +398,12 @@ fn test_init_shows_vscode_mcp_json_hint() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("VS Code: create .vscode/mcp.json:"));
     assert!(stderr.contains(
-        "\"servers\": { \"patchloom\": { \"command\": \"patchloom\", \"args\": [\"mcp-server\"] } }"
+        "\"servers\": { \"patchloom\": { \"command\": \"patchloom\", \"args\": [\"mcp-server\"], \"env\": { \"PATCHLOOM_MCP_SURFACE\": \"core\" } } }"
     ));
+    assert!(
+        stderr.contains("PATCHLOOM_MCP_SURFACE") && stderr.contains("core"),
+        "first-copy MCP snippet must set core surface: {stderr}"
+    );
     assert!(!stderr.contains(".vscode/settings.json"));
 }
 
@@ -426,8 +430,12 @@ fn test_init_shows_cursor_mcp_json_hint() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Cursor: create .cursor/mcp.json:"));
     assert!(stderr.contains(
-        "\"servers\": { \"patchloom\": { \"command\": \"patchloom\", \"args\": [\"mcp-server\"] } }"
+        "\"servers\": { \"patchloom\": { \"command\": \"patchloom\", \"args\": [\"mcp-server\"], \"env\": { \"PATCHLOOM_MCP_SURFACE\": \"core\" } } }"
     ));
+    assert!(
+        stderr.contains("PATCHLOOM_MCP_SURFACE") && stderr.contains("core"),
+        "first-copy MCP snippet must set core surface: {stderr}"
+    );
 }
 
 // ---------------------------------------------------------------------------

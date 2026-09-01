@@ -244,13 +244,14 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // 4. MCP setup hint.
         eprintln!();
         if cfg!(feature = "mcp") {
-            let mcp_json_hint = r#"    { "servers": { "patchloom": { "command": "patchloom", "args": ["mcp-server"] } } }"#;
+            let mcp_json_hint = r#"    { "servers": { "patchloom": { "command": "patchloom", "args": ["mcp-server"], "env": { "PATCHLOOM_MCP_SURFACE": "core" } } } }"#;
             eprintln!("MCP server is available. Add to your agent's config:");
             if cwd.join(".grok").is_dir() || home_file_exists(".grok/config.toml") {
                 eprintln!("  Grok: add to ~/.grok/config.toml:");
                 eprintln!("    [mcp_servers.patchloom]");
                 eprintln!("    command = \"patchloom\"");
                 eprintln!("    args = [\"mcp-server\"]");
+                eprintln!("    env = {{ PATCHLOOM_MCP_SURFACE = \"core\" }}");
             }
             if cwd.join(".vscode").is_dir() {
                 eprintln!("  VS Code: create .vscode/mcp.json:");

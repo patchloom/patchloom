@@ -2798,6 +2798,43 @@ async fn test_mcp_doc_keys_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_keys_omitted_selector_lists_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","version":"1.0","debug":true}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "keys", "path": "config.json"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_query keys without selector should succeed: {val}"
+    );
+    let keys = val
+        .as_array()
+        .expect("doc_query keys should return an array");
+    assert!(
+        keys.contains(&serde_json::json!("name")),
+        "root keys should contain 'name': {val}"
+    );
+    assert!(
+        keys.contains(&serde_json::json!("version")),
+        "root keys should contain 'version': {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_len_round_trip() {
     if !has_mcp_support() {
         return;
