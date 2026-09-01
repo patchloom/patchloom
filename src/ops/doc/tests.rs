@@ -2567,6 +2567,41 @@ z: *x
         );
     }
 
+    /// Document-root sequence: two empties in one serialize must keep CST
+    /// (comment, anchor, alias), not dump.
+    #[test]
+    fn yaml_empty_two_root_sequence_items_keeps_comment_and_anchor() {
+        let yaml = "\
+# plays
+- &lead
+  name: Hamlet
+- name: Macbeth
+- name: Othello
+- *lead
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[1] = json!({});
+        new[2] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+# plays
+- &lead
+  name: Hamlet
+- {}
+- {}
+- *lead
+"
+        );
+        assert!(
+            result.contains("&lead") && result.contains("*lead"),
+            "root-sequence dump must not expand the alias:\n{result}"
+        );
+    }
+
     #[test]
     fn yaml_empty_non_last_sequence_item_keeps_comment() {
         let yaml = "\

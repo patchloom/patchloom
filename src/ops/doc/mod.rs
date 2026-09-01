@@ -362,8 +362,8 @@ fn fix_yaml_block_indentation_with_original(original: Option<&str>, text: &str) 
 
 /// After a block sequence item is emptied, yaml-edit 0.3 `Sequence::set`
 /// of `{}` / `[]` can drop the item newline and glue the next sibling
-/// (`- {}  - name: B`). Split that so semantic_eq accepts the CST
-/// instead of dumping (#2274 / #2275).
+/// (`- {}  - name: B`, or `- {}- name:` at document root). Split that
+/// so semantic_eq accepts the CST instead of dumping (#2274 / #2275).
 fn repair_glued_block_sequence_items(text: &str) -> String {
     let eol = crate::write::detect_eol(text);
     let mut lines: Vec<String> = Vec::new();
@@ -409,10 +409,17 @@ fn split_glued_block_sequence_line(line: &str) -> Option<(String, String)> {
     let pad = &after_dash[..pad_len];
     let first = format!("{}-{pad}{first_item}", &line[..indent_len]);
     let rest_trim = rest.trim_start();
-    if rest_trim.len() != rest.len() && is_yaml_sequence_item(rest_trim) {
+    // Nested items glue as `- {}  - name`. A document-root sequence
+    // glues with no spaces (`- {}- name: Othello`).
+    if is_yaml_sequence_item(rest_trim) {
         let between = &rest[..rest.len() - rest_trim.len()];
         if between.chars().all(|c| c == ' ' || c == '\t') {
-            return Some((first, format!("{between}{rest_trim}")));
+            let second = if between.is_empty() {
+                format!("{}{rest_trim}", &line[..indent_len])
+            } else {
+                format!("{between}{rest_trim}")
+            };
+            return Some((first, second));
         }
     }
     // Last-item empty: Sequence::set drops the newline before the next
@@ -677,10 +684,18 @@ fn retry_yaml_cst_empties(
         let Ok(file) = yaml_edit::YamlFile::from_str(&text) else {
             return Ok(None);
         };
-        let Some(mapping) = file.document().and_then(|d| d.as_mapping()) else {
+        let Some(doc) = file.document() else {
             return Ok(None);
         };
-        apply_yaml_mapping_diff(&mapping, &current, new_value)?;
+        if let Some(mapping) = doc.as_mapping() {
+            apply_yaml_mapping_diff(&mapping, &current, new_value)?;
+        } else if let Some(seq) = doc.as_sequence()
+            && let (Some(old_arr), Some(new_arr)) = (current.as_array(), new_value.as_array())
+        {
+            apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
+        } else {
+            return Ok(None);
+        }
         let next = finalize_yaml_cst_text(original, &file.to_string());
         if yaml_semantic_eq(&next, new_value) {
             return Ok(Some(next));
@@ -708,11 +723,17 @@ fn try_preserve_yaml_array(
     } else {
         false
     };
-    if applied {
-        let result =
-            repair_glued_block_sequence_items(&cleanup_yaml_cst_whitespace(&file.to_string()));
+    // Same-length empties apply one `{}` per pass. Finalize the partial
+    // CST (glue + indent) and retry leftover empties like mapping-root.
+    if old_arr.len() == new_arr.len() || applied {
+        let result = finalize_yaml_cst_text(original_content, &file.to_string());
         if yaml_semantic_eq(&result, new_value) {
             return Ok(Some(result));
+        }
+        if !applied
+            && let Some(finished) = retry_yaml_cst_empties(original_content, &result, new_value)?
+        {
+            return Ok(Some(finished));
         }
     }
 

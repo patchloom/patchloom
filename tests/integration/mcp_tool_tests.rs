@@ -113,6 +113,79 @@ async fn test_mcp_doc_set_yaml_sequence_alias_item_becomes_merge() {
     client.cancel().await.unwrap();
 }
 
+/// Last-item empty must not glue `{}` onto the next mapping key.
+#[tokio::test]
+async fn test_mcp_doc_set_yaml_empty_last_sequence_item_keeps_anchor() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("u.yaml"),
+        "a: &x\n  k: v\nitems:\n  - name: A\n  - name: B\nz: *x\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_set",
+        serde_json::json!({
+            "path": "u.yaml",
+            "selector": "items[1]",
+            "value": {}
+        }),
+    )
+    .await;
+    assert!(!is_error, "doc_set last item should succeed: {val}");
+    assert_eq!(val["ok"], true, "doc_set ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("u.yaml")).unwrap();
+    assert_eq!(
+        content, "a: &x\n  k: v\nitems:\n  - name: A\n  - {}\nz: *x\n",
+        "MCP last-item empty must stay CST-shaped:\n{content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Last merge-only item with a following sibling key must keep `&defaults`.
+#[tokio::test]
+async fn test_mcp_doc_delete_yaml_merge_only_last_sequence_item_keeps_anchor() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("m.yaml"),
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - <<: *defaults\n  enabled: true\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_delete",
+        serde_json::json!({
+            "path": "m.yaml",
+            "selector": "outer.items[1].env"
+        }),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_delete last merge-only should succeed: {val}"
+    );
+    assert_eq!(val["ok"], true, "doc_delete ok: {val}");
+
+    let content = fs::read_to_string(dir.path().join("m.yaml")).unwrap();
+    assert_eq!(
+        content,
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - {}\n  enabled: true\n",
+        "MCP last merge-only delete must stay CST-shaped:\n{content}"
+    );
+    client.cancel().await.unwrap();
+}
+
 /// #2197: MCP `doc_set` selector `.` replaces the document root.
 #[tokio::test]
 async fn test_mcp_doc_set_dot_replaces_root() {
@@ -438,6 +511,14 @@ async fn test_mcp_doc_set_nonexistent_file_returns_error() {
     assert!(
         is_error,
         "doc_set on nonexistent file should return error: {val}"
+    );
+    assert_eq!(
+        val["error_kind"], "not_found",
+        "MCP missing file must set error_kind not_found: {val}"
+    );
+    assert_eq!(
+        val["applied"], false,
+        "MCP missing file must not claim applied: {val}"
     );
     client.cancel().await.unwrap();
 }

@@ -2366,6 +2366,128 @@ fn test_tx_doc_set_yaml_sequence_alias_item_becomes_merge() {
     );
 }
 
+/// Two cached `doc.set` empties on a document-root sequence must keep CST.
+#[test]
+fn test_tx_doc_set_yaml_empty_two_root_sequence_items_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("plays.yaml");
+    fs::write(
+        &file,
+        "# plays\n- &lead\n  name: Hamlet\n- name: Macbeth\n- name: Othello\n- *lead\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {
+                "op": "doc.set",
+                "path": portable_path_str(&file),
+                "selector": "[1]",
+                "value": {}
+            },
+            {
+                "op": "doc.set",
+                "path": portable_path_str(&file),
+                "selector": "[2]",
+                "value": {}
+            }
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "# plays\n- &lead\n  name: Hamlet\n- {}\n- {}\n- *lead\n",
+        "tx two root-sequence empties must keep comment/anchor:\n{content}"
+    );
+}
+
+/// Last-item empty must not glue `{}` onto the next mapping key.
+#[test]
+fn test_tx_doc_set_yaml_empty_last_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("u.yaml");
+    fs::write(
+        &file,
+        "a: &x\n  k: v\nitems:\n  - name: A\n  - name: B\nz: *x\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "items[1]",
+            "value": {}
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "a: &x\n  k: v\nitems:\n  - name: A\n  - {}\nz: *x\n",
+        "tx last-item empty must stay CST-shaped:\n{content}"
+    );
+}
+
+/// Last merge-only item with a following sibling key must keep `&defaults`.
+#[test]
+fn test_tx_doc_delete_yaml_merge_only_last_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("m.yaml");
+    fs::write(
+        &file,
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - <<: *defaults\n  enabled: true\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.delete",
+            "path": portable_path_str(&file),
+            "selector": "outer.items[1].env"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - {}\n  enabled: true\n",
+        "tx last merge-only delete must stay CST-shaped:\n{content}"
+    );
+}
+
 #[test]
 fn test_tx_doc_set_selector_in_plan() {
     let dir = TempDir::new().unwrap();

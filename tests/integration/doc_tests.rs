@@ -1586,6 +1586,63 @@ fn test_doc_delete_yaml_merge_only_sequence_item_keeps_anchor() {
     );
 }
 
+/// Last-item empty must not glue `{}` onto the next mapping key.
+#[test]
+fn test_doc_set_yaml_empty_last_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("u.yaml");
+    fs::write(
+        &file,
+        "a: &x\n  k: v\nitems:\n  - name: A\n  - name: B\nz: *x\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("items[1]")
+        .arg("{}")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "a: &x\n  k: v\nitems:\n  - name: A\n  - {}\nz: *x\n"
+    );
+}
+
+/// Last merge-only item with a following sibling key must keep `&defaults`.
+#[test]
+fn test_doc_delete_yaml_merge_only_last_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("m.yaml");
+    fs::write(
+        &file,
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - <<: *defaults\n  enabled: true\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("outer.items[1].env")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - {}\n  enabled: true\n"
+    );
+}
+
 /// #2276: unrelated `doc set` must not collapse pre-existing `-   name:`.
 #[test]
 fn test_doc_set_yaml_unrelated_edit_keeps_wide_dash_spacing() {
@@ -2318,9 +2375,47 @@ fn test_doc_get_nonexistent_file_json_envelope() {
     let json: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
     assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "not_found",
+        "missing file must set error_kind not_found: {json}"
+    );
+    assert_eq!(
+        json["applied"], false,
+        "missing file must not claim applied: {json}"
+    );
     assert!(
         json["error"].is_string(),
         "envelope should contain error field"
+    );
+}
+
+#[test]
+fn test_doc_set_nonexistent_file_json_envelope() {
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "doc",
+            "set",
+            "/nonexistent/file_xyz.json",
+            "x",
+            "1",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "not_found",
+        "missing file doc set must set error_kind not_found: {json}"
+    );
+    assert_eq!(
+        json["applied"], false,
+        "missing file must not claim applied: {json}"
     );
 }
 
