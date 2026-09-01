@@ -2790,9 +2790,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-language"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+checksum = "ca0d1bf6fdd806e43ae5198f82f527056d359def39e54e67a0f478ac09dac081"
 
 [[package]]
 name = "tree-sitter-php"
@@ -3407,9 +3407,9 @@ dependencies = [
 
 [[package]]
 name = "yaml-edit"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "792f97ea57f2bab429eeceaf3bea8aad29ebf65a5ba652f0c11c958ebde7df27"
+checksum = "482be37565376de9a5502a56f19b68ecf0d4f85298ac89f3a62e03d7e4ecf9e3"
 dependencies = [
  "base64 0.22.1",
  "rowan",
