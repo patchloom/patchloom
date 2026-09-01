@@ -140,7 +140,7 @@ pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<Que
 /// Closest sibling object key for a missing selector path, if any.
 ///
 /// Walks concrete key/index segments until the first miss, then ranks
-/// sibling keys with [`crate::fallback::find_similar_targets`].
+/// sibling keys as whole strings (no identifier tokenization).
 pub(crate) fn similar_object_key_hint(root: &serde_json::Value, selector: &str) -> Option<String> {
     let segments = selector::parse(selector).ok()?;
     let mut current = root;
@@ -159,8 +159,7 @@ pub(crate) fn similar_object_key_hint(root: &serde_json::Value, selector: &str) 
                     continue;
                 }
                 let obj = current.as_object()?;
-                let blob = obj.keys().cloned().collect::<Vec<_>>().join("\n");
-                return crate::fallback::find_similar_targets(&blob, key, 1)
+                return crate::fallback::find_similar_among(obj.keys().map(String::as_str), key, 1)
                     .into_iter()
                     .next();
             }
@@ -449,6 +448,23 @@ mod tests {
     fn similar_object_key_hint_skips_unrelated() {
         let doc = serde_json::json!({"database": {"port": 5432}});
         assert_eq!(similar_object_key_hint(&doc, "xyzzy"), None);
+    }
+
+    #[test]
+    fn similar_object_key_hint_hyphenated_key_is_whole_string() {
+        // Tokenizing identifiers would split `database-url` and hint the
+        // absent token `database`. Rank sibling keys as whole strings.
+        let doc = serde_json::json!({"database-url": 1});
+        let hint = similar_object_key_hint(&doc, "databse-url");
+        assert_ne!(
+            hint.as_deref(),
+            Some("database"),
+            "must not hint a hyphen-split token that is not a key: {hint:?}"
+        );
+        assert!(
+            hint.as_deref() == Some("database-url") || hint.is_none(),
+            "expected whole key `database-url` or no hint, got {hint:?}"
+        );
     }
 
     #[test]

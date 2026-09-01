@@ -264,6 +264,38 @@ fn test_doc_get_typo_key_json_did_you_mean() {
 }
 
 #[test]
+fn test_doc_get_hyphenated_typo_key_json_did_you_mean() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"database-url":1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("databse-url")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        !err.contains("did you mean: database?"),
+        "JSON error must not hint hyphen-split token `database`: {v}"
+    );
+    if err.contains("did you mean:") {
+        assert!(
+            err.contains("database-url"),
+            "JSON error whole-key hint must be database-url: {v}"
+        );
+    }
+}
+
+#[test]
 fn test_doc_get_jq_bracket_json_suggests_forms() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");

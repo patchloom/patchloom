@@ -931,6 +931,39 @@ fn test_config_defaults_apply_does_not_write_without_apply_flag() {
 }
 
 #[test]
+fn test_json_tx_defaults_apply_does_not_print_ignored_warning() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[defaults]\napply = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": "a.txt",
+            "old": "hello",
+            "new": "world"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tx", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(&plan_file)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("apply = true is ignored").not());
+}
+
+#[test]
 fn test_config_defaults_apply_explicit_apply_still_writes() {
     let dir = TempDir::new().unwrap();
     fs::write(

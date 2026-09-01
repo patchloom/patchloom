@@ -793,6 +793,32 @@ mod error_handling {
     }
 
     #[test]
+    fn get_hyphenated_typo_key_json_keeps_error_kind_and_whole_key() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"database-url":1}"#);
+        let action = DocAction::Get {
+            file: path,
+            selector: "databse-url".into(),
+        };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error_kind"], "no_matches");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            !err.contains("did you mean: database?"),
+            "must not hint hyphen-split token `database`: {err}"
+        );
+        if err.contains("did you mean:") {
+            assert!(
+                err.contains("database-url"),
+                "whole-key hint must be database-url, got: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn get_invalid_bracket_is_invalid_input_with_forms() {
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"items":[{"name":"a"}]}"#);

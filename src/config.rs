@@ -6,6 +6,25 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+thread_local! {
+    static CONFIG_WARNINGS: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn emit_config_warning(msg: impl std::fmt::Display) {
+    let text = msg.to_string();
+    #[cfg(test)]
+    CONFIG_WARNINGS.with(|w| w.borrow_mut().push(text.clone()));
+    eprintln!("{text}");
+}
+
+/// Drain config warnings captured on this thread (test-only).
+#[cfg(test)]
+pub(crate) fn take_config_warnings() -> Vec<String> {
+    CONFIG_WARNINGS.with(|w| std::mem::take(&mut *w.borrow_mut()))
+}
+
 // Note: crate::write::WritePolicyOverride is used for plan serialization (forward-compatible).
 // WritePolicyConfig (below) is used for .patchloom.toml parsing (typo-catching).
 
@@ -155,7 +174,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             Some("cr") => global.normalize_eol = Some(crate::cli::global::EolMode::Cr),
             Some("keep") => {} // explicit keep = default behavior, no-op
             Some(invalid) if show_warn => {
-                eprintln!("{}", invalid_normalize_eol_warning(invalid));
+                emit_config_warning(invalid_normalize_eol_warning(invalid));
             }
             Some(_) | None => {}
         }
@@ -175,7 +194,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
     // [defaults] apply is parsed for forward-compatible configs but never
     // honored. Write mode is --apply / --check / --diff / --confirm only.
     if config.defaults.apply == Some(true) && !global.apply && show_warn {
-        eprintln!("{}", ignored_defaults_apply_warning());
+        emit_config_warning(ignored_defaults_apply_warning());
     }
     if global.format.is_none() {
         // CLI --format wins, then defaults.format, then format.command (with auto=true)
@@ -212,7 +231,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             "auto" => crate::cli::global::ColorMode::Auto,
             invalid => {
                 if show_warn {
-                    eprintln!("{}", invalid_output_color_warning(invalid));
+                    emit_config_warning(invalid_output_color_warning(invalid));
                 }
                 crate::cli::global::ColorMode::Auto
             }
@@ -624,6 +643,32 @@ color = "always"
         assert!(
             warning.contains("--apply"),
             "ignored-apply warning must point at --apply: {warning}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_json_suppresses_defaults_apply_warning() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags {
+            json: true,
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        let _ = take_config_warnings();
+        apply_config(&mut global, &config);
+        assert!(!global.apply);
+        let warnings = take_config_warnings();
+        assert!(
+            warnings
+                .iter()
+                .all(|w| !w.contains("apply = true is ignored")),
+            "json output must suppress apply-ignore warning: {warnings:?}"
         );
     }
 

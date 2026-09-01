@@ -467,7 +467,7 @@ pub(crate) fn run_parsed_plan(
 
     // 3. Validate plan and resolve working directory.
     let (cwd, strict, _resolved_global) =
-        match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, no_strict) {
+        match crate::tx::validate_and_prepare_plan(&plan, &base_cwd, no_strict, Some(global)) {
             Ok(v) => v,
             Err(output) => {
                 let kind = output
