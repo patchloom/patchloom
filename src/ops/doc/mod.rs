@@ -6,6 +6,7 @@
 
 use crate::selector;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::path::Path;
 
 mod navigate;
@@ -291,6 +292,9 @@ fn fix_yaml_block_indentation(text: &str) -> String {
 fn fix_yaml_block_indentation_with_original(original: Option<&str>, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut result: Vec<String> = Vec::with_capacity(lines.len());
+    // Probe once per finalize. Per-line `original.lines()` is O(n²) on CST retry.
+    let original_trim_ends: Option<HashSet<&str>> =
+        original.map(|orig| orig.lines().map(str::trim_end).collect());
 
     for i in 0..lines.len() {
         let line = lines[i];
@@ -329,8 +333,9 @@ fn fix_yaml_block_indentation_with_original(original: Option<&str>, text: &str) 
             if rest.len() - rest_trim.len() > 1
                 && (rest_trim.contains(": ") || rest_trim.ends_with(':'))
                 && !is_yaml_sequence_item(rest_trim)
-                && original
-                    .is_some_and(|orig| !orig.lines().any(|l| l.trim_end() == line.trim_end()))
+                && original_trim_ends
+                    .as_ref()
+                    .is_some_and(|orig| !orig.contains(line.trim_end()))
             {
                 result.push(format!("{}- {rest_trim}", " ".repeat(indent)));
                 continue;

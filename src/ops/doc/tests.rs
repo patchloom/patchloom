@@ -3533,7 +3533,8 @@ deployment:
 
     /// #2276: wide post-dash spacing on untouched items must survive
     /// when the original line is still present. Artifact `-     name:`
-    /// (not in original) still collapses.
+    /// (not in original) still collapses. Match is `trim_end` so a
+    /// trailing-space original still counts as present.
     #[test]
     fn fix_yaml_block_indentation_keeps_wide_dash_spacing() {
         let yaml = "\
@@ -3544,6 +3545,15 @@ items:
         assert_eq!(
             super::super::fix_yaml_block_indentation_with_original(Some(yaml), yaml),
             yaml
+        );
+        let yaml_trail = "\
+items:
+  -   name: A   
+  -   name: B
+";
+        assert_eq!(
+            super::super::fix_yaml_block_indentation_with_original(Some(yaml_trail), yaml_trail),
+            yaml_trail
         );
         let artifact = "\
 items:
