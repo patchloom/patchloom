@@ -55,7 +55,8 @@ pub struct ProjectConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Defaults {
-    /// Default to --apply mode. When true, write commands apply changes without needing --apply flag.
+    /// Parsed `[defaults] apply` from `.patchloom.toml`. Ignored at runtime:
+    /// write mode is flags/env only (repo config must not flip preview to apply).
     pub apply: Option<bool>,
     /// Default format command (e.g., "cargo fmt"). Applied after --apply unless overridden by CLI --format.
     pub format: Option<String>,
@@ -171,18 +172,8 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         global.respect_editorconfig = true;
     }
 
-    // Defaults: config provides defaults, CLI flags win.
-    // Only apply config's defaults.apply if no explicit mode flag was set.
-    // If the user passed --check or --diff, they explicitly want a non-apply mode
-    // and the config should not override that.
-    if !global.apply
-        && !global.check
-        && !global.diff
-        && !global.confirm
-        && config.defaults.apply == Some(true)
-    {
-        global.apply = true;
-    }
+    // [defaults] apply is parsed for forward-compatible configs but never
+    // honored. Preview-to-apply is flags/env only (CLI --apply / --confirm).
     if global.format.is_none() {
         // CLI --format wins, then defaults.format, then format.command (with auto=true)
         if let Some(ref fmt) = config.defaults.format {
@@ -603,7 +594,7 @@ color = "always"
 
     #[test]
     #[cfg(feature = "cli")]
-    fn apply_config_apply_default_from_config() {
+    fn apply_config_ignores_defaults_apply_from_repo_config() {
         let config = ProjectConfig {
             defaults: Defaults {
                 apply: Some(true),
@@ -614,7 +605,10 @@ color = "always"
         let mut global = crate::cli::global::GlobalFlags::default();
         assert!(!global.apply);
         apply_config(&mut global, &config);
-        assert!(global.apply);
+        assert!(
+            !global.apply,
+            "repo [defaults] apply must not flip write mode; flags/env only"
+        );
     }
 
     // Regression: defaults.apply must not override explicit --check or --diff.

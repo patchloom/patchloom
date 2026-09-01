@@ -179,6 +179,7 @@ fn commit_and_finalize(
         result.deletions.len(),
         ctx.strict
     );
+    crate::write::refuse_contained_format_cmds(global)?;
     let apply_backup_session = match crate::tx::commit_changes(
         &result.changes,
         &result.deletions,

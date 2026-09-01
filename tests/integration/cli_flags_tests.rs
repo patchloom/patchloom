@@ -902,6 +902,100 @@ fn test_config_malformed_toml_json_no_stderr_warning() {
 }
 
 #[test]
+fn test_config_defaults_apply_does_not_write_without_apply_flag() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[defaults]\napply = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "hello").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--new", "world", "a.txt", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .code(2);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "hello",
+        "repo [defaults] apply must stay preview without --apply"
+    );
+}
+
+#[test]
+fn test_config_defaults_apply_explicit_apply_still_writes() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[defaults]\napply = true\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "hello").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "replace", "hello", "--new", "world", "a.txt", "--apply", "--cwd",
+        ])
+        .arg(dir.path())
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "world",
+        "--apply must still write when config also sets apply"
+    );
+}
+
+#[test]
+fn test_contain_refuses_config_format_with_shell_metas() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".patchloom.toml"),
+        "[defaults]\nformat = \"touch PWNED; echo metas\"\n",
+    )
+    .unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "hello").unwrap();
+
+    let assert = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--contain",
+            "replace",
+            "hello",
+            "--new",
+            "world",
+            "a.txt",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .assert()
+        .code(1);
+    let output = assert.get_output();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("metacharacter")
+            || combined.contains("refused")
+            || combined.contains("contain"),
+        "expected contain/meta refuse diagnostic: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        !dir.path().join("PWNED").exists(),
+        "--contain must not execute config format with ';'"
+    );
+}
+
+#[test]
 fn test_config_invalid_eol_json_no_stderr_warning() {
     let dir = TempDir::new().unwrap();
     fs::write(

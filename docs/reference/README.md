@@ -27,6 +27,7 @@ Patchloom write commands default to preview mode. The canonical semantics live i
 - **What it does:** Writes the requested change to disk.
 - **Use when:** You have already previewed the change, or you trust the command and want the mutation to happen now.
 - **Prefer instead:** Use `--diff` when reviewing, or `--check` when you only need a clean or dirty signal.
+- **Not from project config:** `[defaults] apply` in `.patchloom.toml` is ignored. Only `--apply`, `--confirm`, or an equivalent flag/env can leave preview.
 
 <!-- ref:write-flag:check -->
 ### `--check`
@@ -90,6 +91,7 @@ These flags shape how written content is normalized before it reaches disk.
 - **Use when:** The repo has an autoformatter and you want Patchloom to invoke it after each mutation so files stay formatted.
 - **Prefer instead:** Omit when the formatter is already run separately, or when using `--diff`/`--check` modes (the command only fires on `--apply`).
 - **Failure behavior:** Non-zero exit or timeout exits **1** with `error_kind: "format_failed"` under `--json`/`--jsonl`. The write may already be on disk; JSON includes `backup_session` when a session was created, plus `applied: true` (canonical; #1831), `write_applied: true` (deprecated alias), `files_changed`, and `files[].path` for written paths (#1795). Use `undo` or re-run the formatter.
+- **Containment:** Under `--contain`, the command (including `[defaults] format` / `[format] command`) is scanned with the same shell-metacharacter refuse as plan lifecycle. Pipelines, `;`, redirects, and substitutions are `guard_rejected` and are not executed. Plain formatters such as `cargo fmt` still run. Without `--contain`, trusted local format is unchanged.
 
 <!-- ref:write-flag:format-timeout -->
 ### `--format-timeout`
@@ -146,6 +148,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** An agent or automation should not be able to read or write outside `--cwd` (or the process cwd). Pair with `--cwd` for a workspace root.
 - **Default:** Off. CLI remains unrestricted for human scripts (same trust model as `make` / `sh`).
 - **Prefer instead:** Use the MCP server when the agent already has MCP tools; containment is always on there (in-workspace absolute paths allowed; outside-workspace and `../` rejected).
+- **Format hooks:** Config and `--format` shell commands are run through the same metacharacter refuse as plan `format`/`validate` (`refuse_lifecycle_shell_metas`). `curl|sh` and `;` are not executed.
 
 <!-- ref:global-flag:glob -->
 ### `--glob`

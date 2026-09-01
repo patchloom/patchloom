@@ -39,6 +39,7 @@ fn commit_then_format(
                 .into_owned()
         })
         .collect();
+    crate::write::refuse_contained_format_cmds(global)?;
     let backup = result.commit()?;
     if let Err(e) = crate::write::run_format_command(global, cwd) {
         return Err(attach_format_backup(e, backup, written));
@@ -56,6 +57,7 @@ fn apply_then_format(
     global: &GlobalFlags,
     cwd: &Path,
 ) -> anyhow::Result<Option<String>> {
+    crate::write::refuse_contained_format_cmds(global)?;
     let backup = apply_fn()?;
     if let Err(e) = crate::write::run_format_command(global, cwd) {
         return Err(attach_format_backup(e, backup, Vec::new()));
