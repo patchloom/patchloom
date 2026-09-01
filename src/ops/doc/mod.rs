@@ -662,8 +662,44 @@ fn try_preserve_yaml_object(
 fn finalize_yaml_cst_text(original: &str, cst: &str) -> String {
     fix_yaml_block_indentation_with_original(
         Some(original),
-        &repair_glued_block_sequence_items(&cleanup_yaml_cst_whitespace(cst)),
+        &repair_glued_empty_flow_after_colon(&repair_glued_block_sequence_items(
+            &cleanup_yaml_cst_whitespace(cst),
+        )),
     )
+}
+
+/// yaml-edit 0.3.1 parent-set of `{}` / `[]` can omit the space after
+/// colon (`key:{}`). serde_yaml_ng rejects that, so we dump and lose
+/// sibling anchors. Insert the missing space.
+fn repair_glued_empty_flow_after_colon(text: &str) -> String {
+    let eol = crate::write::detect_eol(text);
+    let mut lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        lines.push(repair_glued_empty_flow_line(line));
+    }
+    let mut out = lines.join(eol);
+    if text.ends_with('\n') && !out.ends_with('\n') {
+        out.push_str(eol);
+    }
+    out
+}
+
+fn repair_glued_empty_flow_line(line: &str) -> String {
+    let indent_len = line.len() - line.trim_start().len();
+    let trimmed = &line[indent_len..];
+    if is_yaml_sequence_item(trimmed) {
+        return line.to_string();
+    }
+    let Some((key, rest)) = trimmed.split_once(':') else {
+        return line.to_string();
+    };
+    if key.is_empty() || key.contains('#') {
+        return line.to_string();
+    }
+    if rest.starts_with("{}") || rest.starts_with("[]") {
+        return format!("{}{key}: {rest}", &line[..indent_len]);
+    }
+    line.to_string()
 }
 
 fn retry_yaml_cst_empties(

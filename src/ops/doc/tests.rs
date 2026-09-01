@@ -3559,6 +3559,26 @@ items:
     }
 
     #[test]
+    fn repair_glued_empty_flow_after_colon_inserts_space() {
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("deployment:{}\n"),
+            "deployment: {}\n"
+        );
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("items:[]\n"),
+            "items: []\n"
+        );
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("deployment: {}\n"),
+            "deployment: {}\n"
+        );
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("  - {}\n"),
+            "  - {}\n"
+        );
+    }
+
+    #[test]
     fn repair_glued_block_sequence_items_splits_empty_object() {
         let glued = "items:\n  # keep\n  - {}  - name: B\n";
         let fixed = super::super::repair_glued_block_sequence_items(glued);

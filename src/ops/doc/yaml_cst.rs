@@ -23,6 +23,13 @@ pub(crate) fn apply_yaml_mapping_diff(
 
     let mut all_applied = true;
 
+    // Write leftover inherited keys before remove. yaml-edit 0.3.1
+    // Mapping::remove of the last local key collapses a nested mapping
+    // to `{}` and detaches this handle, so a later Mapping::set is lost.
+    if expanded && !write_leftover_inherited_keys(mapping, old_map, new_map)? {
+        all_applied = false;
+    }
+
     // Remove keys that no longer exist.
     let removed: Vec<String> = old_map
         .keys()
@@ -37,14 +44,6 @@ pub(crate) fn apply_yaml_mapping_diff(
     for (key, new_val) in new_map {
         if let Some(old_val) = old_map.get(key) {
             if old_val == new_val {
-                // After expanding, leftover inherited keys are no longer in
-                // the CST. Write them locally so they survive without `<<`.
-                if expanded
-                    && mapping.get(key).is_none()
-                    && !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?)
-                {
-                    all_applied = false;
-                }
                 continue;
             }
             match (old_val, new_val) {
@@ -226,8 +225,9 @@ fn set_quoted_scalar(scalar: &yaml_edit::Scalar, new_str: &str) {
     scalar.set_value(&quoted);
 }
 
-/// yaml-edit 0.3 `Sequence::set` copies an `ALIAS` child as-is and still
-/// returns true. Refuse that no-op so the caller can dump or splice.
+/// yaml-edit 0.3.1 `Sequence::set` can replace an `ALIAS` child (0.3.0
+/// copied it as-is and still returned true). Refuse either outcome so
+/// rewrite/splice stays the only alias writer.
 fn try_sequence_set(
     seq: &yaml_edit::Sequence,
     index: usize,
@@ -379,6 +379,29 @@ fn merge_value_has_key(
             .any(|item| merge_value_has_key(&item, key, registry, depth + 1, visited));
     }
     false
+}
+
+/// Materialize inherited keys that must stay after `<<` is dropped.
+/// Call before `Mapping::remove` so yaml-edit 0.3.1 cannot collapse an
+/// emptied nested mapping and detach this handle.
+fn write_leftover_inherited_keys(
+    mapping: &yaml_edit::Mapping,
+    old_map: &serde_json::Map<String, serde_json::Value>,
+    new_map: &serde_json::Map<String, serde_json::Value>,
+) -> anyhow::Result<bool> {
+    let mut all = true;
+    for (key, new_val) in new_map {
+        if old_map.get(key) != Some(new_val) {
+            continue;
+        }
+        if mapping.get(key.as_str()).is_some() {
+            continue;
+        }
+        if !try_mapping_set(mapping, key.as_str(), json_to_yaml_node(new_val)?) {
+            all = false;
+        }
+    }
+    Ok(all)
 }
 
 /// Empty CST mapping after drop_merge serializes as null (`key:\n  ` or
@@ -1062,10 +1085,11 @@ mod tests {
         );
     }
 
-    /// yaml-edit 0.3 `Sequence::set` copies an ALIAS child as-is and still
-    /// returns true. Product owner is [`try_sequence_set`], which refuses.
+    /// yaml-edit 0.3.1 `Sequence::set` now replaces an ALIAS child (0.3.0
+    /// left `*shared`). Product owner is still [`try_sequence_set`], which
+    /// refuses so rewrite/splice keeps identity.
     #[test]
-    fn yaml_edit_set_on_sequence_alias_item_is_noop() {
+    fn yaml_edit_set_on_sequence_alias_item_inlines() {
         let yaml = "shared: &shared\n  timeout: 30\nitems:\n  - *shared\n";
         let doc = parse_yaml(yaml);
         let root = doc.as_mapping().unwrap();
@@ -1073,12 +1097,12 @@ mod tests {
         let ok = seq.set(0, json_to_yaml_node(&json!({"timeout": 60})).unwrap());
         assert!(
             ok,
-            "yaml-edit 0.3 Sequence::set reports success on alias item"
+            "yaml-edit 0.3.1 Sequence::set reports success on alias item"
         );
         let result = doc.to_string();
         assert!(
-            result.contains("- *shared"),
-            "0.3 Sequence::set must leave the alias item:\n{result}"
+            result.contains("timeout: 60") && !result.contains("- *shared"),
+            "0.3.1 Sequence::set inlines the alias item:\n{result}"
         );
     }
 
@@ -1392,9 +1416,8 @@ mod tests {
         let old = vec![json!("a"), json!("b"), json!("c")];
         let new = vec![json!("a"), json!("c")];
         assert!(apply_yaml_sequence_resize(&seq, &old, &new));
-        // yaml-edit leaves the next item over-indented; caller
-        // `fix_yaml_block_indentation` repairs that. Lock items a, c only.
-        assert_eq!(doc.to_string(), "items:\n  - a\n    - c\n");
+        // yaml-edit 0.3.1 keeps sibling indent after Sequence::remove.
+        assert_eq!(doc.to_string(), "items:\n  - a\n  - c\n");
     }
 
     #[test]
@@ -1918,6 +1941,46 @@ items:
         assert!(
             !result.contains("\"Bob\"") && !result.contains("'Bob'"),
             "plain value should not get quoted: {result}"
+        );
+    }
+
+    /// Leftover inherited keys must be written before Mapping::remove.
+    /// yaml-edit 0.3.1 collapses a drained nested mapping to `{}`.
+    #[test]
+    fn mapping_diff_leftover_inherited_written_before_remove() {
+        let yaml = "\
+base: &base
+  env: [A]
+mid: &mid
+  <<: *base
+  name: mid
+deployment:
+  <<: *mid
+  env: [B]
+";
+        let old = crate::ops::doc::parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["deployment"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("env");
+        let result = apply_and_serialize(yaml, &old, &new);
+        assert!(
+            result.contains("&base") && result.contains("&mid"),
+            "nested anchors must survive:\n{result}"
+        );
+        assert!(
+            result.contains("<<: *base"),
+            "mid must keep its merge:\n{result}"
+        );
+        let deployment = result.split("deployment:").nth(1).unwrap_or_default();
+        assert!(
+            !deployment.contains("<<:"),
+            "deployment must drop <<:\n{result}"
+        );
+        assert!(
+            deployment.contains("name: mid"),
+            "leftover inherited name must be local after expand:\n{result}"
         );
     }
 }
