@@ -91,8 +91,7 @@ pub fn presentation_style_changed(original: &str, new_text: &str, format: &FileF
     }
     match format {
         FileFormat::Yaml => {
-            yaml_block_sequence_indent_levels(original)
-                != yaml_block_sequence_indent_levels(new_text)
+            yaml_block_sequence_style_marks(original) != yaml_block_sequence_style_marks(new_text)
                 || yaml_alias_identity_counts(original) != yaml_alias_identity_counts(new_text)
         }
         // JSON/TOML pretty-print drift is not flagged here (comment/order
@@ -163,13 +162,20 @@ fn count_yaml_prefixed_idents(s: &str, prefix: char) -> usize {
     n
 }
 
-/// Indent levels of every block-sequence entry line (`- …`), for style compare.
-fn yaml_block_sequence_indent_levels(text: &str) -> std::collections::BTreeSet<usize> {
+/// `(dash_indent, spaces_after_dash)` for every block-sequence entry.
+/// Post-dash offset catches `-   name:` vs `- name:` (#2276).
+fn yaml_block_sequence_style_marks(text: &str) -> std::collections::BTreeSet<(usize, usize)> {
     text.lines()
         .filter_map(|line| {
             let trimmed = line.trim_start();
-            if trimmed.starts_with("- ") || trimmed == "-" {
-                Some(line.len() - trimmed.len())
+            let dash_indent = line.len() - trimmed.len();
+            if trimmed == "-" {
+                return Some((dash_indent, 0));
+            }
+            let rest = trimmed.strip_prefix('-')?;
+            if rest.starts_with(' ') || rest.starts_with('\t') {
+                let pad = rest.len() - rest.trim_start().len();
+                Some((dash_indent, pad))
             } else {
                 None
             }
@@ -277,7 +283,12 @@ fn cleanup_yaml_cst_whitespace(text: &str) -> String {
 ///
 /// This function detects entries whose indentation exceeds their siblings
 /// in the same block mapping and normalizes them to match.
+#[cfg(test)]
 fn fix_yaml_block_indentation(text: &str) -> String {
+    fix_yaml_block_indentation_with_original(None, text)
+}
+
+fn fix_yaml_block_indentation_with_original(original: Option<&str>, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut result: Vec<String> = Vec::with_capacity(lines.len());
 
@@ -309,7 +320,8 @@ fn fix_yaml_block_indentation(text: &str) -> String {
 
         let indent = line.len() - trimmed.len();
         // CST remove of `<<` on a dash line leaves `-     name:`. Collapse
-        // extra spaces after `-` when the rest is a mapping key.
+        // extra spaces after `-` only on lines the original did not already
+        // contain. Pre-existing `-   name:` is style, not an artifact (#2276).
         if is_yaml_sequence_item(trimmed)
             && let Some(rest) = trimmed.strip_prefix('-')
         {
@@ -317,6 +329,8 @@ fn fix_yaml_block_indentation(text: &str) -> String {
             if rest.len() - rest_trim.len() > 1
                 && (rest_trim.contains(": ") || rest_trim.ends_with(':'))
                 && !is_yaml_sequence_item(rest_trim)
+                && original
+                    .is_some_and(|orig| !orig.lines().any(|l| l.trim_end() == line.trim_end()))
             {
                 result.push(format!("{}- {rest_trim}", " ".repeat(indent)));
                 continue;
@@ -344,6 +358,74 @@ fn fix_yaml_block_indentation(text: &str) -> String {
         out.push_str(eol);
     }
     out
+}
+
+/// After a block sequence item is emptied, yaml-edit 0.3 `Sequence::set`
+/// of `{}` / `[]` can drop the item newline and glue the next sibling
+/// (`- {}  - name: B`). Split that so semantic_eq accepts the CST
+/// instead of dumping (#2274 / #2275).
+fn repair_glued_block_sequence_items(text: &str) -> String {
+    let eol = crate::write::detect_eol(text);
+    let mut lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let mut remaining = line.to_string();
+        loop {
+            match split_glued_block_sequence_line(&remaining) {
+                Some((first, second)) => {
+                    lines.push(first);
+                    remaining = second;
+                }
+                None => {
+                    lines.push(remaining);
+                    break;
+                }
+            }
+        }
+    }
+    let mut out = lines.join(eol);
+    if text.ends_with('\n') && !out.ends_with('\n') {
+        out.push_str(eol);
+    }
+    out
+}
+
+fn split_glued_block_sequence_line(line: &str) -> Option<(String, String)> {
+    let indent_len = line.len() - line.trim_start().len();
+    let trimmed = &line[indent_len..];
+    let after_dash = trimmed.strip_prefix('-')?;
+    let pad_len = after_dash.len() - after_dash.trim_start().len();
+    if pad_len == 0 {
+        return None;
+    }
+    let after_pad = after_dash.trim_start();
+    let first_item = if after_pad.starts_with("{}") {
+        "{}"
+    } else if after_pad.starts_with("[]") {
+        "[]"
+    } else {
+        return None;
+    };
+    let rest = &after_pad[first_item.len()..];
+    let pad = &after_dash[..pad_len];
+    let first = format!("{}-{pad}{first_item}", &line[..indent_len]);
+    let rest_trim = rest.trim_start();
+    if rest_trim.len() != rest.len() && is_yaml_sequence_item(rest_trim) {
+        let between = &rest[..rest.len() - rest_trim.len()];
+        if between.chars().all(|c| c == ' ' || c == '\t') {
+            return Some((first, format!("{between}{rest_trim}")));
+        }
+    }
+    // Last-item empty: Sequence::set drops the newline before the next
+    // mapping key (`- {}z: *x` at column 0, or `- {}  enabled: true`
+    // when that key is indented).
+    if !rest.is_empty()
+        && !rest_trim.starts_with('#')
+        && !is_yaml_sequence_item(rest_trim)
+        && (rest_trim.contains(": ") || rest_trim.ends_with(':'))
+    {
+        return Some((first, rest.to_string()));
+    }
+    None
 }
 
 /// Find the indentation of the next non-empty, non-comment line after `i`.
@@ -483,7 +565,13 @@ fn try_preserve_yaml(
     if let Some(doc) = file.document() {
         if let Some(mapping) = doc.as_mapping() {
             if cst_old.is_object() && new_value.is_object() {
-                return try_preserve_yaml_object(&file, &mapping, &cst_old, new_value);
+                return try_preserve_yaml_object(
+                    promoted.as_deref().unwrap_or(original_content),
+                    &file,
+                    &mapping,
+                    &cst_old,
+                    new_value,
+                );
             }
         } else if let Some(seq) = doc.as_sequence()
             && let (Some(old_arr), Some(new_arr)) = (cst_old.as_array(), new_value.as_array())
@@ -514,6 +602,7 @@ fn yaml_file_after_partial_alias_splice(
 }
 
 fn try_preserve_yaml_object(
+    original: &str,
     file: &yaml_edit::YamlFile,
     mapping: &yaml_edit::Mapping,
     old_value: &serde_json::Value,
@@ -524,7 +613,10 @@ fn try_preserve_yaml_object(
     // line preceding the removed key and may shift the indentation of the
     // next sibling entry. Clean both artifacts so the output is valid YAML
     // that preserves original quote styles and key ordering.
-    let result = fix_yaml_block_indentation(&cleanup_yaml_cst_whitespace(&file.to_string()));
+    // After an emptied block item, Sequence::set of `{}` can drop the
+    // item newline (#2274). Repair before semantic_eq or we dump and
+    // lose anchors (#2275).
+    let result = finalize_yaml_cst_text(original, &file.to_string());
 
     // Compare semantically (merge keys resolved) so CST results that keep
     // `<<: *anchor` / `*alias` form match parse_doc's flattened model.
@@ -532,8 +624,16 @@ fn try_preserve_yaml_object(
     // non-preserving fallback expands every anchor/alias into full copies.
     // Array growth applied as a new local key (inherited via `<<` only)
     // is already in the CST; do not require !has_array_growth or we dump.
-    if yaml_semantic_eq(&result, new_value) && all_cst_applied {
+    if yaml_semantic_eq(&result, new_value) {
         return Ok(Some(result));
+    }
+
+    // A same-length sequence can only Sequence::set one empty `{}` per
+    // pass. Reparse the repaired text and apply leftover empties.
+    if !all_cst_applied
+        && let Some(finished) = retry_yaml_cst_empties(original, &result, new_value)?
+    {
+        return Ok(Some(finished));
     }
 
     // Array growth or structure mismatch: try splice.
@@ -548,6 +648,47 @@ fn try_preserve_yaml_object(
         && let Some(spliced) = yaml_splice::splice_yaml_array_diffs(&result, &reparsed, new_value)?
     {
         return Ok(Some(spliced));
+    }
+    Ok(None)
+}
+
+fn finalize_yaml_cst_text(original: &str, cst: &str) -> String {
+    fix_yaml_block_indentation_with_original(
+        Some(original),
+        &repair_glued_block_sequence_items(&cleanup_yaml_cst_whitespace(cst)),
+    )
+}
+
+fn retry_yaml_cst_empties(
+    original: &str,
+    start: &str,
+    new_value: &serde_json::Value,
+) -> anyhow::Result<Option<String>> {
+    use std::str::FromStr;
+
+    let mut text = start.to_string();
+    for _ in 0..32 {
+        let Some(current) = parse_yaml_semantic(&text) else {
+            return Ok(None);
+        };
+        if current == *new_value {
+            return Ok(Some(text));
+        }
+        let Ok(file) = yaml_edit::YamlFile::from_str(&text) else {
+            return Ok(None);
+        };
+        let Some(mapping) = file.document().and_then(|d| d.as_mapping()) else {
+            return Ok(None);
+        };
+        apply_yaml_mapping_diff(&mapping, &current, new_value)?;
+        let next = finalize_yaml_cst_text(original, &file.to_string());
+        if yaml_semantic_eq(&next, new_value) {
+            return Ok(Some(next));
+        }
+        if next == text {
+            return Ok(None);
+        }
+        text = next;
     }
     Ok(None)
 }
@@ -568,7 +709,8 @@ fn try_preserve_yaml_array(
         false
     };
     if applied {
-        let result = cleanup_yaml_cst_whitespace(&file.to_string());
+        let result =
+            repair_glued_block_sequence_items(&cleanup_yaml_cst_whitespace(&file.to_string()));
         if yaml_semantic_eq(&result, new_value) {
             return Ok(Some(result));
         }

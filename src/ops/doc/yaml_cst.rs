@@ -141,23 +141,29 @@ pub(super) fn apply_yaml_sequence_diff(
     new_arr: &[serde_json::Value],
 ) -> anyhow::Result<bool> {
     let mut all_applied = true;
+    let mut emptied_one_empty_object = false;
     for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
         if o == n {
             continue;
         }
         match (o, n) {
             (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
+                if n.as_object().is_some_and(|obj| obj.is_empty()) && emptied_one_empty_object {
+                    // Leave leftover empties for a reparse pass.
+                    all_applied = false;
+                    continue;
+                }
                 if let Some(node) = seq.get(i)
                     && let Some(child_mapping) = node.as_mapping()
                 {
                     if !apply_yaml_mapping_diff(child_mapping, o, n)? {
                         all_applied = false;
-                    } else if empty_object_site_needs_flow(child_mapping, n)
-                        && !try_sequence_set(seq, i, n)?
-                    {
-                        // Same empty-after-expand hole as nested mapping
-                        // keys: `- <<: *anchor` becomes `-` (null), not `- {}`.
-                        all_applied = false;
+                    } else if empty_object_site_needs_flow(child_mapping, n) {
+                        if !try_sequence_set(seq, i, n)? {
+                            all_applied = false;
+                        } else {
+                            emptied_one_empty_object = true;
+                        }
                     }
                     continue;
                 }

@@ -1529,6 +1529,116 @@ fn test_doc_set_yaml_mixed_flow_sequence_block_alias_keeps_flow() {
     );
 }
 
+/// #2274 / #2275: emptying a non-last sequence item must stay CST-shaped.
+#[test]
+fn test_doc_set_yaml_empty_non_last_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("u.yaml");
+    fs::write(
+        &file,
+        "a: &x\n  k: v\nitems:\n  - name: A\n  - name: B\nz: *x\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("items[0]")
+        .arg("{}")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "a: &x\n  k: v\nitems:\n  - {}\n  - name: B\nz: *x\n"
+    );
+}
+
+/// #2275: merge-only first item with a sibling must keep `&defaults`.
+#[test]
+fn test_doc_delete_yaml_merge_only_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("m.yaml");
+    fs::write(
+        &file,
+        "defaults: &defaults\n  env: 1\nitems:\n  - <<: *defaults\n  - other: 2\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("items[0].env")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "defaults: &defaults\n  env: 1\nitems:\n  - {}\n  - other: 2\n"
+    );
+}
+
+/// #2276: unrelated `doc set` must not collapse pre-existing `-   name:`.
+#[test]
+fn test_doc_set_yaml_unrelated_edit_keeps_wide_dash_spacing() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("c.yaml");
+    fs::write(
+        &file,
+        "# top comment\napp: &app\n  name: myapp\nitems:\n  -   name: A\n  -   name: B\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("app.name")
+        .arg("\"zzz\"")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "# top comment\napp: &app\n  name: zzz\nitems:\n  -   name: A\n  -   name: B\n"
+    );
+
+    let check = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("app.name")
+        .arg("\"yyy\"")
+        .arg("--check")
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert_eq!(
+        check.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(json["changed"], true, "{json}");
+    assert!(
+        json.get("style_changed").is_none() || json["style_changed"] == false,
+        "untouched dash spacing must not set style_changed: {json}"
+    );
+}
+
 #[test]
 fn test_doc_set_yaml_apply() {
     let dir = TempDir::new().unwrap();
