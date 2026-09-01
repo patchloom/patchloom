@@ -388,6 +388,21 @@ fn agent_rules_includes_project_config_section() {
     assert!(out.contains(".patchloom.toml"));
     assert!(out.contains("collapse_blanks"));
     assert!(out.contains("[tx]"));
+    assert!(
+        out.contains("[defaults] apply") && out.contains("ignored"),
+        "agent-rules must say [defaults] apply is ignored"
+    );
+    assert!(
+        out.contains("--apply")
+            && out.contains("--check")
+            && out.contains("--diff")
+            && out.contains("--confirm"),
+        "agent-rules must name write-mode flags only (no apply env)"
+    );
+    assert!(
+        !out.contains("defaults for all commands"),
+        "must not claim .patchloom.toml sets defaults for all commands"
+    );
 }
 
 /// Canonical names table must stay present so agents do not invent alternates.

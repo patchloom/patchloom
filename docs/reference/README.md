@@ -27,7 +27,7 @@ Patchloom write commands default to preview mode. The canonical semantics live i
 - **What it does:** Writes the requested change to disk.
 - **Use when:** You have already previewed the change, or you trust the command and want the mutation to happen now.
 - **Prefer instead:** Use `--diff` when reviewing, or `--check` when you only need a clean or dirty signal.
-- **Not from project config:** `[defaults] apply` in `.patchloom.toml` is ignored. Only `--apply`, `--confirm`, or an equivalent flag/env can leave preview.
+- **Not from project config:** `[defaults] apply` in `.patchloom.toml` is ignored. Write mode is `--apply` / `--check` / `--diff` / `--confirm` only.
 
 <!-- ref:write-flag:check -->
 ### `--check`
@@ -433,6 +433,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
   - `--port <port>` (default: `8080`): Bind port (requires `--http`).
   - `--allow-unauthenticated`: Permit HTTP on a non-loopback bind. Streamable HTTP has no token.
   - `--tls-cert <path>` / `--tls-key <path>`: TLS certificate and key PEM files for HTTPS (requires `--http`; both must be provided together).
+- **Environment:** `PATCHLOOM_MCP_SURFACE=core|full` (env only; no CLI flag). Unset or `full` keeps the full inventory (product default). `core` registers the 11-tool pack for small agents. See [README.md](../../README.md) (MCP / coding agents).
 - **Failure behavior:** Invalid bind address, TLS config, or unauthenticated non-loopback `--host` without `--allow-unauthenticated` fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`
@@ -782,6 +783,7 @@ Predicates can be chained: `data[type=server][port>8000]`.
 ### `doc keys`
 
 - **What it does:** Lists the keys of an object at a selector path.
+- **Selector:** Optional; defaults to `.` (document root).
 - **Use when:** You want to inspect the shape of a structured object before choosing an edit.
 - **Prefer instead:** Use `doc get` when you already know the exact selector path you want.
 
@@ -789,6 +791,7 @@ Predicates can be chained: `data[type=server][port>8000]`.
 ### `doc len`
 
 - **What it does:** Counts items in an array or object.
+- **Selector:** Optional; defaults to `.` (document root).
 - **Use when:** You need a quick cardinality check in scripts, CI, or exploratory work.
 - **Prefer instead:** Use `doc select` or `doc get` when the actual values matter more than the count.
 

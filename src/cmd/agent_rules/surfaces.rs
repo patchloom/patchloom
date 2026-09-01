@@ -172,7 +172,7 @@ pub(crate) fn append_surfaces(
 
         out.push_str(
             "## Project configuration\n\n\
-             Create `.patchloom.toml` in the project root to set defaults for all commands:\n\n\
+             Create `.patchloom.toml` in the project root to set per-project defaults for write policy, tx, and exclude globs:\n\n\
              ```toml\n\
              [write_policy]\n\
              ensure_final_newline = true\n\
@@ -186,7 +186,8 @@ pub(crate) fn append_surfaces(
              [exclude]\n\
              globs = [\"target/**\", \"node_modules/**\"]\n\
              ```\n\n\
-             CLI flags override config values. The file is searched upward from the working directory.\n\n",
+             `[defaults] apply` is ignored. Write mode is `--apply` / `--check` / `--diff` / `--confirm` only. \
+             CLI flags override other config values. The file is searched upward from the working directory.\n\n",
         );
     }
 }

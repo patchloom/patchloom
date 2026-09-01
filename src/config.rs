@@ -56,7 +56,7 @@ pub struct ProjectConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct Defaults {
     /// Parsed `[defaults] apply` from `.patchloom.toml`. Ignored at runtime:
-    /// write mode is flags/env only (repo config must not flip preview to apply).
+    /// write mode is `--apply` / `--check` / `--diff` / `--confirm` only.
     pub apply: Option<bool>,
     /// Default format command (e.g., "cargo fmt"). Applied after --apply unless overridden by CLI --format.
     pub format: Option<String>,
@@ -173,7 +173,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
     }
 
     // [defaults] apply is parsed for forward-compatible configs but never
-    // honored. Preview-to-apply is flags/env only (CLI --apply / --confirm).
+    // honored. Write mode is --apply / --check / --diff / --confirm only.
     if global.format.is_none() {
         // CLI --format wins, then defaults.format, then format.command (with auto=true)
         if let Some(ref fmt) = config.defaults.format {
@@ -607,7 +607,7 @@ color = "always"
         apply_config(&mut global, &config);
         assert!(
             !global.apply,
-            "repo [defaults] apply must not flip write mode; flags/env only"
+            "repo [defaults] apply must not flip write mode; flags only"
         );
     }
 
