@@ -2589,6 +2589,34 @@ fn doc_get_zero_match_error() {
 }
 
 #[test]
+fn doc_get_hyphenated_typo_hints_whole_key() {
+    // Library hosts get the same whole-key did-you-mean as CLI.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"database-url":1}"#).unwrap();
+
+    let err = doc_get(&file, "databse-url").unwrap_err();
+    assert!(
+        err.downcast_ref::<crate::exit::NoMatchError>().is_some(),
+        "expected NoMatchError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch),
+        "must keep error_kind no_matches, got: {err}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("database-url"),
+        "expected whole-key hint database-url, got: {msg}"
+    );
+    assert!(
+        !msg.contains("did you mean: database?"),
+        "must not hint hyphen-split token `database`: {msg}"
+    );
+}
+
+#[test]
 fn doc_get_array_root_bare_key_is_type_error() {
     // Multi-doc YAML / top-level JSON array: bare key must not soft no_match.
     let dir = TempDir::new().unwrap();

@@ -174,6 +174,21 @@ pub(crate) fn similar_object_key_hint(root: &serde_json::Value, selector: &str) 
     None
 }
 
+/// Append a sibling-key did-you-mean when one is close.
+///
+/// Shared by CLI `doc get`/`keys`/`len` and library `api::doc_get` so
+/// whole-key hints (hyphenated names) are not CLI-only.
+pub(crate) fn with_similar_object_key_hint(
+    mut msg: String,
+    root: &serde_json::Value,
+    selector: &str,
+) -> String {
+    if let Some(hint) = similar_object_key_hint(root, selector) {
+        msg.push_str(&format!(" (did you mean: {hint}?)"));
+    }
+    msg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,6 +479,20 @@ mod tests {
         assert!(
             hint.as_deref() == Some("database-url") || hint.is_none(),
             "expected whole key `database-url` or no hint, got {hint:?}"
+        );
+    }
+
+    #[test]
+    fn with_similar_object_key_hint_hyphenated_key_is_whole_string() {
+        let doc = serde_json::json!({"database-url": 1});
+        let msg = with_similar_object_key_hint("selector missed".into(), &doc, "databse-url");
+        assert!(
+            msg.contains("database-url"),
+            "expected whole-key hint, got: {msg}"
+        );
+        assert!(
+            !msg.contains("did you mean: database?"),
+            "must not hint hyphen-split token `database`: {msg}"
         );
     }
 

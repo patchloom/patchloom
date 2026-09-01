@@ -533,11 +533,11 @@ fn format_no_match(error_msg: &str, mode: OutputMode, quiet: bool) -> anyhow::Re
 
 /// Soft no-match text, with a sibling-key did-you-mean when one is close.
 fn no_match_selector_msg(root: &serde_json::Value, selector: &str) -> String {
-    let mut msg = format!("no match for selector: {selector}");
-    if let Some(hint) = crate::ops::doc::query::similar_object_key_hint(root, selector) {
-        msg.push_str(&format!(" (did you mean: {hint}?)"));
-    }
-    msg
+    crate::ops::doc::query::with_similar_object_key_hint(
+        format!("no match for selector: {selector}"),
+        root,
+        selector,
+    )
 }
 
 /// Format an error result for the given output mode and exit code.

@@ -710,46 +710,18 @@ pub fn find_similar_targets(content: &str, target: &str, max_results: usize) -> 
         return vec![];
     }
 
-    let mut candidates: Vec<(String, f64)> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-
-    // Extract word-like tokens from the content.
-    for line in content.lines() {
-        for word in extract_identifiers(line) {
-            if !seen.insert(word.clone()) {
-                continue;
-            }
-            if word == target || !similar_target_length_plausible(&word, target) {
-                continue;
-            }
-            let score = strsim::jaro_winkler(&word, target);
-            if score > SIMILAR_TARGET_MIN_SCORE {
-                candidates.push((word, score));
-            }
-        }
-    }
-
+    let mut tokens: Vec<String> = content.lines().flat_map(extract_identifiers).collect();
     // Also try matching against whole lines for multi-word patterns.
     if target.contains(' ') || target.len() > 20 {
-        for line in content.lines() {
-            let trimmed = line.trim().to_string();
-            if trimmed.is_empty() || seen.contains(&trimmed) {
-                continue;
-            }
-            seen.insert(trimmed.clone());
-            if trimmed == target || !similar_target_length_plausible(&trimmed, target) {
-                continue;
-            }
-            let score = strsim::jaro_winkler(&trimmed, target);
-            if score > SIMILAR_TARGET_MIN_SCORE {
-                candidates.push((trimmed, score));
-            }
-        }
+        tokens.extend(
+            content
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+        );
     }
-
-    candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    candidates.truncate(max_results);
-    candidates.into_iter().map(|(s, _)| s).collect()
+    find_similar_among(tokens.iter().map(String::as_str), target, max_results)
 }
 
 /// Try anchor-based matching: find the target text using surrounding context lines.

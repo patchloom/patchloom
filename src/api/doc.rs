@@ -249,7 +249,11 @@ pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value>
 
     match query_get(&value, selector)? {
         QueryResult::NoMatch => Err(crate::exit::NoMatchError {
-            msg: format!("selector '{}' matched nothing", selector),
+            msg: crate::ops::doc::query::with_similar_object_key_hint(
+                format!("selector '{selector}' matched nothing"),
+                &value,
+                selector,
+            ),
         }
         .into()),
         QueryResult::Values(vals) if vals.len() == 1 => Ok(vals
