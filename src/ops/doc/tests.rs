@@ -2368,6 +2368,424 @@ items:
         );
     }
 
+    /// #2274: emptying a non-last sequence item must write `- {}` in
+    /// place. Sequence::set drops the item newline; trusting that CST
+    /// dumps the file and drops `&x` / `*x`.
+    #[test]
+    fn yaml_empty_non_last_sequence_item_keeps_anchor_and_sibling() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - name: A
+  - name: B
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+a: &x
+  k: v
+items:
+  - {}
+  - name: B
+z: *x
+"
+        );
+        assert!(
+            !presentation_style_changed(yaml, &result, &FileFormat::Yaml),
+            "in-place empty item must not flag style:\n{result}"
+        );
+    }
+
+    /// #2274: same empty-item write with a leading comment on the
+    /// sequence. Dumping hoists `# keep` above `items:`.
+    /// Wide post-dash style (`-   name:`) uses the same remove-then-set
+    /// hole; repair must keep the original pad and the sibling item.
+    #[test]
+    fn yaml_empty_non_last_wide_dash_sequence_item_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  -   name: A
+  -   name: B
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+a: &x
+  k: v
+items:
+  -   {}
+  -   name: B
+z: *x
+"
+        );
+    }
+
+    /// Emptying a nested last sequence item must not glue `{}` onto the
+    /// next indented mapping key (`- {}  enabled: true`).
+    #[test]
+    fn yaml_empty_last_nested_sequence_item_keeps_following_key() {
+        let yaml = "\
+outer:
+  items:
+    - name: A
+    - name: B
+  enabled: true
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["outer"]["items"][1] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+outer:
+  items:
+    - name: A
+    - {}
+  enabled: true
+"
+        );
+        assert!(
+            result.contains("enabled: true"),
+            "following key must stay a sibling of items:\n{result}"
+        );
+    }
+
+    /// #2275: last merge-only item with a following sibling key.
+    #[test]
+    fn yaml_inherited_last_sequence_item_empty_keeps_following_key() {
+        let yaml = "\
+defaults: &defaults
+  env: 1
+outer:
+  items:
+    - other: 2
+    - <<: *defaults
+  enabled: true
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["outer"]["items"][1]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env: 1
+outer:
+  items:
+    - other: 2
+    - {}
+  enabled: true
+"
+        );
+        assert!(
+            result.contains("&defaults"),
+            "anchor must survive last-item empty:\n{result}"
+        );
+    }
+
+    /// Emptying the last sequence item must not glue `{}` onto the next
+    /// mapping key (`- {}z: *x`).
+    #[test]
+    fn yaml_empty_last_sequence_item_keeps_following_key() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - name: A
+  - name: B
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][1] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+a: &x
+  k: v
+items:
+  - name: A
+  - {}
+z: *x
+"
+        );
+    }
+
+    /// Two emptied items on the same write glue as `- {}  - {}  - name`.
+    #[test]
+    fn yaml_empty_two_sequence_items_keeps_third_and_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - name: A
+  - name: B
+  - name: C
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!({});
+        new["items"][1] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+a: &x
+  k: v
+items:
+  - {}
+  - {}
+  - name: C
+z: *x
+"
+        );
+    }
+
+    #[test]
+    fn yaml_empty_non_last_sequence_item_keeps_comment() {
+        let yaml = "\
+items:
+  # keep
+  - name: A
+  - name: B
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+items:
+  # keep
+  - {}
+  - name: B
+"
+        );
+    }
+
+    /// #2275: merge-only item followed by a sibling. The only-item
+    /// lock in yaml_inherited_sequence_item_empty_expand_keeps_anchor
+    /// missed this shape.
+    #[test]
+    fn yaml_inherited_sequence_item_empty_expand_keeps_anchor_with_sibling() {
+        let yaml = "\
+defaults: &defaults
+  env: 1
+items:
+  - <<: *defaults
+  - other: 2
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0].as_object_mut().unwrap().shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env: 1
+items:
+  - {}
+  - other: 2
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!({}));
+        assert_eq!(reparsed["items"][1], json!({"other": 2}));
+        assert_eq!(reparsed["defaults"]["env"], json!(1));
+    }
+
+    /// #2275: merge-only item preceded by a sibling.
+    #[test]
+    fn yaml_inherited_sequence_item_empty_expand_keeps_anchor_preceded() {
+        let yaml = "\
+defaults: &defaults
+  env: 1
+items:
+  - other: 2
+  - <<: *defaults
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][1].as_object_mut().unwrap().shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env: 1
+items:
+  - other: 2
+  - {}
+"
+        );
+    }
+
+    /// #2275: merge-only item with a leading comment on its own line.
+    #[test]
+    fn yaml_inherited_sequence_item_empty_expand_keeps_leading_comment() {
+        let yaml = "\
+defaults: &defaults
+  env: 1
+items:
+  # keep
+  - <<: *defaults
+  - other: 2
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0].as_object_mut().unwrap().shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env: 1
+items:
+  # keep
+  - {}
+  - other: 2
+"
+        );
+    }
+
+    /// #2275: two merge-only items; empty only the first.
+    #[test]
+    fn yaml_inherited_sequence_two_merge_items_empty_first_keeps_second() {
+        let yaml = "\
+defaults: &defaults
+  env: 1
+items:
+  - <<: *defaults
+  - <<: *defaults
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0].as_object_mut().unwrap().shift_remove("env");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+defaults: &defaults
+  env: 1
+items:
+  - {}
+  - <<: *defaults
+"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!({}));
+        assert_eq!(reparsed["items"][1], json!({"env": 1}));
+    }
+
+    /// #2276: an unrelated key edit must not collapse pre-existing
+    /// `-   name:` dash spacing, and must not silently omit style_changed.
+    #[test]
+    fn yaml_unrelated_edit_keeps_wide_dash_spacing() {
+        let yaml = "\
+# top comment
+app: &app
+  name: myapp
+items:
+  -   name: A
+  -   name: B
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["app"]["name"] = json!("zzz");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+# top comment
+app: &app
+  name: zzz
+items:
+  -   name: A
+  -   name: B
+"
+        );
+        assert!(
+            !presentation_style_changed(yaml, &result, &FileFormat::Yaml),
+            "untouched dash spacing must not flag style:\n{result}"
+        );
+    }
+
+    /// Unrelated edits must not rewrite a `|` scalar whose text looks
+    /// like glued sequence items.
+    #[test]
+    fn yaml_unrelated_edit_keeps_block_scalar_that_looks_glued() {
+        let yaml = "\
+script: |
+  - {}  - name: B
+other: 1
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["other"] = json!(2);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+script: |
+  - {}  - name: B
+other: 2
+"
+        );
+    }
+
+    /// Trailing spaces on the original dash line must not re-enable
+    /// collapse after cleanup trims them.
+    #[test]
+    fn yaml_unrelated_edit_keeps_wide_dash_spacing_with_trailing_ws() {
+        let yaml =
+            "# top comment\napp: &app\n  name: myapp\nitems:\n  -   name: A  \n  -   name: B  \n";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["app"]["name"] = json!("zzz");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("  -   name: A"),
+            "trailing spaces on the original dash line must not collapse it:\n{result}"
+        );
+        assert!(result.contains("&app"), "anchor must survive:\n{result}");
+    }
+
     /// Nested `<<` (`deployment` → `mid` → `base`): deleting a local
     /// override of an inherited key must expand that site and keep both
     /// anchors. A walk that only inspects `mid`'s local keys misses `env`.
@@ -2899,6 +3317,64 @@ deployment:
 ";
         let fixed = super::super::fix_yaml_block_indentation(yaml);
         assert_eq!(fixed, yaml);
+    }
+
+    /// #2276: wide post-dash spacing on untouched items must survive
+    /// when the original line is still present. Artifact `-     name:`
+    /// (not in original) still collapses.
+    #[test]
+    fn fix_yaml_block_indentation_keeps_wide_dash_spacing() {
+        let yaml = "\
+items:
+  -   name: A
+  -   name: B
+";
+        assert_eq!(
+            super::super::fix_yaml_block_indentation_with_original(Some(yaml), yaml),
+            yaml
+        );
+        let artifact = "\
+items:
+  -     name: A
+";
+        assert_eq!(
+            super::super::fix_yaml_block_indentation_with_original(Some(yaml), artifact),
+            "\
+items:
+  - name: A
+"
+        );
+    }
+
+    #[test]
+    fn repair_glued_block_sequence_items_splits_empty_object() {
+        let glued = "items:\n  # keep\n  - {}  - name: B\n";
+        let fixed = super::super::repair_glued_block_sequence_items(glued);
+        assert_eq!(fixed, "items:\n  # keep\n  - {}\n  - name: B\n");
+    }
+
+    #[test]
+    fn repair_glued_block_sequence_items_splits_wide_and_multi_and_next_key() {
+        let wide = "items:\n  -   {}  -   name: B\n";
+        assert_eq!(
+            super::super::repair_glued_block_sequence_items(wide),
+            "items:\n  -   {}\n  -   name: B\n"
+        );
+        let multi = "items:\n  - {}  - {}  - name: C\n";
+        assert_eq!(
+            super::super::repair_glued_block_sequence_items(multi),
+            "items:\n  - {}\n  - {}\n  - name: C\n"
+        );
+        let next_key = "items:\n  - name: A\n  - {}z: *x\n";
+        assert_eq!(
+            super::super::repair_glued_block_sequence_items(next_key),
+            "items:\n  - name: A\n  - {}\nz: *x\n"
+        );
+        let nested_key = "outer:\n  items:\n    - name: A\n    - {}  enabled: true\n";
+        assert_eq!(
+            super::super::repair_glued_block_sequence_items(nested_key),
+            "outer:\n  items:\n    - name: A\n    - {}\n  enabled: true\n"
+        );
     }
 
     #[test]
@@ -3535,6 +4011,12 @@ fn presentation_style_changed_flags_yaml_sequence_indent() {
         before,
         &FileFormat::Yaml
     ));
+    let wide = "env:\n  -   name: FEATURE_FLAG\n";
+    let tight = "env:\n  - name: FEATURE_FLAG\n";
+    assert!(
+        presentation_style_changed(wide, tight, &FileFormat::Yaml),
+        "post-dash spacing change must set style_changed"
+    );
 }
 
 #[test]
