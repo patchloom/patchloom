@@ -19,10 +19,13 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make test-library-hygiene` | Enforce pure-library embedder set: clippy + tests under `--no-default-features --features "ast,files"` (catches dead_code, hygiene for #800 #802) |
 | `make test-mcp-no-ast` | Lib tests with `mcp,cli,files` and no `ast` (MCP inventory/router/instructions honesty) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
-| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme, server-json-test, verify-homebrew-version-test |
-| `make check-fast` | Fast check: same as `check` minus `check-patchloom-md` (still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test` so test-count and MCP Registry description drift fail locally before CI) |
+| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme, server-json-test, verify-homebrew-version-test, scoop-manifest-test, chocolatey-package-test, pack-mcpb-test, force-release-version-test |
+| `make check-fast` | Fast check: same as `check` minus `check-patchloom-md` (still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, and `force-release-version-test` so test-count, MCP Registry, and packaging-script drift fail locally before CI) |
 | `make server-json-test` | Lock `server.json` MCP Registry constraints (description ≤100 chars; part of `check`) |
 | `make verify-homebrew-version-test` | Unit tests for `scripts/verify-homebrew-version.sh` (release tap version assert helpers; part of `check`) |
+| `make scoop-manifest-test` | Unit tests for `scripts/update-scoop-manifest.py` (Scoop release publish; part of `check`) |
+| `make chocolatey-package-test` | Unit tests for `scripts/update-chocolatey-package.py` (Chocolatey release publish; part of `check`) |
+| `make force-release-version-test` | Unit tests for `scripts/test_force_release_version.py` (Release-As preferred path; part of `check`) |
 | `make update-readme` | Update README.md rounded test count (only changes when hundreds digit changes) |
 | `make check-readme` | Verify README.md rounded test count is accurate (part of `check`) |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |
@@ -31,7 +34,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make audit` | Run `cargo audit` for known vulnerabilities (optional locally; also in CI) |
 | `make deny` | Run `cargo deny check` for licenses/bans/sources (`deny.toml`; required in CI) |
 | `make pack-mcpb` | Pack `mcpb/` into `target/mcpb/patchloom-<ver>.mcpb` (Smithery / desktop). Honors `$VERSION` over Cargo.toml |
-| `make pack-mcpb-test` | Unit tests for pack version override and stamped manifest (`scripts/test_pack_mcpb.py`; skips full pack when `mcpb` CLI missing) |
+| `make pack-mcpb-test` | Unit tests for pack version override and stamped manifest (`scripts/test_pack_mcpb.py`; skips full pack when `mcpb` CLI missing; part of `check`) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Default model is `grok-4.5`. Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-claude-opus-4-6`) |
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033, library `for_each` + lifecycle shell preflight #2168/#2169, patch dest helpers + git copy #2170-#2176, Codex Begin Patch + SEARCH/REPLACE unique apply #2219/#2220). Not part of `check`; run before tagging a release |
 | `make semver-check` | `cargo-semver-checks` against the last crates.io release (public library API). Not part of `check`; CI runs it only on release-please PRs. Run before merging public API arity/signature changes, or when preparing a release |

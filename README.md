@@ -543,7 +543,7 @@ at your option.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
-For local verification before opening a pull request, run `make check`. It covers the main Linux test and lint gate: formatting, clippy, unit tests (including feature-matrix jobs), integration tests, PTY tests, release-notes structure, test hygiene, generated-doc freshness (`check-patchloom-md`, `check-readme`), `server-json-test`, and `verify-homebrew-version-test`. It is not every GitHub required check: `audit`, `deny`, and Windows stay in GitHub Actions. While iterating locally, `make check-fast` is the same except it skips only `check-patchloom-md` (it still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`).
+For local verification before opening a pull request, run `make check`. It covers the main Linux test and lint gate: formatting, clippy, unit tests (including feature-matrix jobs), integration tests, PTY tests, release-notes structure, test hygiene, generated-doc freshness (`check-patchloom-md`, `check-readme`), `server-json-test`, `verify-homebrew-version-test`, and packaging-script unit tests (`scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`). It is not every GitHub required check: `audit`, `deny`, and Windows stay in GitHub Actions. While iterating locally, `make check-fast` is the same except it skips only `check-patchloom-md` (it still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, and the packaging-script tests).
 
 Pull request titles must use one Conventional Commits prefix (`feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`; no commas or `+`). See [CONTRIBUTING.md](./CONTRIBUTING.md#pull-request-titles).
 
