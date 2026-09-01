@@ -174,6 +174,9 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
 
     // [defaults] apply is parsed for forward-compatible configs but never
     // honored. Write mode is --apply / --check / --diff / --confirm only.
+    if config.defaults.apply == Some(true) && !global.apply && show_warn {
+        eprintln!("{}", ignored_defaults_apply_warning());
+    }
     if global.format.is_none() {
         // CLI --format wins, then defaults.format, then format.command (with auto=true)
         if let Some(ref fmt) = config.defaults.format {
@@ -215,6 +218,10 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             }
         };
     }
+}
+
+fn ignored_defaults_apply_warning() -> &'static str {
+    "warning: [defaults] apply = true is ignored; pass --apply to write"
 }
 
 fn invalid_normalize_eol_warning(invalid: &str) -> String {
@@ -608,6 +615,15 @@ color = "always"
         assert!(
             !global.apply,
             "repo [defaults] apply must not flip write mode; flags only"
+        );
+        let warning = ignored_defaults_apply_warning();
+        assert!(
+            warning.contains("[defaults] apply"),
+            "ignored-apply warning must name the config key: {warning}"
+        );
+        assert!(
+            warning.contains("--apply"),
+            "ignored-apply warning must point at --apply: {warning}"
         );
     }
 

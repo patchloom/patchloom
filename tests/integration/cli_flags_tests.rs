@@ -917,7 +917,11 @@ fn test_config_defaults_apply_does_not_write_without_apply_flag() {
         .args(["replace", "hello", "--new", "world", "a.txt", "--cwd"])
         .arg(dir.path())
         .assert()
-        .code(2);
+        .code(2)
+        .stderr(predicate::str::contains(
+            "warning: [defaults] apply = true is ignored",
+        ))
+        .stderr(predicate::str::contains("--apply"));
 
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
