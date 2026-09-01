@@ -2602,6 +2602,183 @@ z: *x
         );
     }
 
+    /// Two items emptied to `[]` on a mapping `items:` list must keep CST.
+    #[test]
+    fn yaml_empty_two_sequence_items_to_empty_array_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - [1, 2]
+  - [3, 4]
+  - [5, 6]
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!([]);
+        new["items"][1] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+a: &x
+  k: v
+items:
+  - []
+  - []
+  - [5, 6]
+z: *x
+"
+        );
+    }
+
+    /// Document-root sequence: two items emptied to `[]` must keep CST.
+    #[test]
+    fn yaml_empty_two_root_sequence_items_to_empty_array_keeps_comment_and_anchor() {
+        let yaml = "\
+# nums
+- &lead [1, 2]
+- [3, 4]
+- [5, 6]
+- *lead
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[1] = json!([]);
+        new[2] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+# nums
+- &lead [1, 2]
+- []
+- []
+- *lead
+"
+        );
+        assert!(
+            result.contains("&lead") && result.contains("*lead"),
+            "root-sequence [] dump must not expand the alias:\n{result}"
+        );
+    }
+
+    /// Two inner flow arrays emptied to `[]` inside one parent item.
+    #[test]
+    fn yaml_empty_two_inner_flow_arrays_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - [[1, 2], [3, 4]]
+  - [[5, 6], [7, 8]]
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0][0] = json!([]);
+        new["items"][0][1] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "inner flow [] dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!([[], []]));
+        assert_eq!(reparsed["items"][1], json!([[5, 6], [7, 8]]));
+    }
+
+    /// Same-length inner array update must keep CST (recurse, not replace).
+    #[test]
+    fn yaml_same_length_inner_array_update_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - [one, two]
+  - [three, four]
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0][0] = json!("ONE");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "inner scalar update dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!(["ONE", "two"]));
+    }
+
+    /// Explicit nested block sequence emptied to `[]` must keep CST.
+    #[test]
+    fn yaml_empty_one_nested_array_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  -
+    - a
+    - b
+  -
+    - c
+    - d
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "single nested [] dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!([]));
+        assert_eq!(reparsed["items"][1], json!(["c", "d"]));
+    }
+
+    /// Two explicit nested block items emptied to `[]` on the same write.
+    #[test]
+    fn yaml_empty_two_nested_arrays_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  -
+    - a
+    - b
+  -
+    - c
+    - d
+  -
+    - e
+    - f
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!([]);
+        new["items"][1] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "nested [] dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!([]));
+        assert_eq!(reparsed["items"][1], json!([]));
+        assert_eq!(reparsed["items"][2], json!(["e", "f"]));
+    }
+
     #[test]
     fn yaml_empty_non_last_sequence_item_keeps_comment() {
         let yaml = "\

@@ -141,14 +141,14 @@ pub(super) fn apply_yaml_sequence_diff(
     new_arr: &[serde_json::Value],
 ) -> anyhow::Result<bool> {
     let mut all_applied = true;
-    let mut emptied_one_empty_object = false;
+    let mut emptied_one_empty_flow = false;
     for (i, (o, n)) in old_arr.iter().zip(new_arr.iter()).enumerate() {
         if o == n {
             continue;
         }
         match (o, n) {
             (serde_json::Value::Object(_), serde_json::Value::Object(_)) => {
-                if n.as_object().is_some_and(|obj| obj.is_empty()) && emptied_one_empty_object {
+                if n.as_object().is_some_and(|obj| obj.is_empty()) && emptied_one_empty_flow {
                     // Leave leftover empties for a reparse pass.
                     all_applied = false;
                     continue;
@@ -162,8 +162,38 @@ pub(super) fn apply_yaml_sequence_diff(
                         if !try_sequence_set(seq, i, n)? {
                             all_applied = false;
                         } else {
-                            emptied_one_empty_object = true;
+                            emptied_one_empty_flow = true;
                         }
+                    }
+                    continue;
+                }
+                if !try_sequence_set(seq, i, n)? {
+                    all_applied = false;
+                }
+            }
+            (serde_json::Value::Array(old_inner), serde_json::Value::Array(new_inner)) => {
+                if new_inner.is_empty() {
+                    if emptied_one_empty_flow {
+                        all_applied = false;
+                        continue;
+                    }
+                    if !try_sequence_set(seq, i, n)? {
+                        all_applied = false;
+                    } else {
+                        emptied_one_empty_flow = true;
+                    }
+                    continue;
+                }
+                if let Some(node) = seq.get(i)
+                    && let Some(child_seq) = node.as_sequence()
+                {
+                    let child_ok = if old_inner.len() == new_inner.len() {
+                        apply_yaml_sequence_diff(child_seq, old_inner, new_inner)?
+                    } else {
+                        apply_yaml_sequence_resize(child_seq, old_inner, new_inner)
+                    };
+                    if !child_ok {
+                        all_applied = false;
                     }
                     continue;
                 }
@@ -1263,6 +1293,31 @@ mod tests {
     }
 
     // ---- apply_yaml_sequence_diff ----
+
+    #[test]
+    fn sequence_diff_two_inner_flow_empties_keeps_flow() {
+        let yaml = "items:\n  - [[1, 2], [3, 4]]\n  - [[5, 6], [7, 8]]\n";
+        let doc = parse_yaml(yaml);
+        let mapping = doc.as_mapping().unwrap();
+        let seq = mapping.get_sequence("items").unwrap();
+        let item0 = seq.get(0).unwrap();
+        let child = item0.as_sequence().unwrap();
+        let old = vec![json!([1, 2]), json!([3, 4])];
+        let new = vec![json!([]), json!([])];
+        assert!(
+            !apply_yaml_sequence_diff(child, &old, &new).unwrap(),
+            "second [] must wait for a reparse pass"
+        );
+        let result = doc.to_string();
+        assert!(
+            result.contains("[]") && result.contains("[3, 4]"),
+            "first [] applied, second deferred: {result}"
+        );
+        assert!(
+            result.contains("- [[5, 6], [7, 8]]"),
+            "sibling item must stay: {result}"
+        );
+    }
 
     #[test]
     fn sequence_diff_scalar_update() {

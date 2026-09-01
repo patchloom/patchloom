@@ -1586,6 +1586,55 @@ fn test_doc_delete_yaml_merge_only_sequence_item_keeps_anchor() {
     );
 }
 
+/// Two inner flow arrays emptied to `[]` in one write must keep CST.
+#[test]
+fn test_doc_set_yaml_empty_two_inner_arrays_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("u.yaml");
+    let original = "a: &x\n  k: v\nitems:\n  - [[1, 2], [3, 4]]\n  - [[5, 6], [7, 8]]\nz: *x\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("items[0]")
+        .arg("[[],[]]")
+        .assert()
+        .code(2);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        original,
+        "preview must not write"
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("items[0]")
+        .arg("[[],[]]")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&x") && content.contains("*x"),
+        "CLI two inner [] empties must keep CST:\n{content}"
+    );
+    assert!(
+        content.contains("- [[], []]"),
+        "emptied item must stay flow []:\n{content}"
+    );
+    assert!(
+        content.contains("- [[5, 6], [7, 8]]"),
+        "sibling item must stay:\n{content}"
+    );
+}
+
 /// Last-item empty must not glue `{}` onto the next mapping key.
 #[test]
 fn test_doc_set_yaml_empty_last_sequence_item_keeps_anchor() {

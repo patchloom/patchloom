@@ -2366,6 +2366,48 @@ fn test_tx_doc_set_yaml_sequence_alias_item_becomes_merge() {
     );
 }
 
+/// One `doc.set` that empties two inner flow arrays must keep CST.
+#[test]
+fn test_tx_doc_set_yaml_empty_two_inner_arrays_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("u.yaml");
+    fs::write(
+        &file,
+        "a: &x\n  k: v\nitems:\n  - [[1, 2], [3, 4]]\n  - [[5, 6], [7, 8]]\nz: *x\n",
+    )
+    .unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "doc.set",
+            "path": portable_path_str(&file),
+            "selector": "items[0]",
+            "value": [[], []]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&x") && content.contains("*x"),
+        "tx two inner [] empties must keep CST:\n{content}"
+    );
+    assert!(
+        content.contains("- [[], []]"),
+        "emptied item must stay flow []:\n{content}"
+    );
+}
+
 /// Two cached `doc.set` empties on a document-root sequence must keep CST.
 #[test]
 fn test_tx_doc_set_yaml_empty_two_root_sequence_items_keeps_anchor() {
