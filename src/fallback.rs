@@ -710,18 +710,27 @@ pub fn find_similar_targets(content: &str, target: &str, max_results: usize) -> 
         return vec![];
     }
 
-    let mut tokens: Vec<String> = content.lines().flat_map(extract_identifiers).collect();
+    // Dedup before materializing: HashSet<&str> over borrowed slices so
+    // repeated identifiers do not each allocate a String (#2292).
+    let mut seen = std::collections::HashSet::new();
+    let mut tokens: Vec<&str> = Vec::new();
+    for line in content.lines() {
+        for ident in extract_identifiers(line) {
+            if seen.insert(ident) {
+                tokens.push(ident);
+            }
+        }
+    }
     // Also try matching against whole lines for multi-word patterns.
     if target.contains(' ') || target.len() > 20 {
-        tokens.extend(
-            content
-                .lines()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
-        );
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() && seen.insert(trimmed) {
+                tokens.push(trimmed);
+            }
+        }
     }
-    find_similar_among(tokens.iter().map(String::as_str), target, max_results)
+    find_similar_among(tokens, target, max_results)
 }
 
 /// Try anchor-based matching: find the target text using surrounding context lines.
@@ -1048,10 +1057,10 @@ fn best_token_similarity(content: &str, target: &str) -> Option<AnchorMatchResul
             if ident == target {
                 continue;
             }
-            let score = strsim::jaro_winkler(&ident, target);
+            let score = strsim::jaro_winkler(ident, target);
             if score > best_score {
                 best_score = score;
-                best_match = ident;
+                best_match = ident.to_string();
                 best_offset = offset + col;
             }
         }
@@ -1117,7 +1126,7 @@ fn advance_line_offset(content: &str, mut offset: usize, line: &str) -> usize {
 }
 
 /// Extract identifier-like tokens from a line of code.
-fn extract_identifiers(line: &str) -> Vec<String> {
+fn extract_identifiers(line: &str) -> Vec<&str> {
     extract_identifiers_with_offsets(line)
         .into_iter()
         .map(|(s, _)| s)
@@ -1125,30 +1134,28 @@ fn extract_identifiers(line: &str) -> Vec<String> {
 }
 
 /// Identifier tokens with byte offsets into `line` (#1694).
-fn extract_identifiers_with_offsets(line: &str) -> Vec<(String, usize)> {
+fn extract_identifiers_with_offsets(line: &str) -> Vec<(&str, usize)> {
     let mut identifiers = Vec::new();
-    let mut current = String::new();
-    let mut start = 0usize;
+    let mut start: Option<usize> = None;
     let mut i = 0usize;
 
     for ch in line.chars() {
         let clen = ch.len_utf8();
         if ch.is_alphanumeric() || ch == '_' {
-            if current.is_empty() {
-                start = i;
+            if start.is_none() {
+                start = Some(i);
             }
-            current.push(ch);
-        } else {
-            if current.len() >= 3 {
-                identifiers.push((std::mem::take(&mut current), start));
-            } else {
-                current.clear();
-            }
+        } else if let Some(s) = start.take()
+            && i - s >= 3
+        {
+            identifiers.push((&line[s..i], s));
         }
         i += clen;
     }
-    if current.len() >= 3 {
-        identifiers.push((current, start));
+    if let Some(s) = start
+        && i - s >= 3
+    {
+        identifiers.push((&line[s..i], s));
     }
 
     identifiers
@@ -1946,10 +1953,10 @@ mod tests {
     fn extract_identifiers_from_code() {
         let line = "fn process_request(data: &str) -> Result<()> {";
         let ids = extract_identifiers(line);
-        assert!(ids.contains(&"process_request".to_string()));
-        assert!(ids.contains(&"data".to_string()));
-        assert!(ids.contains(&"str".to_string()));
-        assert!(ids.contains(&"Result".to_string()));
+        assert!(ids.contains(&"process_request"));
+        assert!(ids.contains(&"data"));
+        assert!(ids.contains(&"str"));
+        assert!(ids.contains(&"Result"));
     }
 
     #[test]
@@ -2008,6 +2015,18 @@ mod tests {
         assert!(
             !similar.is_empty(),
             "should find similar multi-word targets"
+        );
+    }
+
+    #[test]
+    fn find_similar_targets_dedups_repeated_tokens() {
+        let content = "fn process_request() {}\nfn process_request() {}\nfn process_request() {}\n";
+        let similar = find_similar_targets(content, "process_requst", 3);
+        let hits: Vec<_> = similar.iter().filter(|s| *s == "process_request").collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "repeated identifiers must appear once: {similar:?}"
         );
     }
 

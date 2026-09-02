@@ -40,17 +40,11 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 diff,
                 |path| {
                     let file_path = tx.cwd.join(path);
-                    // file_delete snapshot: do not follow symlink / FIFO / socket.
-                    if crate::ops::file::path_entry_exists(&file_path)
-                        && !crate::ops::file::is_regular_file_for_backup(&file_path)
-                    {
-                        if !tx.pending.contains_key(&file_path) {
-                            tx.existed_before.insert(file_path.clone());
-                            tx.pending
-                                .insert(file_path.clone(), (String::new(), String::new()));
-                        }
-                        return Ok(String::new());
-                    }
+                    // Content patches load through load_text_strict (follows a
+                    // live file symlink; FIFO/socket refuse without hanging).
+                    // Empty-hunk delete never reaches this loader
+                    // (ops::patch short-circuits); the deletion snapshot below
+                    // stays empty for symlink / FIFO / socket (#2290).
                     match read_file_content(tx.pending, tx.existed_before, &file_path) {
                         Ok(s) => Ok(s.to_string()),
                         Err(e)

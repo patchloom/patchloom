@@ -1996,6 +1996,49 @@ index e69de29..0000000
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
 }
 
+/// Add-only hunk through a workspace symlink must prepend, not wipe the
+/// target (#2290). CLI uses the same tx loader as default-features apply_patch.
+#[cfg(unix)]
+#[test]
+fn test_patch_add_only_hunk_through_symlink_preserves_target() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.txt");
+    fs::write(&real, "alpha\nbeta\ngamma\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let patch_file = dir.path().join("add.patch");
+    fs::write(
+        &patch_file,
+        "\
+--- a/link.txt
++++ b/link.txt
+@@ -0,0 +1,1 @@
++INJECTED
+",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .success();
+    assert_eq!(
+        fs::read_to_string(&real).unwrap(),
+        "INJECTED\nalpha\nbeta\ngamma\n",
+        "add-only hunk must prepend through the symlink"
+    );
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "write-through must keep the symlink entry"
+    );
+}
+
 #[test]
 fn test_patch_begin_patch_double_delete_is_not_found() {
     let dir = TempDir::new().unwrap();
