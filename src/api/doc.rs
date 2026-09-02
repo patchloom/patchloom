@@ -246,7 +246,7 @@ pub fn doc_merge(
 
 /// Get a value at a selector path from a JSON, YAML, or TOML file.
 ///
-/// This is a read-only operation; the `mode` parameter is ignored.
+/// Load-first: a missing file peels as `not_found`.
 pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value> {
     let value = load_doc_value(path)?;
 
@@ -278,9 +278,9 @@ pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
 /// Pass one object (`database`). Empty / `"."` lists keys of the document
 /// root. An array target (`items`) is [`crate::exit::TypeErrorError`] (use
 /// `items[0]` for one object, or [`doc_len`] on `items`). A missing selector
-/// is [`crate::exit::NoMatchError`]. A multi-match selector (`items[*]`) is
-/// [`crate::exit::AmbiguousError`] and names `items[0]` / `items[1]`. A
-/// missing file peels as `not_found`.
+/// is [`crate::exit::NoMatchError`]. A wildcard or predicate (`items[*]`) is
+/// [`crate::exit::AmbiguousError`] even on 0 or 1 match, and names
+/// `items[0]` / `items[1]`. A missing file peels as `not_found`.
 pub fn doc_keys(path: &Path, selector: &str) -> anyhow::Result<Vec<String>> {
     let value = load_doc_value(path)?;
     crate::ops::doc::query::keys_at(&value, selector)
@@ -290,9 +290,9 @@ pub fn doc_keys(path: &Path, selector: &str) -> anyhow::Result<Vec<String>> {
 ///
 /// Empty / `"."` means the document root. A scalar (or other non-container)
 /// is [`crate::exit::TypeErrorError`]. A missing selector is
-/// [`crate::exit::NoMatchError`]. A multi-match selector (`items[*]`) is
-/// [`crate::exit::AmbiguousError`] and names `items[0]` / `items[1]`. A
-/// missing file peels as `not_found`.
+/// [`crate::exit::NoMatchError`]. A wildcard or predicate (`items[*]`) is
+/// [`crate::exit::AmbiguousError`] even on 0 or 1 match, and names
+/// `items[0]` / `items[1]`. A missing file peels as `not_found`.
 pub fn doc_len(path: &Path, selector: &str) -> anyhow::Result<usize> {
     let value = load_doc_value(path)?;
     crate::ops::doc::query::len_at(&value, selector)

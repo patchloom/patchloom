@@ -2933,6 +2933,84 @@ async fn test_mcp_doc_query_len_wildcard_is_ambiguous() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_query_keys_wildcard_one_or_zero_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    for (label, body) in [
+        ("one", r#"{"items":[{"a":1}]}"#),
+        ("zero", r#"{"items":[]}"#),
+    ] {
+        fs::write(dir.path().join("config.json"), body).unwrap();
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({
+                "action": "keys",
+                "path": "config.json",
+                "selector": "items[*]"
+            }),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query keys on {label}-element items[*] must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "ambiguous",
+            "doc_query keys {label}-element items[*] must be ambiguous not no_matches: {val}"
+        );
+        let msg = val["error"].as_str().unwrap_or("");
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "doc_query keys ambiguous must name a concrete index: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_len_wildcard_one_or_zero_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    for (label, body) in [
+        ("one", r#"{"items":[{"a":1}]}"#),
+        ("zero", r#"{"items":[]}"#),
+    ] {
+        fs::write(dir.path().join("config.json"), body).unwrap();
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({
+                "action": "len",
+                "path": "config.json",
+                "selector": "items[*]"
+            }),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query len on {label}-element items[*] must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "ambiguous",
+            "doc_query len {label}-element items[*] must be ambiguous not no_matches: {val}"
+        );
+        let msg = val["error"].as_str().unwrap_or("");
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "doc_query len ambiguous must name a concrete index: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_keys_len_nonexistent_is_no_matches() {
     if !has_mcp_support() {
         return;

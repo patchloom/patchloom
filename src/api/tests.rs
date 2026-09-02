@@ -337,8 +337,10 @@ fn doc_keys_wildcard_multi_match_is_ambiguous() {
     );
     let msg = err.to_string();
     assert!(
-        (msg.contains("items[0]") || msg.contains("[0]")) && msg.contains("one object or array"),
-        "ambiguous keys must name a concrete index: {msg}"
+        (msg.contains("items[0]") || msg.contains("[0]"))
+            && msg.contains("one object")
+            && !msg.contains("or array"),
+        "ambiguous keys must name a concrete index and one object: {msg}"
     );
 }
 
@@ -362,6 +364,52 @@ fn doc_len_wildcard_multi_match_is_ambiguous() {
         (msg.contains("items[0]") || msg.contains("[0]")) && msg.contains("one object or array"),
         "ambiguous len must name a concrete index: {msg}"
     );
+}
+
+#[test]
+fn doc_keys_wildcard_one_or_zero_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    for body in [r#"{"items":[{"a":1}]}"#, r#"{"items":[]}"#] {
+        fs::write(&file, body).unwrap();
+        let err = doc_keys(&file, "items[*]").unwrap_err();
+        assert!(
+            crate::exit::is_ambiguous(&err),
+            "keys on items[*] ({body}) must be AmbiguousError, got: {err}"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::AmbiguousTarget)
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "ambiguous keys must name a concrete index: {msg}"
+        );
+    }
+}
+
+#[test]
+fn doc_len_wildcard_one_or_zero_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    for body in [r#"{"items":[{"a":1}]}"#, r#"{"items":[]}"#] {
+        fs::write(&file, body).unwrap();
+        let err = doc_len(&file, "items[*]").unwrap_err();
+        assert!(
+            crate::exit::is_ambiguous(&err),
+            "len on items[*] ({body}) must be AmbiguousError, got: {err}"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::AmbiguousTarget)
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "ambiguous len must name a concrete index: {msg}"
+        );
+    }
 }
 
 #[test]

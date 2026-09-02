@@ -39,7 +39,7 @@ pub enum DocAction {
     Keys {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path for one object or array (e.g. `database`, `items`).
+        /// Selector path for one object (e.g. `database`, `items[0]`).
         /// Defaults to `.` (document root) when omitted.
         #[arg(default_value = ".")]
         selector: String,

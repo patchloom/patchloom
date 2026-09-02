@@ -3714,6 +3714,72 @@ fn test_doc_len_wildcard_json_is_ambiguous() {
     );
 }
 
+#[test]
+fn test_doc_keys_wildcard_one_or_zero_json_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    for body in [r#"{"items":[{"a":1}]}"#, r#"{"items":[]}"#] {
+        fs::write(&file, body).unwrap();
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "keys"])
+            .arg(&file)
+            .arg("items[*]")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(5),
+            "keys on items[*] ({body}) must be AMBIGUOUS (5) not no_matches (3), stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], false, "{body} {v}");
+        assert_eq!(
+            v["error_kind"], "ambiguous",
+            "0- and 1-element items[*] must be ambiguous not no_matches: {body} {v}"
+        );
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("items[0]") || err.contains("[0]"),
+            "ambiguous keys must name a concrete index: {v}"
+        );
+    }
+}
+
+#[test]
+fn test_doc_len_wildcard_one_or_zero_json_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    for body in [r#"{"items":[{"a":1}]}"#, r#"{"items":[]}"#] {
+        fs::write(&file, body).unwrap();
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "len"])
+            .arg(&file)
+            .arg("items[*]")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(5),
+            "len on items[*] ({body}) must be AMBIGUOUS (5) not no_matches (3), stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], false, "{body} {v}");
+        assert_eq!(
+            v["error_kind"], "ambiguous",
+            "0- and 1-element items[*] must be ambiguous not no_matches: {body} {v}"
+        );
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("items[0]") || err.contains("[0]"),
+            "ambiguous len must name a concrete index: {v}"
+        );
+    }
+}
+
 /// `doc keys` on multi-doc root should name the array/index shape.
 /// Agents pass `.` for root (empty selector is awkward in clap); both must work.
 #[test]

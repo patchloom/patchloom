@@ -146,7 +146,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (exists, true/false), \"keys\" (keys of one object; omit selector for `.`; e.g. database or items[0]), \"len\" (length of one object or array; omit selector for `.`; e.g. items or database), \"select\" (filter via selector predicates, e.g. users[role=admin]; no separate predicate field), \"flatten\" (leaf paths). keys/len require a unique object or array; items[*] is fail-closed ambiguous (use items[0] / items[1]). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
+        description = "Query a JSON, YAML, or TOML file. Actions: \"has\" (exists, true/false), \"keys\" (keys of one object; omit selector for `.`; e.g. database or items[0]), \"len\" (length of one object or array; omit selector for `.`; e.g. items or database), \"select\" (filter via selector predicates, e.g. users[role=admin]; no separate predicate field), \"flatten\" (leaf paths). keys need one object; len needs one object or array; items[*] is fail-closed ambiguous (use items[0] / items[1]). Example: {\"action\": \"has\", \"path\": \"config.json\", \"selector\": \"database.host\"}"
     )]
     async fn doc_query(
         &self,
