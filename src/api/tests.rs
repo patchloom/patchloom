@@ -9675,9 +9675,35 @@ index e69de29..0000000\n";
         "regular-file delete snapshot must load the file text"
     );
     assert!(
+        result.changed,
+        "empty-hunk delete must report changed (identity changes row is still a delete)"
+    );
+    assert!(
+        result.new_content.is_empty(),
+        "deleted file new_content must be empty, not the pre-delete text"
+    );
+    assert!(
         !file.exists(),
         "deletion patch must unlink, not leave an empty file"
     );
+}
+
+/// Empty-file delete is still a change: orig == new == "" on the tx row.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn apply_patch_unified_delete_empty_file_reports_changed() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("empty.txt");
+    fs::write(&file, "").unwrap();
+    let patch = "\
+diff --git a/empty.txt b/empty.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let result = apply_patch(&file, patch, ApplyMode::Apply, None)
+        .expect("empty-hunk delete of an empty regular file");
+    assert!(result.changed, "empty-file delete must report changed");
+    assert!(result.new_content.is_empty());
+    assert!(!file.exists(), "deletion patch must unlink the empty file");
 }
 
 /// Unified-diff delete via `apply_patch` (tx loader) must not snapshot the
