@@ -3185,6 +3185,44 @@ async fn test_mcp_doc_len_multi_document_root() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_query_keys_len_empty_yaml() {
+    // #2283 sibling to keys/len fail-closed tests: empty YAML is `{}` on read.
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("empty.yaml"), "").unwrap();
+    fs::write(dir.path().join("ws.yaml"), "   \n  \n").unwrap();
+    fs::write(dir.path().join("empty.json"), "").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    for (path, action, expected) in [
+        ("empty.yaml", "keys", serde_json::json!([])),
+        ("empty.yaml", "len", serde_json::json!(0)),
+        ("ws.yaml", "keys", serde_json::json!([])),
+        ("ws.yaml", "len", serde_json::json!(0)),
+        ("empty.json", "keys", serde_json::json!([])),
+        ("empty.json", "len", serde_json::json!(0)),
+    ] {
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({"action": action, "path": path, "selector": "."}),
+        )
+        .await;
+        assert!(
+            !is_error,
+            "doc_query {action} on {path} must succeed, not type_error: {val}"
+        );
+        assert_eq!(
+            val, expected,
+            "doc_query {action} on {path} must match empty object: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_select_round_trip() {
     if !has_mcp_support() {
         return;

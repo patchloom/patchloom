@@ -842,6 +842,21 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
     }
 }
 
+/// Parse for read-only queries (keys/len/get/has).
+///
+/// Empty / whitespace-only YAML is `{}` so keys/len at `.` match empty
+/// JSON/TOML. Write bootstrap still uses [`parse_doc`] (empty YAML stays Null).
+pub fn parse_doc_for_query(
+    content: &str,
+    format: &FileFormat,
+) -> anyhow::Result<serde_json::Value> {
+    let value = parse_doc(content, format)?;
+    if matches!(format, FileFormat::Yaml) && content.trim().is_empty() && value.is_null() {
+        return Ok(serde_json::json!({}));
+    }
+    Ok(value)
+}
+
 /// Check whether YAML content contains multiple documents.
 ///
 /// A `---` on its own line is the YAML document separator. A single leading

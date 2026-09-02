@@ -256,6 +256,81 @@ fn test_doc_len_multi_document_root() {
 }
 
 #[test]
+fn test_doc_keys_len_empty_yaml_json_succeeds_like_empty_json() {
+    // #2283: empty / whitespace YAML keys/len at `.` must match empty JSON.
+    let dir = TempDir::new().unwrap();
+    for (name, body) in [
+        ("empty.yaml", ""),
+        ("ws.yaml", "   \n  \n"),
+        ("empty.json", ""),
+    ] {
+        let file = dir.path().join(name);
+        fs::write(&file, body).unwrap();
+
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "keys"])
+            .arg(&file)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{name} keys must succeed, stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], true, "{name} keys: {v}");
+        assert!(
+            v.get("error_kind").is_none(),
+            "{name} keys must be the ok path: {v}"
+        );
+        assert_eq!(v["value"], serde_json::json!([]), "{name} keys value: {v}");
+
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "len"])
+            .arg(&file)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{name} len must succeed, stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], true, "{name} len: {v}");
+        assert!(
+            v.get("error_kind").is_none(),
+            "{name} len must be the ok path: {v}"
+        );
+        assert_eq!(v["value"], 0, "{name} len value: {v}");
+    }
+}
+
+#[test]
+fn test_doc_set_empty_yaml_write_bootstrap_unchanged() {
+    // Lock today's write: empty YAML set emits a mapping, and parse_doc is
+    // not rewritten to `{}` (that would change CST/bootstrap). #2283
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("empty.yaml");
+    fs::write(&file, "").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["doc", "set", "empty.yaml", "name", "\"app\"", "--apply"])
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "name: app\n");
+}
+
+#[test]
 fn test_doc_get_typo_key_json_did_you_mean() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.toml");

@@ -63,6 +63,42 @@ mod basic {
     }
 
     #[test]
+    fn parse_empty_yaml_stays_null_for_write_bootstrap() {
+        // Write path uses parse_doc. Empty YAML must stay Null so `doc set`
+        // keeps the null-to-object bootstrap, not the JSON `{}` rewrite. #2283
+        assert_eq!(parse_doc("", &FileFormat::Yaml).unwrap(), json!(null));
+        assert_eq!(
+            parse_doc("   \n  \n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
+        let old = parse_doc("", &FileFormat::Yaml).unwrap();
+        let new = json!({"name": "app"});
+        let dumped = serialize_value_preserving("", &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(dumped, "name: app\n");
+    }
+
+    #[test]
+    fn parse_doc_for_query_empty_yaml_is_object() {
+        assert_eq!(
+            parse_doc_for_query("", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("   \n  \n", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("", &FileFormat::Json).unwrap(),
+            json!({})
+        );
+        // Explicit null is a scalar, not an empty file.
+        assert_eq!(
+            parse_doc_for_query("null\n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
+    }
+
+    #[test]
     fn parse_and_serialize_yaml_roundtrip() {
         let input = "a: 1\n";
         let val = parse_doc(input, &crate::ops::doc::FileFormat::Yaml).unwrap();

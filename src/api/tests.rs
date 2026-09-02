@@ -413,6 +413,85 @@ fn doc_len_wildcard_one_or_zero_match_is_ambiguous() {
 }
 
 #[test]
+fn doc_keys_and_len_empty_yaml_match_empty_json() {
+    // Empty / whitespace YAML is Null in parse_doc; keys/len at `.` must
+    // still succeed like empty JSON (`[]` / `0`). #2283
+    let dir = TempDir::new().unwrap();
+    for (name, body) in [
+        ("empty.yaml", ""),
+        ("ws.yaml", "   \n  \n"),
+        ("empty.json", ""),
+    ] {
+        let file = dir.path().join(name);
+        fs::write(&file, body).unwrap();
+        let keys = doc_keys(&file, ".").unwrap_or_else(|e| panic!("{name} keys at .: {e}"));
+        assert_eq!(keys, Vec::<String>::new(), "{name} keys at . must be []");
+        assert_eq!(
+            doc_len(&file, ".").unwrap_or_else(|e| panic!("{name} len at .: {e}")),
+            0,
+            "{name} len at . must be 0"
+        );
+        // get/has share load_doc_value; empty YAML root is the same object.
+        assert_eq!(
+            doc_get(&file, ".").unwrap_or_else(|e| panic!("{name} get at .: {e}")),
+            serde_json::json!({}),
+            "{name} get at . must be {{}}"
+        );
+        assert!(
+            doc_has(&file, ".").unwrap_or_else(|e| panic!("{name} has at .: {e}")),
+            "{name} has at . must be true"
+        );
+    }
+}
+
+#[test]
+fn doc_keys_explicit_yaml_null_is_type_error() {
+    // Only empty / whitespace YAML is normalized. An explicit null scalar
+    // stays a scalar.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("null.yaml");
+    fs::write(&file, "null\n").unwrap();
+    let err = doc_keys(&file, ".").unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&err),
+        "explicit YAML null must stay type_error, got: {err}"
+    );
+}
+
+#[test]
+fn doc_set_empty_yaml_write_bootstrap_unchanged() {
+    // parse_doc must keep empty YAML as Null so write bootstrap (null-to-object
+    // in set_at_path) is not rewritten to the JSON empty-object path. #2283
+    assert_eq!(
+        crate::ops::doc::parse_doc("", &crate::ops::doc::FileFormat::Yaml).unwrap(),
+        serde_json::Value::Null,
+        "parse_doc empty YAML must stay Null (write bootstrap)"
+    );
+    assert_eq!(
+        crate::ops::doc::parse_doc("   \n  \n", &crate::ops::doc::FileFormat::Yaml).unwrap(),
+        serde_json::Value::Null,
+        "parse_doc whitespace YAML must stay Null (write bootstrap)"
+    );
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("empty.yaml");
+    fs::write(&file, "").unwrap();
+    let result = doc_set(
+        &file,
+        "name",
+        serde_json::json!("app"),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(result.applied, "doc_set on empty YAML must apply");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "name: app\n",
+        "empty YAML set must keep today's mapping write, not JSON-style {{}}"
+    );
+}
+
+#[test]
 fn doc_delete_removes_key() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");

@@ -29,7 +29,7 @@ fn load_doc_value(path: &Path) -> anyhow::Result<serde_json::Value> {
     let path_str = path.to_string_lossy();
     let original = crate::files::load_text_strict(path, &path_str)?;
     let format = ops::doc::detect_format(&path_str)?;
-    ops::doc::parse_doc(&original, &format)
+    ops::doc::parse_doc_for_query(&original, &format)
 }
 
 /// Unified write path: delegates to the tx engine when available (cli/files),
