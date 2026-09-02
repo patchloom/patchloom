@@ -475,6 +475,11 @@ fn doc_keys_and_len_bom_zwsp_yaml_match_empty() {
             0,
             "{name} len at . must be 0"
         );
+        assert_eq!(
+            doc_get(&file, ".").unwrap_or_else(|e| panic!("{name} get at .: {e}")),
+            serde_json::json!({}),
+            "{name} get at . must be {{}}"
+        );
     }
 }
 
@@ -489,6 +494,25 @@ fn doc_keys_comment_only_yaml_is_type_error() {
     assert!(
         crate::exit::is_type_error(&err),
         "comment-only YAML must stay type_error, got: {err}"
+    );
+}
+
+#[test]
+fn doc_keys_document_marker_yaml_is_type_error() {
+    // Leading `---` is YAML preamble, not blank text. parse_doc_for_query
+    // keeps Null; keys/len at `.` must stay type_error.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("document.yaml");
+    fs::write(&file, "---\n").unwrap();
+    let keys_err = doc_keys(&file, ".").unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&keys_err),
+        "document-marker YAML keys must stay type_error, got: {keys_err}"
+    );
+    let len_err = doc_len(&file, ".").unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&len_err),
+        "document-marker YAML len must stay type_error, got: {len_err}"
     );
 }
 

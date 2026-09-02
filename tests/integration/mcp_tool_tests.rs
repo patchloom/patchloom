@@ -3193,6 +3193,8 @@ async fn test_mcp_doc_query_keys_len_empty_yaml() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("empty.yaml"), "").unwrap();
     fs::write(dir.path().join("ws.yaml"), "   \n  \n").unwrap();
+    fs::write(dir.path().join("bom.yaml"), "\u{feff}").unwrap();
+    fs::write(dir.path().join("zwsp.yaml"), "\u{200b}").unwrap();
     fs::write(dir.path().join("empty.json"), "").unwrap();
 
     let client = spawn_mcp_client(dir.path()).await;
@@ -3201,6 +3203,10 @@ async fn test_mcp_doc_query_keys_len_empty_yaml() {
         ("empty.yaml", "len", serde_json::json!(0)),
         ("ws.yaml", "keys", serde_json::json!([])),
         ("ws.yaml", "len", serde_json::json!(0)),
+        ("bom.yaml", "keys", serde_json::json!([])),
+        ("bom.yaml", "len", serde_json::json!(0)),
+        ("zwsp.yaml", "keys", serde_json::json!([])),
+        ("zwsp.yaml", "len", serde_json::json!(0)),
         ("empty.json", "keys", serde_json::json!([])),
         ("empty.json", "len", serde_json::json!(0)),
     ] {
@@ -3218,6 +3224,59 @@ async fn test_mcp_doc_query_keys_len_empty_yaml() {
             val, expected,
             "doc_query {action} on {path} must match empty object: {val}"
         );
+    }
+    for path in [
+        "empty.yaml",
+        "ws.yaml",
+        "bom.yaml",
+        "zwsp.yaml",
+        "empty.json",
+    ] {
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_get",
+            serde_json::json!({"path": path, "selector": "."}),
+        )
+        .await;
+        assert!(!is_error, "doc_get on {path} must succeed: {val}");
+        assert_eq!(
+            val,
+            serde_json::json!({}),
+            "doc_get on {path} must be {{}}: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_keys_len_comment_null_document_yaml_is_type_error() {
+    // MCP: # hi / explicit null / --- stay type_error on keys/len.
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("comment.yaml"), "# hi\n").unwrap();
+    fs::write(dir.path().join("null.yaml"), "null\n").unwrap();
+    fs::write(dir.path().join("document.yaml"), "---\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    for path in ["comment.yaml", "null.yaml", "document.yaml"] {
+        for action in ["keys", "len"] {
+            let (is_error, val) = call_tool_value(
+                &client,
+                "doc_query",
+                serde_json::json!({"action": action, "path": path, "selector": "."}),
+            )
+            .await;
+            assert!(
+                is_error,
+                "doc_query {action} on {path} must be is_error: {val}"
+            );
+            assert_eq!(
+                val["error_kind"], "type_error",
+                "doc_query {action} on {path} must set error_kind type_error: {val}"
+            );
+        }
     }
     client.cancel().await.unwrap();
 }

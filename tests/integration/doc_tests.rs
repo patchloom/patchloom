@@ -257,11 +257,14 @@ fn test_doc_len_multi_document_root() {
 
 #[test]
 fn test_doc_keys_len_empty_yaml_json_succeeds_like_empty_json() {
-    // #2283: empty / whitespace YAML keys/len at `.` must match empty JSON.
+    // #2283: empty / whitespace / BOM / ZWSP YAML keys/len/get at `.`
+    // must match empty JSON. has is true for both Null and `{}`.
     let dir = TempDir::new().unwrap();
     for (name, body) in [
         ("empty.yaml", ""),
         ("ws.yaml", "   \n  \n"),
+        ("bom.yaml", "\u{feff}"),
+        ("zwsp.yaml", "\u{200b}"),
         ("empty.json", ""),
     ] {
         let file = dir.path().join(name);
@@ -308,6 +311,75 @@ fn test_doc_keys_len_empty_yaml_json_succeeds_like_empty_json() {
             "{name} len must be the ok path: {v}"
         );
         assert_eq!(v["value"], 0, "{name} len value: {v}");
+
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "get"])
+            .arg(&file)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{name} get must succeed, stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], true, "{name} get: {v}");
+        assert!(
+            v.get("error_kind").is_none(),
+            "{name} get must be the ok path: {v}"
+        );
+        assert_eq!(v["value"], serde_json::json!({}), "{name} get value: {v}");
+    }
+}
+
+#[test]
+fn test_doc_keys_len_comment_null_document_yaml_is_type_error() {
+    // cargo-bin: # hi / explicit null / --- stay type_error on keys/len.
+    let dir = TempDir::new().unwrap();
+    for (name, body) in [
+        ("comment.yaml", "# hi\n"),
+        ("null.yaml", "null\n"),
+        ("document.yaml", "---\n"),
+    ] {
+        let file = dir.path().join(name);
+        fs::write(&file, body).unwrap();
+
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "keys"])
+            .arg(&file)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{name} keys must be type_error exit 1, stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], false, "{name} keys: {v}");
+        assert_eq!(v["error_kind"], "type_error", "{name} keys error_kind: {v}");
+
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "len"])
+            .arg(&file)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(1),
+            "{name} len must be type_error exit 1, stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], false, "{name} len: {v}");
+        assert_eq!(v["error_kind"], "type_error", "{name} len error_kind: {v}");
     }
 }
 

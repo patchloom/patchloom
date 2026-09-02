@@ -185,11 +185,14 @@ mod basic {
 
     #[test]
     fn keys_and_len_empty_yaml_json_succeeds_like_empty_json() {
-        // #2283: empty / whitespace YAML keys/len at `.` must not type_error.
+        // #2283: empty / whitespace / BOM / ZWSP YAML keys/len/get at `.`
+        // must match empty JSON. has is true for both Null and `{}`.
         let dir = TempDir::new().unwrap();
         for (name, body) in [
             ("empty.yaml", ""),
             ("ws.yaml", "   \n  \n"),
+            ("bom.yaml", "\u{feff}"),
+            ("zwsp.yaml", "\u{200b}"),
             ("empty.json", ""),
         ] {
             let path = write_file(&dir, name, body);
@@ -212,7 +215,7 @@ mod basic {
 
             let (output, code) = execute_with_mode(
                 &DocAction::Len {
-                    file: path,
+                    file: path.clone(),
                     selector: ".".into(),
                 },
                 OutputMode::Json,
@@ -226,6 +229,61 @@ mod basic {
                 "{name} len must be the ok path, not error_kind: {v}"
             );
             assert_eq!(v["value"], serde_json::json!(0), "{name} len value: {v}");
+
+            let (output, code) = execute_with_mode(
+                &DocAction::Get {
+                    file: path,
+                    selector: ".".into(),
+                },
+                OutputMode::Json,
+            )
+            .unwrap();
+            assert_eq!(code, exit::SUCCESS, "{name} get exit: {output}");
+            let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+            assert_eq!(v["ok"], true, "{name} get ok: {v}");
+            assert!(
+                v.get("error_kind").is_none(),
+                "{name} get must be the ok path, not error_kind: {v}"
+            );
+            assert_eq!(v["value"], serde_json::json!({}), "{name} get value: {v}");
+        }
+    }
+
+    #[test]
+    fn keys_and_len_comment_null_document_yaml_is_type_error() {
+        // # hi / explicit null / --- stay scalars. Do not remap to {}.
+        let dir = TempDir::new().unwrap();
+        for (name, body) in [
+            ("comment.yaml", "# hi\n"),
+            ("null.yaml", "null\n"),
+            ("document.yaml", "---\n"),
+        ] {
+            let path = write_file(&dir, name, body);
+            let (output, code) = execute_with_mode(
+                &DocAction::Keys {
+                    file: path.clone(),
+                    selector: ".".into(),
+                },
+                OutputMode::Json,
+            )
+            .unwrap();
+            assert_eq!(code, exit::FAILURE, "{name} keys exit: {output}");
+            let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+            assert_eq!(v["ok"], false, "{name} keys ok: {v}");
+            assert_eq!(v["error_kind"], "type_error", "{name} keys error_kind: {v}");
+
+            let (output, code) = execute_with_mode(
+                &DocAction::Len {
+                    file: path,
+                    selector: ".".into(),
+                },
+                OutputMode::Json,
+            )
+            .unwrap();
+            assert_eq!(code, exit::FAILURE, "{name} len exit: {output}");
+            let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+            assert_eq!(v["ok"], false, "{name} len ok: {v}");
+            assert_eq!(v["error_kind"], "type_error", "{name} len error_kind: {v}");
         }
     }
 
