@@ -1,0 +1,44 @@
+# Known false positives for first-pass workflow sanity (#2279).
+# Prefer per-file ignores over disabling a rule entirely so new hits stay red.
+rules:
+  # github.actor checks are the documented gate for the release App and Dependabot.
+  bot-conditions:
+    ignore:
+      - auto-approve.yml
+      - dependabot-auto-merge.yml
+  # create-github-app-token inherits installation permissions; the App is scoped
+  # in GitHub settings (contents/PRs), not via permission-* inputs.
+  github-app:
+    ignore:
+      - auto-approve.yml
+      - dependabot-auto-merge.yml
+      - release.yml
+      - update-branches.yml
+  # pull_request_target is required so GITHUB_TOKEN can approve/title-check.
+  # Neither workflow checks out PR head.
+  dangerous-triggers:
+    ignore:
+      - dependabot-auto-merge.yml
+      - pr-title.yml
+  # Pages deploy and release-please need these writes at workflow scope.
+  excessive-permissions:
+    ignore:
+      - docs.yml
+      - release.yml
+  # Trusted tag_name / cargo-dist matrix values, not attacker-controlled PR text.
+  template-injection:
+    ignore:
+      - bench.yml
+      - release.yml
+  # cargo-dist matrix.container.image is generated; no free-form image input.
+  unpinned-images:
+    ignore:
+      - release.yml
+  # Host job must push generated files with the App token.
+  artipacked:
+    ignore:
+      - release.yml
+  # publish-crates is workflow_call-only and needs the parent registry tokens.
+  secrets-inherit:
+    ignore:
+      - release.yml

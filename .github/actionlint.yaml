@@ -1,0 +1,5 @@
+# GitHub-hosted runners only. Custom labels belong here if that changes.
+# actionlint v1.7.12 does not know the `code-quality` permission; CI passes
+# `-ignore 'unknown permission scope "code-quality"'` (see ci-github-actions-gotchas).
+self-hosted-runner:
+  labels: []

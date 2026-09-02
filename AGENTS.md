@@ -19,13 +19,15 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make test-library-hygiene` | Enforce pure-library embedder set: clippy + tests under `--no-default-features --features "ast,files"` (catches dead_code, hygiene for #800 #802) |
 | `make test-mcp-no-ast` | Lib tests with `mcp,cli,files` and no `ast` (MCP inventory/router/instructions honesty) |
 | `make clippy` | Run `cargo clippy --all-targets --all-features -- -D warnings` |
-| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme, server-json-test, verify-homebrew-version-test, scoop-manifest-test, chocolatey-package-test, pack-mcpb-test, force-release-version-test |
-| `make check-fast` | Fast check: same as `check` minus `check-patchloom-md` (still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, and `force-release-version-test` so test-count, MCP Registry, and packaging-script drift fail locally before CI) |
+| `make check` | Run fmt-check, clippy, test, test-no-default, test-ast-only, test-mcp-no-ast, test-library-hygiene, integration-test, pty-test, verify-release-notes, audit-test-hygiene, check-patchloom-md, check-readme, server-json-test, verify-homebrew-version-test, scoop-manifest-test, chocolatey-package-test, pack-mcpb-test, force-release-version-test, workflow-sanity-test |
+| `make check-fast` | Fast check: same as `check` minus `check-patchloom-md` (still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`, and `workflow-sanity-test` so test-count, MCP Registry, and packaging-script drift fail locally before CI) |
 | `make server-json-test` | Lock `server.json` MCP Registry constraints (description ≤100 chars; part of `check`) |
 | `make verify-homebrew-version-test` | Unit tests for `scripts/verify-homebrew-version.sh` (release tap version assert helpers; part of `check`) |
 | `make scoop-manifest-test` | Unit tests for `scripts/update-scoop-manifest.py` (Scoop release publish; part of `check`) |
 | `make chocolatey-package-test` | Unit tests for `scripts/update-chocolatey-package.py` (Chocolatey release publish; part of `check`) |
 | `make force-release-version-test` | Unit tests for `scripts/test_force_release_version.py` (Release-As preferred path; part of `check`) |
+| `make workflow-sanity-test` | Lock CI `workflow-sanity` job, path filter, and pinned actionlint/zizmor (part of `check`) |
+| `make workflow-sanity` | Optional local actionlint + zizmor; skips if the tools are not installed (not part of `check`) |
 | `make update-readme` | Update README.md rounded test count (only changes when hundreds digit changes) |
 | `make check-readme` | Verify README.md rounded test count is accurate (part of `check`) |
 | `make sync-patchloom-md` | Regenerate PATCHLOOM.md from `patchloom agent-rules` output |

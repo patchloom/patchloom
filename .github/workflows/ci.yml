@@ -41,6 +41,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
@@ -58,6 +59,11 @@ jobs:
               - 'server.json'
               - '.github/actions/**'
               - '.github/workflows/ci.yml'
+            workflows:
+              - '.github/workflows/**'
+              - '.github/actions/**'
+              - '.github/zizmor.yml'
+              - '.github/actionlint.yaml'
 
   build-and-test:
     needs: [changes]
@@ -809,18 +815,48 @@ jobs:
       - name: Run cargo deny
         run: cargo deny check
 
+  workflow-sanity:
+    name: Workflow sanity
+    needs: [changes]
+    if: >
+      always()
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+      && (needs.changes.result == 'skipped' || needs.changes.outputs.workflows == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install actionlint and zizmor
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2
+        with:
+          tool: actionlint@1.7.12,zizmor@1.30.0
+      - name: actionlint
+        run: |
+          actionlint -color \
+            -ignore 'unknown permission scope "code-quality"' \
+            -ignore 'shellcheck reported issue'
+      - name: zizmor
+        run: zizmor --persona=regular --min-severity=medium .github/workflows .github/actions
+
   ci:
     # Lightweight gate that satisfies the "ci" required status check.
     # Reports success when build-and-test passes OR was skipped (docs-only,
     # draft, or release-please light path). Skipped expensive jobs count as OK.
-    needs: [build-and-test, ci-windows, ci-wsl, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny]
+    needs: [build-and-test, ci-windows, ci-wsl, ci-macos, msrv, msrv-macos, coverage, bench, fuzz, agent-dry-run, audit, deny, workflow-sanity]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
       - name: Gate
         run: |
-          results=("$BUILD" "$WINDOWS" "$WSL" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY")
+          results=("$BUILD" "$WINDOWS" "$WSL" "$MACOS" "$MSRV" "$MSRV_MACOS" "$COV" "$BENCH" "$FUZZ" "$AGENT" "$AUDIT" "$DENY" "$SANITY")
           for r in "${results[@]}"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "Upstream job failed or was cancelled: $r"
@@ -840,3 +876,4 @@ jobs:
           AGENT: ${{ needs.agent-dry-run.result }}
           AUDIT: ${{ needs.audit.result }}
           DENY: ${{ needs.deny.result }}
+          SANITY: ${{ needs.workflow-sanity.result }}
