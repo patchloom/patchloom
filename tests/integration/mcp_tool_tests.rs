@@ -6623,6 +6623,50 @@ async fn test_mcp_apply_patch_begin_patch_delete_symlink_outside_target() {
     let _ = fs::remove_file(&outside);
 }
 
+/// Unified-diff delete of a workspace symlink whose target is outside must
+/// not follow (entry PathGuard + empty snapshot). Same matrix as Begin Patch.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_unified_delete_symlink_outside_target() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = dir
+        .path()
+        .parent()
+        .unwrap()
+        .join("pl-mcp-unified-patch-symlink-target.txt");
+    fs::write(&outside, "SECRET=outside-do-not-leak\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let diff = "\
+diff --git a/link.txt b/link.txt
+deleted file mode 100644
+index e69de29..0000000
+";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        !is_error,
+        "unified delete of in-workspace symlink must not follow target: {val}"
+    );
+    let dumped = val.to_string();
+    assert!(
+        !dumped.contains("SECRET=outside-do-not-leak"),
+        "tx/MCP JSON must not snapshot symlink target bytes: {val}"
+    );
+    assert!(!link.exists(), "link removed");
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "SECRET=outside-do-not-leak\n",
+        "outside target must not be deleted"
+    );
+    client.cancel().await.unwrap();
+    let _ = fs::remove_file(&outside);
+}
+
 #[tokio::test]
 async fn test_mcp_apply_patch_begin_patch_update() {
     if !has_mcp_support() {

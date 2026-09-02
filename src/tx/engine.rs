@@ -322,7 +322,7 @@ fn execute_plan_inner(
 
     // PathGuard enforcement (same pattern as lifecycle.rs execute_plan_direct).
     // Use GuardRejected (not InvalidInput) so edit_error_kind peels correctly (#1935).
-    // FileDelete / FileRename / PatchApply pure renames use entry mode (#2115).
+    // FileDelete / FileRename / PatchApply rename+delete use entry mode (#2115).
     if let Some(g) = options.guard {
         for op in &operations {
             super::execute::enforce_guard_for_op(g, op)?;

@@ -9518,6 +9518,42 @@ fn apply_patch_begin_patch_delete_symlink_outside_does_not_leak_target() {
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
 }
 
+/// Unified-diff delete via `apply_patch` (tx loader) must not snapshot the
+/// outside symlink target. Empty-hunk git delete; no PathGuard so a follow
+/// load leaks into `original_content` on the unfixed path.
+#[cfg(unix)]
+#[test]
+fn apply_patch_unified_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let patch = "\
+diff --git a/link.txt b/link.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("unified delete of workspace symlink");
+    assert!(
+        !result.original_content.contains(PAYLOAD.trim()),
+        "delete snapshot must not follow symlink: {:?}",
+        result.original_content
+    );
+    assert!(
+        !result.diff.contains(PAYLOAD.trim()),
+        "diff must not leak outside target: {}",
+        result.diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
 #[test]
 fn apply_patch_file_case_only_rename_preserves_inode_content() {
     let dir = TempDir::new().unwrap();

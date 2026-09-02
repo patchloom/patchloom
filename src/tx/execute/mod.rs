@@ -31,9 +31,9 @@ pub(crate) use policy::{build_write_policy, build_write_policy_with_plan};
 ///
 /// [`Operation::FileDelete`] / [`Operation::FileRename`] use entry mode
 /// (no-follow last component, #2115). [`Operation::PatchApply`] is
-/// per-file: pure/git renames use entry mode; content hunks use follow
-/// mode so symlink smuggling stays blocked (MPI 2026-08-02 / MCP
-/// `apply_patch` pure rename of workspace link → outside target).
+/// per-file: git rename and unified delete use entry mode; content hunks
+/// use follow mode so symlink smuggling stays blocked (MPI 2026-08-02 /
+/// MCP `apply_patch` of workspace link → outside target).
 pub(crate) fn enforce_guard_for_op(
     g: &crate::containment::PathGuard,
     op: &Operation,
@@ -65,7 +65,7 @@ pub(crate) fn enforce_guard_for_op(
         // Parse failure deferred to apply time (same as declared_paths).
         if let Ok(files) = crate::ops::patch::parse_patch(diff) {
             for pf in files {
-                if pf.rename_from.is_some() {
+                if pf.uses_entry_containment() {
                     g.check_path_entry(&pf.path)
                         .map_err(crate::fallback::EditError::guard_rejected)?;
                     if let Some(from) = &pf.rename_from {

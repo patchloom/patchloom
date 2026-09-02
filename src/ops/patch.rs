@@ -59,6 +59,13 @@ impl PatchFile {
         }
     }
 
+    /// True when dest/source should use entry PathGuard (no-follow last
+    /// component): git rename and file delete (file_delete snapshot rule).
+    #[must_use]
+    pub fn uses_entry_containment(&self) -> bool {
+        self.rename_from.is_some() || self.is_deletion
+    }
+
     /// Dest and source paths this file entry would touch (C-unescaped).
     #[must_use]
     pub fn declared_paths(&self) -> Vec<String> {
@@ -1269,7 +1276,9 @@ where
         let pure_copy = pf.copy_from.is_some() && pf.hunks.is_empty();
         let original = if pf.copy_from.is_some() {
             load_original(load_path)?
-        } else if pf.is_creation {
+        } else if pf.is_creation || (pf.is_deletion && pf.hunks.is_empty()) {
+            // Creation and empty-hunk delete: do not load. load_original
+            // follows symlinks; file_delete snapshot is the caller's job.
             String::new()
         } else {
             match load_original(load_path) {
