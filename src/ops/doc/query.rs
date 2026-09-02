@@ -176,8 +176,9 @@ pub(crate) fn similar_object_key_hint(root: &serde_json::Value, selector: &str) 
 
 /// Append a sibling-key did-you-mean when one is close.
 ///
-/// Shared by CLI `doc get`/`keys`/`len` and library `api::doc_get` so
-/// whole-key hints (hyphenated names) are not CLI-only.
+/// Shared by CLI `doc get`/`keys`/`len`, library `api::doc_get`, write-nav
+/// NoMatch, and plan `doc.update` so whole-key hints (hyphenated names)
+/// are not read-only.
 pub(crate) fn with_similar_object_key_hint(
     mut msg: String,
     root: &serde_json::Value,

@@ -662,6 +662,41 @@ fn doc_append_to_array() {
 }
 
 #[test]
+fn doc_append_typo_key_hints_sibling() {
+    // Write-nav NoMatch must include the selector and whole-key did-you-mean.
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    fs::write(&file, r#"{"database":[1]}"#).unwrap();
+
+    let err = doc_append(
+        &file,
+        "databse",
+        serde_json::json!(9),
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap_err();
+    assert!(
+        err.downcast_ref::<crate::exit::NoMatchError>().is_some(),
+        "expected NoMatchError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch),
+        "must keep error_kind no_matches, got: {err}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("databse"),
+        "expected selector in write miss, got: {msg}"
+    );
+    assert!(
+        msg.contains("did you mean: database?"),
+        "expected sibling-key hint, got: {msg}"
+    );
+}
+
+#[test]
 fn doc_move_renames_key() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.json");

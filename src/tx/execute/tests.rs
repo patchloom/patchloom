@@ -717,6 +717,53 @@ fn execute_and_collect_preserves_no_match_error_kind() {
     }
 }
 
+#[test]
+fn execute_and_collect_doc_update_typo_includes_did_you_mean() {
+    // Strict doc.update no-match must keep NoMatchError and name the selector
+    // plus a whole-key sibling hint (write path parity with doc get).
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("data.json");
+    std::fs::write(&file, r#"{"database":{"port":5432}}"#).unwrap();
+
+    let plan = Plan {
+        version: crate::plan::SCHEMA_VERSION,
+        operations: vec![Operation::DocUpdate {
+            path: "data.json".into(),
+            selector: "databse".into(),
+            value: serde_json::json!({"port": 1}),
+        }],
+        write_policy: None,
+        strict: None,
+        format: None,
+        validate: None,
+        verify: None,
+        cwd: None,
+        for_each: None,
+    };
+    let ctx = crate::tx::context::EngineContext::from_global(
+        &GlobalFlags::default(),
+        dir.path().to_path_buf(),
+    );
+    match execute_and_collect(&plan, &ctx, true, false, None) {
+        Ok(_) => panic!("expected NoMatch for typo selector"),
+        Err(err) => {
+            assert!(
+                crate::exit::is_no_match(&err),
+                "NoMatch must survive execute wrap: {err:#}"
+            );
+            let msg = err.to_string();
+            assert!(
+                msg.contains("databse"),
+                "expected selector in doc.update miss, got: {msg}"
+            );
+            assert!(
+                msg.contains("did you mean: database?"),
+                "expected sibling-key hint, got: {msg}"
+            );
+        }
+    }
+}
+
 /// rename a→b then create a: both paths must exist with correct content.
 /// Stale tx.renames used to fs::rename a→b and skip writing resurrected a.
 #[test]
