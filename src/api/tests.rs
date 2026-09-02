@@ -9742,6 +9742,93 @@ index e69de29..0000000\n";
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
 }
 
+/// Content patch on a workspace symlink must load the target text (#2290).
+/// The tx loader used to return `""` for every non-regular entry, so an
+/// add-only hunk overwrote the target with just the added lines.
+#[cfg(unix)]
+#[test]
+fn apply_patch_add_only_hunk_through_symlink_preserves_target() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.txt");
+    const BODY: &str = "alpha\nbeta\ngamma\n";
+    fs::write(&real, BODY).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let patch = "\
+--- a/link.txt
++++ b/link.txt
+@@ -0,0 +1,1 @@
++INJECTED
+";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("content patch through a live symlink");
+    assert!(result.changed);
+    let on_disk = fs::read_to_string(&real).unwrap();
+    assert_eq!(
+        on_disk, "INJECTED\nalpha\nbeta\ngamma\n",
+        "add-only hunk must prepend, not replace the target: {on_disk:?}"
+    );
+    assert!(
+        link.symlink_metadata().unwrap().file_type().is_symlink(),
+        "write-through must keep the symlink entry"
+    );
+}
+
+/// Context hunk on a symlink must apply against the target, not stale-fail
+/// against an empty original (#2290).
+#[cfg(unix)]
+#[test]
+fn apply_patch_context_hunk_through_symlink_applies() {
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.txt");
+    fs::write(&real, "alpha\nbeta\ngamma\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let patch = "\
+--- a/link.txt
++++ b/link.txt
+@@ -1,3 +1,3 @@
+-alpha
++ALPHA
+ beta
+ gamma
+";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("context hunk through a live symlink");
+    assert!(result.changed);
+    assert_eq!(fs::read_to_string(&real).unwrap(), "ALPHA\nbeta\ngamma\n");
+}
+
+/// Missing empty-hunk delete must peel `not_found` on Apply and Check (#2291).
+/// The no-default `patch_write` arm used to report Check as `changed: true`.
+#[test]
+fn apply_patch_delete_missing_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("gone.txt");
+    let patch = "\
+diff --git a/gone.txt b/gone.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let apply_err = apply_patch(&missing, patch, ApplyMode::Apply, None)
+        .expect_err("missing delete must error on Apply");
+    assert_eq!(
+        crate::fallback::error_kind_str(&apply_err),
+        Some("not_found"),
+        "Apply missing delete must peel not_found: {apply_err}"
+    );
+    assert!(
+        crate::fallback::is_not_found(&apply_err),
+        "Apply missing delete is_not_found: {apply_err}"
+    );
+    let check_err = apply_patch(&missing, patch, ApplyMode::Check, None)
+        .expect_err("missing delete must error on Check, not changed:true");
+    assert_eq!(
+        crate::fallback::error_kind_str(&check_err),
+        Some("not_found"),
+        "Check missing delete must peel not_found: {check_err}"
+    );
+}
+
 #[test]
 fn apply_patch_file_case_only_rename_preserves_inode_content() {
     let dir = TempDir::new().unwrap();
