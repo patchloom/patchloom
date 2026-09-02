@@ -72,7 +72,7 @@
 //! whose target is outside the root can still be unlinked (#2115). Content
 //! writes (`replace`, `doc_*`, append) stay on follow mode so they cannot
 //! smuggle writes outside the root through a link. Reads (diff computation,
-//! `doc_get`, search) may still observe paths outside the guard; the host
+//! `doc_get` / `doc_keys` / `doc_len`, search) may still observe paths outside the guard; the host
 //! controls visibility. MCP and CLI `--contain` use the same entry vs follow
 //! split for delete/rename. `execute_plan` pre-checks declared paths with
 //! the matching mode per op.
@@ -140,6 +140,8 @@
 //!   without a host remove+recreate loop (#1962); hardlinks stay on the normal
 //!   Apply write path
 //! - [`doc_merge`]: optional `selector` for multi-doc YAML (`Some("0")`)
+//! - [`doc_keys`] / [`doc_len`]: object keys and array/object length; empty
+//!   or `"."` is the document root (array keys → `TypeError`; #2280)
 //!
 //! ## Frozen `error_kind_str` contract for embedders (#1964)
 //!

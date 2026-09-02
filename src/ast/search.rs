@@ -69,7 +69,7 @@ pub fn search_query(
         let mut captures = Vec::new();
         let mut primary_node = None;
 
-        for cap in m.captures {
+        for cap in m.captures() {
             let name = query.capture_names()[cap.index as usize].to_string();
             let text = cap
                 .node

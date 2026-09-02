@@ -350,9 +350,9 @@ These are the main entry points. If you are deciding between commands, start her
 
 ## Library API
 
-Patchloom can be used as a Rust library (disable default `cli` feature for smaller dep). See `patchloom::api` (search_directory with context/globs/max_results, replace_text, read, etc) and `execute_plan` for tx. Full details and examples in crate docs and README "Embedding as a library". Recent expansions (#779 etc) and hygiene (#784) improved coverage.
+Patchloom can be used as a Rust library (disable default `cli` feature for smaller dep). See `patchloom::api` (search_directory with context/globs/max_results, replace_text, read, `doc_get` / `doc_keys` / `doc_len`, etc) and `execute_plan` for tx. Full details and examples in crate docs and README "Embedding as a library". Recent expansions (#779 etc) and hygiene (#784) improved coverage.
 
-- **Related:** `search`, `doc get`
+- **Related:** `search`, `doc get`, `doc keys`, `doc len`
 
 <!-- ref:command:status -->
 ## `status`
@@ -1414,6 +1414,7 @@ The operations below are the building blocks inside `operations`.
 | Path binary preflight | `api::is_binary_file` / `files::is_binary_file` (8 KiB NUL probe; open fail → false; #1884 / #1910); writers still enforce binary on apply |
 | Text I/O honesty | Sole path: `api::load_text` / `files::load_text_strict` (binary → `Binary` / `binary`, invalid UTF-8 → `InvalidEncoding` / `invalid_encoding`; #1894 / #1910 / #1963); peels: `api::is_binary` / `is_invalid_encoding` / `is_load_text_strict_fail`; walks: `try_read_text_file` / `SoftTextSkip` / `read_text_file` (`NotRegularFile` / `not_regular_file` for FIFO/socket/dir; #2122); tx probe `read_and_probe` (content soft, IO hard); sole helper `ops::file::sole_explicit_non_text`; multi-path `explicit_multi_path_non_text_refused` (search/replace/tidy; specials not dropped via `is_file`); patch file+targets Strict (#1896) |
 | Multi-doc library merge | `api::doc_merge(path, value, mode, guard, selector)` with `Some("0")` / `Some("[0]")` for document 0; root object overlay on multi-doc is `TypeError` (#1909) |
+| Document keys / length | `api::doc_keys(path, selector)` / `api::doc_len(path, selector)` (#2280). Empty or `"."` is the document root. Keys on an array (including multi-doc YAML root) is `TypeError`. Missing selector is `NoMatch`. |
 | Line-oriented insert | `insert_before` / `insert_after` default (#1885): newline when payload looks like a new line or anchor is whole-line; mid-line bare stays byte-exact |
 | Shell token rename | `ReplaceOptions.command_position` / `ContentEdit::Replace` (#1666) |
 | Scoped symbol replace (literal/regex) | `ast_replace_in_symbol` + `AstReplaceInSymbolOptions.regex` (#1658) |
