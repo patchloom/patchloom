@@ -9613,6 +9613,74 @@ fn apply_patch_file_hunked_delete_matching_minus_unlinks() {
     assert!(!file.exists(), "matching hunked delete must unlink");
 }
 
+/// Prefix `+++ /dev/null` hunk that matches must rewrite leftover bytes,
+/// not unlink. `apply_patch_file` used to stage Delete after any successful
+/// apply_hunks.
+#[test]
+fn apply_patch_file_hunked_delete_leftover_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect("prefix hunked delete with leftover");
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    assert!(
+        file.exists(),
+        "leftover after hunked delete must stay on disk, not unlink"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line3\n",
+        "leftover line must remain after prefix delete hunk"
+    );
+    assert_eq!(results[0].new_content, "line3\n");
+}
+
+/// No-default `apply_patch` used to unlink every `+++ /dev/null` without
+/// apply_hunks. Stale context must fail closed (same class as apply_patch_file).
+#[cfg(not(any(feature = "cli", feature = "files")))]
+#[test]
+fn apply_patch_hunked_delete_stale_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "changed\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let err = apply_patch(&file, patch, ApplyMode::Apply, None)
+        .expect_err("stale hunked delete must fail closed");
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("ambiguous"),
+        "stale deletion hunk must peel ambiguous: {err}"
+    );
+    assert!(
+        file.exists(),
+        "stale hunked delete must not remove the file"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+/// Prefix `+++ /dev/null` hunk on the no-default arm must rewrite leftover
+/// bytes, not unlink.
+#[cfg(not(any(feature = "cli", feature = "files")))]
+#[test]
+fn apply_patch_hunked_delete_leftover_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let result = apply_patch(&file, patch, ApplyMode::Apply, None)
+        .expect("prefix hunked delete with leftover");
+    assert!(result.changed);
+    assert!(
+        file.exists(),
+        "leftover after hunked delete must stay on disk, not unlink"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "line3\n");
+    assert_eq!(result.new_content, "line3\n");
+}
+
 /// Unified-diff delete of a workspace symlink must not snapshot the outside
 /// target (same file_delete backup rule as Begin Patch Delete).
 #[cfg(unix)]

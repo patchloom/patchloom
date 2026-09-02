@@ -168,36 +168,59 @@ fn patch_write(
                 )
                 .into());
             }
-            let original = if crate::ops::file::is_regular_file_for_backup(&load_path) {
-                crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
-            } else {
-                String::new()
-            };
-            let (applied, backup_session) = if mode == ApplyMode::Apply {
-                super::ensure_contained_entry(guard, &load_path)?;
-                super::apply_mutation(
-                    &load_path,
-                    mode,
-                    None,
-                    |backup| backup.save_before_delete(&load_path),
-                    || {
-                        std::fs::remove_file(&load_path).map_err(|e| {
-                            anyhow::anyhow!(
-                                "patch delete: failed to remove {}: {e}",
-                                load_path.display()
-                            )
-                        })
-                    },
-                )?
-            } else {
-                super::ensure_contained_entry(guard, &load_path)?;
-                (false, None)
-            };
-            let mut result =
-                super::build_edit_result(&pf.path, original, String::new(), applied, "patch", None);
-            result.backup_session = backup_session;
-            result.changed = true;
-            return Ok(result);
+            match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
+                HunkedDeleteOutcome::Delete { original } => {
+                    let (applied, backup_session) = if mode == ApplyMode::Apply {
+                        super::ensure_contained_entry(guard, &load_path)?;
+                        super::apply_mutation(
+                            &load_path,
+                            mode,
+                            None,
+                            |backup| backup.save_before_delete(&load_path),
+                            || {
+                                std::fs::remove_file(&load_path).map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "patch delete: failed to remove {}: {e}",
+                                        load_path.display()
+                                    )
+                                })
+                            },
+                        )?
+                    } else {
+                        super::ensure_contained_entry(guard, &load_path)?;
+                        (false, None)
+                    };
+                    let mut result = super::build_edit_result(
+                        &pf.path,
+                        original,
+                        String::new(),
+                        applied,
+                        "patch",
+                        None,
+                    );
+                    result.backup_session = backup_session;
+                    result.changed = true;
+                    return Ok(result);
+                }
+                HunkedDeleteOutcome::Rewrite {
+                    original,
+                    new_content,
+                } => {
+                    let policy = crate::write::WritePolicy::default();
+                    let (applied, backup_session) =
+                        super::write_if_apply(&write_path, &new_content, mode, &policy, guard)?;
+                    let mut result = super::build_edit_result(
+                        &pf.path,
+                        original,
+                        new_content,
+                        applied,
+                        "patch",
+                        None,
+                    );
+                    result.backup_session = backup_session;
+                    return Ok(result);
+                }
+            }
         }
         // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
         // 100% copy loads source bytes as text when possible; dest is still written.
@@ -209,17 +232,8 @@ fn patch_write(
             crate::files::load_text_strict(&load_path, load_rel)?
         };
 
-        let new_content = ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
-            if e.contains("stale context") {
-                anyhow::Error::new(crate::exit::AmbiguousError {
-                    msg: format!("patch apply error: {e}"),
-                })
-            } else {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("patch apply error: {e}"),
-                })
-            }
-        })?;
+        let new_content = ops::patch::apply_hunks(&original, &pf.hunks)
+            .map_err(|e| map_apply_hunks_err(&pf.path, e))?;
 
         let policy = crate::write::WritePolicy::default();
         let (applied, backup_session) =
@@ -246,6 +260,63 @@ fn patch_write(
         }
     } else {
         anyhow::bail!("expected PatchApply operation")
+    }
+}
+
+fn map_apply_hunks_err(path: &str, e: String) -> anyhow::Error {
+    if e.contains("stale context") {
+        anyhow::Error::new(crate::exit::AmbiguousError {
+            msg: format!("patch apply error for {path}: {e}"),
+        })
+    } else {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("patch apply error for {path}: {e}"),
+        })
+    }
+}
+
+/// Empty-hunk delete: no-load snapshot (regular file text; symlink / FIFO /
+/// socket stay empty). Hunked: load + apply. Empty applied → Delete
+/// (symlink snapshot empty). Leftover applied → Rewrite (original=loaded).
+enum HunkedDeleteOutcome {
+    Delete {
+        original: String,
+    },
+    Rewrite {
+        original: String,
+        new_content: String,
+    },
+}
+
+fn deletion_after_hunks(
+    load_path: &Path,
+    load_rel: &str,
+    hunks: &[crate::ops::patch::Hunk],
+    display_path: &str,
+) -> anyhow::Result<HunkedDeleteOutcome> {
+    if hunks.is_empty() {
+        let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
+            crate::files::load_text_strict(load_path, load_rel).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        return Ok(HunkedDeleteOutcome::Delete { original });
+    }
+    let loaded = crate::files::load_text_strict(load_path, load_rel)?;
+    let applied = crate::ops::patch::apply_hunks(&loaded, hunks)
+        .map_err(|e| map_apply_hunks_err(display_path, e))?;
+    if applied.is_empty() {
+        let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
+            loaded
+        } else {
+            String::new()
+        };
+        Ok(HunkedDeleteOutcome::Delete { original })
+    } else {
+        Ok(HunkedDeleteOutcome::Rewrite {
+            original: loaded,
+            new_content: applied,
+        })
     }
 }
 
@@ -373,45 +444,38 @@ pub fn apply_patch_file(
         }
 
         if pf.is_deletion {
-            // Real unlink, not empty rewrite (tx/CLI parity).
-            // Empty-hunk git delete: no-load snapshot (symlink / FIFO /
-            // socket stay empty so PathGuard cannot leak target bytes).
-            // Hunked delete: load via load_text_strict (follow live
-            // symlink) and apply hunks first so stale context is
-            // ambiguous, same as apply_patch_with_loader.
-            let original = if pf.hunks.is_empty() {
-                if crate::ops::file::is_regular_file_for_backup(&load_path) {
-                    crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
-                } else {
-                    String::new()
+            // Real unlink only when applied text is empty (tx/CLI parity).
+            // Empty-hunk git delete: no-load snapshot. Hunked: load +
+            // apply; leftover bytes become a rewrite, not an unlink.
+            match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
+                HunkedDeleteOutcome::Delete { original } => {
+                    staged.push(StageOp::Delete {
+                        path: load_path,
+                        display: pf.path.clone(),
+                        original,
+                    });
+                    crate::ops::patch::record_staged_patch_dest(
+                        cwd,
+                        pf,
+                        &mut created,
+                        &mut deleted,
+                    );
                 }
-            } else {
-                let loaded = crate::files::load_text_strict(&load_path, load_rel)?;
-                crate::ops::patch::apply_hunks(&loaded, &pf.hunks).map_err(|e| {
-                    if e.contains("stale context") {
-                        anyhow::Error::new(crate::exit::AmbiguousError {
-                            msg: format!("patch apply error for {}: {e}", pf.path),
-                        })
-                    } else {
-                        anyhow::Error::new(crate::exit::InvalidInputError {
-                            msg: format!("patch apply error for {}: {e}", pf.path),
-                        })
-                    }
-                })?;
-                // Snapshot still follows file_delete: empty for symlink /
-                // FIFO / socket so EditResult cannot leak target bytes.
-                if crate::ops::file::is_regular_file_for_backup(&load_path) {
-                    loaded
-                } else {
-                    String::new()
+                HunkedDeleteOutcome::Rewrite {
+                    original,
+                    new_content,
+                } => {
+                    staged.push(StageOp::Write {
+                        write_path: write_path.clone(),
+                        display: pf.path.clone(),
+                        original,
+                        new_content,
+                        is_creation: false,
+                    });
+                    deleted.remove(&write_path);
+                    created.insert(write_path);
                 }
-            };
-            staged.push(StageOp::Delete {
-                path: load_path,
-                display: pf.path.clone(),
-                original,
-            });
-            crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
+            }
             continue;
         }
 
@@ -434,17 +498,8 @@ pub fn apply_patch_file(
         let new_content = if pure_rename {
             original.clone()
         } else {
-            crate::ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
-                if e.contains("stale context") {
-                    anyhow::Error::new(crate::exit::AmbiguousError {
-                        msg: format!("patch apply error for {}: {e}", pf.path),
-                    })
-                } else {
-                    anyhow::Error::new(crate::exit::InvalidInputError {
-                        msg: format!("patch apply error for {}: {e}", pf.path),
-                    })
-                }
-            })?
+            crate::ops::patch::apply_hunks(&original, &pf.hunks)
+                .map_err(|e| map_apply_hunks_err(&pf.path, e))?
         };
 
         if let Some(from) = pf.rename_from.as_ref() {
