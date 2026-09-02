@@ -356,6 +356,44 @@ mod tests {
     }
 
     #[test]
+    fn default_grammars_load_on_tree_sitter_027() {
+        // tree-sitter 0.27 can reject older language ABIs at set_language.
+        let langs = [
+            Language::Rust,
+            Language::TypeScript,
+            Language::JavaScript,
+            Language::Python,
+            Language::Go,
+            Language::Java,
+            Language::CSharp,
+            Language::Ruby,
+            Language::Php,
+            Language::Swift,
+            Language::Kotlin,
+            Language::Cpp,
+            Language::C,
+            Language::Hcl,
+            Language::Xml,
+            Language::Protobuf,
+            Language::Toml,
+            Language::Yaml,
+            Language::Json,
+            Language::Shell,
+        ];
+        for lang in langs {
+            assert!(
+                lang.has_grammar(),
+                "{lang} must be in the default grammar set"
+            );
+            let ts_lang = ts_language_for(lang).unwrap_or_else(|| panic!("{lang} grammar missing"));
+            let mut parser = tree_sitter_lib::Parser::new();
+            parser.set_language(&ts_lang).unwrap_or_else(|e| {
+                panic!("{lang} rejected by tree-sitter 0.27: {e}");
+            });
+        }
+    }
+
+    #[test]
     fn display_formatting() {
         assert_eq!(Language::Rust.to_string(), "Rust");
         assert_eq!(Language::CSharp.to_string(), "C#");
