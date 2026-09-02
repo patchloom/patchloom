@@ -264,6 +264,90 @@ fn doc_keys_and_len_missing_is_no_match() {
 }
 
 #[test]
+fn doc_keys_missing_nope_is_not_found() {
+    let err = doc_keys(std::path::Path::new("nope"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "missing nope must peel as not_found (CLI load-first order), got: {err}"
+    );
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "missing nope must keep io::NotFound in the chain for downcast: {err}"
+    );
+}
+
+#[test]
+fn doc_len_missing_nope_txt_is_not_found() {
+    let err = doc_len(std::path::Path::new("nope.txt"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "missing nope.txt must peel as not_found, got: {err}"
+    );
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "missing nope.txt must keep io::NotFound in the chain: {err}"
+    );
+}
+
+#[test]
+fn doc_get_missing_nope_is_not_found() {
+    let err = doc_get(std::path::Path::new("nope"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "doc_get shares load_doc_value; missing nope must be not_found, got: {err}"
+    );
+    assert!(crate::exit::is_io_not_found(&err), "got: {err}");
+}
+
+#[test]
+fn doc_has_missing_nope_txt_is_not_found() {
+    let err = doc_has(std::path::Path::new("nope.txt"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "doc_has shares load_doc_value; missing nope.txt must be not_found, got: {err}"
+    );
+    assert!(crate::exit::is_io_not_found(&err), "got: {err}");
+}
+
+#[test]
+fn doc_keys_wildcard_multi_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"a":1},{"b":2}]}"#).unwrap();
+
+    let err = doc_keys(&file, "items[*]").unwrap_err();
+    assert!(
+        crate::exit::is_ambiguous(&err),
+        "keys on items[*] must be AmbiguousError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::AmbiguousTarget)
+    );
+}
+
+#[test]
+fn doc_len_wildcard_multi_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"a":1},{"b":2}]}"#).unwrap();
+
+    let err = doc_len(&file, "items[*]").unwrap_err();
+    assert!(
+        crate::exit::is_ambiguous(&err),
+        "len on items[*] must be AmbiguousError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::AmbiguousTarget)
+    );
+}
+
+#[test]
 fn doc_delete_removes_key() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");

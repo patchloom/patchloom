@@ -86,9 +86,10 @@ pub enum QueryKeysResult {
 
 /// Get the keys of an object at a selector path.
 ///
-/// When the selector matches multiple values, returns keys of the first match.
-/// Bare object keys at an array root (multi-doc YAML) return
-/// [`crate::exit::TypeErrorError`] like [`query_get`] / [`query_has`].
+/// When the selector matches more than one value, returns
+/// [`crate::exit::AmbiguousError`]. Bare object keys at an array root
+/// (multi-doc YAML) return [`crate::exit::TypeErrorError`] like
+/// [`query_get`] / [`query_has`].
 pub fn query_keys(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryKeysResult> {
     let segments = selector::parse_anyhow(selector)?;
     let results = selector::eval_result(root, &segments)?;
@@ -97,6 +98,15 @@ pub fn query_keys(root: &serde_json::Value, selector: &str) -> anyhow::Result<Qu
             return Err(crate::exit::TypeErrorError { msg: hint }.into());
         }
         return Ok(QueryKeysResult::NoMatch);
+    }
+    if results.len() > 1 {
+        return Err(crate::exit::AmbiguousError {
+            msg: format!(
+                "doc keys: selector '{selector}' matched {} values; use a unique path",
+                results.len()
+            ),
+        }
+        .into());
     }
     match results[0].as_object() {
         Some(obj) => Ok(QueryKeysResult::Keys(obj.keys().cloned().collect())),
@@ -115,8 +125,9 @@ pub enum QueryLenResult {
 
 /// Get the length of an array or object at a selector path.
 ///
-/// When the selector matches multiple values, returns the length of the first match.
-/// Bare object keys at an array root return type_error like [`query_get`].
+/// When the selector matches more than one value, returns
+/// [`crate::exit::AmbiguousError`]. Bare object keys at an array root
+/// return type_error like [`query_get`].
 pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryLenResult> {
     let segments = selector::parse_anyhow(selector)?;
     let results = selector::eval_result(root, &segments)?;
@@ -126,6 +137,15 @@ pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<Que
         }
         return Ok(QueryLenResult::NoMatch);
     }
+    if results.len() > 1 {
+        return Err(crate::exit::AmbiguousError {
+            msg: format!(
+                "doc len: selector '{selector}' matched {} values; use a unique path",
+                results.len()
+            ),
+        }
+        .into());
+    }
     let target = results[0];
     let len = target
         .as_array()
@@ -134,6 +154,84 @@ pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<Que
     match len {
         Some(n) => Ok(QueryLenResult::Len(n)),
         None => Ok(QueryLenResult::NotArrayOrObject),
+    }
+}
+
+fn is_root_selector(selector: &str) -> bool {
+    selector.is_empty() || selector == "."
+}
+
+fn query_selector(selector: &str) -> &str {
+    if is_root_selector(selector) {
+        ""
+    } else {
+        selector
+    }
+}
+
+/// Object keys at a selector, mapped to typed errors for API and CLI.
+///
+/// Empty / `"."` are the document root. Failures are
+/// [`crate::exit::NoMatchError`], [`crate::exit::TypeErrorError`], or
+/// [`crate::exit::AmbiguousError`].
+pub fn keys_at(root: &serde_json::Value, selector: &str) -> anyhow::Result<Vec<String>> {
+    let query = query_selector(selector);
+    match query_keys(root, query)? {
+        QueryKeysResult::NoMatch => Err(crate::exit::NoMatchError {
+            msg: with_similar_object_key_hint(
+                format!("no match for selector: {selector}"),
+                root,
+                query,
+            ),
+        }
+        .into()),
+        QueryKeysResult::NotAnObject => {
+            let msg = if is_root_selector(selector) && root.is_array() {
+                "doc keys: target is a top-level array (multi-document YAML or JSON \
+                 array); use a document/element index first, e.g. keys on `0` or `[0]`"
+                    .to_string()
+            } else {
+                let display = if is_root_selector(selector) {
+                    "."
+                } else {
+                    selector
+                };
+                format!("doc keys: target at '{display}' is not an object")
+            };
+            Err(crate::exit::TypeErrorError { msg }.into())
+        }
+        QueryKeysResult::Keys(keys) => Ok(keys),
+    }
+}
+
+/// Array or object length at a selector, mapped to typed errors for API and CLI.
+///
+/// Empty / `"."` are the document root. Failures are
+/// [`crate::exit::NoMatchError`], [`crate::exit::TypeErrorError`], or
+/// [`crate::exit::AmbiguousError`].
+pub fn len_at(root: &serde_json::Value, selector: &str) -> anyhow::Result<usize> {
+    let query = query_selector(selector);
+    match query_len(root, query)? {
+        QueryLenResult::NoMatch => Err(crate::exit::NoMatchError {
+            msg: with_similar_object_key_hint(
+                format!("no match for selector: {selector}"),
+                root,
+                query,
+            ),
+        }
+        .into()),
+        QueryLenResult::NotArrayOrObject => {
+            let display = if is_root_selector(selector) {
+                "."
+            } else {
+                selector
+            };
+            Err(crate::exit::TypeErrorError {
+                msg: format!("doc len: target at '{display}' is not an array or object"),
+            }
+            .into())
+        }
+        QueryLenResult::Len(n) => Ok(n),
     }
 }
 
@@ -365,6 +463,66 @@ mod tests {
             query_keys(&doc, "nonexistent").unwrap(),
             QueryKeysResult::NoMatch
         ));
+    }
+
+    #[test]
+    fn keys_wildcard_multi_match_is_ambiguous() {
+        let doc = serde_json::json!({"items":[{"a":1},{"b":2}]});
+        let err = query_keys(&doc, "items[*]").expect_err("multi-match keys");
+        assert!(
+            crate::exit::is_ambiguous(&err),
+            "expected AmbiguousError, got: {err}"
+        );
+        let mapped = keys_at(&doc, "items[*]").expect_err("mapper");
+        assert!(
+            crate::exit::is_ambiguous(&mapped),
+            "keys_at must propagate AmbiguousError, got: {mapped}"
+        );
+    }
+
+    #[test]
+    fn len_wildcard_multi_match_is_ambiguous() {
+        let doc = serde_json::json!({"items":[{"a":1},{"b":2}]});
+        let err = query_len(&doc, "items[*]").expect_err("multi-match len");
+        assert!(
+            crate::exit::is_ambiguous(&err),
+            "expected AmbiguousError, got: {err}"
+        );
+        let mapped = len_at(&doc, "items[*]").expect_err("mapper");
+        assert!(
+            crate::exit::is_ambiguous(&mapped),
+            "len_at must propagate AmbiguousError, got: {mapped}"
+        );
+    }
+
+    #[test]
+    fn keys_at_maps_no_match_and_type_error() {
+        let doc = sample_doc();
+        let miss = keys_at(&doc, "nonexistent").expect_err("missing");
+        assert!(
+            crate::exit::is_no_match(&miss),
+            "keys_at missing must be NoMatchError, got: {miss}"
+        );
+        let typed = keys_at(&doc, "items").expect_err("array");
+        assert!(
+            crate::exit::is_type_error(&typed),
+            "keys_at on array must be TypeErrorError, got: {typed}"
+        );
+    }
+
+    #[test]
+    fn len_at_maps_no_match_and_type_error() {
+        let doc = sample_doc();
+        let miss = len_at(&doc, "nonexistent").expect_err("missing");
+        assert!(
+            crate::exit::is_no_match(&miss),
+            "len_at missing must be NoMatchError, got: {miss}"
+        );
+        let typed = len_at(&doc, "name").expect_err("scalar");
+        assert!(
+            crate::exit::is_type_error(&typed),
+            "len_at on scalar must be TypeErrorError, got: {typed}"
+        );
     }
 
     #[test]

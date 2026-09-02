@@ -3628,6 +3628,54 @@ fn test_doc_set_multi_document_bare_key_hints_index() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "a: 1\n---\nb: 2\n");
 }
 
+#[test]
+fn test_doc_keys_wildcard_json_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"a":1},{"b":2}]}"#).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "keys"])
+        .arg(&file)
+        .arg("items[*]")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "keys on items[*] must be AMBIGUOUS (5), stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
+}
+
+#[test]
+fn test_doc_len_wildcard_json_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"a":1},{"b":2}]}"#).unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "len"])
+        .arg(&file)
+        .arg("items[*]")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "len on items[*] must be AMBIGUOUS (5), stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["error_kind"], "ambiguous", "{v}");
+}
+
 /// `doc keys` on multi-doc root should name the array/index shape.
 /// Agents pass `.` for root (empty selector is awkward in clap); both must work.
 #[test]

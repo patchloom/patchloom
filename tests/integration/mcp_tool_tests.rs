@@ -2855,6 +2855,74 @@ async fn test_mcp_doc_len_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_query_keys_wildcard_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"a":1},{"b":2}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({
+            "action": "keys",
+            "path": "config.json",
+            "selector": "items[*]"
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "doc_query keys on items[*] must be is_error: {val}"
+    );
+    assert_eq!(
+        val["error_kind"], "ambiguous",
+        "doc_query keys multi-match must set error_kind ambiguous: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_len_wildcard_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"a":1},{"b":2}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({
+            "action": "len",
+            "path": "config.json",
+            "selector": "items[*]"
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "doc_query len on items[*] must be is_error: {val}"
+    );
+    assert_eq!(
+        val["error_kind"], "ambiguous",
+        "doc_query len multi-match must set error_kind ambiguous: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_keys_len_nonexistent_is_no_matches() {
     if !has_mcp_support() {
         return;
