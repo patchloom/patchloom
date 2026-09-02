@@ -258,7 +258,8 @@ pub(crate) struct DocQueryParams {
     pub action: String,
     /// File path (relative to working directory).
     pub path: String,
-    /// Dot-notation selector path to query. Required for has/keys/len/select; ignored for flatten.
+    /// Dot-notation selector path to query. Required for has/select.
+    /// Optional for keys/len (defaults to `.`, the document root). Ignored for flatten.
     /// Alias `key` accepted because agents often emit that name (LLM prior).
     #[serde(alias = "key")]
     pub selector: Option<String>,
@@ -840,6 +841,13 @@ mod tests {
             serde_json::from_str(r#"{"action":"has","path":"config.toml","key":"server.port"}"#)
                 .expect("key alias must deserialize");
         assert_eq!(p.selector.as_deref(), Some("server.port"));
+    }
+
+    #[test]
+    fn doc_query_params_omitted_selector_is_none() {
+        let p: DocQueryParams = serde_json::from_str(r#"{"action":"keys","path":"config.toml"}"#)
+            .expect("omitted selector must deserialize");
+        assert_eq!(p.selector, None);
     }
 
     #[test]

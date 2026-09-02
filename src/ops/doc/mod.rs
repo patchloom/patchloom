@@ -6,6 +6,7 @@
 
 use crate::selector;
 use serde::Deserialize;
+use std::collections::HashSet;
 use std::path::Path;
 
 mod navigate;
@@ -291,6 +292,9 @@ fn fix_yaml_block_indentation(text: &str) -> String {
 fn fix_yaml_block_indentation_with_original(original: Option<&str>, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut result: Vec<String> = Vec::with_capacity(lines.len());
+    // Probe once per finalize. Per-line `original.lines()` is O(n²) on CST retry.
+    let original_trim_ends: Option<HashSet<&str>> =
+        original.map(|orig| orig.lines().map(str::trim_end).collect());
 
     for i in 0..lines.len() {
         let line = lines[i];
@@ -329,8 +333,9 @@ fn fix_yaml_block_indentation_with_original(original: Option<&str>, text: &str) 
             if rest.len() - rest_trim.len() > 1
                 && (rest_trim.contains(": ") || rest_trim.ends_with(':'))
                 && !is_yaml_sequence_item(rest_trim)
-                && original
-                    .is_some_and(|orig| !orig.lines().any(|l| l.trim_end() == line.trim_end()))
+                && original_trim_ends
+                    .as_ref()
+                    .is_some_and(|orig| !orig.contains(line.trim_end()))
             {
                 result.push(format!("{}- {rest_trim}", " ".repeat(indent)));
                 continue;
@@ -362,8 +367,8 @@ fn fix_yaml_block_indentation_with_original(original: Option<&str>, text: &str) 
 
 /// After a block sequence item is emptied, yaml-edit 0.3 `Sequence::set`
 /// of `{}` / `[]` can drop the item newline and glue the next sibling
-/// (`- {}  - name: B`). Split that so semantic_eq accepts the CST
-/// instead of dumping (#2274 / #2275).
+/// (`- {}  - name: B`, or `- {}- name:` at document root). Split that
+/// so semantic_eq accepts the CST instead of dumping (#2274 / #2275).
 fn repair_glued_block_sequence_items(text: &str) -> String {
     let eol = crate::write::detect_eol(text);
     let mut lines: Vec<String> = Vec::new();
@@ -409,10 +414,17 @@ fn split_glued_block_sequence_line(line: &str) -> Option<(String, String)> {
     let pad = &after_dash[..pad_len];
     let first = format!("{}-{pad}{first_item}", &line[..indent_len]);
     let rest_trim = rest.trim_start();
-    if rest_trim.len() != rest.len() && is_yaml_sequence_item(rest_trim) {
+    // Nested items glue as `- {}  - name`. A document-root sequence
+    // glues with no spaces (`- {}- name: Othello`).
+    if is_yaml_sequence_item(rest_trim) {
         let between = &rest[..rest.len() - rest_trim.len()];
         if between.chars().all(|c| c == ' ' || c == '\t') {
-            return Some((first, format!("{between}{rest_trim}")));
+            let second = if between.is_empty() {
+                format!("{}{rest_trim}", &line[..indent_len])
+            } else {
+                format!("{between}{rest_trim}")
+            };
+            return Some((first, second));
         }
     }
     // Last-item empty: Sequence::set drops the newline before the next
@@ -655,8 +667,44 @@ fn try_preserve_yaml_object(
 fn finalize_yaml_cst_text(original: &str, cst: &str) -> String {
     fix_yaml_block_indentation_with_original(
         Some(original),
-        &repair_glued_block_sequence_items(&cleanup_yaml_cst_whitespace(cst)),
+        &repair_glued_empty_flow_after_colon(&repair_glued_block_sequence_items(
+            &cleanup_yaml_cst_whitespace(cst),
+        )),
     )
+}
+
+/// yaml-edit 0.3.1 parent-set of `{}` / `[]` can omit the space after
+/// colon (`key:{}`). serde_yaml_ng rejects that, so we dump and lose
+/// sibling anchors. Insert the missing space.
+fn repair_glued_empty_flow_after_colon(text: &str) -> String {
+    let eol = crate::write::detect_eol(text);
+    let mut lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        lines.push(repair_glued_empty_flow_line(line));
+    }
+    let mut out = lines.join(eol);
+    if text.ends_with('\n') && !out.ends_with('\n') {
+        out.push_str(eol);
+    }
+    out
+}
+
+fn repair_glued_empty_flow_line(line: &str) -> String {
+    let indent_len = line.len() - line.trim_start().len();
+    let trimmed = &line[indent_len..];
+    if is_yaml_sequence_item(trimmed) {
+        return line.to_string();
+    }
+    let Some((key, rest)) = trimmed.split_once(':') else {
+        return line.to_string();
+    };
+    if key.is_empty() || key.contains('#') {
+        return line.to_string();
+    }
+    if rest.starts_with("{}") || rest.starts_with("[]") {
+        return format!("{}{key}: {rest}", &line[..indent_len]);
+    }
+    line.to_string()
 }
 
 fn retry_yaml_cst_empties(
@@ -677,10 +725,18 @@ fn retry_yaml_cst_empties(
         let Ok(file) = yaml_edit::YamlFile::from_str(&text) else {
             return Ok(None);
         };
-        let Some(mapping) = file.document().and_then(|d| d.as_mapping()) else {
+        let Some(doc) = file.document() else {
             return Ok(None);
         };
-        apply_yaml_mapping_diff(&mapping, &current, new_value)?;
+        if let Some(mapping) = doc.as_mapping() {
+            apply_yaml_mapping_diff(&mapping, &current, new_value)?;
+        } else if let Some(seq) = doc.as_sequence()
+            && let (Some(old_arr), Some(new_arr)) = (current.as_array(), new_value.as_array())
+        {
+            apply_yaml_sequence_diff(&seq, old_arr, new_arr)?;
+        } else {
+            return Ok(None);
+        }
         let next = finalize_yaml_cst_text(original, &file.to_string());
         if yaml_semantic_eq(&next, new_value) {
             return Ok(Some(next));
@@ -708,11 +764,17 @@ fn try_preserve_yaml_array(
     } else {
         false
     };
-    if applied {
-        let result =
-            repair_glued_block_sequence_items(&cleanup_yaml_cst_whitespace(&file.to_string()));
+    // Same-length empties apply one `{}` per pass. Finalize the partial
+    // CST (glue + indent) and retry leftover empties like mapping-root.
+    if old_arr.len() == new_arr.len() || applied {
+        let result = finalize_yaml_cst_text(original_content, &file.to_string());
         if yaml_semantic_eq(&result, new_value) {
             return Ok(Some(result));
+        }
+        if !applied
+            && let Some(finished) = retry_yaml_cst_empties(original_content, &result, new_value)?
+        {
+            return Ok(Some(finished));
         }
     }
 

@@ -89,11 +89,14 @@ pub fn navigate_mut<'a>(
                                 );
                         }
                     }
-                    current.get_mut(k.as_str()).ok_or_else(|| {
-                        anyhow::Error::new(crate::exit::NoMatchError {
-                            msg: format!("key not found: {k}"),
-                        })
-                    })?
+                    if current.get(k.as_str()).is_none() {
+                        return Err(no_match_missing_key(
+                            current,
+                            k,
+                            format!("key not found: {k}"),
+                        ));
+                    }
+                    current.get_mut(k.as_str()).expect("present after get")
                 }
             }
             selector::Segment::Index(i) => current.get_mut(*i).ok_or_else(|| {
@@ -234,6 +237,13 @@ fn write_nav_suggested_op(op_context: &str) -> Option<&'static str> {
         // doc.set / doc.ensure / merge / append / prepend: point at multi-match update.
         Some("doc.update")
     }
+}
+
+/// Soft no-match for a missing object key, with a sibling-key did-you-mean.
+fn no_match_missing_key(parent: &serde_json::Value, key: &str, msg: String) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::NoMatchError {
+        msg: super::query::with_similar_object_key_hint(msg, parent, key),
+    })
 }
 
 /// Fail-closed predicate/wildcard error with optional machine-stable `suggested_op` (#2133).
@@ -470,15 +480,16 @@ pub fn move_at_path(
                         }));
                     }
                 } else {
-                    parent
-                        .as_object()
-                        .and_then(|obj| obj.get(k.as_str()))
-                        .ok_or_else(|| {
-                            anyhow::Error::new(crate::exit::NoMatchError {
-                                msg: format!("source key '{k}' not found"),
-                            })
-                        })?
-                        .clone()
+                    match parent.as_object().and_then(|obj| obj.get(k.as_str())) {
+                        Some(v) => v.clone(),
+                        None => {
+                            return Err(no_match_missing_key(
+                                parent,
+                                k,
+                                format!("source key '{k}' not found"),
+                            ));
+                        }
+                    }
                 }
             }
             selector::Segment::Index(i) => {

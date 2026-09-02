@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Patchloom!
 
 - Rust 1.95+ ([rustup.rs](https://rustup.rs/); see `rust-version` in `Cargo.toml`)
 - rustfmt and clippy: `rustup component add rustfmt clippy`
-- python3 (used by `audit-test-hygiene`, `server-json-test`, and `verify-homebrew-version-test`)
+- python3 (used by `audit-test-hygiene`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, and `force-release-version-test`)
 - A C toolchain so tree-sitter grammars can compile (Xcode Command Line Tools on macOS; `build-essential` on Debian/Ubuntu)
 - Git
 
@@ -20,7 +20,7 @@ cd patchloom
 make check
 ```
 
-`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), `server-json-test` (MCP Registry `server.json` description ≤100 chars), and `verify-homebrew-version-test` (release tap version-assert script helpers). It is the local Linux gate, not every GitHub required check: `audit`, `deny`, and Windows stay in CI. While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`).
+`make check` runs formatting, clippy, unit tests (all-features + no-default-features + ast-only + mcp-without-ast + library-hygiene), integration tests, PTY tests, release notes verification, test hygiene audit, generated-doc freshness checks (`check-patchloom-md`, `check-readme`), `server-json-test` (MCP Registry `server.json` description ≤100 chars), `verify-homebrew-version-test` (release tap version-assert script helpers), and packaging-script unit tests (`scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, `force-release-version-test`). It is the local Linux gate, not every GitHub required check: `audit`, `deny`, and Windows stay in CI. While iterating locally, `make check-fast` is almost the same but skips only `check-patchloom-md` (still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, and `force-release-version-test`).
 
 ## Issues and triage
 
@@ -73,8 +73,12 @@ This is a quick-reference subset. For the complete list, see [AGENTS.md](./AGENT
 | `make pty-test` | Run PTY-based interactive terminal tests (serial) |
 | `make clippy` | Run clippy with `-D warnings` |
 | `make check` | Local Linux gate (run before every commit). Does not include `audit`, `deny`, or Windows CI. |
-| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still runs `check-readme`, `server-json-test`, and `verify-homebrew-version-test`) |
+| `make check-fast` | Fast check (skips PATCHLOOM.md sync only; still runs `check-readme`, `server-json-test`, `verify-homebrew-version-test`, `scoop-manifest-test`, `chocolatey-package-test`, `pack-mcpb-test`, and `force-release-version-test`) |
 | `make verify-homebrew-version-test` | Unit tests for `scripts/verify-homebrew-version.sh` (part of `check`) |
+| `make scoop-manifest-test` | Unit tests for `scripts/update-scoop-manifest.py` (part of `check`) |
+| `make chocolatey-package-test` | Unit tests for `scripts/update-chocolatey-package.py` (part of `check`) |
+| `make pack-mcpb-test` | Unit tests for `scripts/pack-mcpb.sh` (skips full pack when `mcpb` CLI missing; part of `check`) |
+| `make force-release-version-test` | Unit tests for `scripts/test_force_release_version.py` (part of `check`) |
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033, library `for_each` + lifecycle shell preflight #2168/#2169, patch dest helpers + git copy #2170-#2176). Not part of `check`; run before tagging a release |
 | `make windows-smoke` | PowerShell dogfood (`scripts/windows-smoke.ps1`; peels, tx, CRLF, rename force/binary; backslash paths on Windows). Not part of `check`; CI `ci-windows`. Local `pwsh` on macOS/Linux supported. Requires `pwsh` |
 | `make audit` | Run `cargo audit` for known vulnerabilities (also in CI) |
@@ -114,6 +118,7 @@ See the "Adding a new MCP tool" section in [AGENTS.md](./AGENTS.md).
 | `make check-patchloom-md` | The agent-rules output changed. Run `make sync-patchloom-md` to regenerate `PATCHLOOM.md`. |
 | `make check-readme` | Test counts drifted. Run `make update-readme` to refresh `README.md`. |
 | `make server-json-test` | `server.json` description exceeds MCP Registry max (100 chars) or name drift. Shorten the description and re-run. |
+| `make scoop-manifest-test` / `chocolatey-package-test` / `pack-mcpb-test` / `force-release-version-test` | Packaging-script unit tests failed. Reproduce with the same make target; `pack-mcpb-test` skips the full pack when the `mcpb` CLI is missing. |
 
 ## License
 

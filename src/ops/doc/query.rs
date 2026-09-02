@@ -137,6 +137,59 @@ pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<Que
     }
 }
 
+/// Closest sibling object key for a missing selector path, if any.
+///
+/// Walks concrete key/index segments until the first miss, then ranks
+/// sibling keys as whole strings (no identifier tokenization).
+pub(crate) fn similar_object_key_hint(root: &serde_json::Value, selector: &str) -> Option<String> {
+    let segments = selector::parse(selector).ok()?;
+    let mut current = root;
+    for segment in &segments {
+        match segment {
+            selector::Segment::Key(key) => {
+                if let Some(next) = current.get(key.as_str()) {
+                    current = next;
+                    continue;
+                }
+                if current.is_array()
+                    && let Ok(idx) = key.parse::<usize>()
+                    && let Some(next) = current.get(idx)
+                {
+                    current = next;
+                    continue;
+                }
+                let obj = current.as_object()?;
+                return crate::fallback::find_similar_among(obj.keys().map(String::as_str), key, 1)
+                    .into_iter()
+                    .next();
+            }
+            selector::Segment::Index(idx) => {
+                current = current.get(*idx)?;
+            }
+            selector::Segment::Wildcard | selector::Segment::Predicate { .. } => {
+                return None;
+            }
+        }
+    }
+    None
+}
+
+/// Append a sibling-key did-you-mean when one is close.
+///
+/// Shared by CLI `doc get`/`keys`/`len`, library `api::doc_get`, write-nav
+/// NoMatch, and plan `doc.update` so whole-key hints (hyphenated names)
+/// are not read-only.
+pub(crate) fn with_similar_object_key_hint(
+    mut msg: String,
+    root: &serde_json::Value,
+    selector: &str,
+) -> String {
+    if let Some(hint) = similar_object_key_hint(root, selector) {
+        msg.push_str(&format!(" (did you mean: {hint}?)"));
+    }
+    msg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,6 +445,56 @@ mod tests {
             }
             QueryResult::NoMatch => panic!("expected match"),
         }
+    }
+
+    #[test]
+    fn similar_object_key_hint_finds_typo() {
+        let doc = serde_json::json!({"database": {"port": 5432}, "name": "app"});
+        assert_eq!(
+            similar_object_key_hint(&doc, "databse.port").as_deref(),
+            Some("database")
+        );
+        assert_eq!(
+            similar_object_key_hint(&doc, "database.prt").as_deref(),
+            Some("port")
+        );
+    }
+
+    #[test]
+    fn similar_object_key_hint_skips_unrelated() {
+        let doc = serde_json::json!({"database": {"port": 5432}});
+        assert_eq!(similar_object_key_hint(&doc, "xyzzy"), None);
+    }
+
+    #[test]
+    fn similar_object_key_hint_hyphenated_key_is_whole_string() {
+        // Tokenizing identifiers would split `database-url` and hint the
+        // absent token `database`. Rank sibling keys as whole strings.
+        let doc = serde_json::json!({"database-url": 1});
+        let hint = similar_object_key_hint(&doc, "databse-url");
+        assert_ne!(
+            hint.as_deref(),
+            Some("database"),
+            "must not hint a hyphen-split token that is not a key: {hint:?}"
+        );
+        assert!(
+            hint.as_deref() == Some("database-url") || hint.is_none(),
+            "expected whole key `database-url` or no hint, got {hint:?}"
+        );
+    }
+
+    #[test]
+    fn with_similar_object_key_hint_hyphenated_key_is_whole_string() {
+        let doc = serde_json::json!({"database-url": 1});
+        let msg = with_similar_object_key_hint("selector missed".into(), &doc, "databse-url");
+        assert!(
+            msg.contains("database-url"),
+            "expected whole-key hint, got: {msg}"
+        );
+        assert!(
+            !msg.contains("did you mean: database?"),
+            "must not hint hyphen-split token `database`: {msg}"
+        );
     }
 
     #[test]

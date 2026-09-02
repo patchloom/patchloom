@@ -664,6 +664,43 @@ fn similar_target_length_plausible(candidate: &str, target: &str) -> bool {
     shorter.saturating_mul(2) >= longer || longer - shorter <= 3
 }
 
+/// Rank whole-string candidates by Jaro-Winkler similarity.
+///
+/// Unlike [`find_similar_targets`], this does not tokenize `candidates`.
+/// Use it for object keys and other already-atomic strings (hyphenated
+/// names stay intact).
+pub(crate) fn find_similar_among<'a, I>(
+    candidates: I,
+    target: &str,
+    max_results: usize,
+) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    if target.is_empty() || max_results == 0 {
+        return vec![];
+    }
+
+    let mut scored: Vec<(String, f64)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for candidate in candidates {
+        if candidate.is_empty() || candidate == target || !seen.insert(candidate) {
+            continue;
+        }
+        if !similar_target_length_plausible(candidate, target) {
+            continue;
+        }
+        let score = strsim::jaro_winkler(candidate, target);
+        if score > SIMILAR_TARGET_MIN_SCORE {
+            scored.push((candidate.to_string(), score));
+        }
+    }
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(max_results);
+    scored.into_iter().map(|(s, _)| s).collect()
+}
+
 /// Find similar text targets in file content using Jaro-Winkler similarity.
 ///
 /// Extracts identifiers and substrings from the content and returns the top
@@ -673,46 +710,18 @@ pub fn find_similar_targets(content: &str, target: &str, max_results: usize) -> 
         return vec![];
     }
 
-    let mut candidates: Vec<(String, f64)> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-
-    // Extract word-like tokens from the content.
-    for line in content.lines() {
-        for word in extract_identifiers(line) {
-            if !seen.insert(word.clone()) {
-                continue;
-            }
-            if word == target || !similar_target_length_plausible(&word, target) {
-                continue;
-            }
-            let score = strsim::jaro_winkler(&word, target);
-            if score > SIMILAR_TARGET_MIN_SCORE {
-                candidates.push((word, score));
-            }
-        }
-    }
-
+    let mut tokens: Vec<String> = content.lines().flat_map(extract_identifiers).collect();
     // Also try matching against whole lines for multi-word patterns.
     if target.contains(' ') || target.len() > 20 {
-        for line in content.lines() {
-            let trimmed = line.trim().to_string();
-            if trimmed.is_empty() || seen.contains(&trimmed) {
-                continue;
-            }
-            seen.insert(trimmed.clone());
-            if trimmed == target || !similar_target_length_plausible(&trimmed, target) {
-                continue;
-            }
-            let score = strsim::jaro_winkler(&trimmed, target);
-            if score > SIMILAR_TARGET_MIN_SCORE {
-                candidates.push((trimmed, score));
-            }
-        }
+        tokens.extend(
+            content
+                .lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string),
+        );
     }
-
-    candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    candidates.truncate(max_results);
-    candidates.into_iter().map(|(s, _)| s).collect()
+    find_similar_among(tokens.iter().map(String::as_str), target, max_results)
 }
 
 /// Try anchor-based matching: find the target text using surrounding context lines.
@@ -1517,6 +1526,25 @@ mod tests {
     fn find_similar_targets_empty_target() {
         let similar = find_similar_targets("content", "", 3);
         assert!(similar.is_empty());
+    }
+
+    #[test]
+    fn find_similar_among_keeps_hyphenated_keys() {
+        let keys = ["database-url", "name"];
+        let similar = find_similar_among(keys, "databse-url", 1);
+        assert_eq!(similar, vec!["database-url".to_string()]);
+        assert!(!similar.iter().any(|s| s == "database"));
+    }
+
+    #[test]
+    fn find_similar_among_does_not_invent_absent_token() {
+        let keys = ["database-url"];
+        let similar = find_similar_among(keys, "databse-url", 3);
+        assert_ne!(similar.first().map(String::as_str), Some("database"));
+        assert!(
+            similar.is_empty() || similar == ["database-url"],
+            "whole-key rank must stay on present keys, got {similar:?}"
+        );
     }
 
     #[test]

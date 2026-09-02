@@ -111,7 +111,15 @@ pub enum Command {
     Init(init::InitArgs),
     /// Start an MCP (Model Context Protocol) server (stdio by default, Streamable HTTP with --http).
     #[cfg(feature = "mcp")]
-    #[command(display_order = 57)]
+    #[command(
+        display_order = 57,
+        after_help = "\
+ENVIRONMENT:
+  PATCHLOOM_MCP_SURFACE=core|full
+          Tool inventory at handshake (env only; no CLI flag). Unset or `full`
+          keeps the full inventory (product default). `core` registers the
+          11-tool pack for small agents. See README.md (MCP / coding agents)."
+    )]
     McpServer {
         /// Log every tool call to a JSONL file (tool name, duration, status).
         /// Also settable via PATCHLOOM_MCP_LOG env var; the flag takes precedence.

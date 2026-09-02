@@ -858,6 +858,7 @@ pub(crate) fn run_format_command_ext(
 
     // Priority 1: explicit --format command (whole-project)
     if let Some(cmd) = global.format.as_deref() {
+        refuse_contained_format_cmd(global, cmd)?;
         let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd).map_err(|e| {
             crate::exit::FormatFailedError::new(format!("format command failed ({cmd}): {e}"))
         })?;
@@ -888,6 +889,7 @@ pub(crate) fn run_format_command_ext(
 
     // Priority 2a: catch-all command
     if let Some(ref cmd) = config.command {
+        refuse_contained_format_cmd(global, cmd)?;
         let result = crate::exec::run_with_timeout(cmd, timeout_secs, cwd)?;
         if !result.status.success() && show_format_warn {
             eprintln!(
@@ -939,6 +941,7 @@ pub(crate) fn run_format_command_ext(
         if let Some(cmd_template) = config.by_extension.get(*ext) {
             for file in files {
                 let cmd = format!("{cmd_template} {}", shell_escape(file));
+                refuse_contained_format_cmd(global, cmd_template)?;
                 match crate::exec::run_with_timeout(&cmd, timeout_secs, cwd) {
                     Ok(result) if !result.status.success() && show_format_warn => {
                         eprintln!(
@@ -955,6 +958,53 @@ pub(crate) fn run_format_command_ext(
         }
     }
 
+    Ok(())
+}
+
+/// When `--contain` is on, refuse a format command that needs a shell for
+/// redirects, pipelines, or substitutions. Same scanner as plan lifecycle
+/// ([`crate::plan::refuse_lifecycle_shell_metas`]).
+#[cfg(feature = "cli")]
+pub(crate) fn refuse_contained_format_cmd(
+    global: &crate::cli::global::GlobalFlags,
+    cmd: &str,
+) -> anyhow::Result<()> {
+    if !global.contain {
+        return Ok(());
+    }
+    if let Err(e) = crate::plan::refuse_lifecycle_shell_metas(cmd) {
+        return Err(crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::GuardRejected,
+            format!("format command refused under --contain: {cmd:?} ({e})"),
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Preflight configured format commands before a contained write commits.
+#[cfg(feature = "cli")]
+pub(crate) fn refuse_contained_format_cmds(
+    global: &crate::cli::global::GlobalFlags,
+) -> anyhow::Result<()> {
+    if !global.contain || global.no_format {
+        return Ok(());
+    }
+    if let Some(cmd) = global.format.as_deref() {
+        return refuse_contained_format_cmd(global, cmd);
+    }
+    let Some(config) = global.format_config.as_ref() else {
+        return Ok(());
+    };
+    if config.auto != Some(true) {
+        return Ok(());
+    }
+    if let Some(cmd) = config.command.as_deref() {
+        return refuse_contained_format_cmd(global, cmd);
+    }
+    for cmd in config.by_extension.values() {
+        refuse_contained_format_cmd(global, cmd)?;
+    }
     Ok(())
 }
 

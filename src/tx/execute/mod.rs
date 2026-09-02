@@ -669,8 +669,16 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         }
         MutationResult::NoMatch if strict_no_match => {
             let label = op_label(op);
+            let selector = match op {
+                Operation::DocUpdate { selector, .. } => selector.as_str(),
+                _ => "",
+            };
             Err(crate::exit::NoMatchError {
-                msg: format!("{path}: {label} matched nothing"),
+                msg: crate::ops::doc::query::with_similar_object_key_hint(
+                    format!("{path}: {label} matched nothing for selector '{selector}'"),
+                    root,
+                    selector,
+                ),
             })?
         }
         MutationResult::NoMatch => {

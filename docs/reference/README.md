@@ -27,6 +27,7 @@ Patchloom write commands default to preview mode. The canonical semantics live i
 - **What it does:** Writes the requested change to disk.
 - **Use when:** You have already previewed the change, or you trust the command and want the mutation to happen now.
 - **Prefer instead:** Use `--diff` when reviewing, or `--check` when you only need a clean or dirty signal.
+- **Not from project config:** `[defaults] apply` in `.patchloom.toml` is ignored. Write mode is `--apply` / `--check` / `--diff` / `--confirm` only.
 
 <!-- ref:write-flag:check -->
 ### `--check`
@@ -90,6 +91,7 @@ These flags shape how written content is normalized before it reaches disk.
 - **Use when:** The repo has an autoformatter and you want Patchloom to invoke it after each mutation so files stay formatted.
 - **Prefer instead:** Omit when the formatter is already run separately, or when using `--diff`/`--check` modes (the command only fires on `--apply`).
 - **Failure behavior:** Non-zero exit or timeout exits **1** with `error_kind: "format_failed"` under `--json`/`--jsonl`. The write may already be on disk; JSON includes `backup_session` when a session was created, plus `applied: true` (canonical; #1831), `write_applied: true` (deprecated alias), `files_changed`, and `files[].path` for written paths (#1795). Use `undo` or re-run the formatter.
+- **Containment:** Under `--contain`, the command (including `[defaults] format` / `[format] command`) is scanned with the same shell-metacharacter refuse as plan lifecycle. Pipelines, `;`, redirects, and substitutions are `guard_rejected` and are not executed. Plain formatters such as `cargo fmt` still run. Without `--contain`, trusted local format is unchanged.
 
 <!-- ref:write-flag:format-timeout -->
 ### `--format-timeout`
@@ -146,6 +148,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** An agent or automation should not be able to read or write outside `--cwd` (or the process cwd). Pair with `--cwd` for a workspace root.
 - **Default:** Off. CLI remains unrestricted for human scripts (same trust model as `make` / `sh`).
 - **Prefer instead:** Use the MCP server when the agent already has MCP tools; containment is always on there (in-workspace absolute paths allowed; outside-workspace and `../` rejected).
+- **Format hooks:** Config and `--format` shell commands are run through the same metacharacter refuse as plan `format`/`validate` (`refuse_lifecycle_shell_metas`). `curl|sh` and `;` are not executed.
 
 <!-- ref:global-flag:glob -->
 ### `--glob`
@@ -430,6 +433,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
   - `--port <port>` (default: `8080`): Bind port (requires `--http`).
   - `--allow-unauthenticated`: Permit HTTP on a non-loopback bind. Streamable HTTP has no token.
   - `--tls-cert <path>` / `--tls-key <path>`: TLS certificate and key PEM files for HTTPS (requires `--http`; both must be provided together).
+- **Environment:** `PATCHLOOM_MCP_SURFACE=core|full` (env only; no CLI flag). Unset or `full` keeps the full inventory (product default). `core` registers the 11-tool pack for small agents. See [README.md](../../README.md) (MCP / coding agents).
 - **Failure behavior:** Invalid bind address, TLS config, or unauthenticated non-loopback `--host` without `--allow-unauthenticated` fails startup with `error_kind: "invalid_input"` when surfaced through typed error paths.
 - **Prefer instead:** Use the CLI directly when the agent does not support MCP, or when patchloom is invoked from scripts and CI.
 - **Related:** `batch`, `tx`
@@ -742,7 +746,7 @@ These are meaningful command-specific modes that change how a top-level command 
 
 Use these when the top level `doc` command is right, but you need a specific structured operation.
 
-**Comment and structure preservation:** All `doc` write operations preserve inline comments, section comments, and formatting in YAML and TOML files. The parser edits the concrete syntax tree (CST) directly, so only the changed values are rewritten while surrounding comments and whitespace stay intact. This includes operations that change array length (`append`, `prepend`, `delete-where`), which use text-level splicing to preserve comments on the affected file. For YAML, anchors (`&name`), aliases (`*name`), and merge keys (`<<: *name`) are kept when the edit does not require expanding them (for example, changing a sibling field that is not part of the shared defaults). Local overrides of merge-inherited keys add an explicit key beside `<<` rather than exploding the merged map. An interior edit of a pure mapping alias (`service_a: *shared` or a list item `- *shared`) becomes a merge (`<<: *shared` plus the local key) so sibling aliases stay aliases. Deleting an inherited key, or replacing the alias with a map that does not keep every inherited key, still writes a concrete map for that site; unrelated structure is left alone.
+**Comment and structure preservation:** All `doc` write operations preserve inline comments, section comments, and formatting in YAML and TOML files. The parser edits the concrete syntax tree (CST) directly, so only the changed values are rewritten while surrounding comments and whitespace stay intact. This includes operations that change array length (`append`, `prepend`, `delete-where`), which use text-level splicing to preserve comments on the affected file. For YAML, anchors (`&name`), aliases (`*name`), and merge keys (`<<: *name`) are kept when the edit does not require expanding them (for example, changing a sibling field that is not part of the shared defaults). Emptying one or more sequence items (including a document-root list, or nested arrays to `[]`) keeps those anchors and comments instead of dumping the document. Local overrides of merge-inherited keys add an explicit key beside `<<` rather than exploding the merged map. An interior edit of a pure mapping alias (`service_a: *shared` or a list item `- *shared`) becomes a merge (`<<: *shared` plus the local key) so sibling aliases stay aliases. Deleting an inherited key, or replacing the alias with a map that does not keep every inherited key, still writes a concrete map for that site; unrelated structure is left alone.
 
 **Multi-document YAML:** Streams with more than one `---` document are modeled as a JSON array (one element per document). Use a document index in the selector (`0.metadata.name`, `[1].spec.ports[0].port`). A bare top-level key on a multi-doc file fails with an actionable type error that points at the index form. `doc merge` of any overlay (object or array) into the multi-doc root is also `type_error` (would replace the whole stream). Successful writes re-serialize with `---` separators (not as a single YAML sequence), so `kubectl apply -f` style multi-doc files stay valid.
 
@@ -779,6 +783,7 @@ Predicates can be chained: `data[type=server][port>8000]`.
 ### `doc keys`
 
 - **What it does:** Lists the keys of an object at a selector path.
+- **Selector:** Optional; defaults to `.` (document root).
 - **Use when:** You want to inspect the shape of a structured object before choosing an edit.
 - **Prefer instead:** Use `doc get` when you already know the exact selector path you want.
 
@@ -786,6 +791,7 @@ Predicates can be chained: `data[type=server][port>8000]`.
 ### `doc len`
 
 - **What it does:** Counts items in an array or object.
+- **Selector:** Optional; defaults to `.` (document root).
 - **Use when:** You need a quick cardinality check in scripts, CI, or exploratory work.
 - **Prefer instead:** Use `doc select` or `doc get` when the actual values matter more than the count.
 

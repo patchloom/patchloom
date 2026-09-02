@@ -40,6 +40,8 @@ pub enum DocAction {
         /// File path (JSON, YAML, or TOML).
         file: String,
         /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Defaults to `.` (document root) when omitted.
+        #[arg(default_value = ".")]
         selector: String,
     },
     /// Count items in an array or object.
@@ -47,6 +49,8 @@ pub enum DocAction {
         /// File path (JSON, YAML, or TOML).
         file: String,
         /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Defaults to `.` (document root) when omitted.
+        #[arg(default_value = ".")]
         selector: String,
     },
     /// Set or create a value at a selector path.
@@ -527,6 +531,15 @@ fn format_no_match(error_msg: &str, mode: OutputMode, quiet: bool) -> anyhow::Re
     format_error(error_msg, mode, quiet, exit::NO_MATCHES, Some("no_matches"))
 }
 
+/// Soft no-match text, with a sibling-key did-you-mean when one is close.
+fn no_match_selector_msg(root: &serde_json::Value, selector: &str) -> String {
+    crate::ops::doc::query::with_similar_object_key_hint(
+        format!("no match for selector: {selector}"),
+        root,
+        selector,
+    )
+}
+
 /// Format an error result for the given output mode and exit code.
 ///
 /// In Json/Jsonl mode, wraps the message in a `{"ok": false, "error": ...}`
@@ -577,11 +590,9 @@ fn execute_with_mode_inner(
             crate::verbose!("doc: get/select file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_get(&root, selector)? {
-                crate::ops::doc::query::QueryResult::NoMatch => format_no_match(
-                    &format!("no match for selector: {selector}"),
-                    output_mode,
-                    quiet,
-                ),
+                crate::ops::doc::query::QueryResult::NoMatch => {
+                    format_no_match(&no_match_selector_msg(&root, selector), output_mode, quiet)
+                }
                 crate::ops::doc::query::QueryResult::Values(vals) => {
                     let value = if vals.len() == 1 {
                         vals.into_iter().next().unwrap_or(serde_json::Value::Null)
@@ -616,11 +627,9 @@ fn execute_with_mode_inner(
             crate::verbose!("doc: keys file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_keys(&root, selector)? {
-                crate::ops::doc::query::QueryKeysResult::NoMatch => format_no_match(
-                    &format!("no match for selector: {selector}"),
-                    output_mode,
-                    quiet,
-                ),
+                crate::ops::doc::query::QueryKeysResult::NoMatch => {
+                    format_no_match(&no_match_selector_msg(&root, selector), output_mode, quiet)
+                }
                 crate::ops::doc::query::QueryKeysResult::NotAnObject => {
                     // CLI root selector is `.` (not empty); empty remains for
                     // library/plan callers that pass "". Multi-doc YAML is a top-level
@@ -656,11 +665,9 @@ fn execute_with_mode_inner(
             crate::verbose!("doc: len file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
             match crate::ops::doc::query::query_len(&root, selector)? {
-                crate::ops::doc::query::QueryLenResult::NoMatch => format_no_match(
-                    &format!("no match for selector: {selector}"),
-                    output_mode,
-                    quiet,
-                ),
+                crate::ops::doc::query::QueryLenResult::NoMatch => {
+                    format_no_match(&no_match_selector_msg(&root, selector), output_mode, quiet)
+                }
                 crate::ops::doc::query::QueryLenResult::NotArrayOrObject => format_error(
                     &format!("doc len: target at '{selector}' is not an array or object"),
                     output_mode,

@@ -87,7 +87,7 @@ In tx plans, set these at the plan level:
 
 ## Project configuration
 
-Create a `.patchloom.toml` in your project root to set per-project defaults. CLI flags override config values.
+Create a `.patchloom.toml` in your project root to set per-project defaults for write policy, tx, exclude, and output. `[defaults] apply` is ignored; write mode is `--apply` / `--check` / `--diff` / `--confirm` only. CLI flags override other config values.
 
 ```toml
 [write_policy]

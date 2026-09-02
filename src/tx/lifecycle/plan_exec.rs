@@ -41,6 +41,7 @@ pub(crate) fn validate_and_prepare_plan(
     plan: &Plan,
     cwd: &Path,
     no_strict: bool,
+    output: Option<&GlobalFlags>,
 ) -> Result<(PathBuf, bool, GlobalFlags), Box<TxOutput>> {
     if plan.version != crate::plan::SCHEMA_VERSION {
         let msg = format!(
@@ -68,6 +69,11 @@ pub(crate) fn validate_and_prepare_plan(
     let strict = plan::effective_strict(plan.strict, config_strict, no_strict);
 
     let mut global = GlobalFlags::with_cwd(&effective_cwd);
+    if let Some(src) = output {
+        global.json = src.json;
+        global.jsonl = src.jsonl;
+        global.quiet = src.quiet;
+    }
     if let Some((config, _)) = crate::config::find_and_load(&effective_cwd) {
         crate::config::apply_config(&mut global, &config);
     }
@@ -96,10 +102,13 @@ pub fn execute_plan_direct(
         guard.is_some()
     );
 
-    let (effective_cwd, strict, global) = match validate_and_prepare_plan(&plan, cwd, false) {
-        Ok(v) => v,
-        Err(output) => return Ok(*output),
-    };
+    // Structured in-process API: never print human config warnings.
+    let output_flags = GlobalFlags::with_cwd_and_json(cwd);
+    let (effective_cwd, strict, global) =
+        match validate_and_prepare_plan(&plan, cwd, false, Some(&output_flags)) {
+            Ok(v) => v,
+            Err(output) => return Ok(*output),
+        };
 
     for op in &plan.operations {
         crate::backup::refuse_declared_paths_under_backup_dir(&effective_cwd, op)?;
@@ -421,7 +430,7 @@ mod tests {
     fn validate_and_prepare_plan_rejects_unsupported_version() {
         let dir = tempfile::TempDir::new().unwrap();
         let plan = minimal_plan(999);
-        let err = validate_and_prepare_plan(&plan, dir.path(), false).unwrap_err();
+        let err = validate_and_prepare_plan(&plan, dir.path(), false, None).unwrap_err();
         assert_eq!(err.error_kind.as_deref(), Some("parse_error"));
         let msg = err.error.as_deref().unwrap_or("");
         assert!(
@@ -434,9 +443,57 @@ mod tests {
     fn validate_and_prepare_plan_accepts_current_version() {
         let dir = tempfile::TempDir::new().unwrap();
         let plan = minimal_plan(crate::plan::SCHEMA_VERSION);
-        let (cwd, _strict, _global) =
-            validate_and_prepare_plan(&plan, dir.path(), false).expect("valid plan must prepare");
+        let (cwd, _strict, _global) = validate_and_prepare_plan(&plan, dir.path(), false, None)
+            .expect("valid plan must prepare");
         assert_eq!(cwd, dir.path());
+    }
+
+    #[test]
+    fn validate_and_prepare_plan_threads_json_from_caller() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[defaults]\napply = true\n",
+        )
+        .unwrap();
+        let plan = minimal_plan(crate::plan::SCHEMA_VERSION);
+        let flags = GlobalFlags::with_cwd_and_json(dir.path());
+        let _ = crate::config::take_config_warnings();
+        let (_, _, global) = validate_and_prepare_plan(&plan, dir.path(), false, Some(&flags))
+            .expect("valid plan must prepare");
+        assert!(global.json, "caller --json must survive plan prepare");
+        assert!(
+            !global.apply,
+            "repo [defaults] apply must stay ignored after prepare"
+        );
+        let warnings = crate::config::take_config_warnings();
+        assert!(
+            warnings
+                .iter()
+                .all(|w| !w.contains("apply = true is ignored")),
+            "json plan prepare must not emit apply-ignore warning: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn execute_plan_direct_does_not_print_defaults_apply_warning() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[defaults]\napply = true\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("test.txt"), "hello").unwrap();
+        let plan = minimal_plan(crate::plan::SCHEMA_VERSION);
+        let _ = crate::config::take_config_warnings();
+        execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+        let warnings = crate::config::take_config_warnings();
+        assert!(
+            warnings
+                .iter()
+                .all(|w| !w.contains("apply = true is ignored")),
+            "execute_plan_direct must not print apply-ignore warning: {warnings:?}"
+        );
     }
 
     #[test]
@@ -477,7 +534,7 @@ mod tests {
             verify: None,
             for_each: None,
         };
-        let err = validate_and_prepare_plan(&plan, dir.path(), false).unwrap_err();
+        let err = validate_and_prepare_plan(&plan, dir.path(), false, None).unwrap_err();
         assert_eq!(err.error_kind.as_deref(), Some("invalid_input"));
         let msg = err.error.as_deref().unwrap_or("");
         assert!(

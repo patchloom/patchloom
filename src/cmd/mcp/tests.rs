@@ -1185,6 +1185,24 @@ mod surface_core_tests {
         assert!(err.contains("PATCHLOOM_MCP_SURFACE"));
     }
 
+    #[test]
+    fn mcp_server_help_documents_surface_env() {
+        use clap::CommandFactory;
+        let cmd = crate::cli::Cli::command();
+        let mcp = cmd.find_subcommand("mcp-server").expect("mcp-server");
+        let mut buf = Vec::new();
+        mcp.clone().write_long_help(&mut buf).unwrap();
+        let help = String::from_utf8(buf).unwrap();
+        assert!(
+            help.contains("PATCHLOOM_MCP_SURFACE"),
+            "mcp-server --help must document PATCHLOOM_MCP_SURFACE:\n{help}"
+        );
+        assert!(
+            help.contains("core") && help.contains("full"),
+            "mcp-server --help must name core|full:\n{help}"
+        );
+    }
+
     /// Core handshake instructions must only name tools in CORE_MCP_TOOL_NAMES.
     #[test]
     fn core_server_instructions_list_only_core_tools() {

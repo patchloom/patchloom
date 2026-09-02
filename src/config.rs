@@ -6,6 +6,25 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+thread_local! {
+    static CONFIG_WARNINGS: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn emit_config_warning(msg: impl std::fmt::Display) {
+    let text = msg.to_string();
+    #[cfg(test)]
+    CONFIG_WARNINGS.with(|w| w.borrow_mut().push(text.clone()));
+    eprintln!("{text}");
+}
+
+/// Drain config warnings captured on this thread (test-only).
+#[cfg(test)]
+pub(crate) fn take_config_warnings() -> Vec<String> {
+    CONFIG_WARNINGS.with(|w| std::mem::take(&mut *w.borrow_mut()))
+}
+
 // Note: crate::write::WritePolicyOverride is used for plan serialization (forward-compatible).
 // WritePolicyConfig (below) is used for .patchloom.toml parsing (typo-catching).
 
@@ -55,7 +74,8 @@ pub struct ProjectConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Defaults {
-    /// Default to --apply mode. When true, write commands apply changes without needing --apply flag.
+    /// Parsed `[defaults] apply` from `.patchloom.toml`. Ignored at runtime:
+    /// write mode is `--apply` / `--check` / `--diff` / `--confirm` only.
     pub apply: Option<bool>,
     /// Default format command (e.g., "cargo fmt"). Applied after --apply unless overridden by CLI --format.
     pub format: Option<String>,
@@ -154,7 +174,7 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             Some("cr") => global.normalize_eol = Some(crate::cli::global::EolMode::Cr),
             Some("keep") => {} // explicit keep = default behavior, no-op
             Some(invalid) if show_warn => {
-                eprintln!("{}", invalid_normalize_eol_warning(invalid));
+                emit_config_warning(invalid_normalize_eol_warning(invalid));
             }
             Some(_) | None => {}
         }
@@ -171,17 +191,10 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         global.respect_editorconfig = true;
     }
 
-    // Defaults: config provides defaults, CLI flags win.
-    // Only apply config's defaults.apply if no explicit mode flag was set.
-    // If the user passed --check or --diff, they explicitly want a non-apply mode
-    // and the config should not override that.
-    if !global.apply
-        && !global.check
-        && !global.diff
-        && !global.confirm
-        && config.defaults.apply == Some(true)
-    {
-        global.apply = true;
+    // [defaults] apply is parsed for forward-compatible configs but never
+    // honored. Write mode is --apply / --check / --diff / --confirm only.
+    if config.defaults.apply == Some(true) && !global.apply && show_warn {
+        emit_config_warning(ignored_defaults_apply_warning());
     }
     if global.format.is_none() {
         // CLI --format wins, then defaults.format, then format.command (with auto=true)
@@ -218,12 +231,16 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
             "auto" => crate::cli::global::ColorMode::Auto,
             invalid => {
                 if show_warn {
-                    eprintln!("{}", invalid_output_color_warning(invalid));
+                    emit_config_warning(invalid_output_color_warning(invalid));
                 }
                 crate::cli::global::ColorMode::Auto
             }
         };
     }
+}
+
+fn ignored_defaults_apply_warning() -> &'static str {
+    "warning: [defaults] apply = true is ignored; pass --apply to write"
 }
 
 fn invalid_normalize_eol_warning(invalid: &str) -> String {
@@ -603,7 +620,7 @@ color = "always"
 
     #[test]
     #[cfg(feature = "cli")]
-    fn apply_config_apply_default_from_config() {
+    fn apply_config_ignores_defaults_apply_from_repo_config() {
         let config = ProjectConfig {
             defaults: Defaults {
                 apply: Some(true),
@@ -614,7 +631,45 @@ color = "always"
         let mut global = crate::cli::global::GlobalFlags::default();
         assert!(!global.apply);
         apply_config(&mut global, &config);
-        assert!(global.apply);
+        assert!(
+            !global.apply,
+            "repo [defaults] apply must not flip write mode; flags only"
+        );
+        let warning = ignored_defaults_apply_warning();
+        assert!(
+            warning.contains("[defaults] apply"),
+            "ignored-apply warning must name the config key: {warning}"
+        );
+        assert!(
+            warning.contains("--apply"),
+            "ignored-apply warning must point at --apply: {warning}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_json_suppresses_defaults_apply_warning() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags {
+            json: true,
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        let _ = take_config_warnings();
+        apply_config(&mut global, &config);
+        assert!(!global.apply);
+        let warnings = take_config_warnings();
+        assert!(
+            warnings
+                .iter()
+                .all(|w| !w.contains("apply = true is ignored")),
+            "json output must suppress apply-ignore warning: {warnings:?}"
+        );
     }
 
     // Regression: defaults.apply must not override explicit --check or --diff.

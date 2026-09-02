@@ -2567,6 +2567,218 @@ z: *x
         );
     }
 
+    /// Document-root sequence: two empties in one serialize must keep CST
+    /// (comment, anchor, alias), not dump.
+    #[test]
+    fn yaml_empty_two_root_sequence_items_keeps_comment_and_anchor() {
+        let yaml = "\
+# plays
+- &lead
+  name: Hamlet
+- name: Macbeth
+- name: Othello
+- *lead
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[1] = json!({});
+        new[2] = json!({});
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+# plays
+- &lead
+  name: Hamlet
+- {}
+- {}
+- *lead
+"
+        );
+        assert!(
+            result.contains("&lead") && result.contains("*lead"),
+            "root-sequence dump must not expand the alias:\n{result}"
+        );
+    }
+
+    /// Two items emptied to `[]` on a mapping `items:` list must keep CST.
+    #[test]
+    fn yaml_empty_two_sequence_items_to_empty_array_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - [1, 2]
+  - [3, 4]
+  - [5, 6]
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!([]);
+        new["items"][1] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+a: &x
+  k: v
+items:
+  - []
+  - []
+  - [5, 6]
+z: *x
+"
+        );
+    }
+
+    /// Document-root sequence: two items emptied to `[]` must keep CST.
+    #[test]
+    fn yaml_empty_two_root_sequence_items_to_empty_array_keeps_comment_and_anchor() {
+        let yaml = "\
+# nums
+- &lead [1, 2]
+- [3, 4]
+- [5, 6]
+- *lead
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new[1] = json!([]);
+        new[2] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(
+            result,
+            "\
+# nums
+- &lead [1, 2]
+- []
+- []
+- *lead
+"
+        );
+        assert!(
+            result.contains("&lead") && result.contains("*lead"),
+            "root-sequence [] dump must not expand the alias:\n{result}"
+        );
+    }
+
+    /// Two inner flow arrays emptied to `[]` inside one parent item.
+    #[test]
+    fn yaml_empty_two_inner_flow_arrays_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - [[1, 2], [3, 4]]
+  - [[5, 6], [7, 8]]
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0][0] = json!([]);
+        new["items"][0][1] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "inner flow [] dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!([[], []]));
+        assert_eq!(reparsed["items"][1], json!([[5, 6], [7, 8]]));
+    }
+
+    /// Same-length inner array update must keep CST (recurse, not replace).
+    #[test]
+    fn yaml_same_length_inner_array_update_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  - [one, two]
+  - [three, four]
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0][0] = json!("ONE");
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "inner scalar update dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!(["ONE", "two"]));
+    }
+
+    /// Explicit nested block sequence emptied to `[]` must keep CST.
+    #[test]
+    fn yaml_empty_one_nested_array_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  -
+    - a
+    - b
+  -
+    - c
+    - d
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "single nested [] dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!([]));
+        assert_eq!(reparsed["items"][1], json!(["c", "d"]));
+    }
+
+    /// Two explicit nested block items emptied to `[]` on the same write.
+    #[test]
+    fn yaml_empty_two_nested_arrays_keeps_anchor() {
+        let yaml = "\
+a: &x
+  k: v
+items:
+  -
+    - a
+    - b
+  -
+    - c
+    - d
+  -
+    - e
+    - f
+z: *x
+";
+        let old = parse_doc(yaml, &FileFormat::Yaml).unwrap();
+        let mut new = old.clone();
+        new["items"][0] = json!([]);
+        new["items"][1] = json!([]);
+
+        let result = serialize_value_preserving(yaml, &old, &new, &FileFormat::Yaml).unwrap();
+        assert!(
+            result.contains("&x") && result.contains("*x"),
+            "nested [] dump must not expand the alias:\n{result}"
+        );
+        let reparsed = parse_doc(&result, &FileFormat::Yaml).unwrap();
+        assert_eq!(reparsed["items"][0], json!([]));
+        assert_eq!(reparsed["items"][1], json!([]));
+        assert_eq!(reparsed["items"][2], json!(["e", "f"]));
+    }
+
     #[test]
     fn yaml_empty_non_last_sequence_item_keeps_comment() {
         let yaml = "\
@@ -3321,7 +3533,8 @@ deployment:
 
     /// #2276: wide post-dash spacing on untouched items must survive
     /// when the original line is still present. Artifact `-     name:`
-    /// (not in original) still collapses.
+    /// (not in original) still collapses. Match is `trim_end` so a
+    /// trailing-space original still counts as present.
     #[test]
     fn fix_yaml_block_indentation_keeps_wide_dash_spacing() {
         let yaml = "\
@@ -3333,6 +3546,15 @@ items:
             super::super::fix_yaml_block_indentation_with_original(Some(yaml), yaml),
             yaml
         );
+        let yaml_trail = "\
+items:
+  -   name: A   
+  -   name: B
+";
+        assert_eq!(
+            super::super::fix_yaml_block_indentation_with_original(Some(yaml_trail), yaml_trail),
+            yaml_trail
+        );
         let artifact = "\
 items:
   -     name: A
@@ -3343,6 +3565,26 @@ items:
 items:
   - name: A
 "
+        );
+    }
+
+    #[test]
+    fn repair_glued_empty_flow_after_colon_inserts_space() {
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("deployment:{}\n"),
+            "deployment: {}\n"
+        );
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("items:[]\n"),
+            "items: []\n"
+        );
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("deployment: {}\n"),
+            "deployment: {}\n"
+        );
+        assert_eq!(
+            super::super::repair_glued_empty_flow_after_colon("  - {}\n"),
+            "  - {}\n"
         );
     }
 

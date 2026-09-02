@@ -197,6 +197,144 @@ fn test_doc_keys_lists_object_keys() {
 }
 
 #[test]
+fn test_doc_keys_omitted_selector_lists_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("some.toml");
+    fs::write(
+        &file,
+        "[package]\nname = \"x\"\n[dependencies]\nserde = \"1\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("keys")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("package"))
+        .stdout(predicate::str::contains("dependencies"));
+}
+
+#[test]
+fn test_doc_len_omitted_selector_counts_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("some.toml");
+    fs::write(
+        &file,
+        "[package]\nname = \"x\"\n[dependencies]\nserde = \"1\"\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("len")
+        .arg(&file)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2"));
+}
+
+#[test]
+fn test_doc_get_typo_key_json_did_you_mean() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, "[database]\nport = 5432\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("databse.port")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("did you mean: database?"),
+        "JSON error must carry sibling-key hint: {v}"
+    );
+}
+
+#[test]
+fn test_doc_get_hyphenated_typo_key_json_did_you_mean() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"database-url":1}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("databse-url")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(3));
+    let v: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&output.stdout)).expect("valid JSON");
+    assert_eq!(v["ok"], false);
+    assert_eq!(v["error_kind"], "no_matches");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        !err.contains("did you mean: database?"),
+        "JSON error must not hint hyphen-split token `database`: {v}"
+    );
+    if err.contains("did you mean:") {
+        assert!(
+            err.contains("database-url"),
+            "JSON error whole-key hint must be database-url: {v}"
+        );
+    }
+}
+
+#[test]
+fn test_doc_get_jq_bracket_json_suggests_forms() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"name":"a"}]}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("items[name]")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let blob = format!("{stdout}{stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).unwrap_or(serde_json::json!({
+        "error": blob.as_str(),
+        "error_kind": "unknown"
+    }));
+    if v.get("error_kind").and_then(|k| k.as_str()) == Some("invalid_input") {
+        assert_eq!(v["error_kind"], "invalid_input");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            err.contains("items[0]") && err.contains("items[*]") && err.contains("items[name=…]"),
+            "JSON error must suggest bracket forms: {v}"
+        );
+    } else {
+        assert!(
+            blob.contains("items[0]")
+                && blob.contains("items[*]")
+                && blob.contains("items[name=…]"),
+            "invalid bracket must suggest forms: {blob}"
+        );
+    }
+}
+
+#[test]
 fn test_doc_set_apply() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
@@ -1586,6 +1724,112 @@ fn test_doc_delete_yaml_merge_only_sequence_item_keeps_anchor() {
     );
 }
 
+/// Two inner flow arrays emptied to `[]` in one write must keep CST.
+#[test]
+fn test_doc_set_yaml_empty_two_inner_arrays_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("u.yaml");
+    let original = "a: &x\n  k: v\nitems:\n  - [[1, 2], [3, 4]]\n  - [[5, 6], [7, 8]]\nz: *x\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("items[0]")
+        .arg("[[],[]]")
+        .assert()
+        .code(2);
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        original,
+        "preview must not write"
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("items[0]")
+        .arg("[[],[]]")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("&x") && content.contains("*x"),
+        "CLI two inner [] empties must keep CST:\n{content}"
+    );
+    assert!(
+        content.contains("- [[], []]"),
+        "emptied item must stay flow []:\n{content}"
+    );
+    assert!(
+        content.contains("- [[5, 6], [7, 8]]"),
+        "sibling item must stay:\n{content}"
+    );
+}
+
+/// Last-item empty must not glue `{}` onto the next mapping key.
+#[test]
+fn test_doc_set_yaml_empty_last_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("u.yaml");
+    fs::write(
+        &file,
+        "a: &x\n  k: v\nitems:\n  - name: A\n  - name: B\nz: *x\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("items[1]")
+        .arg("{}")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "a: &x\n  k: v\nitems:\n  - name: A\n  - {}\nz: *x\n"
+    );
+}
+
+/// Last merge-only item with a following sibling key must keep `&defaults`.
+#[test]
+fn test_doc_delete_yaml_merge_only_last_sequence_item_keeps_anchor() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("m.yaml");
+    fs::write(
+        &file,
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - <<: *defaults\n  enabled: true\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("delete")
+        .arg(&file)
+        .arg("outer.items[1].env")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content,
+        "defaults: &defaults\n  env: 1\nouter:\n  items:\n    - other: 2\n    - {}\n  enabled: true\n"
+    );
+}
+
 /// #2276: unrelated `doc set` must not collapse pre-existing `-   name:`.
 #[test]
 fn test_doc_set_yaml_unrelated_edit_keeps_wide_dash_spacing() {
@@ -2318,9 +2562,47 @@ fn test_doc_get_nonexistent_file_json_envelope() {
     let json: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
     assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "not_found",
+        "missing file must set error_kind not_found: {json}"
+    );
+    assert_eq!(
+        json["applied"], false,
+        "missing file must not claim applied: {json}"
+    );
     assert!(
         json["error"].is_string(),
         "envelope should contain error field"
+    );
+}
+
+#[test]
+fn test_doc_set_nonexistent_file_json_envelope() {
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "doc",
+            "set",
+            "/nonexistent/file_xyz.json",
+            "x",
+            "1",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+
+    let json: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("error should be wrapped in JSON envelope");
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "not_found",
+        "missing file doc set must set error_kind not_found: {json}"
+    );
+    assert_eq!(
+        json["applied"], false,
+        "missing file must not claim applied: {json}"
     );
 }
 

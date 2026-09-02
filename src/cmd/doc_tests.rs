@@ -773,6 +773,72 @@ mod error_handling {
     }
 
     #[test]
+    fn get_typo_key_json_includes_did_you_mean() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"database":{"port":5432}}"#);
+        let action = DocAction::Get {
+            file: path,
+            selector: "databse.port".into(),
+        };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error_kind"], "no_matches");
+        let err = v["error"].as_str().unwrap();
+        assert!(
+            err.contains("did you mean: database?"),
+            "expected sibling-key hint, got: {err}"
+        );
+    }
+
+    #[test]
+    fn get_hyphenated_typo_key_json_keeps_error_kind_and_whole_key() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"database-url":1}"#);
+        let action = DocAction::Get {
+            file: path,
+            selector: "databse-url".into(),
+        };
+        let (output, code) = execute_with_mode(&action, OutputMode::Json).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error_kind"], "no_matches");
+        let err = v["error"].as_str().unwrap_or("");
+        assert!(
+            !err.contains("did you mean: database?"),
+            "must not hint hyphen-split token `database`: {err}"
+        );
+        if err.contains("did you mean:") {
+            assert!(
+                err.contains("database-url"),
+                "whole-key hint must be database-url, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn get_invalid_bracket_is_invalid_input_with_forms() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"items":[{"name":"a"}]}"#);
+        let action = DocAction::Get {
+            file: path,
+            selector: "items[name]".into(),
+        };
+        let err = execute_with_mode(&action, OutputMode::Json).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("items[0]") && msg.contains("items[*]") && msg.contains("items[name=…]"),
+            "expected bracket forms, got: {msg}"
+        );
+    }
+
+    #[test]
     fn keys_missing_selector_json_emits_error_object() {
         let dir = TempDir::new().unwrap();
         let path = write_file(&dir, "test.json", r#"{"name": "hello"}"#);
