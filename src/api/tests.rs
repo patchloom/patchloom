@@ -170,8 +170,10 @@ fn doc_keys_array_is_type_error() {
     );
     let msg = err.to_string();
     assert!(
-        msg.contains("not an object"),
-        "type_error must name the non-object target: {msg}"
+        msg.contains("not an object")
+            && (msg.contains("items[0]") || msg.contains("[0]"))
+            && msg.contains("len on items"),
+        "keys on nested array must hint keys on items[0] / len on items: {msg}"
     );
 }
 
@@ -231,6 +233,11 @@ fn doc_len_scalar_is_type_error() {
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
         Some(EditErrorKind::TypeError)
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("scalar") && msg.contains("len on ."),
+        "len on scalar must say scalar and point at parent: {msg}"
     );
 }
 
@@ -328,6 +335,11 @@ fn doc_keys_wildcard_multi_match_is_ambiguous() {
         crate::fallback::edit_error_kind(&err),
         Some(EditErrorKind::AmbiguousTarget)
     );
+    let msg = err.to_string();
+    assert!(
+        (msg.contains("items[0]") || msg.contains("[0]")) && msg.contains("one object or array"),
+        "ambiguous keys must name a concrete index: {msg}"
+    );
 }
 
 #[test]
@@ -344,6 +356,11 @@ fn doc_len_wildcard_multi_match_is_ambiguous() {
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
         Some(EditErrorKind::AmbiguousTarget)
+    );
+    let msg = err.to_string();
+    assert!(
+        (msg.contains("items[0]") || msg.contains("[0]")) && msg.contains("one object or array"),
+        "ambiguous len must name a concrete index: {msg}"
     );
 }
 

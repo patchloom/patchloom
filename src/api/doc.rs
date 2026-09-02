@@ -275,22 +275,24 @@ pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
 
 /// List object keys at a selector path in a JSON, YAML, or TOML file.
 ///
-/// Empty / `"."` lists keys of the document root. A non-object target
-/// (including an array root / multi-doc YAML stream) is
-/// [`crate::exit::TypeErrorError`]. A missing selector is
-/// [`crate::exit::NoMatchError`]. A multi-match selector is
-/// [`crate::exit::AmbiguousError`]. A missing file peels as `not_found`.
+/// Pass one object (`database`). Empty / `"."` lists keys of the document
+/// root. An array target (`items`) is [`crate::exit::TypeErrorError`] (use
+/// `items[0]` for one object, or [`doc_len`] on `items`). A missing selector
+/// is [`crate::exit::NoMatchError`]. A multi-match selector (`items[*]`) is
+/// [`crate::exit::AmbiguousError`] and names `items[0]` / `items[1]`. A
+/// missing file peels as `not_found`.
 pub fn doc_keys(path: &Path, selector: &str) -> anyhow::Result<Vec<String>> {
     let value = load_doc_value(path)?;
     crate::ops::doc::query::keys_at(&value, selector)
 }
 
-/// Count items in an array or object at a selector path.
+/// Count items in an array or object at a selector path (`items`, `database`).
 ///
 /// Empty / `"."` means the document root. A scalar (or other non-container)
 /// is [`crate::exit::TypeErrorError`]. A missing selector is
-/// [`crate::exit::NoMatchError`]. A multi-match selector is
-/// [`crate::exit::AmbiguousError`]. A missing file peels as `not_found`.
+/// [`crate::exit::NoMatchError`]. A multi-match selector (`items[*]`) is
+/// [`crate::exit::AmbiguousError`] and names `items[0]` / `items[1]`. A
+/// missing file peels as `not_found`.
 pub fn doc_len(path: &Path, selector: &str) -> anyhow::Result<usize> {
     let value = load_doc_value(path)?;
     crate::ops::doc::query::len_at(&value, selector)

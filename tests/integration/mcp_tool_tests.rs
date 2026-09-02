@@ -2885,6 +2885,11 @@ async fn test_mcp_doc_query_keys_wildcard_is_ambiguous() {
         val["error_kind"], "ambiguous",
         "doc_query keys multi-match must set error_kind ambiguous: {val}"
     );
+    let msg = val["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("items[0]") || msg.contains("[0]"),
+        "doc_query keys ambiguous must name a concrete index: {val}"
+    );
     client.cancel().await.unwrap();
 }
 
@@ -2918,6 +2923,11 @@ async fn test_mcp_doc_query_len_wildcard_is_ambiguous() {
     assert_eq!(
         val["error_kind"], "ambiguous",
         "doc_query len multi-match must set error_kind ambiguous: {val}"
+    );
+    let msg = val["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("items[0]") || msg.contains("[0]"),
+        "doc_query len ambiguous must name a concrete index: {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -2955,6 +2965,32 @@ async fn test_mcp_doc_keys_len_nonexistent_is_no_matches() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_query_keys_len_missing_nope_is_not_found() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    for (action, path) in [("keys", "nope.json"), ("len", "nope.txt")] {
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({"action": action, "path": path, "selector": "."}),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query {action} on missing {path} must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "not_found",
+            "doc_query {action} missing {path} must set error_kind not_found: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_keys_array_and_multi_doc_root_is_type_error() {
     if !has_mcp_support() {
         return;
@@ -2981,6 +3017,11 @@ async fn test_mcp_doc_keys_array_and_multi_doc_root_is_type_error() {
     assert_eq!(
         val["error_kind"], "type_error",
         "doc_query keys on array items must set error_kind type_error: {val}"
+    );
+    let items_msg = val["error"].as_str().unwrap_or("");
+    assert!(
+        items_msg.contains("items[0]") && items_msg.contains("len on items"),
+        "doc_query keys on nested array must hint keys on items[0] / len on items: {val}"
     );
 
     for selector in [Some("."), None] {

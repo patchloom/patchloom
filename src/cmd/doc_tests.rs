@@ -894,7 +894,10 @@ mod error_handling {
         )
         .unwrap();
         assert_eq!(json_code, exit::FAILURE);
-        assert!(json_output.contains("not an object"));
+        assert!(
+            json_output.contains("not an object") && json_output.contains("scalar"),
+            "keys on scalar must say scalar: {json_output}"
+        );
         assert!(
             json_output.contains(r#""error_kind": "type_error""#)
                 || json_output.contains(r#""error_kind":"type_error""#),

@@ -60,6 +60,114 @@ pub(crate) fn array_root_bare_key_hint(
     ))
 }
 
+/// Render selector segments in canonical bracket form (`items[0].name`).
+fn format_selector(segments: &[selector::Segment]) -> String {
+    let mut out = String::new();
+    for seg in segments {
+        match seg {
+            selector::Segment::Key(k) => {
+                if !out.is_empty() {
+                    out.push('.');
+                }
+                out.push_str(k);
+            }
+            selector::Segment::Index(n) => out.push_str(&format!("[{n}]")),
+            selector::Segment::Wildcard => out.push_str("[*]"),
+            selector::Segment::Predicate { key, op, value } => {
+                out.push('[');
+                match op {
+                    selector::PredicateOp::Not => {
+                        out.push('!');
+                        out.push_str(key);
+                    }
+                    selector::PredicateOp::Eq => {
+                        out.push_str(key);
+                        out.push('=');
+                        out.push_str(value);
+                    }
+                    selector::PredicateOp::Ne => {
+                        out.push_str(key);
+                        out.push_str("!=");
+                        out.push_str(value);
+                    }
+                    selector::PredicateOp::Gt => {
+                        out.push_str(key);
+                        out.push('>');
+                        out.push_str(value);
+                    }
+                    selector::PredicateOp::Ge => {
+                        out.push_str(key);
+                        out.push_str(">=");
+                        out.push_str(value);
+                    }
+                    selector::PredicateOp::Lt => {
+                        out.push_str(key);
+                        out.push('<');
+                        out.push_str(value);
+                    }
+                    selector::PredicateOp::Le => {
+                        out.push_str(key);
+                        out.push_str("<=");
+                        out.push_str(value);
+                    }
+                }
+                out.push(']');
+            }
+        }
+    }
+    out
+}
+
+/// Concrete index paths for a multi-match keys/len selector (`items[*]` → `items[0]`).
+fn unique_index_examples(selector: &str) -> (String, String) {
+    let Ok(segs) = selector::parse(selector) else {
+        return ("items[0]".into(), "items[1]".into());
+    };
+    let pos = segs.iter().position(|s| {
+        matches!(
+            s,
+            selector::Segment::Wildcard | selector::Segment::Predicate { .. }
+        )
+    });
+    match pos {
+        Some(i) => {
+            let mut first = segs.clone();
+            let mut second = segs;
+            first[i] = selector::Segment::Index(0);
+            second[i] = selector::Segment::Index(1);
+            (format_selector(&first), format_selector(&second))
+        }
+        None => ("items[0]".into(), "items[1]".into()),
+    }
+}
+
+fn unique_match_required_msg(op: &str, selector: &str, count: usize) -> String {
+    let (a, b) = unique_index_examples(selector);
+    format!(
+        "doc {op}: selector '{selector}' matched {count} values; \
+         {op} needs one object or array (e.g. {a} or {b})"
+    )
+}
+
+fn parent_selector_display(selector: &str) -> String {
+    if is_root_selector(selector) {
+        return ".".into();
+    }
+    let Ok(mut segs) = selector::parse(selector) else {
+        return ".".into();
+    };
+    if segs.len() <= 1 {
+        return ".".into();
+    }
+    segs.pop();
+    let formatted = format_selector(&segs);
+    if formatted.is_empty() {
+        ".".into()
+    } else {
+        formatted
+    }
+}
+
 /// Check whether a selector path exists.
 ///
 /// Soft `false` when the path is simply missing. When the document root is an
@@ -81,7 +189,10 @@ pub enum QueryKeysResult {
     Keys(Vec<String>),
     NoMatch,
     /// The value at the selector is not an object.
-    NotAnObject,
+    NotAnObject {
+        /// True when the unique match is an array (hint `keys on items[0]`).
+        is_array: bool,
+    },
 }
 
 /// Get the keys of an object at a selector path.
@@ -101,16 +212,16 @@ pub fn query_keys(root: &serde_json::Value, selector: &str) -> anyhow::Result<Qu
     }
     if results.len() > 1 {
         return Err(crate::exit::AmbiguousError {
-            msg: format!(
-                "doc keys: selector '{selector}' matched {} values; use a unique path",
-                results.len()
-            ),
+            msg: unique_match_required_msg("keys", selector, results.len()),
         }
         .into());
     }
-    match results[0].as_object() {
-        Some(obj) => Ok(QueryKeysResult::Keys(obj.keys().cloned().collect())),
-        None => Ok(QueryKeysResult::NotAnObject),
+    if let Some(obj) = results[0].as_object() {
+        Ok(QueryKeysResult::Keys(obj.keys().cloned().collect()))
+    } else {
+        Ok(QueryKeysResult::NotAnObject {
+            is_array: results[0].is_array(),
+        })
     }
 }
 
@@ -139,10 +250,7 @@ pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<Que
     }
     if results.len() > 1 {
         return Err(crate::exit::AmbiguousError {
-            msg: format!(
-                "doc len: selector '{selector}' matched {} values; use a unique path",
-                results.len()
-            ),
+            msg: unique_match_required_msg("len", selector, results.len()),
         }
         .into());
     }
@@ -185,8 +293,8 @@ pub fn keys_at(root: &serde_json::Value, selector: &str) -> anyhow::Result<Vec<S
             ),
         }
         .into()),
-        QueryKeysResult::NotAnObject => {
-            let msg = if is_root_selector(selector) && root.is_array() {
+        QueryKeysResult::NotAnObject { is_array } => {
+            let msg = if is_root_selector(selector) && is_array {
                 "doc keys: target is a top-level array (multi-document YAML or JSON \
                  array); use a document/element index first, e.g. keys on `0` or `[0]`"
                     .to_string()
@@ -196,7 +304,18 @@ pub fn keys_at(root: &serde_json::Value, selector: &str) -> anyhow::Result<Vec<S
                 } else {
                     selector
                 };
-                format!("doc keys: target at '{display}' is not an object")
+                if is_array {
+                    format!(
+                        "doc keys: target at '{display}' is an array, not an object; \
+                         use keys on {display}[0] or len on {display}"
+                    )
+                } else {
+                    let parent = parent_selector_display(selector);
+                    format!(
+                        "doc keys: target at '{display}' is a scalar, not an object; \
+                         use keys on {parent}"
+                    )
+                }
             };
             Err(crate::exit::TypeErrorError { msg }.into())
         }
@@ -226,8 +345,12 @@ pub fn len_at(root: &serde_json::Value, selector: &str) -> anyhow::Result<usize>
             } else {
                 selector
             };
+            let parent = parent_selector_display(selector);
             Err(crate::exit::TypeErrorError {
-                msg: format!("doc len: target at '{display}' is not an array or object"),
+                msg: format!(
+                    "doc len: target at '{display}' is a scalar, not an array or object; \
+                     use len on {parent}"
+                ),
             }
             .into())
         }
@@ -452,7 +575,7 @@ mod tests {
         let doc = sample_doc();
         assert!(matches!(
             query_keys(&doc, "items").unwrap(),
-            QueryKeysResult::NotAnObject
+            QueryKeysResult::NotAnObject { is_array: true }
         ));
     }
 
@@ -473,10 +596,22 @@ mod tests {
             crate::exit::is_ambiguous(&err),
             "expected AmbiguousError, got: {err}"
         );
+        let msg = err.to_string();
+        assert!(
+            (msg.contains("items[0]") || msg.contains("[0]"))
+                && (msg.contains("items[1]") || msg.contains("[1]"))
+                && msg.contains("one object or array"),
+            "ambiguous keys must name a concrete index: {msg}"
+        );
         let mapped = keys_at(&doc, "items[*]").expect_err("mapper");
         assert!(
             crate::exit::is_ambiguous(&mapped),
             "keys_at must propagate AmbiguousError, got: {mapped}"
+        );
+        let mapped_msg = mapped.to_string();
+        assert!(
+            mapped_msg.contains("items[0]") || mapped_msg.contains("[0]"),
+            "keys_at ambiguous must name items[0]: {mapped_msg}"
         );
     }
 
@@ -488,10 +623,21 @@ mod tests {
             crate::exit::is_ambiguous(&err),
             "expected AmbiguousError, got: {err}"
         );
+        let msg = err.to_string();
+        assert!(
+            (msg.contains("items[0]") || msg.contains("[0]"))
+                && msg.contains("one object or array"),
+            "ambiguous len must name a concrete index: {msg}"
+        );
         let mapped = len_at(&doc, "items[*]").expect_err("mapper");
         assert!(
             crate::exit::is_ambiguous(&mapped),
             "len_at must propagate AmbiguousError, got: {mapped}"
+        );
+        let mapped_msg = mapped.to_string();
+        assert!(
+            mapped_msg.contains("items[0]") || mapped_msg.contains("[0]"),
+            "len_at ambiguous must name items[0]: {mapped_msg}"
         );
     }
 
@@ -508,6 +654,18 @@ mod tests {
             crate::exit::is_type_error(&typed),
             "keys_at on array must be TypeErrorError, got: {typed}"
         );
+        let msg = typed.to_string();
+        assert!(
+            msg.contains("items[0]") && msg.contains("len on items"),
+            "keys on nested array must hint keys on items[0] / len on items: {msg}"
+        );
+        let scalar = keys_at(&doc, "name").expect_err("scalar");
+        assert!(crate::exit::is_type_error(&scalar), "got: {scalar}");
+        let scalar_msg = scalar.to_string();
+        assert!(
+            scalar_msg.contains("scalar") && scalar_msg.contains("keys on ."),
+            "keys on scalar must say scalar and point at parent: {scalar_msg}"
+        );
     }
 
     #[test]
@@ -522,6 +680,11 @@ mod tests {
         assert!(
             crate::exit::is_type_error(&typed),
             "len_at on scalar must be TypeErrorError, got: {typed}"
+        );
+        let msg = typed.to_string();
+        assert!(
+            msg.contains("scalar") && msg.contains("len on ."),
+            "len on scalar must say scalar and point at parent: {msg}"
         );
     }
 

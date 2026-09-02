@@ -39,7 +39,7 @@ pub enum DocAction {
     Keys {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Selector path for one object or array (e.g. `database`, `items`).
         /// Defaults to `.` (document root) when omitted.
         #[arg(default_value = ".")]
         selector: String,
@@ -48,7 +48,7 @@ pub enum DocAction {
     Len {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Selector path for one object or array (e.g. `database`, `items`).
         /// Defaults to `.` (document root) when omitted.
         #[arg(default_value = ".")]
         selector: String,

@@ -258,8 +258,9 @@ pub(crate) struct DocQueryParams {
     pub action: String,
     /// File path (relative to working directory).
     pub path: String,
-    /// Dot-notation selector path to query. Required for has/select.
-    /// Optional for keys/len (defaults to `.`, the document root). Ignored for flatten.
+    /// Selector path. Required for has/select. Optional for keys/len (defaults to `.`).
+    /// Ignored for flatten. keys/len need one object or array (`database`, `items`);
+    /// multi-match (`items[*]`) is fail-closed `ambiguous` (use `items[0]` / `items[1]`).
     /// Alias `key` accepted because agents often emit that name (LLM prior).
     #[serde(alias = "key")]
     pub selector: Option<String>,

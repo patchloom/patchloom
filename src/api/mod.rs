@@ -141,7 +141,9 @@
 //!   Apply write path
 //! - [`doc_merge`]: optional `selector` for multi-doc YAML (`Some("0")`)
 //! - [`doc_keys`] / [`doc_len`]: object keys and array/object length; empty
-//!   or `"."` is the document root (array keys → `TypeError`; #2280)
+//!   or `"."` is the document root (array keys → `TypeError`; multi-match
+//!   `items[*]` → `Ambiguous` naming `items[0]` / `items[1]`; missing file
+//!   → `not_found`; #2280 / #2282)
 //!
 //! ## Frozen `error_kind_str` contract for embedders (#1964)
 //!
@@ -151,14 +153,14 @@
 //! | String | Typical cause |
 //! |--------|----------------|
 //! | `already_exists` | create/rename dest without force |
-//! | `not_found` | missing path I/O |
+//! | `not_found` | missing path I/O (including library/CLI/MCP `doc_get`/`doc_has`/`doc_keys`/`doc_len` / `doc_query`) |
 //! | `binary` | NUL binary probe (#1963) |
 //! | `invalid_encoding` | non-UTF-8 text (#1963) |
 //! | `fuzzy_span_suspicious` | over-wide fuzzy refuse (#2005) |
 //! | `invalid_input` | empty path, directory target, empty pattern, unreadable IO |
 //! | `guard_rejected` | PathGuard / `--contain` |
 //! | `no_matches` | soft zero matches |
-//! | `ambiguous` | unique multi-match |
+//! | `ambiguous` | unique multi-match (including `doc_keys`/`doc_len` / `doc_query`) |
 //! | `type_error` | multi-doc / wrong-root doc nav |
 //! | `conflicts` | patch merge conflict markers |
 //! | `changes_detected` | check/assert-count exit 2 |

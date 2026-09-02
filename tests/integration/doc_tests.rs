@@ -3308,8 +3308,8 @@ fn test_doc_keys_not_an_object_returns_failure() {
     assert_eq!(output.status.code(), Some(1), "should be FAILURE");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("not an object"),
-        "text-mode stderr should say 'not an object', got: {stderr}"
+        stderr.contains("not an object") && stderr.contains("scalar"),
+        "text-mode stderr should say scalar, not an object, got: {stderr}"
     );
 
     // JSON mode: exit 1 with JSON envelope
@@ -3340,6 +3340,34 @@ fn test_doc_keys_not_an_object_returns_failure() {
 }
 
 #[test]
+fn test_doc_keys_nested_array_hints_index() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.json");
+    fs::write(&file, r#"{"items": [1, 2, 3]}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "keys"])
+        .arg(&file)
+        .arg("items")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "keys on items must be FAILURE"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(parsed["error_kind"], "type_error", "{parsed}");
+    let err = parsed["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("items[0]") && err.contains("len on items"),
+        "keys on nested array must hint keys on items[0] / len on items: {parsed}"
+    );
+}
+
+#[test]
 fn test_doc_len_not_array_or_object_returns_failure() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.json");
@@ -3357,8 +3385,8 @@ fn test_doc_len_not_array_or_object_returns_failure() {
     assert_eq!(output.status.code(), Some(1), "should be FAILURE");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("not an array or object"),
-        "text-mode stderr should say 'not an array or object', got: {stderr}"
+        stderr.contains("not an array or object") && stderr.contains("scalar"),
+        "text-mode stderr should say scalar, not an array or object, got: {stderr}"
     );
 
     // JSON mode: exit 1 with JSON envelope
@@ -3650,6 +3678,11 @@ fn test_doc_keys_wildcard_json_is_ambiguous() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["ok"], false, "{v}");
     assert_eq!(v["error_kind"], "ambiguous", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("items[0]") || err.contains("[0]"),
+        "ambiguous keys must name a concrete index: {v}"
+    );
 }
 
 #[test]
@@ -3674,6 +3707,11 @@ fn test_doc_len_wildcard_json_is_ambiguous() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["ok"], false, "{v}");
     assert_eq!(v["error_kind"], "ambiguous", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("items[0]") || err.contains("[0]"),
+        "ambiguous len must name a concrete index: {v}"
+    );
 }
 
 /// `doc keys` on multi-doc root should name the array/index shape.
