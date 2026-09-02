@@ -60,14 +60,23 @@
 
 use std::path::{Component, Path, PathBuf};
 
+/// True when `text` is empty, whitespace-only, or only Unicode format
+/// characters that carry no semantic content (ZWSP/ZWNJ/ZWJ/BOM).
+///
+/// Shared by path blankness and empty-YAML query remapping. `str::trim`
+/// does not strip these format characters.
+pub(crate) fn is_blank_text(text: &str) -> bool {
+    text.chars().all(|c| {
+        c.is_whitespace() || matches!(c, '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{feff}')
+    })
+}
+
 /// True when a path string is empty, whitespace-only, or only Unicode
 /// format characters that do not form a real path component (ZWSP/ZWNJ/ZWJ/BOM).
 ///
 /// Empty paths would otherwise resolve as the workspace/cwd root (not a file).
 pub fn is_blank_path(path: &str) -> bool {
-    path.chars().all(|c| {
-        c.is_whitespace() || matches!(c, '\u{200b}' | '\u{200c}' | '\u{200d}' | '\u{feff}')
-    })
+    is_blank_text(path)
 }
 
 /// Canonicalize a path without the Windows `\\?\` UNC prefix when safe.

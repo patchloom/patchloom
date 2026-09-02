@@ -183,6 +183,52 @@ mod basic {
         assert!(keys.contains(&"test"));
     }
 
+    #[test]
+    fn keys_and_len_empty_yaml_json_succeeds_like_empty_json() {
+        // #2283: empty / whitespace YAML keys/len at `.` must not type_error.
+        let dir = TempDir::new().unwrap();
+        for (name, body) in [
+            ("empty.yaml", ""),
+            ("ws.yaml", "   \n  \n"),
+            ("empty.json", ""),
+        ] {
+            let path = write_file(&dir, name, body);
+            let (output, code) = execute_with_mode(
+                &DocAction::Keys {
+                    file: path.clone(),
+                    selector: ".".into(),
+                },
+                OutputMode::Json,
+            )
+            .unwrap();
+            assert_eq!(code, exit::SUCCESS, "{name} keys exit: {output}");
+            let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+            assert_eq!(v["ok"], true, "{name} keys ok: {v}");
+            assert!(
+                v.get("error_kind").is_none(),
+                "{name} keys must be the ok path, not error_kind: {v}"
+            );
+            assert_eq!(v["value"], serde_json::json!([]), "{name} keys value: {v}");
+
+            let (output, code) = execute_with_mode(
+                &DocAction::Len {
+                    file: path,
+                    selector: ".".into(),
+                },
+                OutputMode::Json,
+            )
+            .unwrap();
+            assert_eq!(code, exit::SUCCESS, "{name} len exit: {output}");
+            let v: serde_json::Value = serde_json::from_str(&output).unwrap();
+            assert_eq!(v["ok"], true, "{name} len ok: {v}");
+            assert!(
+                v.get("error_kind").is_none(),
+                "{name} len must be the ok path, not error_kind: {v}"
+            );
+            assert_eq!(v["value"], serde_json::json!(0), "{name} len value: {v}");
+        }
+    }
+
     // -- len ----------------------------------------------------------------
 
     #[test]

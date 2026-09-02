@@ -234,7 +234,7 @@ fn test_doc_len_omitted_selector_counts_root() {
         .arg(&file)
         .assert()
         .success()
-        .stdout(predicate::str::contains("2"));
+        .stdout(predicate::eq("2\n"));
 }
 
 #[test]
@@ -253,6 +253,82 @@ fn test_doc_len_multi_document_root() {
             .success()
             .stdout(predicate::str::starts_with("2"));
     }
+}
+
+#[test]
+fn test_doc_keys_len_empty_yaml_json_succeeds_like_empty_json() {
+    // #2283: empty / whitespace YAML keys/len at `.` must match empty JSON.
+    let dir = TempDir::new().unwrap();
+    for (name, body) in [
+        ("empty.yaml", ""),
+        ("ws.yaml", "   \n  \n"),
+        ("empty.json", ""),
+    ] {
+        let file = dir.path().join(name);
+        fs::write(&file, body).unwrap();
+
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "keys"])
+            .arg(&file)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{name} keys must succeed, stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], true, "{name} keys: {v}");
+        assert!(
+            v.get("error_kind").is_none(),
+            "{name} keys must be the ok path: {v}"
+        );
+        assert_eq!(v["value"], serde_json::json!([]), "{name} keys value: {v}");
+
+        let out = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "doc", "len"])
+            .arg(&file)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{name} len must succeed, stderr={}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(v["ok"], true, "{name} len: {v}");
+        assert!(
+            v.get("error_kind").is_none(),
+            "{name} len must be the ok path: {v}"
+        );
+        assert_eq!(v["value"], 0, "{name} len value: {v}");
+    }
+}
+
+#[test]
+fn test_doc_set_empty_yaml_emits_mapping() {
+    // Cargo-bin lock: empty YAML `doc set --apply` writes `name: app\n`.
+    // This does not observe parse_doc (`set_at_path` already turns Null
+    // into {}). parse_doc == Null is locked in api/ops tests. #2283
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("empty.yaml");
+    fs::write(&file, "").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["doc", "set", "empty.yaml", "name", "\"app\"", "--apply"])
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "name: app\n");
 }
 
 #[test]
@@ -3680,8 +3756,8 @@ fn test_doc_keys_wildcard_json_is_ambiguous() {
     assert_eq!(v["error_kind"], "ambiguous", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("items[0]") || err.contains("[0]"),
-        "ambiguous keys must name a concrete index: {v}"
+        err.contains("items[0]"),
+        "ambiguous keys must name items[0]: {v}"
     );
 }
 
@@ -3709,8 +3785,8 @@ fn test_doc_len_wildcard_json_is_ambiguous() {
     assert_eq!(v["error_kind"], "ambiguous", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("items[0]") || err.contains("[0]"),
-        "ambiguous len must name a concrete index: {v}"
+        err.contains("items[0]"),
+        "ambiguous len must name items[0]: {v}"
     );
 }
 
@@ -3741,8 +3817,8 @@ fn test_doc_keys_wildcard_one_or_zero_json_is_ambiguous() {
         );
         let err = v["error"].as_str().unwrap_or("");
         assert!(
-            err.contains("items[0]") || err.contains("[0]"),
-            "ambiguous keys must name a concrete index: {v}"
+            err.contains("items[0]") && err.contains("one object") && !err.contains("or array"),
+            "ambiguous keys must name items[0] and one object: {v}"
         );
     }
 }
@@ -3774,8 +3850,8 @@ fn test_doc_len_wildcard_one_or_zero_json_is_ambiguous() {
         );
         let err = v["error"].as_str().unwrap_or("");
         assert!(
-            err.contains("items[0]") || err.contains("[0]"),
-            "ambiguous len must name a concrete index: {v}"
+            err.contains("items[0]") && err.contains("one object or array"),
+            "ambiguous len must name items[0] and one object or array: {v}"
         );
     }
 }

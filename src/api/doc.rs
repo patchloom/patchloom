@@ -26,10 +26,7 @@ fn cwd_from_path(path: &Path) -> &Path {
 /// Load first (same order as CLI `load_file`) so a missing path peels as
 /// `not_found` even when the extension is absent or unsupported.
 fn load_doc_value(path: &Path) -> anyhow::Result<serde_json::Value> {
-    let path_str = path.to_string_lossy();
-    let original = crate::files::load_text_strict(path, &path_str)?;
-    let format = ops::doc::detect_format(&path_str)?;
-    ops::doc::parse_doc(&original, &format)
+    ops::doc::load_for_query(path)
 }
 
 /// Unified write path: delegates to the tx engine when available (cli/files),

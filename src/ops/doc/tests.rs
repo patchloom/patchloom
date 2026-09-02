@@ -63,6 +63,77 @@ mod basic {
     }
 
     #[test]
+    fn parse_empty_yaml_stays_null_for_write_bootstrap() {
+        // Write path uses parse_doc. Empty YAML must stay Null so `doc set`
+        // keeps the null-to-object bootstrap, not the JSON `{}` rewrite. #2283
+        assert_eq!(parse_doc("", &FileFormat::Yaml).unwrap(), json!(null));
+        assert_eq!(
+            parse_doc("   \n  \n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
+        // Emit half: serialize_value_preserving dumps `name: app\n`. This is
+        // not a parse_doc oracle (those asserts are above).
+        let old = parse_doc("", &FileFormat::Yaml).unwrap();
+        let new = json!({"name": "app"});
+        let dumped = serialize_value_preserving("", &old, &new, &FileFormat::Yaml).unwrap();
+        assert_eq!(dumped, "name: app\n");
+    }
+
+    #[test]
+    fn parse_doc_for_query_empty_yaml_is_object() {
+        assert_eq!(
+            parse_doc_for_query("", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("   \n  \n", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("", &FileFormat::Json).unwrap(),
+            json!({})
+        );
+        // Explicit null is a scalar, not an empty file.
+        assert_eq!(
+            parse_doc_for_query("null\n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
+        // BOM / ZWSP are not stripped by trim(); query remap must still
+        // treat them as empty. Comment-only stays a scalar.
+        assert_eq!(
+            parse_doc_for_query("\u{feff}", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("\u{200b}", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("\u{feff}  \n  ", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("# hi\n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
+        // Leading `---` is YAML preamble, not blank text.
+        assert_eq!(
+            parse_doc_for_query("---\n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
+    }
+
+    #[test]
+    fn load_for_query_empty_yaml_is_object() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("empty.yaml");
+        std::fs::write(&path, "").unwrap();
+        assert_eq!(load_for_query(&path).unwrap(), json!({}));
+        std::fs::write(&path, "   \n  \n").unwrap();
+        assert_eq!(load_for_query(&path).unwrap(), json!({}));
+    }
+
+    #[test]
     fn parse_and_serialize_yaml_roundtrip() {
         let input = "a: 1\n";
         let val = parse_doc(input, &crate::ops::doc::FileFormat::Yaml).unwrap();

@@ -1,6 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use crate::exit;
-use crate::ops::doc::{detect_format, diff_values, flatten_value, parse_doc, parse_value};
+use crate::ops::doc::{diff_values, flatten_value, parse_value};
 use crate::plan::Operation;
 use clap::Args;
 use serde::Serialize;
@@ -257,13 +257,8 @@ impl DocAction {
 }
 
 fn load_file(path: &str) -> anyhow::Result<serde_json::Value> {
-    // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
-    let content = crate::files::load_text_strict(std::path::Path::new(path), path)?;
-    let format = detect_format(path)?;
-    parse_doc(&content, &format).with_context(|| format!("parsing {path}"))
+    crate::ops::doc::load_for_query(std::path::Path::new(path))
 }
-
-use anyhow::Context;
 
 // ---------------------------------------------------------------------------
 // Write-mode output & operation builder

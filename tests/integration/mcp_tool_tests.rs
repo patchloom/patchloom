@@ -2887,8 +2887,8 @@ async fn test_mcp_doc_query_keys_wildcard_is_ambiguous() {
     );
     let msg = val["error"].as_str().unwrap_or("");
     assert!(
-        msg.contains("items[0]") || msg.contains("[0]"),
-        "doc_query keys ambiguous must name a concrete index: {val}"
+        msg.contains("items[0]"),
+        "doc_query keys ambiguous must name items[0]: {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -2926,8 +2926,8 @@ async fn test_mcp_doc_query_len_wildcard_is_ambiguous() {
     );
     let msg = val["error"].as_str().unwrap_or("");
     assert!(
-        msg.contains("items[0]") || msg.contains("[0]"),
-        "doc_query len ambiguous must name a concrete index: {val}"
+        msg.contains("items[0]"),
+        "doc_query len ambiguous must name items[0]: {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -2964,8 +2964,8 @@ async fn test_mcp_doc_query_keys_wildcard_one_or_zero_is_ambiguous() {
         );
         let msg = val["error"].as_str().unwrap_or("");
         assert!(
-            msg.contains("items[0]") || msg.contains("[0]"),
-            "doc_query keys ambiguous must name a concrete index: {val}"
+            msg.contains("items[0]") && msg.contains("one object") && !msg.contains("or array"),
+            "doc_query keys ambiguous must name items[0] and one object: {val}"
         );
     }
     client.cancel().await.unwrap();
@@ -3003,8 +3003,8 @@ async fn test_mcp_doc_query_len_wildcard_one_or_zero_is_ambiguous() {
         );
         let msg = val["error"].as_str().unwrap_or("");
         assert!(
-            msg.contains("items[0]") || msg.contains("[0]"),
-            "doc_query len ambiguous must name a concrete index: {val}"
+            msg.contains("items[0]") && msg.contains("one object or array"),
+            "doc_query len ambiguous must name items[0] and one object or array: {val}"
         );
     }
     client.cancel().await.unwrap();
@@ -3181,6 +3181,44 @@ async fn test_mcp_doc_len_multi_document_root() {
         val, 2,
         "doc_query len omitted selector on multi-doc must return 2: {val}"
     );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_keys_len_empty_yaml() {
+    // #2283 sibling to keys/len fail-closed tests: empty YAML is `{}` on read.
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("empty.yaml"), "").unwrap();
+    fs::write(dir.path().join("ws.yaml"), "   \n  \n").unwrap();
+    fs::write(dir.path().join("empty.json"), "").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    for (path, action, expected) in [
+        ("empty.yaml", "keys", serde_json::json!([])),
+        ("empty.yaml", "len", serde_json::json!(0)),
+        ("ws.yaml", "keys", serde_json::json!([])),
+        ("ws.yaml", "len", serde_json::json!(0)),
+        ("empty.json", "keys", serde_json::json!([])),
+        ("empty.json", "len", serde_json::json!(0)),
+    ] {
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({"action": action, "path": path, "selector": "."}),
+        )
+        .await;
+        assert!(
+            !is_error,
+            "doc_query {action} on {path} must succeed, not type_error: {val}"
+        );
+        assert_eq!(
+            val, expected,
+            "doc_query {action} on {path} must match empty object: {val}"
+        );
+    }
     client.cancel().await.unwrap();
 }
 

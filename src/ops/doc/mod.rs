@@ -5,6 +5,7 @@
 //! entrypoints are one document surface; do not split for LOC alone.
 
 use crate::selector;
+use anyhow::Context;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -840,6 +841,35 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
         FileFormat::Toml => toml_edit::de::from_str(content)
             .map_err(|e| anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })),
     }
+}
+
+/// Parse for read-only queries (keys/len/get/has).
+///
+/// Empty / whitespace-only / BOM-ZWSP-only YAML is `{}` so keys/len at `.`
+/// match empty JSON/TOML. Write bootstrap still uses [`parse_doc`] (empty
+/// YAML stays Null). Comment-only and `---` preamble stay parsed YAML.
+pub fn parse_doc_for_query(
+    content: &str,
+    format: &FileFormat,
+) -> anyhow::Result<serde_json::Value> {
+    // Blank-text check is on the source, not the parsed value: ZWSP-only
+    // YAML deserializes as a string, not Null, and trim() leaves it intact.
+    if matches!(format, FileFormat::Yaml) && crate::containment::is_blank_text(content) {
+        return Ok(serde_json::json!({}));
+    }
+    parse_doc(content, format)
+}
+
+/// Load and parse a JSON/YAML/TOML file for read-only queries.
+///
+/// Load first so a missing path peels as `not_found` even when the
+/// extension is absent or unsupported. Empty YAML is `{}` via
+/// [`parse_doc_for_query`]. Write paths keep [`parse_doc`].
+pub fn load_for_query(path: &Path) -> anyhow::Result<serde_json::Value> {
+    let display = path.to_string_lossy();
+    let content = crate::files::load_text_strict(path, &display)?;
+    let format = detect_format(&display)?;
+    parse_doc_for_query(&content, &format).with_context(|| format!("parsing {display}"))
 }
 
 /// Check whether YAML content contains multiple documents.
