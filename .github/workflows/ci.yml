@@ -836,10 +836,9 @@ jobs:
       - name: Install actionlint
         run: |
           set -euo pipefail
-          ver=1.7.12
-          archive="actionlint_${ver}_linux_amd64.tar.gz"
+          archive="actionlint_1.7.12_linux_amd64.tar.gz"
           sha="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
-          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ver}/${archive}" \
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v1.7.12/${archive}" \
             -o "/tmp/${archive}"
           echo "${sha}  /tmp/${archive}" | sha256sum -c -
           sudo tar -xzf "/tmp/${archive}" -C /usr/local/bin actionlint
