@@ -20,6 +20,7 @@ permissions:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.event_name == 'pull_request'
     permissions:
       pull-requests: read
@@ -91,15 +92,16 @@ jobs:
           bindir="${RUNNER_TEMP}/gitleaks-bin"
           mkdir -p "$bindir"
           case "$(uname -s)-$(uname -m)" in
-            Linux-x86_64)  platform="linux_x64" ;;
-            Linux-aarch64) platform="linux_arm64" ;;
-            Darwin-x86_64) platform="darwin_x64" ;;
-            Darwin-arm64)  platform="darwin_arm64" ;;
+            Linux-x86_64)  platform="linux_x64" ; sha="551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb" ;;
+            Linux-aarch64) platform="linux_arm64" ; sha="e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080" ;;
+            Darwin-x86_64) platform="darwin_x64" ; sha="dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709" ;;
+            Darwin-arm64)  platform="darwin_arm64" ; sha="b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5" ;;
             *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
           esac
           curl --retry 5 --retry-all-errors --retry-delay 2 -sSfL \
             -o "$archive" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${platform}.tar.gz"
+          echo "${sha}  ${archive}" | sha256sum -c -
           tar -xzf "$archive" -C "$bindir" gitleaks
           printf '%s\n' "$bindir" >> "$GITHUB_PATH"
       - run: gitleaks detect --source . --exit-code 1

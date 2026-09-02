@@ -206,7 +206,7 @@ audit: ## Run cargo audit for known vulnerabilities (requires cargo-audit)
 	cargo audit
 
 deny: ## Run cargo deny check (licenses/bans/sources; requires cargo-deny)
-	cargo deny check
+	cargo deny check licenses bans sources
 
 FUZZ_TIME ?= 60
 
