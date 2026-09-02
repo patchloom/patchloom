@@ -31,9 +31,9 @@ pub(crate) use policy::{build_write_policy, build_write_policy_with_plan};
 ///
 /// [`Operation::FileDelete`] / [`Operation::FileRename`] use entry mode
 /// (no-follow last component, #2115). [`Operation::PatchApply`] is
-/// per-file: git rename and unified delete use entry mode; content hunks
-/// use follow mode so symlink smuggling stays blocked (MPI 2026-08-02 /
-/// MCP `apply_patch` of workspace link → outside target).
+/// per-file: git rename and empty-hunk delete use entry mode; content
+/// hunks and leftover hunked-delete rewrites use follow mode so symlink
+/// smuggling stays blocked (MPI 2026-08-02 / MCP `apply_patch`).
 pub(crate) fn enforce_guard_for_op(
     g: &crate::containment::PathGuard,
     op: &Operation,
@@ -837,7 +837,8 @@ pub(crate) fn execute_and_collect(
 
     // Upfront PathGuard (same contract as execute_plan_inner /
     // execute_plan_direct). CLI `tx` and `batch` call this function directly.
-    // PatchApply renames use entry mode; content paths follow (see
+    // PatchApply rename / empty-hunk delete use entry mode; content
+    // paths and leftover hunked-delete rewrites follow (see
     // enforce_guard_for_op).
     if let Some(g) = guard {
         for op in &plan.operations {

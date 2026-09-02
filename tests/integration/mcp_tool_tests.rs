@@ -6995,3 +6995,43 @@ async fn test_mcp_apply_patch_unified_content_symlink_outside_target() {
     client.cancel().await.unwrap();
     let _ = fs::remove_file(&outside);
 }
+
+/// Leftover hunked-delete is a content rewrite. A workspace link whose
+/// target is outside the workspace must fail closed (follow PathGuard).
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_hunked_delete_leftover_symlink_outside_target() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = dir
+        .path()
+        .parent()
+        .unwrap()
+        .join("pl-mcp-hunked-delete-leftover-symlink-target.txt");
+    fs::write(&outside, "line1\nline2\nline3\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let diff = "\
+--- a/link.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line1
+-line2
+";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        is_error,
+        "leftover hunked-delete through outside symlink must fail closed: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "line1\nline2\nline3\n",
+        "outside target must not be rewritten by leftover hunked-delete"
+    );
+    client.cancel().await.unwrap();
+    let _ = fs::remove_file(&outside);
+}

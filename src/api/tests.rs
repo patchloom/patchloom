@@ -9856,6 +9856,111 @@ index e69de29..0000000\n";
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
 }
 
+/// Leftover hunked-delete is a content rewrite. PathGuard must fail closed
+/// when the workspace link points outside (same class as content dest-deny).
+#[cfg(unix)]
+#[test]
+fn apply_patch_hunked_delete_leftover_symlink_outside_fails_closed() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const BODY: &str = "line1\nline2\nline3\n";
+    fs::write(&secret, BODY).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let patch = "\
+--- a/link.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line1
+-line2
+";
+    let err = apply_patch(&link, patch, ApplyMode::Apply, Some(&guard))
+        .expect_err("leftover rewrite through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "leftover hunked-delete through outside symlink must peel guard_rejected: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        BODY,
+        "outside target must not be rewritten by leftover hunked-delete"
+    );
+    assert!(
+        crate::ops::file::path_entry_exists(&link),
+        "workspace link must remain when leftover rewrite is refused"
+    );
+
+    let preview = apply_patch(&link, patch, ApplyMode::Preview, Some(&guard))
+        .expect_err("preview leftover rewrite through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&preview),
+        Some(EditErrorKind::GuardRejected),
+        "preview must not leak leftover payload: {preview}"
+    );
+    assert!(
+        !preview.to_string().contains("line3"),
+        "preview error must not include leftover payload: {preview}"
+    );
+
+    let file_err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, Some(&guard))
+        .expect_err("apply_patch_file leftover rewrite through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&file_err),
+        Some(EditErrorKind::GuardRejected),
+        "apply_patch_file leftover must peel guard_rejected: {file_err}"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), BODY);
+}
+
+/// Matching hunked delete via default apply_patch (tx) must not snapshot
+/// symlink target bytes. Empty-hunk already empties Special; the hunked
+/// loader used to leave followed text in pending.
+#[cfg(unix)]
+#[test]
+fn apply_patch_hunked_delete_symlink_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=hunked-delete-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let patch = "\
+--- a/link.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-SECRET=hunked-delete-do-not-leak
+";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("matching hunked delete of workspace symlink");
+    assert!(
+        result.original_content.is_empty() || !result.original_content.contains(PAYLOAD.trim()),
+        "hunked-delete snapshot must not follow symlink: {:?}",
+        result.original_content
+    );
+    assert!(
+        !result.diff.contains(PAYLOAD.trim()),
+        "diff must not leak symlink target: {}",
+        result.diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "matching hunked delete must unlink the link"
+    );
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        PAYLOAD,
+        "matching hunked delete must not wipe the target"
+    );
+}
+
 /// Hunked delete through an in-workspace symlink unlinks the link and
 /// leaves the target bytes (follow to verify minus, then unlink, not wipe).
 #[cfg(unix)]

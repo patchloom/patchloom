@@ -212,6 +212,9 @@ fn patch_write(
                     original,
                     new_content,
                 } => {
+                    // Leftover is a content write: follow dest-deny in all
+                    // modes so Preview cannot leak an outside target.
+                    super::ensure_contained(guard, &write_path)?;
                     let policy = crate::write::WritePolicy::default();
                     let (applied, backup_session) =
                         super::write_if_apply(&write_path, &new_content, mode, &policy, guard)?;
@@ -546,24 +549,27 @@ pub fn apply_patch_file(
         crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
     }
 
+    // Containment in all modes: leftover rewrite is a content write
+    // (follow). Preview must not leak outside payload when dest-deny fires.
+    for op in &staged {
+        match op {
+            StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
+            // Path-only delete/rename: entry containment (#2115).
+            StageOp::Delete { path, .. } => super::ensure_contained_entry(guard, path)?,
+            StageOp::Rename { from, to, .. } => {
+                super::ensure_contained_entry(guard, from)?;
+                super::ensure_contained_entry(guard, to)?;
+            }
+            StageOp::CopyFile { from, to, .. } => {
+                super::ensure_contained(guard, from)?;
+                super::ensure_contained(guard, to)?;
+            }
+        }
+    }
+
     // Phase 2: one backup session, then all-or-nothing mutate.
     let policy = crate::write::WritePolicy::default();
     let (applied, backup_session) = if mode == ApplyMode::Apply {
-        for op in &staged {
-            match op {
-                StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
-                // Path-only delete/rename: entry containment (#2115).
-                StageOp::Delete { path, .. } => super::ensure_contained_entry(guard, path)?,
-                StageOp::Rename { from, to, .. } => {
-                    super::ensure_contained_entry(guard, from)?;
-                    super::ensure_contained_entry(guard, to)?;
-                }
-                StageOp::CopyFile { from, to, .. } => {
-                    super::ensure_contained(guard, from)?;
-                    super::ensure_contained(guard, to)?;
-                }
-            }
-        }
         let mut backup = crate::backup::BackupSession::new(cwd)?;
         // Always record every path (including creates and rename dests as
         // FileAction::Created when missing). Skipping non-existent paths left

@@ -75,7 +75,7 @@ fn validate_op_paths_under_plan_cwd(
         })?;
         for pf in &patch_files {
             if pf.uses_entry_containment() {
-                // Path-only rename/delete headers: entry containment (#2115).
+                // Path-only rename / empty-hunk delete: entry (#2115).
                 let candidate = if std::path::Path::new(pf.path.as_str()).is_absolute() {
                     pf.path.clone()
                 } else {
@@ -716,9 +716,10 @@ impl PatchloomService {
                 McpError::invalid_params(format!("failed to parse diff: {e}"), None)
             })?;
             for pf in &patch_files {
-                // Git rename and unified delete are path-only (entry mode,
-                // #2115); content patches follow. Match execute_plan so a
-                // workspace link → outside target can be unlinked.
+                // Git rename and empty-hunk delete are path-only (entry
+                // mode, #2115); content hunks and leftover hunked-delete
+                // rewrites follow. Match execute_plan so a workspace link
+                // → outside target can be unlinked, not rewritten.
                 if pf.uses_entry_containment() {
                     svc.check_path_entry(&pf.path)?;
                     if let Some(from) = &pf.rename_from {

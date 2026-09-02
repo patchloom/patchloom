@@ -60,10 +60,11 @@ impl PatchFile {
     }
 
     /// True when dest/source should use entry PathGuard (no-follow last
-    /// component): git rename and file delete (file_delete snapshot rule).
+    /// component): git rename and empty-hunk delete. Hunked delete applies
+    /// minus lines and leftover rewrites, so follow-mode dest-deny applies.
     #[must_use]
     pub fn uses_entry_containment(&self) -> bool {
-        self.rename_from.is_some() || self.is_deletion
+        self.rename_from.is_some() || (self.is_deletion && self.hunks.is_empty())
     }
 
     /// Dest and source paths this file entry would touch (C-unescaped).

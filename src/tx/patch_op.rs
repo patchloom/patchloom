@@ -72,9 +72,11 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                         .into());
                     }
                     // file_delete snapshot: do not follow symlink / FIFO / socket.
+                    // The hunked loader already followed into pending; overwrite
+                    // Special originals so EditResult cannot leak target bytes.
                     if crate::ops::file::is_regular_file_for_backup(&file_path) {
                         let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
-                    } else if !tx.pending.contains_key(&file_path) {
+                    } else {
                         tx.existed_before.insert(file_path.clone());
                         tx.pending
                             .insert(file_path.clone(), (String::new(), String::new()));
