@@ -160,11 +160,8 @@ fn patch_write(
         }
         if pf.is_deletion {
             // file_delete snapshot: empty original for symlink / FIFO / socket.
-            // Empty-hunk git delete must not follow (apply_patch_with_loader
-            // is cfg-gated on cli/files; this is the no-default path).
-            let original = if crate::ops::file::is_regular_file_for_backup(&load_path)
-                && !pf.hunks.is_empty()
-            {
+            // apply_patch_with_loader is cfg-gated; this is the no-default path.
+            let original = if crate::ops::file::is_regular_file_for_backup(&load_path) {
                 crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
             } else {
                 String::new()
