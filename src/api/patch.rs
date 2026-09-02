@@ -374,13 +374,37 @@ pub fn apply_patch_file(
 
         if pf.is_deletion {
             // Real unlink, not empty rewrite (tx/CLI parity).
-            // Same snapshot rule as file_delete: empty original for
-            // symlink / FIFO / socket so entry PathGuard cannot leak
-            // target bytes into EditResult / diffs.
-            let original = if crate::ops::file::is_regular_file_for_backup(&load_path) {
-                crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
+            // Empty-hunk git delete: no-load snapshot (symlink / FIFO /
+            // socket stay empty so PathGuard cannot leak target bytes).
+            // Hunked delete: load via load_text_strict (follow live
+            // symlink) and apply hunks first so stale context is
+            // ambiguous, same as apply_patch_with_loader.
+            let original = if pf.hunks.is_empty() {
+                if crate::ops::file::is_regular_file_for_backup(&load_path) {
+                    crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
+                } else {
+                    String::new()
+                }
             } else {
-                String::new()
+                let loaded = crate::files::load_text_strict(&load_path, load_rel)?;
+                crate::ops::patch::apply_hunks(&loaded, &pf.hunks).map_err(|e| {
+                    if e.contains("stale context") {
+                        anyhow::Error::new(crate::exit::AmbiguousError {
+                            msg: format!("patch apply error for {}: {e}", pf.path),
+                        })
+                    } else {
+                        anyhow::Error::new(crate::exit::InvalidInputError {
+                            msg: format!("patch apply error for {}: {e}", pf.path),
+                        })
+                    }
+                })?;
+                // Snapshot still follows file_delete: empty for symlink /
+                // FIFO / socket so EditResult cannot leak target bytes.
+                if crate::ops::file::is_regular_file_for_backup(&load_path) {
+                    loaded
+                } else {
+                    String::new()
+                }
             };
             staged.push(StageOp::Delete {
                 path: load_path,

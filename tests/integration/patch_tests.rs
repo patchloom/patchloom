@@ -1996,6 +1996,48 @@ index e69de29..0000000
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
 }
 
+/// Hunked delete through an in-workspace symlink unlinks the link and
+/// leaves the target (follow to verify minus, then unlink, not wipe).
+#[cfg(unix)]
+#[test]
+fn test_patch_hunked_delete_through_in_workspace_symlink_unlinks_not_wipe() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.txt");
+    fs::write(&target, "alpha\nbeta\ngamma\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        "\
+--- a/link.txt
++++ /dev/null
+@@ -1,3 +0,0 @@
+-alpha
+-beta
+-gamma
+",
+    )
+    .unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .success();
+    assert!(
+        fs::symlink_metadata(&link).is_err(),
+        "apply must unlink the workspace symlink"
+    );
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        "alpha\nbeta\ngamma\n",
+        "hunked delete must unlink the link, not wipe the target"
+    );
+}
+
 /// Add-only hunk through a workspace symlink must prepend, not wipe the
 /// target (#2290). CLI uses the same tx loader as default-features apply_patch.
 #[cfg(unix)]

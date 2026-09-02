@@ -6917,3 +6917,81 @@ async fn test_mcp_apply_patch_search_replace_symlink_outside_target() {
     client.cancel().await.unwrap();
     let _ = fs::remove_file(&outside);
 }
+
+/// Add-only hunk through an in-workspace symlink must prepend and keep
+/// the link (same class as CLI / apply_patch #2290).
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_add_only_hunk_through_in_workspace_symlink() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let real = dir.path().join("real.txt");
+    fs::write(&real, "alpha\nbeta\ngamma\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let diff = "\
+--- a/link.txt
++++ b/link.txt
+@@ -0,0 +1,1 @@
++INJECTED
+";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        !is_error,
+        "add-only through in-workspace symlink must succeed: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(&real).unwrap(),
+        "INJECTED\nalpha\nbeta\ngamma\n",
+        "add-only hunk must prepend through the symlink"
+    );
+    assert!(
+        link.symlink_metadata().unwrap().file_type().is_symlink(),
+        "write-through must keep the symlink entry"
+    );
+    client.cancel().await.unwrap();
+}
+
+/// Unified content hunk through a workspace link whose target is outside
+/// must fail closed (follow PathGuard). Same class as SEARCH/REPLACE dest-deny.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_unified_content_symlink_outside_target() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = dir
+        .path()
+        .parent()
+        .unwrap()
+        .join("pl-mcp-unified-content-symlink-target.txt");
+    fs::write(&outside, "outside-old\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let diff = "\
+--- a/link.txt
++++ b/link.txt
+@@ -1 +1 @@
+-outside-old
++mutated
+";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        is_error,
+        "unified content through outside symlink must fail closed: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "outside-old\n",
+        "outside target must not be rewritten"
+    );
+    client.cancel().await.unwrap();
+    let _ = fs::remove_file(&outside);
+}

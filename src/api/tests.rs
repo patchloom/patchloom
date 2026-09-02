@@ -9577,6 +9577,42 @@ fn apply_patch_file_deletion_unlinks() {
     );
 }
 
+/// Hunked `+++ /dev/null` must apply the minus lines before unlinking.
+/// `apply_patch_file` used to treat every deletion as a path-only unlink.
+#[test]
+fn apply_patch_file_stale_hunked_delete_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "changed\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect_err("stale hunked delete must fail closed");
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("ambiguous"),
+        "stale deletion hunk must peel ambiguous: {err}"
+    );
+    assert!(
+        file.exists(),
+        "stale hunked delete must not remove the file"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+/// Matching hunked delete unlinks (pair with stale fail-closed above).
+#[test]
+fn apply_patch_file_hunked_delete_matching_minus_unlinks() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "line1\nline2\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect("matching hunked delete");
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    assert!(!file.exists(), "matching hunked delete must unlink");
+}
+
 /// Unified-diff delete of a workspace symlink must not snapshot the outside
 /// target (same file_delete backup rule as Begin Patch Delete).
 #[cfg(unix)]
@@ -9740,6 +9776,39 @@ index e69de29..0000000\n";
         "symlink entry must be unlinked"
     );
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
+/// Hunked delete through an in-workspace symlink unlinks the link and
+/// leaves the target bytes (follow to verify minus, then unlink, not wipe).
+#[cfg(unix)]
+#[test]
+fn apply_patch_hunked_delete_through_in_workspace_symlink_unlinks_not_wipe() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.txt");
+    const BODY: &str = "alpha\nbeta\ngamma\n";
+    fs::write(&target, BODY).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let patch = "\
+--- a/link.txt
++++ /dev/null
+@@ -1,3 +0,0 @@
+-alpha
+-beta
+-gamma
+";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("hunked delete through in-workspace symlink");
+    assert!(result.changed);
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        BODY,
+        "hunked delete must unlink the link, not wipe the target"
+    );
 }
 
 /// Content patch on a workspace symlink must load the target text (#2290).
