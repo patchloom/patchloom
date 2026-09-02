@@ -71,6 +71,8 @@ mod basic {
             parse_doc("   \n  \n", &FileFormat::Yaml).unwrap(),
             json!(null)
         );
+        // Emit half: serialize_value_preserving dumps `name: app\n`. This is
+        // not a parse_doc oracle (those asserts are above).
         let old = parse_doc("", &FileFormat::Yaml).unwrap();
         let new = json!({"name": "app"});
         let dumped = serialize_value_preserving("", &old, &new, &FileFormat::Yaml).unwrap();

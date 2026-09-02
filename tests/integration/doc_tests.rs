@@ -234,7 +234,7 @@ fn test_doc_len_omitted_selector_counts_root() {
         .arg(&file)
         .assert()
         .success()
-        .stdout(predicate::str::contains("2"));
+        .stdout(predicate::eq("2\n"));
 }
 
 #[test]
@@ -312,9 +312,10 @@ fn test_doc_keys_len_empty_yaml_json_succeeds_like_empty_json() {
 }
 
 #[test]
-fn test_doc_set_empty_yaml_write_bootstrap_unchanged() {
-    // Lock today's write: empty YAML set emits a mapping, and parse_doc is
-    // not rewritten to `{}` (that would change CST/bootstrap). #2283
+fn test_doc_set_empty_yaml_emits_mapping() {
+    // Cargo-bin lock: empty YAML `doc set --apply` writes `name: app\n`.
+    // This does not observe parse_doc (`set_at_path` already turns Null
+    // into {}). parse_doc == Null is locked in api/ops tests. #2283
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("empty.yaml");
     fs::write(&file, "").unwrap();
@@ -3755,8 +3756,8 @@ fn test_doc_keys_wildcard_json_is_ambiguous() {
     assert_eq!(v["error_kind"], "ambiguous", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("items[0]") || err.contains("[0]"),
-        "ambiguous keys must name a concrete index: {v}"
+        err.contains("items[0]"),
+        "ambiguous keys must name items[0]: {v}"
     );
 }
 
@@ -3784,8 +3785,8 @@ fn test_doc_len_wildcard_json_is_ambiguous() {
     assert_eq!(v["error_kind"], "ambiguous", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("items[0]") || err.contains("[0]"),
-        "ambiguous len must name a concrete index: {v}"
+        err.contains("items[0]"),
+        "ambiguous len must name items[0]: {v}"
     );
 }
 
@@ -3816,8 +3817,8 @@ fn test_doc_keys_wildcard_one_or_zero_json_is_ambiguous() {
         );
         let err = v["error"].as_str().unwrap_or("");
         assert!(
-            err.contains("items[0]") || err.contains("[0]"),
-            "ambiguous keys must name a concrete index: {v}"
+            err.contains("items[0]") && err.contains("one object") && !err.contains("or array"),
+            "ambiguous keys must name items[0] and one object: {v}"
         );
     }
 }
@@ -3849,8 +3850,8 @@ fn test_doc_len_wildcard_one_or_zero_json_is_ambiguous() {
         );
         let err = v["error"].as_str().unwrap_or("");
         assert!(
-            err.contains("items[0]") || err.contains("[0]"),
-            "ambiguous len must name a concrete index: {v}"
+            err.contains("items[0]") && err.contains("one object or array"),
+            "ambiguous len must name items[0] and one object or array: {v}"
         );
     }
 }

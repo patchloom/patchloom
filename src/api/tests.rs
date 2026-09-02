@@ -337,10 +337,8 @@ fn doc_keys_wildcard_multi_match_is_ambiguous() {
     );
     let msg = err.to_string();
     assert!(
-        (msg.contains("items[0]") || msg.contains("[0]"))
-            && msg.contains("one object")
-            && !msg.contains("or array"),
-        "ambiguous keys must name a concrete index and one object: {msg}"
+        msg.contains("items[0]") && msg.contains("one object") && !msg.contains("or array"),
+        "ambiguous keys must name items[0] and one object: {msg}"
     );
 }
 
@@ -361,8 +359,8 @@ fn doc_len_wildcard_multi_match_is_ambiguous() {
     );
     let msg = err.to_string();
     assert!(
-        (msg.contains("items[0]") || msg.contains("[0]")) && msg.contains("one object or array"),
-        "ambiguous len must name a concrete index: {msg}"
+        msg.contains("items[0]") && msg.contains("one object or array"),
+        "ambiguous len must name items[0]: {msg}"
     );
 }
 
@@ -383,8 +381,8 @@ fn doc_keys_wildcard_one_or_zero_match_is_ambiguous() {
         );
         let msg = err.to_string();
         assert!(
-            msg.contains("items[0]") || msg.contains("[0]"),
-            "ambiguous keys must name a concrete index: {msg}"
+            msg.contains("items[0]") && msg.contains("one object") && !msg.contains("or array"),
+            "ambiguous keys must name items[0] and one object: {msg}"
         );
     }
 }
@@ -406,8 +404,8 @@ fn doc_len_wildcard_one_or_zero_match_is_ambiguous() {
         );
         let msg = err.to_string();
         assert!(
-            msg.contains("items[0]") || msg.contains("[0]"),
-            "ambiguous len must name a concrete index: {msg}"
+            msg.contains("items[0]") && msg.contains("one object or array"),
+            "ambiguous len must name items[0] and one object or array: {msg}"
         );
     }
 }

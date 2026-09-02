@@ -2887,8 +2887,8 @@ async fn test_mcp_doc_query_keys_wildcard_is_ambiguous() {
     );
     let msg = val["error"].as_str().unwrap_or("");
     assert!(
-        msg.contains("items[0]") || msg.contains("[0]"),
-        "doc_query keys ambiguous must name a concrete index: {val}"
+        msg.contains("items[0]"),
+        "doc_query keys ambiguous must name items[0]: {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -2926,8 +2926,8 @@ async fn test_mcp_doc_query_len_wildcard_is_ambiguous() {
     );
     let msg = val["error"].as_str().unwrap_or("");
     assert!(
-        msg.contains("items[0]") || msg.contains("[0]"),
-        "doc_query len ambiguous must name a concrete index: {val}"
+        msg.contains("items[0]"),
+        "doc_query len ambiguous must name items[0]: {val}"
     );
     client.cancel().await.unwrap();
 }
@@ -2964,8 +2964,8 @@ async fn test_mcp_doc_query_keys_wildcard_one_or_zero_is_ambiguous() {
         );
         let msg = val["error"].as_str().unwrap_or("");
         assert!(
-            msg.contains("items[0]") || msg.contains("[0]"),
-            "doc_query keys ambiguous must name a concrete index: {val}"
+            msg.contains("items[0]") && msg.contains("one object") && !msg.contains("or array"),
+            "doc_query keys ambiguous must name items[0] and one object: {val}"
         );
     }
     client.cancel().await.unwrap();
@@ -3003,8 +3003,8 @@ async fn test_mcp_doc_query_len_wildcard_one_or_zero_is_ambiguous() {
         );
         let msg = val["error"].as_str().unwrap_or("");
         assert!(
-            msg.contains("items[0]") || msg.contains("[0]"),
-            "doc_query len ambiguous must name a concrete index: {val}"
+            msg.contains("items[0]") && msg.contains("one object or array"),
+            "doc_query len ambiguous must name items[0] and one object or array: {val}"
         );
     }
     client.cancel().await.unwrap();
