@@ -9593,6 +9593,11 @@ fn apply_patch_file_stale_hunked_delete_does_not_unlink() {
         "stale deletion hunk must peel ambiguous: {err}"
     );
     assert!(
+        err.to_string()
+            .contains(crate::ops::patch::STALE_HUNKED_DELETE_RECOVERY),
+        "stale hunked delete must include recovery: {err}"
+    );
+    assert!(
         file.exists(),
         "stale hunked delete must not remove the file"
     );
@@ -9653,6 +9658,11 @@ fn apply_patch_hunked_delete_stale_does_not_unlink() {
         crate::fallback::error_kind_str(&err),
         Some("ambiguous"),
         "stale deletion hunk must peel ambiguous: {err}"
+    );
+    assert!(
+        err.to_string()
+            .contains(crate::ops::patch::STALE_HUNKED_DELETE_RECOVERY),
+        "stale hunked delete must include recovery: {err}"
     );
     assert!(
         file.exists(),

@@ -608,8 +608,11 @@ fn agent_rules_documents_library_type_error_and_binary_preflight() {
             && out.contains("on unified or Begin Patch")
             && out.contains("#2219")
             && out.contains("#2220")
-            && out.contains("#2221"),
-        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle/patch dest (#2168/#2169/#2170) plus Begin Patch / SEARCH/REPLACE (#2219/#2220/#2221)"
+            && out.contains("#2221")
+            && out.contains("hunked delete")
+            && out.contains("+++ /dev/null")
+            && out.contains("leftover bytes"),
+        "library hosts need over-wide fuzzy refuse + multi-op/tx rollup + checklist (#1981/#2006-#2009/#2064) and for_each/lifecycle/patch dest (#2168/#2169/#2170) plus Begin Patch / SEARCH/REPLACE (#2219/#2220/#2221) and hunked delete leftover"
     );
     assert!(
         out.contains("Which surface to use")

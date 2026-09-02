@@ -297,7 +297,10 @@ fn test_patch_apply_stale_deletion_does_not_delete_file() {
         .arg(&patch_file)
         .arg("--apply")
         .assert()
-        .code(5); // AMBIGUOUS / stale
+        .code(5) // AMBIGUOUS / stale
+        .stderr(predicate::str::contains(
+            "This was a deletion hunk; the file was not removed",
+        ));
     assert!(file.exists(), "stale deletion must not remove the file");
     assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
 }

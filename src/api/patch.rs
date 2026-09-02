@@ -18,6 +18,12 @@ use super::{ApplyMode, EditResult};
 /// Dest paths come from the document; `path` only supplies the workspace
 /// parent (same as a relative dest under that parent).
 ///
+/// Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks.
+/// A hunked delete applies the minus lines first. Leftover bytes rewrite
+/// the file (not unlink); preview with `--diff` or inspect `new_content`.
+/// Path-only unlink is `file.delete`. Stale minus lines are `ambiguous`
+/// and the file is not removed.
+///
 /// Returns an `EditResult` with the patched content.
 pub fn apply_patch(
     path: &Path,
@@ -275,6 +281,17 @@ fn map_apply_hunks_err(path: &str, e: String) -> anyhow::Error {
     }
 }
 
+fn map_deletion_apply_hunks_err(path: &str, e: String) -> anyhow::Error {
+    if e.contains("stale context") {
+        map_apply_hunks_err(
+            path,
+            crate::ops::patch::append_stale_hunked_delete_recovery(&e),
+        )
+    } else {
+        map_apply_hunks_err(path, e)
+    }
+}
+
 /// Empty-hunk delete: no-load snapshot (regular file text; symlink / FIFO /
 /// socket stay empty). Hunked: load + apply. Empty applied → Delete
 /// (symlink snapshot empty). Leftover applied → Rewrite (original=loaded).
@@ -304,7 +321,7 @@ fn deletion_after_hunks(
     }
     let loaded = crate::files::load_text_strict(load_path, load_rel)?;
     let applied = crate::ops::patch::apply_hunks(&loaded, hunks)
-        .map_err(|e| map_apply_hunks_err(display_path, e))?;
+        .map_err(|e| map_deletion_apply_hunks_err(display_path, e))?;
     if applied.is_empty() {
         let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
             loaded
@@ -330,6 +347,11 @@ fn deletion_after_hunks(
 /// single backup session covers every path. Any write failure restores the
 /// whole batch (no half-applied multi-file patch). Empty-create dests report
 /// `changed: true` even when original and new content are both empty.
+///
+/// **Deletes:** empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks)
+/// unlinks. A hunked delete applies the minus lines first; leftover bytes
+/// rewrite the file (preview `--diff` or `new_content`). Path-only unlink is
+/// `file.delete`. Stale minus lines are `ambiguous` and the file stays.
 pub fn apply_patch_file(
     patch_text: &str,
     cwd: &Path,
