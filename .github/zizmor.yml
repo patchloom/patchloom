@@ -38,7 +38,7 @@ rules:
   artipacked:
     ignore:
       - release.yml
-  # publish-crates is workflow_call-only and needs the parent registry tokens.
+  # release.yml calls publish-crates with secrets: inherit (workflow_call-only).
   secrets-inherit:
     ignore:
       - release.yml

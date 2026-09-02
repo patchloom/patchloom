@@ -218,6 +218,39 @@ fn doc_len_scalar_is_type_error() {
         crate::exit::is_type_error(&err),
         "expected TypeErrorError for len of a scalar, got: {err}"
     );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::TypeError)
+    );
+}
+
+#[test]
+fn doc_keys_and_len_missing_is_no_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"version": "1.0"}"#).unwrap();
+
+    let keys_err = doc_keys(&file, "nonexistent").unwrap_err();
+    assert!(
+        keys_err
+            .downcast_ref::<crate::exit::NoMatchError>()
+            .is_some()
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&keys_err),
+        Some(EditErrorKind::NoMatch)
+    );
+
+    let len_err = doc_len(&file, "nonexistent").unwrap_err();
+    assert!(
+        len_err
+            .downcast_ref::<crate::exit::NoMatchError>()
+            .is_some()
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&len_err),
+        Some(EditErrorKind::NoMatch)
+    );
 }
 
 #[test]

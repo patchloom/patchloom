@@ -29,6 +29,8 @@ def main() -> int:
         return fail("ci.yml path filter must include .github/actions/**")
     if "workflows:" not in ci:
         return fail("ci.yml must expose a workflows paths-filter output")
+    if "needs.changes.outputs.workflows == 'true'" not in ci:
+        return fail("workflow-sanity must gate on needs.changes.outputs.workflows")
     if "actionlint" not in ci or "zizmor" not in ci:
         return fail("workflow-sanity must run actionlint and zizmor")
     if re.search(r"actionlint@latest|zizmor@latest", ci):
