@@ -9655,6 +9655,31 @@ fn apply_patch_begin_patch_delete_symlink_outside_does_not_leak_target() {
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
 }
 
+/// Empty-hunk git delete of a regular file must populate `original_content`.
+/// Symlink/FIFO snapshot is empty; regular files still load (parity with
+/// `apply_patch_file` and tx).
+#[test]
+fn apply_patch_unified_delete_regular_file_snapshots_content() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("gone.txt");
+    const BODY: &str = "keep this text\n";
+    fs::write(&file, BODY).unwrap();
+    let patch = "\
+diff --git a/gone.txt b/gone.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let result = apply_patch(&file, patch, ApplyMode::Apply, None)
+        .expect("empty-hunk delete of a regular file");
+    assert_eq!(
+        result.original_content, BODY,
+        "regular-file delete snapshot must load the file text"
+    );
+    assert!(
+        !file.exists(),
+        "deletion patch must unlink, not leave an empty file"
+    );
+}
+
 /// Unified-diff delete via `apply_patch` (tx loader) must not snapshot the
 /// outside symlink target. Empty-hunk git delete; no PathGuard so a follow
 /// load leaks into `original_content` on the unfixed path.
