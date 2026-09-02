@@ -39,6 +39,13 @@ def main() -> int:
         return fail("pin zizmor@1.30.0 (not @latest)")
     if "actionlint_1.7.12" not in ci and "actionlint@1.7.12" not in ci:
         return fail("pin actionlint 1.7.12 (release tarball or install-action)")
+    if "sha256sum -c" not in ci:
+        return fail("workflow-sanity must verify the actionlint tarball with sha256sum -c")
+    if "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" not in ci:
+        return fail(
+            "pin actionlint 1.7.12 tarball sha256 "
+            "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        )
     if "needs.workflow-sanity.result" not in ci:
         return fail("aggregate ci job must fail when workflow-sanity fails")
     if not ZIZMOR.is_file():

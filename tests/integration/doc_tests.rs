@@ -238,6 +238,24 @@ fn test_doc_len_omitted_selector_counts_root() {
 }
 
 #[test]
+fn test_doc_len_multi_document_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    for root_sel in [None, Some(".")] {
+        let mut cmd = Command::cargo_bin("patchloom").unwrap();
+        cmd.arg("doc").arg("len").arg(&file);
+        if let Some(sel) = root_sel {
+            cmd.arg(sel);
+        }
+        cmd.assert()
+            .success()
+            .stdout(predicate::str::starts_with("2"));
+    }
+}
+
+#[test]
 fn test_doc_get_typo_key_json_did_you_mean() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.toml");

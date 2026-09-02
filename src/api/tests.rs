@@ -208,6 +208,16 @@ fn doc_len_counts_root_and_nested() {
 }
 
 #[test]
+fn doc_len_multi_document_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    assert_eq!(doc_len(&file, ".").unwrap(), 2);
+    assert_eq!(doc_len(&file, "").unwrap(), 2);
+}
+
+#[test]
 fn doc_len_scalar_is_type_error() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");

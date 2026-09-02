@@ -2855,6 +2855,149 @@ async fn test_mcp_doc_len_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_keys_len_nonexistent_is_no_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"version":"1.0"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    for action in ["keys", "len"] {
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({
+                "action": action,
+                "path": "config.json",
+                "selector": "nonexistent"
+            }),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query {action} on missing selector must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "no_matches",
+            "doc_query {action} missing selector must set error_kind no_matches: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_keys_array_and_multi_doc_root_is_type_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"items":[1,2,3]}"#).unwrap();
+    fs::write(dir.path().join("multi.yaml"), "a: 1\n---\nb: 2\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({
+            "action": "keys",
+            "path": "config.json",
+            "selector": "items"
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "doc_query keys on array items must be is_error: {val}"
+    );
+    assert_eq!(
+        val["error_kind"], "type_error",
+        "doc_query keys on array items must set error_kind type_error: {val}"
+    );
+
+    for selector in [Some("."), None] {
+        let mut args = serde_json::json!({
+            "action": "keys",
+            "path": "multi.yaml"
+        });
+        if let Some(sel) = selector {
+            args["selector"] = serde_json::json!(sel);
+        }
+        let (is_error, val) = call_tool_value(&client, "doc_query", args).await;
+        assert!(
+            is_error,
+            "doc_query keys on multi-doc root {selector:?} must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "type_error",
+            "doc_query keys on multi-doc root {selector:?} must set error_kind type_error: {val}"
+        );
+        let msg = val["error"].as_str().unwrap_or("");
+        assert!(
+            msg.contains("`0`") || msg.contains("[0]"),
+            "multi-doc keys type_error must name 0 / [0] for {selector:?}: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_len_omitted_selector_counts_object_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","version":"1.0","debug":true}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "len", "path": "config.json"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_query len without selector should succeed: {val}"
+    );
+    assert_eq!(
+        val, 3,
+        "doc_query len omitted selector must count object root: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_len_multi_document_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("multi.yaml"), "a: 1\n---\nb: 2\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "len", "path": "multi.yaml"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_query len omitted selector on multi-doc must succeed: {val}"
+    );
+    assert_eq!(
+        val, 2,
+        "doc_query len omitted selector on multi-doc must return 2: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_select_round_trip() {
     if !has_mcp_support() {
         return;
