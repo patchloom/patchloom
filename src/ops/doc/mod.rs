@@ -5,6 +5,7 @@
 //! entrypoints are one document surface; do not split for LOC alone.
 
 use crate::selector;
+use anyhow::Context;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -855,6 +856,18 @@ pub fn parse_doc_for_query(
         return Ok(serde_json::json!({}));
     }
     Ok(value)
+}
+
+/// Load and parse a JSON/YAML/TOML file for read-only queries.
+///
+/// Load first so a missing path peels as `not_found` even when the
+/// extension is absent or unsupported. Empty YAML is `{}` via
+/// [`parse_doc_for_query`]. Write paths keep [`parse_doc`].
+pub fn load_for_query(path: &Path) -> anyhow::Result<serde_json::Value> {
+    let display = path.to_string_lossy();
+    let content = crate::files::load_text_strict(path, &display)?;
+    let format = detect_format(&display)?;
+    parse_doc_for_query(&content, &format).with_context(|| format!("parsing {display}"))
 }
 
 /// Check whether YAML content contains multiple documents.

@@ -101,6 +101,16 @@ mod basic {
     }
 
     #[test]
+    fn load_for_query_empty_yaml_is_object() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("empty.yaml");
+        std::fs::write(&path, "").unwrap();
+        assert_eq!(load_for_query(&path).unwrap(), json!({}));
+        std::fs::write(&path, "   \n  \n").unwrap();
+        assert_eq!(load_for_query(&path).unwrap(), json!({}));
+    }
+
+    #[test]
     fn parse_and_serialize_yaml_roundtrip() {
         let input = "a: 1\n";
         let val = parse_doc(input, &crate::ops::doc::FileFormat::Yaml).unwrap();

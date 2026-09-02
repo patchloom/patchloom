@@ -119,11 +119,8 @@ fn format_selector(segments: &[selector::Segment]) -> String {
 }
 
 /// Concrete index paths for a multi-match keys/len selector (`items[*]` → `items[0]`).
-fn unique_index_examples(selector: &str) -> (String, String) {
-    let Ok(segs) = selector::parse(selector) else {
-        return ("items[0]".into(), "items[1]".into());
-    };
-    let pos = segs.iter().position(|s| {
+fn unique_index_examples(segments: &[selector::Segment]) -> (String, String) {
+    let pos = segments.iter().position(|s| {
         matches!(
             s,
             selector::Segment::Wildcard | selector::Segment::Predicate { .. }
@@ -131,8 +128,8 @@ fn unique_index_examples(selector: &str) -> (String, String) {
     });
     match pos {
         Some(i) => {
-            let mut first = segs.clone();
-            let mut second = segs;
+            let mut first = segments.to_vec();
+            let mut second = segments.to_vec();
             first[i] = selector::Segment::Index(0);
             second[i] = selector::Segment::Index(1);
             (format_selector(&first), format_selector(&second))
@@ -150,8 +147,8 @@ fn selector_has_multi_match_segment(segments: &[selector::Segment]) -> bool {
     })
 }
 
-fn unique_match_required_msg(op: &str, selector: &str) -> String {
-    let (a, b) = unique_index_examples(selector);
+fn unique_match_required_msg(op: &str, selector: &str, segments: &[selector::Segment]) -> String {
+    let (a, b) = unique_index_examples(segments);
     let need = if op == "keys" {
         "one object"
     } else {
@@ -163,23 +160,45 @@ fn unique_match_required_msg(op: &str, selector: &str) -> String {
     )
 }
 
-fn parent_selector_display(selector: &str) -> String {
-    if is_root_selector(selector) {
+fn parent_selector_display(segments: &[selector::Segment]) -> String {
+    if segments.len() <= 1 {
         return ".".into();
     }
-    let Ok(mut segs) = selector::parse(selector) else {
-        return ".".into();
-    };
-    if segs.len() <= 1 {
-        return ".".into();
-    }
-    segs.pop();
-    let formatted = format_selector(&segs);
+    let formatted = format_selector(&segments[..segments.len() - 1]);
     if formatted.is_empty() {
         ".".into()
     } else {
         formatted
     }
+}
+
+/// Unique target for keys/len: parse, refuse wildcard/predicate, eval once.
+fn unique_query_target<'a>(
+    root: &'a serde_json::Value,
+    selector: &str,
+    op: &str,
+) -> anyhow::Result<Option<&'a serde_json::Value>> {
+    let segments = selector::parse_anyhow(selector)?;
+    if selector_has_multi_match_segment(&segments) {
+        return Err(crate::exit::AmbiguousError {
+            msg: unique_match_required_msg(op, selector, &segments),
+        }
+        .into());
+    }
+    let results = selector::eval_result(root, &segments)?;
+    if results.is_empty() {
+        if let Some(hint) = array_root_bare_key_hint(root, &segments) {
+            return Err(crate::exit::TypeErrorError { msg: hint }.into());
+        }
+        return Ok(None);
+    }
+    if results.len() > 1 {
+        return Err(crate::exit::AmbiguousError {
+            msg: unique_match_required_msg(op, selector, &segments),
+        }
+        .into());
+    }
+    Ok(Some(results[0]))
 }
 
 /// Check whether a selector path exists.
@@ -217,31 +236,14 @@ pub enum QueryKeysResult {
 /// object keys at an array root (multi-doc YAML) return
 /// [`crate::exit::TypeErrorError`] like [`query_get`] / [`query_has`].
 pub fn query_keys(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryKeysResult> {
-    let segments = selector::parse_anyhow(selector)?;
-    if selector_has_multi_match_segment(&segments) {
-        return Err(crate::exit::AmbiguousError {
-            msg: unique_match_required_msg("keys", selector),
-        }
-        .into());
-    }
-    let results = selector::eval_result(root, &segments)?;
-    if results.is_empty() {
-        if let Some(hint) = array_root_bare_key_hint(root, &segments) {
-            return Err(crate::exit::TypeErrorError { msg: hint }.into());
-        }
+    let Some(target) = unique_query_target(root, selector, "keys")? else {
         return Ok(QueryKeysResult::NoMatch);
-    }
-    if results.len() > 1 {
-        return Err(crate::exit::AmbiguousError {
-            msg: unique_match_required_msg("keys", selector),
-        }
-        .into());
-    }
-    if let Some(obj) = results[0].as_object() {
+    };
+    if let Some(obj) = target.as_object() {
         Ok(QueryKeysResult::Keys(obj.keys().cloned().collect()))
     } else {
         Ok(QueryKeysResult::NotAnObject {
-            is_array: results[0].is_array(),
+            is_array: target.is_array(),
         })
     }
 }
@@ -262,27 +264,9 @@ pub enum QueryLenResult {
 /// selector matches more than one value, returns the same error. Bare object
 /// keys at an array root return type_error like [`query_get`].
 pub fn query_len(root: &serde_json::Value, selector: &str) -> anyhow::Result<QueryLenResult> {
-    let segments = selector::parse_anyhow(selector)?;
-    if selector_has_multi_match_segment(&segments) {
-        return Err(crate::exit::AmbiguousError {
-            msg: unique_match_required_msg("len", selector),
-        }
-        .into());
-    }
-    let results = selector::eval_result(root, &segments)?;
-    if results.is_empty() {
-        if let Some(hint) = array_root_bare_key_hint(root, &segments) {
-            return Err(crate::exit::TypeErrorError { msg: hint }.into());
-        }
+    let Some(target) = unique_query_target(root, selector, "len")? else {
         return Ok(QueryLenResult::NoMatch);
-    }
-    if results.len() > 1 {
-        return Err(crate::exit::AmbiguousError {
-            msg: unique_match_required_msg("len", selector),
-        }
-        .into());
-    }
-    let target = results[0];
+    };
     let len = target
         .as_array()
         .map(|a| a.len())
@@ -338,7 +322,7 @@ pub fn keys_at(root: &serde_json::Value, selector: &str) -> anyhow::Result<Vec<S
                          use keys on {display}[0] or len on {display}"
                     )
                 } else {
-                    let parent = parent_selector_display(selector);
+                    let parent = parent_selector_display(&selector::parse_anyhow(selector)?);
                     format!(
                         "doc keys: target at '{display}' is a scalar, not an object; \
                          use keys on {parent}"
@@ -373,7 +357,7 @@ pub fn len_at(root: &serde_json::Value, selector: &str) -> anyhow::Result<usize>
             } else {
                 selector
             };
-            let parent = parent_selector_display(selector);
+            let parent = parent_selector_display(&selector::parse_anyhow(selector)?);
             Err(crate::exit::TypeErrorError {
                 msg: format!(
                     "doc len: target at '{display}' is a scalar, not an array or object; \
