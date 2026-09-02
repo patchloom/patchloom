@@ -11,6 +11,31 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.32.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.31.0...patchloom-v0.32.0) (2026-09-02)
+
+
+### Features
+
+* **api:** add doc_keys and doc_len ([#2282](https://github.com/patchloom/patchloom/issues/2282)) ([05f659d](https://github.com/patchloom/patchloom/commit/05f659d937704853cda85c417ecfe7dc0b95831e))
+
+
+### Bug Fixes
+
+* **api:** apply hunked deletes before unlink ([#2294](https://github.com/patchloom/patchloom/issues/2294)) ([b1e2786](https://github.com/patchloom/patchloom/commit/b1e2786c6928314f40cdd7162cca06e93e94c164))
+* **api:** follow symlink targets on content patches ([#2293](https://github.com/patchloom/patchloom/issues/2293)) ([4b3a77e](https://github.com/patchloom/patchloom/commit/4b3a77ed2d662a0dd429d4b618d37e45e10da6fb)), closes [#2290](https://github.com/patchloom/patchloom/issues/2290) [#2291](https://github.com/patchloom/patchloom/issues/2291) [#2292](https://github.com/patchloom/patchloom/issues/2292)
+* **api:** report changed on empty-hunk apply_patch delete ([#2289](https://github.com/patchloom/patchloom/issues/2289)) ([aa912f6](https://github.com/patchloom/patchloom/commit/aa912f68ff14027a0e74c2b76850094fb93d9bd1)), closes [#2288](https://github.com/patchloom/patchloom/issues/2288) [#2287](https://github.com/patchloom/patchloom/issues/2287) [#2284](https://github.com/patchloom/patchloom/issues/2284)
+* **api:** snapshot regular files on empty-hunk patch delete ([#2287](https://github.com/patchloom/patchloom/issues/2287)) ([848ffb7](https://github.com/patchloom/patchloom/commit/848ffb71f0308d1bdf052dccefeaab5fd4ec3e73)), closes [#2284](https://github.com/patchloom/patchloom/issues/2284) [#2288](https://github.com/patchloom/patchloom/issues/2288)
+* **doc:** expand root and sequence-item YAML merge deletes ([#2272](https://github.com/patchloom/patchloom/issues/2272)) ([d9ad2be](https://github.com/patchloom/patchloom/commit/d9ad2bea58314409dcbdec74aa9f7539db2d115d))
+* **doc:** fail-closed keys/len and patch delete snapshots ([#2284](https://github.com/patchloom/patchloom/issues/2284)) ([bb718c7](https://github.com/patchloom/patchloom/commit/bb718c7bfab89d08b39ea6b9b9e85196d1b331d0))
+* **doc:** keep merge key when growing an inherited YAML array ([#2270](https://github.com/patchloom/patchloom/issues/2270)) ([8e32ce9](https://github.com/patchloom/patchloom/commit/8e32ce9db926cfdc38458307a46c7c74f9717a03))
+* **doc:** keep mixed-flow aliases and cap merge depth ([#2267](https://github.com/patchloom/patchloom/issues/2267)) ([27324df](https://github.com/patchloom/patchloom/commit/27324df037fd8996fe9ad318d254983ee8405c68))
+* **doc:** keep sibling anchors when deleting inherited merge keys ([#2271](https://github.com/patchloom/patchloom/issues/2271)) ([bbb2f61](https://github.com/patchloom/patchloom/commit/bbb2f61f4f49f98d31655cc481e5f02790fee51e))
+* **doc:** keep YAML CST empties and lock agent write honesty ([#2281](https://github.com/patchloom/patchloom/issues/2281)) ([fe41f85](https://github.com/patchloom/patchloom/commit/fe41f859f00f09d7f56ced0d0bde479cb800a26f))
+* **doc:** keep YAML CST when emptying a non-last sequence item ([#2277](https://github.com/patchloom/patchloom/issues/2277)) ([f970b15](https://github.com/patchloom/patchloom/commit/f970b15364029c65d53349242d608fb309e07784)), closes [#2274](https://github.com/patchloom/patchloom/issues/2274) [#2275](https://github.com/patchloom/patchloom/issues/2275) [#2276](https://github.com/patchloom/patchloom/issues/2276)
+* **doc:** treat empty YAML as object for keys and len ([#2285](https://github.com/patchloom/patchloom/issues/2285)) ([a684d79](https://github.com/patchloom/patchloom/commit/a684d798d9d1abe313a6ad51fb8e8bccc79237a7))
+* **doc:** write empty {} after expanding a merge-only site ([#2273](https://github.com/patchloom/patchloom/issues/2273)) ([76d0724](https://github.com/patchloom/patchloom/commit/76d0724c5f0db60d64715823a7daeb652973ae53))
+* YAML alias splice dump and proto kind aliases ([#2265](https://github.com/patchloom/patchloom/issues/2265)) ([e28fba5](https://github.com/patchloom/patchloom/commit/e28fba5c8664472a106ba80112b2526e6bf76768))
+
 ## [0.31.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.30.0...patchloom-v0.31.0) (2026-08-27)
 
 
