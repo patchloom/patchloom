@@ -833,10 +833,21 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install actionlint and zizmor
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          ver=1.7.12
+          archive="actionlint_${ver}_linux_amd64.tar.gz"
+          sha="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ver}/${archive}" \
+            -o "/tmp/${archive}"
+          echo "${sha}  /tmp/${archive}" | sha256sum -c -
+          sudo tar -xzf "/tmp/${archive}" -C /usr/local/bin actionlint
+          actionlint -version
+      - name: Install zizmor
         uses: taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b # v2.87.4
         with:
-          tool: actionlint@1.7.12,zizmor@1.30.0
+          tool: zizmor@1.30.0
       - name: actionlint
         run: |
           actionlint -color \

@@ -35,8 +35,10 @@ def main() -> int:
         return fail("workflow-sanity must run actionlint and zizmor")
     if re.search(r"actionlint@latest|zizmor@latest", ci):
         return fail("do not install actionlint or zizmor at @latest")
-    if "actionlint@" not in ci or "zizmor@" not in ci:
-        return fail("pin actionlint and zizmor versions in taiki-e/install-action")
+    if "zizmor@1.30.0" not in ci:
+        return fail("pin zizmor@1.30.0 (not @latest)")
+    if "actionlint_1.7.12" not in ci and "actionlint@1.7.12" not in ci:
+        return fail("pin actionlint 1.7.12 (release tarball or install-action)")
     if "needs.workflow-sanity.result" not in ci:
         return fail("aggregate ci job must fail when workflow-sanity fails")
     if not ZIZMOR.is_file():
