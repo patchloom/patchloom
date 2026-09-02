@@ -356,7 +356,9 @@ pub(crate) fn apply_begin_patch_ops(
 mod tests {
     use super::*;
     use crate::api::{is_already_exists, is_ambiguous, is_guard_rejected, is_no_match};
-    use crate::containment::{AbsolutePathPolicy, PathGuard};
+    #[cfg(unix)]
+    use crate::containment::AbsolutePathPolicy;
+    use crate::containment::PathGuard;
     use crate::ops::begin_patch::looks_like_begin_patch;
 
     fn update_patch(path: &str, old: &str, new: &str) -> String {
