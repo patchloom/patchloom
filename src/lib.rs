@@ -193,6 +193,7 @@
 //! | Cheap binary path check before open (open fail → `false`) | [`api::is_binary_file`] / [`files::is_binary_file`] |
 //! | Map multi-doc bare key / wrong-root merge to tool `invalid_args` | [`EditErrorKind::TypeError`] / [`api::is_type_error`] |
 //! | Multi-doc YAML merge into document 0 | [`api::doc_merge`](..., `Some("0")`) |
+//! | Object keys / array-or-object length | [`api::doc_keys`] / [`api::doc_len`] (empty / `.` = document root; keys on an array is `TypeError`) |
 //! | Map empty pattern / directory target to `invalid_args` | [`EditErrorKind::InvalidInput`] / [`api::is_invalid_input`] |
 //! | Map sole binary / NUL content | [`EditErrorKind::Binary`] / [`api::is_binary`] (`binary`) |
 //! | Map invalid UTF-8 content | [`EditErrorKind::InvalidEncoding`] / [`api::is_invalid_encoding`] |

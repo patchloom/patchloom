@@ -130,6 +130,97 @@ fn doc_has_returns_true_for_existing() {
 }
 
 #[test]
+fn doc_keys_lists_object_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(
+        &file,
+        r#"{"database": {"host": "localhost"}, "port": 5432}"#,
+    )
+    .unwrap();
+
+    for selector in ["", "."] {
+        let mut keys = doc_keys(&file, selector).unwrap();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec!["database".to_string(), "port".to_string()],
+            "root selector {selector:?} must list object keys"
+        );
+    }
+    let mut nested = doc_keys(&file, "database").unwrap();
+    nested.sort();
+    assert_eq!(nested, vec!["host".to_string()]);
+}
+
+#[test]
+fn doc_keys_array_is_type_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items": [1, 2, 3]}"#).unwrap();
+
+    let err = doc_keys(&file, "items").unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&err),
+        "expected TypeErrorError for keys on an array, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::TypeError)
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("not an object"),
+        "type_error must name the non-object target: {msg}"
+    );
+}
+
+#[test]
+fn doc_keys_array_root_is_type_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    for selector in ["", "."] {
+        let err = doc_keys(&file, selector).unwrap_err();
+        assert!(
+            crate::exit::is_type_error(&err),
+            "root keys on array/multi-doc must be type_error for {selector:?}, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("`0`") || msg.contains("[0]"),
+            "array-root keys should hint a document index: {msg}"
+        );
+    }
+}
+
+#[test]
+fn doc_len_counts_root_and_nested() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items": [1, 2, 3], "nested": {"a": 1}}"#).unwrap();
+
+    assert_eq!(doc_len(&file, ".").unwrap(), 2);
+    assert_eq!(doc_len(&file, "").unwrap(), 2);
+    assert_eq!(doc_len(&file, "items").unwrap(), 3);
+    assert_eq!(doc_len(&file, "nested").unwrap(), 1);
+}
+
+#[test]
+fn doc_len_scalar_is_type_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"name": "patchloom"}"#).unwrap();
+
+    let err = doc_len(&file, "name").unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&err),
+        "expected TypeErrorError for len of a scalar, got: {err}"
+    );
+}
+
+#[test]
 fn doc_delete_removes_key() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
