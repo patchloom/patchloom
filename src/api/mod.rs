@@ -1179,10 +1179,19 @@ fn execution_result_to_edit_result(
         .changes
         .first()
         .and_then(|(abs_path, _, _)| result.exec_result.replace_match_meta.get(abs_path).cloned());
-    let (path_str, original, new_content) =
+    let (path_str, original, new_content, is_deletion) =
         if let Some((abs_path, orig, new)) = result.exec_result.changes.first() {
             let rel = crate::files::relative_display(abs_path, cwd);
-            (rel.to_string_lossy().to_string(), orig.clone(), new.clone())
+            // Tx keeps identity (orig == final) on the changes row so commit
+            // still runs; new_content must be empty for a delete (#2288).
+            let deleted = result.exec_result.deletions.contains(abs_path);
+            let new_content = if deleted { String::new() } else { new.clone() };
+            (
+                rel.to_string_lossy().to_string(),
+                orig.clone(),
+                new_content,
+                deleted,
+            )
         } else if let Some(abs_path) = result.exec_result.deletions.iter().next() {
             // File deletion: content is in the pending map.
             let rel = crate::files::relative_display(abs_path, cwd);
@@ -1192,14 +1201,19 @@ fn execution_result_to_edit_result(
                 .get(abs_path)
                 .map(|(orig, _)| orig.clone())
                 .unwrap_or_default();
-            (rel.to_string_lossy().to_string(), original, String::new())
+            (
+                rel.to_string_lossy().to_string(),
+                original,
+                String::new(),
+                true,
+            )
         } else if let Some(p) = mutation_path {
             // No file content change (e.g. idempotent doc.delete) but mutations
             // still carry path + removed counts for embedders (#1459).
-            (p, String::new(), String::new())
+            (p, String::new(), String::new(), false)
         } else {
             // No changes at all (e.g., replace with no matches + if_exists).
-            (String::new(), String::new(), String::new())
+            (String::new(), String::new(), String::new(), false)
         };
     // Prefer caller spelling when provided (parent-as-cwd collapses multi-
     // component relatives to basename via relative_display).
@@ -1217,6 +1231,10 @@ fn execution_result_to_edit_result(
     };
 
     let mut edit = build_edit_result(&path_str, original, new_content, applied, action, dest_path);
+    if is_deletion {
+        // Empty-file delete has orig == new == ""; still a change (#2288).
+        edit.changed = true;
+    }
     edit.removed = removed;
     edit.backup_session = backup_session;
     // build_edit_result already sets style_changed for doc.* actions (#2088).
