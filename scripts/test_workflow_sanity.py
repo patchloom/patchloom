@@ -39,8 +39,28 @@ def main() -> int:
         return fail("pin zizmor@1.30.0 (not @latest)")
     if "actionlint_1.7.12" not in ci and "actionlint@1.7.12" not in ci:
         return fail("pin actionlint 1.7.12 (release tarball or install-action)")
+    if "sha256sum -c" not in ci:
+        return fail("workflow-sanity must verify the actionlint tarball with sha256sum -c")
+    if "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" not in ci:
+        return fail(
+            "pin actionlint 1.7.12 tarball sha256 "
+            "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        )
     if "needs.workflow-sanity.result" not in ci:
         return fail("aggregate ci job must fail when workflow-sanity fails")
+    job_match = re.search(
+        r"(?ms)^  workflow-sanity:.*?(?=^  [A-Za-z0-9_-]+:|\Z)",
+        ci,
+    )
+    if not job_match:
+        return fail("could not isolate the workflow-sanity job")
+    job = job_match.group(0)
+    if "timeout-minutes:" not in job:
+        return fail("workflow-sanity must set timeout-minutes")
+    if "persist-credentials: false" not in job:
+        return fail("workflow-sanity must set persist-credentials: false")
+    if "harden-runner" not in job:
+        return fail("workflow-sanity must use harden-runner")
     if not ZIZMOR.is_file():
         return fail(".github/zizmor.yml is required for documented suppressions")
     if "workflow-sanity-test:" not in makefile:
@@ -51,6 +71,12 @@ def main() -> int:
     )
     if "workflow-sanity-test" not in check_line:
         return fail("make check must include workflow-sanity-test")
+    check_fast_line = next(
+        (line for line in makefile.splitlines() if line.startswith("check-fast:")),
+        "",
+    )
+    if "workflow-sanity-test" not in check_fast_line:
+        return fail("make check-fast must include workflow-sanity-test")
     print("ok: workflow-sanity job, path filter, pinned linters, and lock target")
     return 0
 

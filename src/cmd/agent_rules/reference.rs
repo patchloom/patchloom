@@ -82,7 +82,7 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
              | 2 | Changes detected (`--check` / write preview including `undo` without `--apply`, or CLI/MCP/plan/tx `search` `assert_count` mismatch; `error_kind: changes_detected` for assert_count). For undo, re-run with `--apply` to restore. |\n\
              | 3 | No matches (search/replace pattern miss, undo with no sessions, missing AST symbol for extract/insert/reorder/wrap/move, or tx/plan AST/md/doc target not found; `error_kind: no_matches`) |\n\
              | 4 | Parse error (malformed input file or plan, invalid AST search pattern/query, or AST validate parse failure; `error_kind: parse_error`) |\n\
-             | 5 | Ambiguous (CLI/tx `unique` multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |\n\
+             | 5 | Ambiguous (CLI/tx `unique` multi-match, `doc keys`/`len` / MCP `doc_query` keys/len multi-match, or stale/missing patch context; `error_kind: ambiguous` in CLI/tx JSON) |\n\
              | 6 | Validation failed (tx plan validation step returned non-zero; writes may remain when not strict) |\n\
              | 7 | Rollback (tx mid-commit failure or strict lifecycle failure; changes were rolled back) |\n\
              | 8 | Patch merge conflicts (CLI `patch merge` or plan/tx `patch.apply` with `on_stale: merge` without `allow_conflicts`; `error_kind: conflicts`) |\n\
@@ -90,7 +90,8 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
              **JSON `error_kind` (exit 1):** Prefer branching on kind, not English text. File ops set \
              `already_exists` (create/rename without force, create race), `not_found` (delete/append/prepend/rename missing source, \
              missing `--files-from`/batch input, missing plan file, missing git blob for AST, \
-             or `read` when every path fails), `invalid_input` (bad flags, non-file target, malformed `read --lines` \
+             `read` when every path fails, or library/CLI/MCP `doc get`/`has`/`keys`/`len` / `doc_query` on a missing file), \
+             `invalid_input` (bad flags, non-file target, malformed `read --lines` \
              (0-based or end before start; past-EOF range is `no_matches` exit 3), replace `--nth` past the last \
              match with live match count in the message, \
              `status` outside a git repo, AST map non-dir, doc merge flag conflicts, invalid `normalize_eol`, \

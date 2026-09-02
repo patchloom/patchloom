@@ -39,7 +39,7 @@ pub enum DocAction {
     Keys {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Selector path for one object (e.g. `database`, `items[0]`).
         /// Defaults to `.` (document root) when omitted.
         #[arg(default_value = ".")]
         selector: String,
@@ -48,7 +48,7 @@ pub enum DocAction {
     Len {
         /// File path (JSON, YAML, or TOML).
         file: String,
-        /// Selector path (e.g. `server.port`, `items[0].name`).
+        /// Selector path for one object or array (e.g. `database`, `items`).
         /// Defaults to `.` (document root) when omitted.
         #[arg(default_value = ".")]
         selector: String,
@@ -531,6 +531,18 @@ fn format_no_match(error_msg: &str, mode: OutputMode, quiet: bool) -> anyhow::Re
     format_error(error_msg, mode, quiet, exit::NO_MATCHES, Some("no_matches"))
 }
 
+/// Map typed keys/len errors through the shared classify table (no extra kinds).
+fn format_typed_query_error(
+    err: &anyhow::Error,
+    mode: OutputMode,
+    quiet: bool,
+) -> anyhow::Result<(String, u8)> {
+    match exit::classify_typed_error(err) {
+        Some((kind, code)) => format_error(&err.to_string(), mode, quiet, code, Some(kind)),
+        None => Err(anyhow::anyhow!("{err}")),
+    }
+}
+
 /// Soft no-match text, with a sibling-key did-you-mean when one is close.
 fn no_match_selector_msg(root: &serde_json::Value, selector: &str) -> String {
     crate::ops::doc::query::with_similar_object_key_hint(
@@ -626,25 +638,8 @@ fn execute_with_mode_inner(
         DocAction::Keys { file, selector } => {
             crate::verbose!("doc: keys file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
-            match crate::ops::doc::query::query_keys(&root, selector)? {
-                crate::ops::doc::query::QueryKeysResult::NoMatch => {
-                    format_no_match(&no_match_selector_msg(&root, selector), output_mode, quiet)
-                }
-                crate::ops::doc::query::QueryKeysResult::NotAnObject => {
-                    // CLI root selector is `.` (not empty); empty remains for
-                    // library/plan callers that pass "". Multi-doc YAML is a top-level
-                    // array, so bare root keys need an index first (parity with get/set).
-                    let root_selector = selector.is_empty() || selector == ".";
-                    let msg = if root_selector && root.is_array() {
-                        "doc keys: target is a top-level array (multi-document YAML or JSON \
-                         array); use a document/element index first, e.g. keys on `0` or `[0]`"
-                            .to_string()
-                    } else {
-                        format!("doc keys: target at '{selector}' is not an object")
-                    };
-                    format_error(&msg, output_mode, quiet, exit::FAILURE, Some("type_error"))
-                }
-                crate::ops::doc::query::QueryKeysResult::Keys(keys) => {
+            match crate::ops::doc::query::keys_at(&root, selector) {
+                Ok(keys) => {
                     let output = match output_mode {
                         OutputMode::Text => keys.join("\n"),
                         OutputMode::Json | OutputMode::Jsonl => format_query_success(
@@ -658,24 +653,15 @@ fn execute_with_mode_inner(
                     };
                     Ok((output, exit::SUCCESS))
                 }
+                Err(e) => format_typed_query_error(&e, output_mode, quiet),
             }
         }
 
         DocAction::Len { file, selector } => {
             crate::verbose!("doc: len file={}, selector={:?}", file, selector);
             let root = load_file(file)?;
-            match crate::ops::doc::query::query_len(&root, selector)? {
-                crate::ops::doc::query::QueryLenResult::NoMatch => {
-                    format_no_match(&no_match_selector_msg(&root, selector), output_mode, quiet)
-                }
-                crate::ops::doc::query::QueryLenResult::NotArrayOrObject => format_error(
-                    &format!("doc len: target at '{selector}' is not an array or object"),
-                    output_mode,
-                    quiet,
-                    exit::FAILURE,
-                    Some("type_error"),
-                ),
-                crate::ops::doc::query::QueryLenResult::Len(len) => Ok((
+            match crate::ops::doc::query::len_at(&root, selector) {
+                Ok(len) => Ok((
                     format_query_success(
                         serde_json::json!(len),
                         output_mode,
@@ -684,6 +670,7 @@ fn execute_with_mode_inner(
                     )?,
                     exit::SUCCESS,
                 )),
+                Err(e) => format_typed_query_error(&e, output_mode, quiet),
             }
         }
 

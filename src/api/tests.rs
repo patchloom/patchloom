@@ -170,8 +170,10 @@ fn doc_keys_array_is_type_error() {
     );
     let msg = err.to_string();
     assert!(
-        msg.contains("not an object"),
-        "type_error must name the non-object target: {msg}"
+        msg.contains("not an object")
+            && (msg.contains("items[0]") || msg.contains("[0]"))
+            && msg.contains("len on items"),
+        "keys on nested array must hint keys on items[0] / len on items: {msg}"
     );
 }
 
@@ -208,6 +210,16 @@ fn doc_len_counts_root_and_nested() {
 }
 
 #[test]
+fn doc_len_multi_document_root() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("multi.yaml");
+    fs::write(&file, "a: 1\n---\nb: 2\n").unwrap();
+
+    assert_eq!(doc_len(&file, ".").unwrap(), 2);
+    assert_eq!(doc_len(&file, "").unwrap(), 2);
+}
+
+#[test]
 fn doc_len_scalar_is_type_error() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
@@ -221,6 +233,11 @@ fn doc_len_scalar_is_type_error() {
     assert_eq!(
         crate::fallback::edit_error_kind(&err),
         Some(EditErrorKind::TypeError)
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("scalar") && msg.contains("len on ."),
+        "len on scalar must say scalar and point at parent: {msg}"
     );
 }
 
@@ -251,6 +268,148 @@ fn doc_keys_and_len_missing_is_no_match() {
         crate::fallback::edit_error_kind(&len_err),
         Some(EditErrorKind::NoMatch)
     );
+}
+
+#[test]
+fn doc_keys_missing_nope_is_not_found() {
+    let err = doc_keys(std::path::Path::new("nope"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "missing nope must peel as not_found (CLI load-first order), got: {err}"
+    );
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "missing nope must keep io::NotFound in the chain for downcast: {err}"
+    );
+}
+
+#[test]
+fn doc_len_missing_nope_txt_is_not_found() {
+    let err = doc_len(std::path::Path::new("nope.txt"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "missing nope.txt must peel as not_found, got: {err}"
+    );
+    assert!(
+        crate::exit::is_io_not_found(&err),
+        "missing nope.txt must keep io::NotFound in the chain: {err}"
+    );
+}
+
+#[test]
+fn doc_get_missing_nope_is_not_found() {
+    let err = doc_get(std::path::Path::new("nope"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "doc_get shares load_doc_value; missing nope must be not_found, got: {err}"
+    );
+    assert!(crate::exit::is_io_not_found(&err), "got: {err}");
+}
+
+#[test]
+fn doc_has_missing_nope_txt_is_not_found() {
+    let err = doc_has(std::path::Path::new("nope.txt"), ".").unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NotFound),
+        "doc_has shares load_doc_value; missing nope.txt must be not_found, got: {err}"
+    );
+    assert!(crate::exit::is_io_not_found(&err), "got: {err}");
+}
+
+#[test]
+fn doc_keys_wildcard_multi_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"a":1},{"b":2}]}"#).unwrap();
+
+    let err = doc_keys(&file, "items[*]").unwrap_err();
+    assert!(
+        crate::exit::is_ambiguous(&err),
+        "keys on items[*] must be AmbiguousError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::AmbiguousTarget)
+    );
+    let msg = err.to_string();
+    assert!(
+        (msg.contains("items[0]") || msg.contains("[0]"))
+            && msg.contains("one object")
+            && !msg.contains("or array"),
+        "ambiguous keys must name a concrete index and one object: {msg}"
+    );
+}
+
+#[test]
+fn doc_len_wildcard_multi_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"items":[{"a":1},{"b":2}]}"#).unwrap();
+
+    let err = doc_len(&file, "items[*]").unwrap_err();
+    assert!(
+        crate::exit::is_ambiguous(&err),
+        "len on items[*] must be AmbiguousError, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::AmbiguousTarget)
+    );
+    let msg = err.to_string();
+    assert!(
+        (msg.contains("items[0]") || msg.contains("[0]")) && msg.contains("one object or array"),
+        "ambiguous len must name a concrete index: {msg}"
+    );
+}
+
+#[test]
+fn doc_keys_wildcard_one_or_zero_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    for body in [r#"{"items":[{"a":1}]}"#, r#"{"items":[]}"#] {
+        fs::write(&file, body).unwrap();
+        let err = doc_keys(&file, "items[*]").unwrap_err();
+        assert!(
+            crate::exit::is_ambiguous(&err),
+            "keys on items[*] ({body}) must be AmbiguousError, got: {err}"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::AmbiguousTarget)
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "ambiguous keys must name a concrete index: {msg}"
+        );
+    }
+}
+
+#[test]
+fn doc_len_wildcard_one_or_zero_match_is_ambiguous() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    for body in [r#"{"items":[{"a":1}]}"#, r#"{"items":[]}"#] {
+        fs::write(&file, body).unwrap();
+        let err = doc_len(&file, "items[*]").unwrap_err();
+        assert!(
+            crate::exit::is_ambiguous(&err),
+            "len on items[*] ({body}) must be AmbiguousError, got: {err}"
+        );
+        assert_eq!(
+            crate::fallback::edit_error_kind(&err),
+            Some(EditErrorKind::AmbiguousTarget)
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "ambiguous len must name a concrete index: {msg}"
+        );
+    }
 }
 
 #[test]
@@ -9279,6 +9438,120 @@ fn apply_patch_file_deletion_unlinks() {
         !f.exists(),
         "deletion patch must unlink, not leave empty file"
     );
+}
+
+/// Unified-diff delete of a workspace symlink must not snapshot the outside
+/// target (same file_delete backup rule as Begin Patch Delete).
+#[cfg(unix)]
+#[test]
+fn apply_patch_file_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let patch = "\
+diff --git a/link.txt b/link.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, Some(&guard))
+        .expect("entry delete of workspace symlink");
+    assert_eq!(results.len(), 1);
+    assert!(
+        !results[0].original_content.contains(PAYLOAD.trim()),
+        "delete snapshot must not follow symlink: {:?}",
+        results[0].original_content
+    );
+    assert!(
+        !results[0].diff.contains(PAYLOAD.trim()),
+        "diff must not leak outside target: {}",
+        results[0].diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
+/// `apply_patch` Begin Patch Delete of a workspace symlink must not leak
+/// the outside target into `original_content`.
+#[cfg(unix)]
+#[test]
+fn apply_patch_begin_patch_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let patch = "*** Begin Patch\n*** Delete File: link.txt\n*** End Patch\n";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, Some(&guard))
+        .expect("entry delete of workspace symlink");
+    assert!(
+        !result.original_content.contains(PAYLOAD.trim()),
+        "delete snapshot must not follow symlink: {:?}",
+        result.original_content
+    );
+    assert!(
+        !result.diff.contains(PAYLOAD.trim()),
+        "diff must not leak outside target: {}",
+        result.diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
+/// Unified-diff delete via `apply_patch` (tx loader) must not snapshot the
+/// outside symlink target. Empty-hunk git delete; no PathGuard so a follow
+/// load leaks into `original_content` on the unfixed path.
+#[cfg(unix)]
+#[test]
+fn apply_patch_unified_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let patch = "\
+diff --git a/link.txt b/link.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("unified delete of workspace symlink");
+    assert!(
+        !result.original_content.contains(PAYLOAD.trim()),
+        "delete snapshot must not follow symlink: {:?}",
+        result.original_content
+    );
+    assert!(
+        !result.diff.contains(PAYLOAD.trim()),
+        "diff must not leak outside target: {}",
+        result.diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
 }
 
 #[test]

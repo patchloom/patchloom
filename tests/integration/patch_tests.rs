@@ -1887,6 +1887,115 @@ fn test_patch_begin_patch_move_dest_exists_is_already_exists() {
     );
 }
 
+/// Preview of Begin Patch Delete must not dump outside-symlink target bytes.
+#[cfg(unix)]
+#[test]
+fn test_patch_begin_patch_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Delete File: link.txt\n*** End Patch\n",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stdout.contains(PAYLOAD.trim()) && !stderr.contains(PAYLOAD.trim()),
+        "preview must not leak outside target: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        fs::symlink_metadata(&link).is_ok(),
+        "preview must not unlink"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .success();
+    assert!(
+        fs::symlink_metadata(&link).is_err(),
+        "apply must unlink the workspace symlink"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
+/// Unified-diff delete of a workspace symlink must not dump the outside
+/// target (CLI goes through apply_patch_with_loader + tx read_file_content).
+#[cfg(unix)]
+#[test]
+fn test_patch_unified_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        "\
+diff --git a/link.txt b/link.txt
+deleted file mode 100644
+index e69de29..0000000
+",
+    )
+    .unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stdout.contains(PAYLOAD.trim()) && !stderr.contains(PAYLOAD.trim()),
+        "preview must not leak outside target: stdout={stdout} stderr={stderr}"
+    );
+    assert!(
+        fs::symlink_metadata(&link).is_ok(),
+        "preview must not unlink"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .assert()
+        .success();
+    assert!(
+        fs::symlink_metadata(&link).is_err(),
+        "apply must unlink the workspace symlink"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
 #[test]
 fn test_patch_begin_patch_double_delete_is_not_found() {
     let dir = TempDir::new().unwrap();

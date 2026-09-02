@@ -36,6 +36,7 @@ jobs:
     # Draft PRs skip this job too; expensive jobs also require not-draft so
     # they do not treat "changes skipped" as "run everything".
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     permissions:
       pull-requests: read
@@ -813,7 +814,7 @@ jobs:
           tool: cargo-deny
 
       - name: Run cargo deny
-        run: cargo deny check
+        run: cargo deny check licenses bans sources
 
   workflow-sanity:
     name: Workflow sanity

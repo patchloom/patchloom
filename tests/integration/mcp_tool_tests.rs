@@ -2855,6 +2855,336 @@ async fn test_mcp_doc_len_round_trip() {
 }
 
 #[tokio::test]
+async fn test_mcp_doc_query_keys_wildcard_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"a":1},{"b":2}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({
+            "action": "keys",
+            "path": "config.json",
+            "selector": "items[*]"
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "doc_query keys on items[*] must be is_error: {val}"
+    );
+    assert_eq!(
+        val["error_kind"], "ambiguous",
+        "doc_query keys multi-match must set error_kind ambiguous: {val}"
+    );
+    let msg = val["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("items[0]") || msg.contains("[0]"),
+        "doc_query keys ambiguous must name a concrete index: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_len_wildcard_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"items":[{"a":1},{"b":2}]}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({
+            "action": "len",
+            "path": "config.json",
+            "selector": "items[*]"
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "doc_query len on items[*] must be is_error: {val}"
+    );
+    assert_eq!(
+        val["error_kind"], "ambiguous",
+        "doc_query len multi-match must set error_kind ambiguous: {val}"
+    );
+    let msg = val["error"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("items[0]") || msg.contains("[0]"),
+        "doc_query len ambiguous must name a concrete index: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_keys_wildcard_one_or_zero_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    for (label, body) in [
+        ("one", r#"{"items":[{"a":1}]}"#),
+        ("zero", r#"{"items":[]}"#),
+    ] {
+        fs::write(dir.path().join("config.json"), body).unwrap();
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({
+                "action": "keys",
+                "path": "config.json",
+                "selector": "items[*]"
+            }),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query keys on {label}-element items[*] must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "ambiguous",
+            "doc_query keys {label}-element items[*] must be ambiguous not no_matches: {val}"
+        );
+        let msg = val["error"].as_str().unwrap_or("");
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "doc_query keys ambiguous must name a concrete index: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_len_wildcard_one_or_zero_is_ambiguous() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    for (label, body) in [
+        ("one", r#"{"items":[{"a":1}]}"#),
+        ("zero", r#"{"items":[]}"#),
+    ] {
+        fs::write(dir.path().join("config.json"), body).unwrap();
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({
+                "action": "len",
+                "path": "config.json",
+                "selector": "items[*]"
+            }),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query len on {label}-element items[*] must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "ambiguous",
+            "doc_query len {label}-element items[*] must be ambiguous not no_matches: {val}"
+        );
+        let msg = val["error"].as_str().unwrap_or("");
+        assert!(
+            msg.contains("items[0]") || msg.contains("[0]"),
+            "doc_query len ambiguous must name a concrete index: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_keys_len_nonexistent_is_no_matches() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"version":"1.0"}"#).unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    for action in ["keys", "len"] {
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({
+                "action": action,
+                "path": "config.json",
+                "selector": "nonexistent"
+            }),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query {action} on missing selector must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "no_matches",
+            "doc_query {action} missing selector must set error_kind no_matches: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_query_keys_len_missing_nope_is_not_found() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let client = spawn_mcp_client(dir.path()).await;
+    for (action, path) in [("keys", "nope.json"), ("len", "nope.txt")] {
+        let (is_error, val) = call_tool_value(
+            &client,
+            "doc_query",
+            serde_json::json!({"action": action, "path": path, "selector": "."}),
+        )
+        .await;
+        assert!(
+            is_error,
+            "doc_query {action} on missing {path} must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "not_found",
+            "doc_query {action} missing {path} must set error_kind not_found: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_keys_array_and_multi_doc_root_is_type_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("config.json"), r#"{"items":[1,2,3]}"#).unwrap();
+    fs::write(dir.path().join("multi.yaml"), "a: 1\n---\nb: 2\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({
+            "action": "keys",
+            "path": "config.json",
+            "selector": "items"
+        }),
+    )
+    .await;
+    assert!(
+        is_error,
+        "doc_query keys on array items must be is_error: {val}"
+    );
+    assert_eq!(
+        val["error_kind"], "type_error",
+        "doc_query keys on array items must set error_kind type_error: {val}"
+    );
+    let items_msg = val["error"].as_str().unwrap_or("");
+    assert!(
+        items_msg.contains("items[0]") && items_msg.contains("len on items"),
+        "doc_query keys on nested array must hint keys on items[0] / len on items: {val}"
+    );
+
+    for selector in [Some("."), None] {
+        let mut args = serde_json::json!({
+            "action": "keys",
+            "path": "multi.yaml"
+        });
+        if let Some(sel) = selector {
+            args["selector"] = serde_json::json!(sel);
+        }
+        let (is_error, val) = call_tool_value(&client, "doc_query", args).await;
+        assert!(
+            is_error,
+            "doc_query keys on multi-doc root {selector:?} must be is_error: {val}"
+        );
+        assert_eq!(
+            val["error_kind"], "type_error",
+            "doc_query keys on multi-doc root {selector:?} must set error_kind type_error: {val}"
+        );
+        let msg = val["error"].as_str().unwrap_or("");
+        assert!(
+            msg.contains("`0`") || msg.contains("[0]"),
+            "multi-doc keys type_error must name 0 / [0] for {selector:?}: {val}"
+        );
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_len_omitted_selector_counts_object_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("config.json"),
+        r#"{"name":"app","version":"1.0","debug":true}"#,
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "len", "path": "config.json"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_query len without selector should succeed: {val}"
+    );
+    assert_eq!(
+        val, 3,
+        "doc_query len omitted selector must count object root: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_doc_len_multi_document_root() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("multi.yaml"), "a: 1\n---\nb: 2\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "doc_query",
+        serde_json::json!({"action": "len", "path": "multi.yaml"}),
+    )
+    .await;
+    assert!(
+        !is_error,
+        "doc_query len omitted selector on multi-doc must succeed: {val}"
+    );
+    assert_eq!(
+        val, 2,
+        "doc_query len omitted selector on multi-doc must return 2: {val}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_doc_select_round_trip() {
     if !has_mcp_support() {
         return;
@@ -6278,10 +6608,59 @@ async fn test_mcp_apply_patch_begin_patch_delete_symlink_outside_target() {
         !is_error,
         "Begin Patch delete of in-workspace symlink must not follow target: {val}"
     );
+    let dumped = val.to_string();
+    assert!(
+        !dumped.contains("outside-payload"),
+        "tx/MCP JSON must not snapshot symlink target bytes: {val}"
+    );
     assert!(!link.exists(), "link removed");
     assert_eq!(
         fs::read_to_string(&outside).unwrap(),
         "outside-payload\n",
+        "outside target must not be deleted"
+    );
+    client.cancel().await.unwrap();
+    let _ = fs::remove_file(&outside);
+}
+
+/// Unified-diff delete of a workspace symlink whose target is outside must
+/// not follow (entry PathGuard + empty snapshot). Same matrix as Begin Patch.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_apply_patch_unified_delete_symlink_outside_target() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let outside = dir
+        .path()
+        .parent()
+        .unwrap()
+        .join("pl-mcp-unified-patch-symlink-target.txt");
+    fs::write(&outside, "SECRET=outside-do-not-leak\n").unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let diff = "\
+diff --git a/link.txt b/link.txt
+deleted file mode 100644
+index e69de29..0000000
+";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        !is_error,
+        "unified delete of in-workspace symlink must not follow target: {val}"
+    );
+    let dumped = val.to_string();
+    assert!(
+        !dumped.contains("SECRET=outside-do-not-leak"),
+        "tx/MCP JSON must not snapshot symlink target bytes: {val}"
+    );
+    assert!(!link.exists(), "link removed");
+    assert_eq!(
+        fs::read_to_string(&outside).unwrap(),
+        "SECRET=outside-do-not-leak\n",
         "outside target must not be deleted"
     );
     client.cancel().await.unwrap();

@@ -133,8 +133,8 @@ pub fn execute_plan_direct(
             }
         }
         crate::plan::refuse_lifecycle_if_guarded(&plan, Some(g))?;
-        // Upfront check on declared paths; PatchApply renames use entry mode
-        // (no-follow last component) like FileRename (#2115 / MPI 2026-08-02).
+        // Upfront check on declared paths; PatchApply rename/delete use entry
+        // mode (no-follow last component) like FileRename (#2115).
         for op in &plan.operations {
             super::super::execute::enforce_guard_for_op(g, op)?;
         }

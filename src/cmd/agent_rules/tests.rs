@@ -379,6 +379,22 @@ fn exit_codes_include_doc_write_json_tip() {
             && out.contains("format_failed"),
         "error_kind catalogue must document file-op, doc, batch, invalid regex, and format_failed"
     );
+    assert!(
+        out.contains("| 5 |")
+            && out.contains("doc keys")
+            && out.contains("doc_query")
+            && out.contains("`len`"),
+        "exit 5 must name doc keys/len and MCP doc_query: {out}"
+    );
+    assert!(
+        out.contains("not_found")
+            && out.contains("doc get")
+            && out.contains("`has`")
+            && out.contains("`keys`")
+            && out.contains("doc_query")
+            && out.contains("missing file"),
+        "not_found must include library/CLI/MCP doc query missing paths: {out}"
+    );
 }
 
 #[test]

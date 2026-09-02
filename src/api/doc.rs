@@ -10,9 +10,7 @@ use std::path::Path;
 
 use crate::containment::PathGuard;
 use crate::ops;
-use crate::ops::doc::query::{
-    QueryKeysResult, QueryLenResult, QueryResult, query_get, query_has, query_keys, query_len,
-};
+use crate::ops::doc::query::{QueryResult, query_get, query_has};
 use crate::plan::Operation;
 
 use super::{ApplyMode, EditResult};
@@ -24,10 +22,13 @@ fn cwd_from_path(path: &Path) -> &Path {
 }
 
 /// Load and parse a JSON/YAML/TOML file for read-only queries.
+///
+/// Load first (same order as CLI `load_file`) so a missing path peels as
+/// `not_found` even when the extension is absent or unsupported.
 fn load_doc_value(path: &Path) -> anyhow::Result<serde_json::Value> {
     let path_str = path.to_string_lossy();
-    let format = ops::doc::detect_format(&path_str)?;
     let original = crate::files::load_text_strict(path, &path_str)?;
+    let format = ops::doc::detect_format(&path_str)?;
     ops::doc::parse_doc(&original, &format)
 }
 
@@ -245,7 +246,7 @@ pub fn doc_merge(
 
 /// Get a value at a selector path from a JSON, YAML, or TOML file.
 ///
-/// This is a read-only operation; the `mode` parameter is ignored.
+/// Load-first: a missing file peels as `not_found`.
 pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value> {
     let value = load_doc_value(path)?;
 
@@ -272,87 +273,29 @@ pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
     query_has(&value, selector)
 }
 
-/// Empty and `"."` mean the document root (same as CLI `doc keys FILE`).
-fn is_root_selector(selector: &str) -> bool {
-    selector.is_empty() || selector == "."
-}
-
-/// Selector passed to ops query helpers. Root forms collapse to `""`.
-fn query_selector(selector: &str) -> &str {
-    if is_root_selector(selector) {
-        ""
-    } else {
-        selector
-    }
-}
-
 /// List object keys at a selector path in a JSON, YAML, or TOML file.
 ///
-/// Empty / `"."` lists keys of the document root. A non-object target
-/// (including an array root / multi-doc YAML stream) is
-/// [`crate::exit::TypeErrorError`]. A missing path is
-/// [`crate::exit::NoMatchError`].
+/// Pass one object (`database`). Empty / `"."` lists keys of the document
+/// root. An array target (`items`) is [`crate::exit::TypeErrorError`] (use
+/// `items[0]` for one object, or [`doc_len`] on `items`). A missing selector
+/// is [`crate::exit::NoMatchError`]. A wildcard or predicate (`items[*]`) is
+/// [`crate::exit::AmbiguousError`] even on 0 or 1 match, and names
+/// `items[0]` / `items[1]`. A missing file peels as `not_found`.
 pub fn doc_keys(path: &Path, selector: &str) -> anyhow::Result<Vec<String>> {
     let value = load_doc_value(path)?;
-    let query = query_selector(selector);
-    match query_keys(&value, query)? {
-        QueryKeysResult::NoMatch => Err(crate::exit::NoMatchError {
-            msg: crate::ops::doc::query::with_similar_object_key_hint(
-                format!("selector '{selector}' matched nothing"),
-                &value,
-                query,
-            ),
-        }
-        .into()),
-        QueryKeysResult::NotAnObject => {
-            let msg = if is_root_selector(selector) && value.is_array() {
-                "doc keys: target is a top-level array (multi-document YAML or JSON \
-                 array); use a document/element index first, e.g. keys on `0` or `[0]`"
-                    .to_string()
-            } else {
-                let display = if is_root_selector(selector) {
-                    "."
-                } else {
-                    selector
-                };
-                format!("doc keys: target at '{display}' is not an object")
-            };
-            Err(crate::exit::TypeErrorError { msg }.into())
-        }
-        QueryKeysResult::Keys(keys) => Ok(keys),
-    }
+    crate::ops::doc::query::keys_at(&value, selector)
 }
 
-/// Count items in an array or object at a selector path.
+/// Count items in an array or object at a selector path (`items`, `database`).
 ///
 /// Empty / `"."` means the document root. A scalar (or other non-container)
-/// is [`crate::exit::TypeErrorError`]. A missing path is
-/// [`crate::exit::NoMatchError`].
+/// is [`crate::exit::TypeErrorError`]. A missing selector is
+/// [`crate::exit::NoMatchError`]. A wildcard or predicate (`items[*]`) is
+/// [`crate::exit::AmbiguousError`] even on 0 or 1 match, and names
+/// `items[0]` / `items[1]`. A missing file peels as `not_found`.
 pub fn doc_len(path: &Path, selector: &str) -> anyhow::Result<usize> {
     let value = load_doc_value(path)?;
-    let query = query_selector(selector);
-    match query_len(&value, query)? {
-        QueryLenResult::NoMatch => Err(crate::exit::NoMatchError {
-            msg: crate::ops::doc::query::with_similar_object_key_hint(
-                format!("selector '{selector}' matched nothing"),
-                &value,
-                query,
-            ),
-        }
-        .into()),
-        QueryLenResult::NotArrayOrObject => {
-            let display = if is_root_selector(selector) {
-                "."
-            } else {
-                selector
-            };
-            Err(crate::exit::TypeErrorError {
-                msg: format!("doc len: target at '{display}' is not an array or object"),
-            }
-            .into())
-        }
-        QueryLenResult::Len(n) => Ok(n),
-    }
+    crate::ops::doc::query::len_at(&value, selector)
 }
 
 /// Append a value to an array at a selector path.

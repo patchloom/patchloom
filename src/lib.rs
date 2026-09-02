@@ -193,7 +193,7 @@
 //! | Cheap binary path check before open (open fail → `false`) | [`api::is_binary_file`] / [`files::is_binary_file`] |
 //! | Map multi-doc bare key / wrong-root merge to tool `invalid_args` | [`EditErrorKind::TypeError`] / [`api::is_type_error`] |
 //! | Multi-doc YAML merge into document 0 | [`api::doc_merge`](..., `Some("0")`) |
-//! | Object keys / array-or-object length | [`api::doc_keys`] / [`api::doc_len`] (empty / `.` = document root; keys on an array is `TypeError`) |
+//! | Object keys / array-or-object length | [`api::doc_keys`] / [`api::doc_len`] (empty / `.` = document root; keys on an array is `TypeError`; multi-match is `Ambiguous` with `items[0]` / `items[1]`; missing file is `NotFound`) |
 //! | Map empty pattern / directory target to `invalid_args` | [`EditErrorKind::InvalidInput`] / [`api::is_invalid_input`] |
 //! | Map sole binary / NUL content | [`EditErrorKind::Binary`] / [`api::is_binary`] (`binary`) |
 //! | Map invalid UTF-8 content | [`EditErrorKind::InvalidEncoding`] / [`api::is_invalid_encoding`] |
@@ -207,7 +207,7 @@
 //! | Host unit-test honesty rows (`#[non_exhaustive]`) | [`ContentEditHonesty::exact`] / [`ContentEditHonesty::fuzzy`] (#2033) |
 //! | Map create/rename dest-exists to force/overwrite recovery | [`EditErrorKind::AlreadyExists`] / [`api::is_already_exists`] |
 //! | CLI-stable kind string for host JSON envelopes | [`api::error_kind_str`] / [`api::peel_error`] |
-//! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] / [`api::is_not_found`] |
+//! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] / [`api::is_not_found`] (also library/CLI/MCP `doc_get`/`doc_has`/`doc_keys`/`doc_len` / `doc_query` on a missing file) |
 //! | Map patch merge conflict markers | [`EditErrorKind::Conflicts`] / [`api::is_conflicts`] (distinct from batch [`EditErrorKind::ConflictingEdit`]) |
 //! | Map check/assert-count exit-2 soft failures | [`EditErrorKind::ChangesDetected`] / [`api::is_changes_detected`] |
 //! | PathGuard / `--contain` rejection | [`EditErrorKind::GuardRejected`] / [`api::is_guard_rejected`] |

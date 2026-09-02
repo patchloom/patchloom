@@ -40,6 +40,17 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 diff,
                 |path| {
                     let file_path = tx.cwd.join(path);
+                    // file_delete snapshot: do not follow symlink / FIFO / socket.
+                    if crate::ops::file::path_entry_exists(&file_path)
+                        && !crate::ops::file::is_regular_file_for_backup(&file_path)
+                    {
+                        if !tx.pending.contains_key(&file_path) {
+                            tx.existed_before.insert(file_path.clone());
+                            tx.pending
+                                .insert(file_path.clone(), (String::new(), String::new()));
+                        }
+                        return Ok(String::new());
+                    }
                     match read_file_content(tx.pending, tx.existed_before, &file_path) {
                         Ok(s) => Ok(s.to_string()),
                         Err(e)
@@ -59,7 +70,21 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
             for result in patched_files {
                 if result.is_deletion {
                     let file_path = tx.cwd.join(&result.path);
-                    // File deletion via patch: mark for deletion.
+                    if !dest_exists(tx, &file_path) {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            format!("file not found: {}", result.path),
+                        )
+                        .into());
+                    }
+                    // file_delete snapshot: do not follow symlink / FIFO / socket.
+                    if crate::ops::file::is_regular_file_for_backup(&file_path) {
+                        let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
+                    } else if !tx.pending.contains_key(&file_path) {
+                        tx.existed_before.insert(file_path.clone());
+                        tx.pending
+                            .insert(file_path.clone(), (String::new(), String::new()));
+                    }
                     tx.deletions.insert(file_path.clone());
                     tx.write_targets.insert(file_path);
                 } else if let Some(ref from) = result.rename_from {
@@ -162,7 +187,14 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     )
                     .into());
                 }
-                let _ = read_file_content(tx.pending, tx.existed_before, &dest)?;
+                // file_delete snapshot: do not follow symlink / FIFO / socket.
+                if crate::ops::file::is_regular_file_for_backup(&dest) {
+                    let _ = read_file_content(tx.pending, tx.existed_before, &dest)?;
+                } else if !tx.pending.contains_key(&dest) {
+                    tx.existed_before.insert(dest.clone());
+                    tx.pending
+                        .insert(dest.clone(), (String::new(), String::new()));
+                }
                 tx.deletions.insert(dest.clone());
                 tx.write_targets.insert(dest);
             }

@@ -158,6 +158,43 @@ fn patch_write(
             )
             .into());
         }
+        if pf.is_deletion {
+            // file_delete snapshot: empty original for symlink / FIFO / socket.
+            // Empty-hunk git delete must not follow (apply_patch_with_loader
+            // is cfg-gated on cli/files; this is the no-default path).
+            let original = if crate::ops::file::is_regular_file_for_backup(&load_path)
+                && !pf.hunks.is_empty()
+            {
+                crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let (applied, backup_session) = if mode == ApplyMode::Apply {
+                super::ensure_contained_entry(guard, &load_path)?;
+                super::apply_mutation(
+                    &load_path,
+                    mode,
+                    None,
+                    |backup| backup.save_before_delete(&load_path),
+                    || {
+                        std::fs::remove_file(&load_path).map_err(|e| {
+                            anyhow::anyhow!(
+                                "patch delete: failed to remove {}: {e}",
+                                load_path.display()
+                            )
+                        })
+                    },
+                )?
+            } else {
+                super::ensure_contained_entry(guard, &load_path)?;
+                (false, None)
+            };
+            let mut result =
+                super::build_edit_result(&pf.path, original, String::new(), applied, "patch", None);
+            result.backup_session = backup_session;
+            result.changed = true;
+            return Ok(result);
+        }
         // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
         // 100% copy loads source bytes as text when possible; dest is still written.
         let original = if pf.copy_from.is_some() {
@@ -333,7 +370,10 @@ pub fn apply_patch_file(
 
         if pf.is_deletion {
             // Real unlink, not empty rewrite (tx/CLI parity).
-            let original = if crate::ops::file::path_entry_exists(&load_path) {
+            // Same snapshot rule as file_delete: empty original for
+            // symlink / FIFO / socket so entry PathGuard cannot leak
+            // target bytes into EditResult / diffs.
+            let original = if crate::ops::file::is_regular_file_for_backup(&load_path) {
                 crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
             } else {
                 String::new()
