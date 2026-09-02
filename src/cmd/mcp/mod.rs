@@ -385,7 +385,8 @@ impl PatchloomService {
                 )
             })?;
             for pf in &patch_files {
-                // Git rename and unified delete are path-only; content patches follow.
+                // Git rename and empty-hunk delete are path-only; content
+                // hunks and leftover hunked-delete rewrites follow.
                 if pf.uses_entry_containment() {
                     self.check_path_entry(&pf.path)?;
                     if let Some(from) = &pf.rename_from {

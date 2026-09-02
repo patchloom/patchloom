@@ -131,6 +131,11 @@ Begin Patch is `invalid_input`. Empty SEARCH is invalid input. \
 Plan `patch.apply` accepts the same document (`replace_all` optional). \
 Do not `replacen` or raw `fs::write`. Do not flip `ReplaceOptions.unique` on \
 generic `replace_text`. Do not invent a native `search_replace` MCP tool.\n\n\
+             **Library hunked delete:** Empty-hunk `+++ /dev/null` (git `deleted file mode`, \
+no hunks) unlinks. A hunked delete applies the minus lines first. Leftover bytes \
+rewrite the file (preview `--diff` or `EditResult.new_content`). Path-only unlink \
+is `file.delete`. Stale minus lines are `ambiguous` and the file is not removed; \
+regenerate minus lines from the current file, or use `file.delete`.\n\n\
              **Library `ReplaceOptions::for_agent` (#1965 / #2005):** Rust hosts with primary + fallback \
 replace paths should call `ReplaceOptions::for_agent()` in **both** places (not hand-copy \
 `ReplaceOptions { ... }` twice). Preset: `unique=true`, `require_change=true`, `fuzzy=true`, \

@@ -60,10 +60,11 @@ impl PatchFile {
     }
 
     /// True when dest/source should use entry PathGuard (no-follow last
-    /// component): git rename and file delete (file_delete snapshot rule).
+    /// component): git rename and empty-hunk delete. Hunked delete applies
+    /// minus lines and leftover rewrites, so follow-mode dest-deny applies.
     #[must_use]
     pub fn uses_entry_containment(&self) -> bool {
-        self.rename_from.is_some() || self.is_deletion
+        self.rename_from.is_some() || (self.is_deletion && self.hunks.is_empty())
     }
 
     /// Dest and source paths this file entry would touch (C-unescaped).
@@ -1242,6 +1243,14 @@ fn find_match(haystack: &[&str], needle: &[&str], expected: isize, fuzz: usize) 
     None
 }
 
+/// Recovery sentence when a hunked `+++ /dev/null` fails on stale minus lines.
+/// Shared by CLI, tx, MCP, and the library apply path so the wording cannot drift.
+pub(crate) const STALE_HUNKED_DELETE_RECOVERY: &str = "This was a deletion hunk; the file was not removed. Regenerate minus lines from the current file, or use file.delete for path-only unlink.";
+
+pub(crate) fn append_stale_hunked_delete_recovery(msg: &str) -> String {
+    format!("{msg} {STALE_HUNKED_DELETE_RECOVERY}")
+}
+
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn apply_patch_with_loader<F>(
     diff_text: &str,
@@ -1350,7 +1359,11 @@ where
                 }
                 Err(msg) if msg.contains("stale context") => {
                     return Err(crate::exit::AmbiguousError {
-                        msg: format!("patch apply: {} -- {msg}", pf.path),
+                        msg: format!(
+                            "patch apply: {} -- {}",
+                            pf.path,
+                            append_stale_hunked_delete_recovery(&msg)
+                        ),
                     }
                     .into());
                 }

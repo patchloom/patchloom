@@ -971,9 +971,9 @@ Use these when the change already exists as a unified diff.
 <!-- ref:patch-action:apply -->
 ### `patch apply`
 
-- **What it does:** Applies a unified diff, including git renames with hunks, pure renames (`similarity index 100%` with `rename from` / `rename to`), and 100% git copies (`copy from` / `copy to`, dest created, source kept). Also detects Codex Begin Patch and Aider SEARCH/REPLACE / DiffFenced (`<<<<<<< SEARCH`). SEARCH/REPLACE is unique unless `--replace-all`. Optional C-quoted paths with spaces and octal escapes. Git-meta binary / mode-only dests are listed for preflight then apply refuses. Use `--on-stale merge` to retry with three-way merge when context is stale.
+- **What it does:** Applies a unified diff, including git renames with hunks, pure renames (`similarity index 100%` with `rename from` / `rename to`), and 100% git copies (`copy from` / `copy to`, dest created, source kept). Also detects Codex Begin Patch and Aider SEARCH/REPLACE / DiffFenced (`<<<<<<< SEARCH`). SEARCH/REPLACE is unique unless `--replace-all`. Optional C-quoted paths with spaces and octal escapes. Git-meta binary / mode-only dests are listed for preflight then apply refuses. Use `--on-stale merge` to retry with three-way merge when context is stale. Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks. A hunked delete applies the minus lines first; leftover bytes rewrite the file (preview `--diff` to see them). Path-only unlink is `file.delete`.
 - **Use when:** The desired change is already available as patch text, a Begin Patch envelope, or a SEARCH/REPLACE document and should be replayed directly.
-- **Failure behavior:** Missing rename/source target → `not_found`. Git rename or copy destination already present → `already_exists` (same policy as `rename` without `--force`; remove the dest or use `file.rename --force`). Unsupported git-meta (binary payload, mode-only) → `invalid_input` (dest still appears in `parse_unified_diff` / `patch_declared_paths`).
+- **Failure behavior:** Missing rename/source target → `not_found`. Git rename or copy destination already present → `already_exists` (same policy as `rename` without `--force`; remove the dest or use `file.rename --force`). Unsupported git-meta (binary payload, mode-only) → `invalid_input` (dest still appears in `parse_unified_diff` / `patch_declared_paths`). Stale minus lines on a hunked delete are `ambiguous` (exit 5) and the file is not removed; regenerate minus lines from the current file, or use `file.delete` for path-only unlink.
 - **Prefer instead:** Use `replace`, `md`, or `doc` when you would rather describe the desired mutation at a higher level.
 
 <!-- ref:patch-action:merge -->
@@ -1299,9 +1299,9 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:patch.apply -->
 ### `patch.apply`
 
-- **What it does:** Applies a unified diff inside a transaction. Supports `on_stale: "merge"` for three-way merge when the on-disk file diverged from the patch base, and `allow_conflicts: true` to write conflict markers instead of failing during staging.
+- **What it does:** Applies a unified diff inside a transaction. Supports `on_stale: "merge"` for three-way merge when the on-disk file diverged from the patch base, and `allow_conflicts: true` to write conflict markers instead of failing during staging. Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks. A hunked delete applies the minus lines first; leftover bytes rewrite the file (preview `--diff`). Path-only unlink is `file.delete`.
 - **Use when:** Patch replay needs to compose with earlier in-plan edits and share the same rollback or validation behavior.
-- **Failure behavior:** Merge conflicts without `allow_conflicts` exit **8** (`CONFLICTS`) with `error_kind: "conflicts"` under `--json` (not generic `operation_failed` / 9). Stale context without merge exits **5** (`ambiguous`).
+- **Failure behavior:** Merge conflicts without `allow_conflicts` exit **8** (`CONFLICTS`) with `error_kind: "conflicts"` under `--json` (not generic `operation_failed` / 9). Stale context without merge exits **5** (`ambiguous`). Stale minus lines on a hunked delete leave the file in place; regenerate minus lines from the current file, or use `file.delete` for path-only unlink.
 - **Related:** top level `patch apply`, `patch merge`
 
 <!-- ref:tx-op:ast.rename -->

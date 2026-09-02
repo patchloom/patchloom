@@ -1066,6 +1066,10 @@ mod regression {
             msg.contains("stale") || crate::exit::is_ambiguous(&err),
             "expected stale/ambiguous, got: {msg}"
         );
+        assert!(
+            msg.contains(super::STALE_HUNKED_DELETE_RECOVERY),
+            "stale hunked delete must include recovery: {msg}"
+        );
     }
 
     #[cfg(any(feature = "cli", feature = "files"))]

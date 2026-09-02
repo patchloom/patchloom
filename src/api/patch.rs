@@ -18,6 +18,12 @@ use super::{ApplyMode, EditResult};
 /// Dest paths come from the document; `path` only supplies the workspace
 /// parent (same as a relative dest under that parent).
 ///
+/// Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks.
+/// A hunked delete applies the minus lines first. Leftover bytes rewrite
+/// the file (not unlink); preview with `--diff` or inspect `new_content`.
+/// Path-only unlink is `file.delete`. Stale minus lines are `ambiguous`
+/// and the file is not removed.
+///
 /// Returns an `EditResult` with the patched content.
 pub fn apply_patch(
     path: &Path,
@@ -168,36 +174,62 @@ fn patch_write(
                 )
                 .into());
             }
-            let original = if crate::ops::file::is_regular_file_for_backup(&load_path) {
-                crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
-            } else {
-                String::new()
-            };
-            let (applied, backup_session) = if mode == ApplyMode::Apply {
-                super::ensure_contained_entry(guard, &load_path)?;
-                super::apply_mutation(
-                    &load_path,
-                    mode,
-                    None,
-                    |backup| backup.save_before_delete(&load_path),
-                    || {
-                        std::fs::remove_file(&load_path).map_err(|e| {
-                            anyhow::anyhow!(
-                                "patch delete: failed to remove {}: {e}",
-                                load_path.display()
-                            )
-                        })
-                    },
-                )?
-            } else {
-                super::ensure_contained_entry(guard, &load_path)?;
-                (false, None)
-            };
-            let mut result =
-                super::build_edit_result(&pf.path, original, String::new(), applied, "patch", None);
-            result.backup_session = backup_session;
-            result.changed = true;
-            return Ok(result);
+            match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
+                HunkedDeleteOutcome::Delete { original } => {
+                    let (applied, backup_session) = if mode == ApplyMode::Apply {
+                        super::ensure_contained_entry(guard, &load_path)?;
+                        super::apply_mutation(
+                            &load_path,
+                            mode,
+                            None,
+                            |backup| backup.save_before_delete(&load_path),
+                            || {
+                                std::fs::remove_file(&load_path).map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "patch delete: failed to remove {}: {e}",
+                                        load_path.display()
+                                    )
+                                })
+                            },
+                        )?
+                    } else {
+                        super::ensure_contained_entry(guard, &load_path)?;
+                        (false, None)
+                    };
+                    let mut result = super::build_edit_result(
+                        &pf.path,
+                        original,
+                        String::new(),
+                        applied,
+                        "patch",
+                        None,
+                    );
+                    result.backup_session = backup_session;
+                    result.changed = true;
+                    return Ok(result);
+                }
+                HunkedDeleteOutcome::Rewrite {
+                    original,
+                    new_content,
+                } => {
+                    // Leftover is a content write: follow dest-deny in all
+                    // modes so Preview cannot leak an outside target.
+                    super::ensure_contained(guard, &write_path)?;
+                    let policy = crate::write::WritePolicy::default();
+                    let (applied, backup_session) =
+                        super::write_if_apply(&write_path, &new_content, mode, &policy, guard)?;
+                    let mut result = super::build_edit_result(
+                        &pf.path,
+                        original,
+                        new_content,
+                        applied,
+                        "patch",
+                        None,
+                    );
+                    result.backup_session = backup_session;
+                    return Ok(result);
+                }
+            }
         }
         // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
         // 100% copy loads source bytes as text when possible; dest is still written.
@@ -209,17 +241,8 @@ fn patch_write(
             crate::files::load_text_strict(&load_path, load_rel)?
         };
 
-        let new_content = ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
-            if e.contains("stale context") {
-                anyhow::Error::new(crate::exit::AmbiguousError {
-                    msg: format!("patch apply error: {e}"),
-                })
-            } else {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("patch apply error: {e}"),
-                })
-            }
-        })?;
+        let new_content = ops::patch::apply_hunks(&original, &pf.hunks)
+            .map_err(|e| map_apply_hunks_err(&pf.path, e))?;
 
         let policy = crate::write::WritePolicy::default();
         let (applied, backup_session) =
@@ -249,6 +272,74 @@ fn patch_write(
     }
 }
 
+fn map_apply_hunks_err(path: &str, e: String) -> anyhow::Error {
+    if e.contains("stale context") {
+        anyhow::Error::new(crate::exit::AmbiguousError {
+            msg: format!("patch apply error for {path}: {e}"),
+        })
+    } else {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("patch apply error for {path}: {e}"),
+        })
+    }
+}
+
+fn map_deletion_apply_hunks_err(path: &str, e: String) -> anyhow::Error {
+    if e.contains("stale context") {
+        map_apply_hunks_err(
+            path,
+            crate::ops::patch::append_stale_hunked_delete_recovery(&e),
+        )
+    } else {
+        map_apply_hunks_err(path, e)
+    }
+}
+
+/// Empty-hunk delete: no-load snapshot (regular file text; symlink / FIFO /
+/// socket stay empty). Hunked: load + apply. Empty applied → Delete
+/// (symlink snapshot empty). Leftover applied → Rewrite (original=loaded).
+enum HunkedDeleteOutcome {
+    Delete {
+        original: String,
+    },
+    Rewrite {
+        original: String,
+        new_content: String,
+    },
+}
+
+fn deletion_after_hunks(
+    load_path: &Path,
+    load_rel: &str,
+    hunks: &[crate::ops::patch::Hunk],
+    display_path: &str,
+) -> anyhow::Result<HunkedDeleteOutcome> {
+    if hunks.is_empty() {
+        let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
+            crate::files::load_text_strict(load_path, load_rel).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        return Ok(HunkedDeleteOutcome::Delete { original });
+    }
+    let loaded = crate::files::load_text_strict(load_path, load_rel)?;
+    let applied = crate::ops::patch::apply_hunks(&loaded, hunks)
+        .map_err(|e| map_deletion_apply_hunks_err(display_path, e))?;
+    if applied.is_empty() {
+        let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
+            loaded
+        } else {
+            String::new()
+        };
+        Ok(HunkedDeleteOutcome::Delete { original })
+    } else {
+        Ok(HunkedDeleteOutcome::Rewrite {
+            original: loaded,
+            new_content: applied,
+        })
+    }
+}
+
 /// Apply a multi-file patch. Returns one `EditResult` per affected file.
 ///
 /// Retains direct implementation since it produces multiple `EditResult`s
@@ -259,6 +350,11 @@ fn patch_write(
 /// single backup session covers every path. Any write failure restores the
 /// whole batch (no half-applied multi-file patch). Empty-create dests report
 /// `changed: true` even when original and new content are both empty.
+///
+/// **Deletes:** empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks)
+/// unlinks. A hunked delete applies the minus lines first; leftover bytes
+/// rewrite the file (preview `--diff` or `new_content`). Path-only unlink is
+/// `file.delete`. Stale minus lines are `ambiguous` and the file stays.
 pub fn apply_patch_file(
     patch_text: &str,
     cwd: &Path,
@@ -373,21 +469,38 @@ pub fn apply_patch_file(
         }
 
         if pf.is_deletion {
-            // Real unlink, not empty rewrite (tx/CLI parity).
-            // Same snapshot rule as file_delete: empty original for
-            // symlink / FIFO / socket so entry PathGuard cannot leak
-            // target bytes into EditResult / diffs.
-            let original = if crate::ops::file::is_regular_file_for_backup(&load_path) {
-                crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
-            } else {
-                String::new()
-            };
-            staged.push(StageOp::Delete {
-                path: load_path,
-                display: pf.path.clone(),
-                original,
-            });
-            crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
+            // Real unlink only when applied text is empty (tx/CLI parity).
+            // Empty-hunk git delete: no-load snapshot. Hunked: load +
+            // apply; leftover bytes become a rewrite, not an unlink.
+            match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
+                HunkedDeleteOutcome::Delete { original } => {
+                    staged.push(StageOp::Delete {
+                        path: load_path,
+                        display: pf.path.clone(),
+                        original,
+                    });
+                    crate::ops::patch::record_staged_patch_dest(
+                        cwd,
+                        pf,
+                        &mut created,
+                        &mut deleted,
+                    );
+                }
+                HunkedDeleteOutcome::Rewrite {
+                    original,
+                    new_content,
+                } => {
+                    staged.push(StageOp::Write {
+                        write_path: write_path.clone(),
+                        display: pf.path.clone(),
+                        original,
+                        new_content,
+                        is_creation: false,
+                    });
+                    deleted.remove(&write_path);
+                    created.insert(write_path);
+                }
+            }
             continue;
         }
 
@@ -410,17 +523,8 @@ pub fn apply_patch_file(
         let new_content = if pure_rename {
             original.clone()
         } else {
-            crate::ops::patch::apply_hunks(&original, &pf.hunks).map_err(|e| {
-                if e.contains("stale context") {
-                    anyhow::Error::new(crate::exit::AmbiguousError {
-                        msg: format!("patch apply error for {}: {e}", pf.path),
-                    })
-                } else {
-                    anyhow::Error::new(crate::exit::InvalidInputError {
-                        msg: format!("patch apply error for {}: {e}", pf.path),
-                    })
-                }
-            })?
+            crate::ops::patch::apply_hunks(&original, &pf.hunks)
+                .map_err(|e| map_apply_hunks_err(&pf.path, e))?
         };
 
         if let Some(from) = pf.rename_from.as_ref() {
@@ -445,24 +549,27 @@ pub fn apply_patch_file(
         crate::ops::patch::record_staged_patch_dest(cwd, pf, &mut created, &mut deleted);
     }
 
+    // Containment in all modes: leftover rewrite is a content write
+    // (follow). Preview must not leak outside payload when dest-deny fires.
+    for op in &staged {
+        match op {
+            StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
+            // Path-only delete/rename: entry containment (#2115).
+            StageOp::Delete { path, .. } => super::ensure_contained_entry(guard, path)?,
+            StageOp::Rename { from, to, .. } => {
+                super::ensure_contained_entry(guard, from)?;
+                super::ensure_contained_entry(guard, to)?;
+            }
+            StageOp::CopyFile { from, to, .. } => {
+                super::ensure_contained(guard, from)?;
+                super::ensure_contained(guard, to)?;
+            }
+        }
+    }
+
     // Phase 2: one backup session, then all-or-nothing mutate.
     let policy = crate::write::WritePolicy::default();
     let (applied, backup_session) = if mode == ApplyMode::Apply {
-        for op in &staged {
-            match op {
-                StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
-                // Path-only delete/rename: entry containment (#2115).
-                StageOp::Delete { path, .. } => super::ensure_contained_entry(guard, path)?,
-                StageOp::Rename { from, to, .. } => {
-                    super::ensure_contained_entry(guard, from)?;
-                    super::ensure_contained_entry(guard, to)?;
-                }
-                StageOp::CopyFile { from, to, .. } => {
-                    super::ensure_contained(guard, from)?;
-                    super::ensure_contained(guard, to)?;
-                }
-            }
-        }
         let mut backup = crate::backup::BackupSession::new(cwd)?;
         // Always record every path (including creates and rename dests as
         // FileAction::Created when missing). Skipping non-existent paths left

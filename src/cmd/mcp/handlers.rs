@@ -75,7 +75,7 @@ fn validate_op_paths_under_plan_cwd(
         })?;
         for pf in &patch_files {
             if pf.uses_entry_containment() {
-                // Path-only rename/delete headers: entry containment (#2115).
+                // Path-only rename / empty-hunk delete: entry (#2115).
                 let candidate = if std::path::Path::new(pf.path.as_str()).is_absolute() {
                     pf.path.clone()
                 } else {
@@ -656,7 +656,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff, a Codex *** Begin Patch document, or an Aider SEARCH/REPLACE / DiffFenced document. The diff parameter is the full unified diff text, a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move), or <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks (path on the first line after SEARCH). SEARCH/REPLACE is unique by default (multi-match is ambiguous, no write); set replace_all=true to update every exact match. Use on_stale=merge for three-way merge on stale unified-diff context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
+        description = "Apply a unified diff, a Codex *** Begin Patch document, or an Aider SEARCH/REPLACE / DiffFenced document. The diff parameter is the full unified diff text, a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move), or <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks (path on the first line after SEARCH). SEARCH/REPLACE is unique by default (multi-match is ambiguous, no write); set replace_all=true to update every exact match. Empty-hunk +++ /dev/null (git deleted file mode, no hunks) unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview --diff). Stale minus lines are ambiguous and the file is not removed; regenerate minus lines or use file.delete for path-only unlink. Use on_stale=merge for three-way merge on stale unified-diff context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
     )]
     async fn apply_patch(
         &self,
@@ -716,9 +716,10 @@ impl PatchloomService {
                 McpError::invalid_params(format!("failed to parse diff: {e}"), None)
             })?;
             for pf in &patch_files {
-                // Git rename and unified delete are path-only (entry mode,
-                // #2115); content patches follow. Match execute_plan so a
-                // workspace link → outside target can be unlinked.
+                // Git rename and empty-hunk delete are path-only (entry
+                // mode, #2115); content hunks and leftover hunked-delete
+                // rewrites follow. Match execute_plan so a workspace link
+                // → outside target can be unlinked, not rewritten.
                 if pf.uses_entry_containment() {
                     svc.check_path_entry(&pf.path)?;
                     if let Some(from) = &pf.rename_from {

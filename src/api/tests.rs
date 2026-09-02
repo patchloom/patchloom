@@ -9577,6 +9577,120 @@ fn apply_patch_file_deletion_unlinks() {
     );
 }
 
+/// Hunked `+++ /dev/null` must apply the minus lines before unlinking.
+/// `apply_patch_file` used to treat every deletion as a path-only unlink.
+#[test]
+fn apply_patch_file_stale_hunked_delete_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "changed\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect_err("stale hunked delete must fail closed");
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("ambiguous"),
+        "stale deletion hunk must peel ambiguous: {err}"
+    );
+    assert!(
+        err.to_string()
+            .contains(crate::ops::patch::STALE_HUNKED_DELETE_RECOVERY),
+        "stale hunked delete must include recovery: {err}"
+    );
+    assert!(
+        file.exists(),
+        "stale hunked delete must not remove the file"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+/// Matching hunked delete unlinks (pair with stale fail-closed above).
+#[test]
+fn apply_patch_file_hunked_delete_matching_minus_unlinks() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "line1\nline2\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect("matching hunked delete");
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    assert!(!file.exists(), "matching hunked delete must unlink");
+}
+
+/// Prefix `+++ /dev/null` hunk that matches must rewrite leftover bytes,
+/// not unlink. `apply_patch_file` used to stage Delete after any successful
+/// apply_hunks.
+#[test]
+fn apply_patch_file_hunked_delete_leftover_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect("prefix hunked delete with leftover");
+    assert_eq!(results.len(), 1);
+    assert!(results[0].changed);
+    assert!(
+        file.exists(),
+        "leftover after hunked delete must stay on disk, not unlink"
+    );
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "line3\n",
+        "leftover line must remain after prefix delete hunk"
+    );
+    assert_eq!(results[0].new_content, "line3\n");
+}
+
+/// No-default `apply_patch` used to unlink every `+++ /dev/null` without
+/// apply_hunks. Stale context must fail closed (same class as apply_patch_file).
+#[cfg(not(any(feature = "cli", feature = "files")))]
+#[test]
+fn apply_patch_hunked_delete_stale_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "changed\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let err = apply_patch(&file, patch, ApplyMode::Apply, None)
+        .expect_err("stale hunked delete must fail closed");
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("ambiguous"),
+        "stale deletion hunk must peel ambiguous: {err}"
+    );
+    assert!(
+        err.to_string()
+            .contains(crate::ops::patch::STALE_HUNKED_DELETE_RECOVERY),
+        "stale hunked delete must include recovery: {err}"
+    );
+    assert!(
+        file.exists(),
+        "stale hunked delete must not remove the file"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed\n");
+}
+
+/// Prefix `+++ /dev/null` hunk on the no-default arm must rewrite leftover
+/// bytes, not unlink.
+#[cfg(not(any(feature = "cli", feature = "files")))]
+#[test]
+fn apply_patch_hunked_delete_leftover_does_not_unlink() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+    let patch = "--- a/t.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-line1\n-line2\n";
+    let result = apply_patch(&file, patch, ApplyMode::Apply, None)
+        .expect("prefix hunked delete with leftover");
+    assert!(result.changed);
+    assert!(
+        file.exists(),
+        "leftover after hunked delete must stay on disk, not unlink"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "line3\n");
+    assert_eq!(result.new_content, "line3\n");
+}
+
 /// Unified-diff delete of a workspace symlink must not snapshot the outside
 /// target (same file_delete backup rule as Begin Patch Delete).
 #[cfg(unix)]
@@ -9740,6 +9854,144 @@ index e69de29..0000000\n";
         "symlink entry must be unlinked"
     );
     assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
+/// Leftover hunked-delete is a content rewrite. PathGuard must fail closed
+/// when the workspace link points outside (same class as content dest-deny).
+#[cfg(unix)]
+#[test]
+fn apply_patch_hunked_delete_leftover_symlink_outside_fails_closed() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const BODY: &str = "line1\nline2\nline3\n";
+    fs::write(&secret, BODY).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let patch = "\
+--- a/link.txt
++++ /dev/null
+@@ -1,2 +0,0 @@
+-line1
+-line2
+";
+    let err = apply_patch(&link, patch, ApplyMode::Apply, Some(&guard))
+        .expect_err("leftover rewrite through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "leftover hunked-delete through outside symlink must peel guard_rejected: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        BODY,
+        "outside target must not be rewritten by leftover hunked-delete"
+    );
+    assert!(
+        crate::ops::file::path_entry_exists(&link),
+        "workspace link must remain when leftover rewrite is refused"
+    );
+
+    let preview = apply_patch(&link, patch, ApplyMode::Preview, Some(&guard))
+        .expect_err("preview leftover rewrite through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&preview),
+        Some(EditErrorKind::GuardRejected),
+        "preview must not leak leftover payload: {preview}"
+    );
+    assert!(
+        !preview.to_string().contains("line3"),
+        "preview error must not include leftover payload: {preview}"
+    );
+
+    let file_err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, Some(&guard))
+        .expect_err("apply_patch_file leftover rewrite through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&file_err),
+        Some(EditErrorKind::GuardRejected),
+        "apply_patch_file leftover must peel guard_rejected: {file_err}"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), BODY);
+}
+
+/// Matching hunked delete via default apply_patch (tx) must not snapshot
+/// symlink target bytes. Empty-hunk already empties Special; the hunked
+/// loader used to leave followed text in pending.
+#[cfg(unix)]
+#[test]
+fn apply_patch_hunked_delete_symlink_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=hunked-delete-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let patch = "\
+--- a/link.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-SECRET=hunked-delete-do-not-leak
+";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("matching hunked delete of workspace symlink");
+    assert!(
+        result.original_content.is_empty() || !result.original_content.contains(PAYLOAD.trim()),
+        "hunked-delete snapshot must not follow symlink: {:?}",
+        result.original_content
+    );
+    assert!(
+        !result.diff.contains(PAYLOAD.trim()),
+        "diff must not leak symlink target: {}",
+        result.diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "matching hunked delete must unlink the link"
+    );
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        PAYLOAD,
+        "matching hunked delete must not wipe the target"
+    );
+}
+
+/// Hunked delete through an in-workspace symlink unlinks the link and
+/// leaves the target bytes (follow to verify minus, then unlink, not wipe).
+#[cfg(unix)]
+#[test]
+fn apply_patch_hunked_delete_through_in_workspace_symlink_unlinks_not_wipe() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.txt");
+    const BODY: &str = "alpha\nbeta\ngamma\n";
+    fs::write(&target, BODY).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let patch = "\
+--- a/link.txt
++++ /dev/null
+@@ -1,3 +0,0 @@
+-alpha
+-beta
+-gamma
+";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, None)
+        .expect("hunked delete through in-workspace symlink");
+    assert!(result.changed);
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        BODY,
+        "hunked delete must unlink the link, not wipe the target"
+    );
 }
 
 /// Content patch on a workspace symlink must load the target text (#2290).

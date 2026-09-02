@@ -413,7 +413,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "patch.apply",
-        description: "Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE / DiffFenced document. SEARCH/REPLACE is unique unless replace_all is true.",
+        description: "Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE / DiffFenced document. SEARCH/REPLACE is unique unless replace_all is true. Empty-hunk +++ /dev/null (git deleted file mode, no hunks) unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview --diff). Stale minus lines are ambiguous and the file is not removed. Path-only unlink is file.delete.",
         tier: Tier::Medium,
         examples: &[],
     },
