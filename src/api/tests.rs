@@ -9392,6 +9392,84 @@ fn apply_patch_file_deletion_unlinks() {
     );
 }
 
+/// Unified-diff delete of a workspace symlink must not snapshot the outside
+/// target (same file_delete backup rule as Begin Patch Delete).
+#[cfg(unix)]
+#[test]
+fn apply_patch_file_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let patch = "\
+diff --git a/link.txt b/link.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, Some(&guard))
+        .expect("entry delete of workspace symlink");
+    assert_eq!(results.len(), 1);
+    assert!(
+        !results[0].original_content.contains(PAYLOAD.trim()),
+        "delete snapshot must not follow symlink: {:?}",
+        results[0].original_content
+    );
+    assert!(
+        !results[0].diff.contains(PAYLOAD.trim()),
+        "diff must not leak outside target: {}",
+        results[0].diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
+/// `apply_patch` Begin Patch Delete of a workspace symlink must not leak
+/// the outside target into `original_content`.
+#[cfg(unix)]
+#[test]
+fn apply_patch_begin_patch_delete_symlink_outside_does_not_leak_target() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+    fs::write(&secret, PAYLOAD).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let patch = "*** Begin Patch\n*** Delete File: link.txt\n*** End Patch\n";
+    let result = apply_patch(&link, patch, ApplyMode::Apply, Some(&guard))
+        .expect("entry delete of workspace symlink");
+    assert!(
+        !result.original_content.contains(PAYLOAD.trim()),
+        "delete snapshot must not follow symlink: {:?}",
+        result.original_content
+    );
+    assert!(
+        !result.diff.contains(PAYLOAD.trim()),
+        "diff must not leak outside target: {}",
+        result.diff
+    );
+    assert!(
+        !crate::ops::file::path_entry_exists(&link),
+        "symlink entry must be unlinked"
+    );
+    assert_eq!(fs::read_to_string(&secret).unwrap(), PAYLOAD);
+}
+
 #[test]
 fn apply_patch_file_case_only_rename_preserves_inode_content() {
     let dir = TempDir::new().unwrap();

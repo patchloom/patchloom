@@ -333,7 +333,10 @@ pub fn apply_patch_file(
 
         if pf.is_deletion {
             // Real unlink, not empty rewrite (tx/CLI parity).
-            let original = if crate::ops::file::path_entry_exists(&load_path) {
+            // Same snapshot rule as file_delete: empty original for
+            // symlink / FIFO / socket so entry PathGuard cannot leak
+            // target bytes into EditResult / diffs.
+            let original = if crate::ops::file::is_regular_file_for_backup(&load_path) {
                 crate::files::load_text_strict(&load_path, load_rel).unwrap_or_default()
             } else {
                 String::new()

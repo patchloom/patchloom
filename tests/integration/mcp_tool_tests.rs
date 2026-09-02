@@ -6530,6 +6530,11 @@ async fn test_mcp_apply_patch_begin_patch_delete_symlink_outside_target() {
         !is_error,
         "Begin Patch delete of in-workspace symlink must not follow target: {val}"
     );
+    let dumped = val.to_string();
+    assert!(
+        !dumped.contains("outside-payload"),
+        "tx/MCP JSON must not snapshot symlink target bytes: {val}"
+    );
     assert!(!link.exists(), "link removed");
     assert_eq!(
         fs::read_to_string(&outside).unwrap(),

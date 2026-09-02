@@ -162,7 +162,14 @@ fn execute_begin_patch(diff: &str, tx: &mut TxState<'_>) -> anyhow::Result<usize
                     )
                     .into());
                 }
-                let _ = read_file_content(tx.pending, tx.existed_before, &dest)?;
+                // file_delete snapshot: do not follow symlink / FIFO / socket.
+                if crate::ops::file::is_regular_file_for_backup(&dest) {
+                    let _ = read_file_content(tx.pending, tx.existed_before, &dest)?;
+                } else if !tx.pending.contains_key(&dest) {
+                    tx.existed_before.insert(dest.clone());
+                    tx.pending
+                        .insert(dest.clone(), (String::new(), String::new()));
+                }
                 tx.deletions.insert(dest.clone());
                 tx.write_targets.insert(dest);
             }

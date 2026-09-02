@@ -7,7 +7,7 @@ use crate::containment::PathGuard;
 use crate::ops::begin_patch::{
     BeginPatchOp, apply_codex_hunks, parse_begin_patch, resolve_begin_patch_dest,
 };
-use crate::ops::file::path_entry_exists;
+use crate::ops::file::{is_regular_file_for_backup, path_entry_exists};
 
 use super::{ApplyMode, EditResult};
 
@@ -116,7 +116,13 @@ pub(crate) fn apply_begin_patch_ops(
                     .into());
                 }
                 let original = created.get(&dest).cloned().unwrap_or_else(|| {
-                    crate::files::load_text_strict(&dest, path).unwrap_or_default()
+                    // Same snapshot rule as file_delete: do not follow
+                    // symlink / FIFO / socket after entry PathGuard.
+                    if is_regular_file_for_backup(&dest) {
+                        crate::files::load_text_strict(&dest, path).unwrap_or_default()
+                    } else {
+                        String::new()
+                    }
                 });
                 created.remove(&dest);
                 deleted.insert(dest.clone());
@@ -350,7 +356,7 @@ pub(crate) fn apply_begin_patch_ops(
 mod tests {
     use super::*;
     use crate::api::{is_already_exists, is_ambiguous, is_guard_rejected, is_no_match};
-    use crate::containment::PathGuard;
+    use crate::containment::{AbsolutePathPolicy, PathGuard};
     use crate::ops::begin_patch::looks_like_begin_patch;
 
     fn update_patch(path: &str, old: &str, new: &str) -> String {
@@ -632,5 +638,43 @@ mod tests {
             std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
             "fn live() {}\n"
         );
+    }
+
+    /// Delete of a workspace symlink must not snapshot the outside target
+    /// into `original_content` / diffs (file_delete snapshot rule).
+    #[cfg(unix)]
+    #[test]
+    fn apply_begin_patch_delete_symlink_outside_does_not_leak_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("secret.env");
+        const PAYLOAD: &str = "SECRET=outside-do-not-leak\n";
+        std::fs::write(&secret, PAYLOAD).unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        let guard = PathGuard::new(
+            dir.path().to_path_buf(),
+            AbsolutePathPolicy::AllowIfContained,
+        )
+        .unwrap();
+        let patch = "*** Begin Patch\n*** Delete File: link.txt\n*** End Patch\n";
+        let results = apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, Some(&guard))
+            .expect("entry delete of workspace symlink");
+        assert_eq!(results.len(), 1);
+        assert!(
+            !results[0].original_content.contains(PAYLOAD.trim()),
+            "delete snapshot must not follow symlink: {:?}",
+            results[0].original_content
+        );
+        assert!(
+            !results[0].diff.contains(PAYLOAD.trim()),
+            "diff must not leak outside target: {}",
+            results[0].diff
+        );
+        assert!(
+            !crate::ops::file::path_entry_exists(&link),
+            "symlink entry must be unlinked"
+        );
+        assert_eq!(std::fs::read_to_string(&secret).unwrap(), PAYLOAD);
     }
 }
