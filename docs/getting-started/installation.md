@@ -112,10 +112,10 @@ Each release ships flat zips (no nested folder). Common asset names:
 - `patchloom-x86_64-pc-windows-msvc.zip` (x64)
 - `patchloom-aarch64-pc-windows-msvc.zip` (ARM64)
 
-Tag form is `patchloom-vX.Y.Z` (for example `patchloom-v0.31.0`). <!-- x-release-please-version -->
+Tag form is `patchloom-vX.Y.Z` (for example `patchloom-v0.32.0`). <!-- x-release-please-version -->
 
 ```powershell
-$ver = "0.31.0"   # x-release-please-version (or pin an older release)
+$ver = "0.32.0"   # x-release-please-version (or pin an older release)
 $tag = "patchloom-v$ver"
 $url = "https://github.com/patchloom/patchloom/releases/download/$tag/patchloom-x86_64-pc-windows-msvc.zip"
 $dir = "$env:TEMP\patchloom-portable"
@@ -196,14 +196,14 @@ Rust tools. Disable default features to omit CLI (clap), MCP server, and AST:
 
 ```toml
 [dependencies]
-patchloom = { version = "0.31.0", default-features = false } <!-- x-release-please-version -->
+patchloom = { version = "0.32.0", default-features = false } <!-- x-release-please-version -->
 ```
 
 To add AST support without CLI/MCP (LLM agent embedders typically use
 `ast` + `files` for plan execution and AST file mutators):
 
 ```toml
-patchloom = { version = "0.31.0", default-features = false, features = ["ast", "files"] } <!-- x-release-please-version -->
+patchloom = { version = "0.32.0", default-features = false, features = ["ast", "files"] } <!-- x-release-please-version -->
 ```
 
 See the [crate documentation](https://docs.rs/patchloom) for the full API

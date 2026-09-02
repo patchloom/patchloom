@@ -21,13 +21,13 @@
 //!
 //! ```toml
 //! [dependencies]
-//! patchloom = { version = "0.31.0", default-features = false } // x-release-please-version
+//! patchloom = { version = "0.32.0", default-features = false } // x-release-please-version
 //! ```
 //!
 //! Or with AST support:
 //!
 //! ```toml
-//! patchloom = { version = "0.31.0", default-features = false, features = ["ast"] } // x-release-please-version
+//! patchloom = { version = "0.32.0", default-features = false, features = ["ast"] } // x-release-please-version
 //! ```
 //!
 //! (Keep the version in sync with Cargo.toml / release-please. See the release checklist.)
