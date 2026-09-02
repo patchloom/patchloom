@@ -845,17 +845,19 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
 
 /// Parse for read-only queries (keys/len/get/has).
 ///
-/// Empty / whitespace-only YAML is `{}` so keys/len at `.` match empty
-/// JSON/TOML. Write bootstrap still uses [`parse_doc`] (empty YAML stays Null).
+/// Empty / whitespace-only / BOM-ZWSP-only YAML is `{}` so keys/len at `.`
+/// match empty JSON/TOML. Write bootstrap still uses [`parse_doc`] (empty
+/// YAML stays Null). Comment-only and `---` preamble stay parsed YAML.
 pub fn parse_doc_for_query(
     content: &str,
     format: &FileFormat,
 ) -> anyhow::Result<serde_json::Value> {
-    let value = parse_doc(content, format)?;
-    if matches!(format, FileFormat::Yaml) && content.trim().is_empty() && value.is_null() {
+    // Blank-text check is on the source, not the parsed value: ZWSP-only
+    // YAML deserializes as a string, not Null, and trim() leaves it intact.
+    if matches!(format, FileFormat::Yaml) && crate::containment::is_blank_text(content) {
         return Ok(serde_json::json!({}));
     }
-    Ok(value)
+    parse_doc(content, format)
 }
 
 /// Load and parse a JSON/YAML/TOML file for read-only queries.

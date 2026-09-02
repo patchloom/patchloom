@@ -457,6 +457,42 @@ fn doc_keys_explicit_yaml_null_is_type_error() {
 }
 
 #[test]
+fn doc_keys_and_len_bom_zwsp_yaml_match_empty() {
+    // trim() does not strip BOM/ZWSP, so a format-char-only YAML file must
+    // still query like empty (`[]` / `0`), not peel type_error.
+    let dir = TempDir::new().unwrap();
+    for (name, body) in [
+        ("bom.yaml", "\u{feff}"),
+        ("zwsp.yaml", "\u{200b}"),
+        ("bom_ws.yaml", "\u{feff}  \n  "),
+    ] {
+        let file = dir.path().join(name);
+        fs::write(&file, body).unwrap();
+        let keys = doc_keys(&file, ".").unwrap_or_else(|e| panic!("{name} keys at .: {e}"));
+        assert_eq!(keys, Vec::<String>::new(), "{name} keys at . must be []");
+        assert_eq!(
+            doc_len(&file, ".").unwrap_or_else(|e| panic!("{name} len at .: {e}")),
+            0,
+            "{name} len at . must be 0"
+        );
+    }
+}
+
+#[test]
+fn doc_keys_comment_only_yaml_is_type_error() {
+    // Comment-only YAML is a scalar/null document, not a blank file.
+    // Do not expand empty remapping to "# hi".
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("comment.yaml");
+    fs::write(&file, "# hi\n").unwrap();
+    let err = doc_keys(&file, ".").unwrap_err();
+    assert!(
+        crate::exit::is_type_error(&err),
+        "comment-only YAML must stay type_error, got: {err}"
+    );
+}
+
+#[test]
 fn doc_set_empty_yaml_write_bootstrap_unchanged() {
     // parse_doc must keep empty YAML as Null so write bootstrap (null-to-object
     // in set_at_path) is not rewritten to the JSON empty-object path. #2283

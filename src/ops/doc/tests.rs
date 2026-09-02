@@ -98,6 +98,29 @@ mod basic {
             parse_doc_for_query("null\n", &FileFormat::Yaml).unwrap(),
             json!(null)
         );
+        // BOM / ZWSP are not stripped by trim(); query remap must still
+        // treat them as empty. Comment-only stays a scalar.
+        assert_eq!(
+            parse_doc_for_query("\u{feff}", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("\u{200b}", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("\u{feff}  \n  ", &FileFormat::Yaml).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            parse_doc_for_query("# hi\n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
+        // Leading `---` is YAML preamble, not blank text.
+        assert_eq!(
+            parse_doc_for_query("---\n", &FileFormat::Yaml).unwrap(),
+            json!(null)
+        );
     }
 
     #[test]
