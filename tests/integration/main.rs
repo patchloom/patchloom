@@ -251,6 +251,13 @@ fn installation_path() -> PathBuf {
         .join("installation.md")
 }
 
+fn embedder_host_path() -> PathBuf {
+    repo_root()
+        .join("docs")
+        .join("getting-started")
+        .join("embedder-host.md")
+}
+
 fn agent_test_readme_path() -> PathBuf {
     repo_root().join("tests").join("agent").join("README.md")
 }

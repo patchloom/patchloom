@@ -12,6 +12,15 @@ CLI and library side by side, run `patchloom --version` and compare to
 `Cargo.lock` before treating CLI exit codes as a library regression. See
 [Installation: verify which binary](installation.md#verify-which-binary-and-crate-you-have).
 
+**0.32 tree-sitter graph:** `features = ["ast"]` pulls `tree-sitter` 0.27
+(`links = "tree-sitter"`). Cargo allows only one crate with that `links`
+key. A host that still pins `tree-sitter-highlight ^0.26` (or another
+`links = "tree-sitter"` crate at 0.26) cannot `cargo update -p patchloom`.
+Bump those crates to 0.27 in the same lock update. `Highlighter::highlight`
+already takes `cancellation_flag` in 0.26; after the highlight 0.27 bump,
+check host `tree-sitter` call sites (`Parser::parse`, `QueryMatch::captures`).
+0.32 does not keep a 0.26 `tree-sitter` graph.
+
 **`doc set` vs `doc update`:** single concrete paths use `doc.set` / MCP
 `doc_set`; predicate or wildcard multi-match uses `doc.update` / `doc_update`.
 Do not expose only `doc_set` if agents need list updates by name. See

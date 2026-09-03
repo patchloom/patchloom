@@ -230,6 +230,7 @@
 //! | File multi-op pre-write span refuse | [`apply_content_edits_to_file_with_span_policy`] + [`FuzzySpanPolicy`] (#2008) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
 //! | Ordered host onboarding (primary + fallback + peels + multi-op) | [Embedder host checklist](docs/getting-started/embedder-host.md) (#2009) |
+//! | 0.32 `ast` pin / `tree-sitter` 0.27 `links` | Bump host `tree-sitter-highlight` (and any other `links = "tree-sitter"` crate) to 0.27 in the same lock update. See [embedder-host.md](docs/getting-started/embedder-host.md) (#2297). |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
 //!

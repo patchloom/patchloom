@@ -776,6 +776,56 @@ fn test_smoke_rust_version_docs_and_ci_match_cargo_metadata() {
 }
 
 #[test]
+fn test_smoke_embedder_host_notes_tree_sitter_027_links() {
+    let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
+    let ts_line = cargo
+        .lines()
+        .find(|line| line.starts_with("tree-sitter-lib = "))
+        .expect("Cargo.toml should declare tree-sitter-lib");
+    assert!(
+        ts_line.contains("package = \"tree-sitter\""),
+        "tree-sitter-lib must map to the tree-sitter crate: {ts_line}"
+    );
+    let ts_version = ts_line
+        .split("version = \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("tree-sitter-lib version should be quoted");
+    assert!(
+        ts_version.starts_with("0.27"),
+        "0.32 host-pin note assumes tree-sitter 0.27; Cargo.toml has {ts_version}"
+    );
+
+    let embedder = fs::read_to_string(embedder_host_path()).unwrap();
+    assert!(
+        embedder.contains(&format!("tree-sitter` {ts_version}")),
+        "embedder-host.md must name tree-sitter {ts_version} (Cargo.toml pin)"
+    );
+    assert!(
+        embedder.contains("links = \"tree-sitter\""),
+        "embedder-host.md must name the Cargo links key that forbids mixed 0.26/0.27"
+    );
+    assert!(
+        embedder.contains("tree-sitter-highlight"),
+        "embedder-host.md must name tree-sitter-highlight as the common host pin"
+    );
+
+    let installation = fs::read_to_string(installation_path()).unwrap();
+    assert!(
+        installation.contains(&format!("tree-sitter` {ts_version}")),
+        "installation.md must name tree-sitter {ts_version} (Cargo.toml pin)"
+    );
+    assert!(
+        installation.contains("links = \"tree-sitter\""),
+        "installation.md library section must name the Cargo links key"
+    );
+    assert!(
+        installation.contains("tree-sitter-highlight"),
+        "installation.md library section must name tree-sitter-highlight"
+    );
+}
+
+#[test]
 fn test_smoke_library_embed_version_matches_cargo() {
     let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
     let version_line = cargo
