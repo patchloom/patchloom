@@ -207,7 +207,7 @@
 //! | Host unit-test honesty rows (`#[non_exhaustive]`) | [`ContentEditHonesty::exact`] / [`ContentEditHonesty::fuzzy`] (#2033) |
 //! | Map create/rename dest-exists to force/overwrite recovery | [`EditErrorKind::AlreadyExists`] / [`api::is_already_exists`] |
 //! | CLI-stable kind string for host JSON envelopes | [`api::error_kind_str`] / [`api::peel_error`] |
-//! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] / [`api::is_not_found`] (also library/CLI/MCP `doc_get`/`doc_has`/`doc_keys`/`doc_len` / `doc_query` on a missing file) |
+//! | Map missing path I/O to not-found (not generic op fail) | [`EditErrorKind::NotFound`] / [`api::is_not_found`] (also library/CLI/MCP `doc_get`/`doc_has`/`doc_keys`/`doc_len` / `doc_query` on a missing file; empty-hunk `apply_patch` / `apply_patch_file` delete of a missing dest) |
 //! | Map patch merge conflict markers | [`EditErrorKind::Conflicts`] / [`api::is_conflicts`] (distinct from batch [`EditErrorKind::ConflictingEdit`]) |
 //! | Map check/assert-count exit-2 soft failures | [`EditErrorKind::ChangesDetected`] / [`api::is_changes_detected`] |
 //! | PathGuard / `--contain` rejection | [`EditErrorKind::GuardRejected`] / [`api::is_guard_rejected`] |
@@ -225,7 +225,7 @@
 //! | Patch dest preflight (C-unescape, copy, dest list) | [`api::unquote_git_c_string`] / [`api::parse_diff_file_path`] / [`api::parse_diff_git_paths`] / [`api::patch_declared_paths`] (#2170–#2176). Do not quote-peel or whitespace-split `diff --git`. `parse_diff_git_paths` accepts the full line or the pair after that prefix. Empty-create apply reports `changed: true`. |
 //! | Codex `*** Begin Patch` | [`api::looks_like_begin_patch`] / [`api::begin_patch_declared_paths`] / [`api::apply_patch`] / [`api::apply_patch_file`] / [`api::apply_begin_patch`] (#2219). Mixed Begin Patch + unified-diff is a typed error. Update hunks require a unique exact match. |
 //! | SEARCH/REPLACE unique apply | [`api::parse_search_replace`] / [`api::apply_search_replace_blocks`] / [`api::apply_search_replace_document`] / [`api::looks_like_search_replace`] (#2220/#2221). `apply_patch` / `apply_patch_file` / CLI `patch apply` / MCP `apply_patch` detect the grammar. Default unique (multi-match is `ambiguous`, no write). `replace_all: true` or CLI `--replace-all` updates every exact match. Do not flip [`ReplaceOptions::unique`] on generic `replace_text`. |
-//! | Hunked `+++ /dev/null` delete | Empty-hunk git `deleted file mode` unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview `--diff` or `EditResult.new_content`). Stale minus is `ambiguous` and does not remove the file. Path-only unlink is [`api::file_delete`]. |
+//! | Hunked `+++ /dev/null` delete | Empty-hunk git `deleted file mode` unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview `--diff` or `EditResult.new_content`). Stale minus is `ambiguous` and does not remove the file. Missing dest peels `not_found` on [`api::apply_patch`] and [`api::apply_patch_file`] (Apply and Check). PathGuard on an escaped missing dest peels `guard_rejected` first. Path-only unlink is [`api::file_delete`]. |
 //! | Plan/tx multi-path worst-case span | [`prefer_widest_matched_text`] / top-level `matched_text` (#2007) |
 //! | File multi-op pre-write span refuse | [`apply_content_edits_to_file_with_span_policy`] + [`FuzzySpanPolicy`] (#2008) |
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |

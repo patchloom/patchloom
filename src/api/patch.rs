@@ -22,7 +22,8 @@ use super::{ApplyMode, EditResult};
 /// A hunked delete applies the minus lines first. Leftover bytes rewrite
 /// the file (not unlink); preview with `--diff` or inspect `new_content`.
 /// Path-only unlink is `file.delete`. Stale minus lines are `ambiguous`
-/// and the file is not removed.
+/// and the file is not removed. A missing dest peels `not_found` on
+/// Apply and Check (same as `apply_patch_file`).
 ///
 /// Returns an `EditResult` with the patched content.
 pub fn apply_patch(
@@ -167,17 +168,12 @@ fn patch_write(
         if pf.is_deletion {
             // file_delete snapshot: empty original for symlink / FIFO / socket.
             // apply_patch_with_loader is cfg-gated; this is the no-default path.
-            if !crate::ops::file::path_entry_exists(&load_path) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("file not found: {load_rel}"),
-                )
-                .into());
-            }
+            // Guard before exists so an escaped missing dest is guard_rejected,
+            // not not_found (parity with apply_patch / CLI).
+            super::ensure_contained_entry(guard, &load_path)?;
             match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
                 HunkedDeleteOutcome::Delete { original } => {
                     let (applied, backup_session) = if mode == ApplyMode::Apply {
-                        super::ensure_contained_entry(guard, &load_path)?;
                         super::apply_mutation(
                             &load_path,
                             mode,
@@ -193,7 +189,6 @@ fn patch_write(
                             },
                         )?
                     } else {
-                        super::ensure_contained_entry(guard, &load_path)?;
                         (false, None)
                     };
                     let mut result = super::build_edit_result(
@@ -315,6 +310,13 @@ fn deletion_after_hunks(
     display_path: &str,
 ) -> anyhow::Result<HunkedDeleteOutcome> {
     if hunks.is_empty() {
+        if !crate::ops::file::path_entry_exists(load_path) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("file not found: {load_rel}"),
+            )
+            .into());
+        }
         let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
             crate::files::load_text_strict(load_path, load_rel).unwrap_or_default()
         } else {
@@ -355,6 +357,8 @@ fn deletion_after_hunks(
 /// unlinks. A hunked delete applies the minus lines first; leftover bytes
 /// rewrite the file (preview `--diff` or `new_content`). Path-only unlink is
 /// `file.delete`. Stale minus lines are `ambiguous` and the file stays.
+/// A missing dest peels `not_found` on Apply and Check (do not treat it
+/// as `changed: true`).
 pub fn apply_patch_file(
     patch_text: &str,
     cwd: &Path,
@@ -472,6 +476,9 @@ pub fn apply_patch_file(
             // Real unlink only when applied text is empty (tx/CLI parity).
             // Empty-hunk git delete: no-load snapshot. Hunked: load +
             // apply; leftover bytes become a rewrite, not an unlink.
+            // Guard before exists so an escaped missing dest is
+            // guard_rejected, not not_found (parity with apply_patch / CLI).
+            super::ensure_contained_entry(guard, &load_path)?;
             match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
                 HunkedDeleteOutcome::Delete { original } => {
                     staged.push(StageOp::Delete {
