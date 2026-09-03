@@ -175,7 +175,8 @@ fn read_diff_input(
 /// Load a patch *target* file under Strict content rules with NotFound policy.
 ///
 /// - Text: `Ok(content)`
-/// - Missing + `missing_as_empty`: `Ok("")` (creation / merge check)
+/// - Missing + `missing_as_empty`: `Ok("")` (creation / merge check;
+///   empty-hunk delete still peels `NotFound`)
 /// - Missing + not empty: `Err(NotFound)`
 /// - Binary / invalid UTF-8: `Err(Binary)` / `Err(InvalidEncoding)` (#1963)
 /// - Permission / other non-NotFound IO from `load_text_strict`: `Err(InvalidInput)`
@@ -302,6 +303,60 @@ fn patch_load_rel(pf: &PatchFile) -> &str {
         .as_deref()
         .or(pf.rename_from.as_deref())
         .unwrap_or(pf.path.as_str())
+}
+
+/// When `--contain` is set, reject dest that escapes the workspace before
+/// exists / Strict load (parity with apply empty-hunk delete).
+fn ensure_patch_dest_contained(
+    global: &GlobalFlags,
+    cwd: &Path,
+    dest: &Path,
+) -> anyhow::Result<()> {
+    let guard = global.workspace_guard(cwd)?;
+    crate::api::ensure_contained_entry(guard.as_ref(), dest)
+}
+
+/// Path-only empty-hunk delete preview: PathGuard dest first, then exists /
+/// unlinkable. Never Strict-loads (binary / dangling / FIFO stay would_change).
+fn preview_empty_hunk_delete(
+    global: &GlobalFlags,
+    cwd: &Path,
+    pf: &PatchFile,
+    file_path: &Path,
+) -> anyhow::Result<PatchFileResult> {
+    ensure_patch_dest_contained(global, cwd, file_path)?;
+    if !crate::ops::file::path_entry_exists(file_path) {
+        let msg = format!("file not found: {}", file_path.display());
+        return Ok(PatchFileResult {
+            path: pf.path.clone(),
+            status: "missing",
+            error: Some(msg),
+            conflicts: None,
+            from: None,
+            to: None,
+            action: None,
+        });
+    }
+    if let Err(e) = crate::ops::file::ensure_unlinkable_not_directory(file_path, &pf.path) {
+        return Ok(PatchFileResult {
+            path: pf.path.clone(),
+            status: "error",
+            error: Some(e.msg.clone()),
+            conflicts: None,
+            from: None,
+            to: None,
+            action: None,
+        });
+    }
+    Ok(PatchFileResult {
+        path: pf.path.clone(),
+        status: "would_change",
+        error: None,
+        conflicts: None,
+        from: None,
+        to: None,
+        action: None,
+    })
 }
 
 fn patch_file_result(path: &str, applied: &ApplyHunksResult) -> PatchFileResult {
@@ -700,6 +755,29 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Git rename/copy: check loads source path (#2101 / #2171).
             let load_rel = patch_load_rel(pf);
             let file_path = cwd.join(load_rel);
+            // Empty-hunk delete is path-only: PathGuard dest first, then
+            // exists / unlinkable. Do not load_text_strict (dangling / FIFO /
+            // binary match apply unlink).
+            if pf.is_deletion && pf.hunks.is_empty() {
+                let row = preview_empty_hunk_delete(global, &cwd, pf, &file_path)?;
+                if row.status == "missing" || row.status == "error" {
+                    if row.status == "error"
+                        && !global.json
+                        && !global.jsonl
+                        && !global.quiet
+                        && let Some(err) = &row.error
+                    {
+                        eprintln!("patch check: {} -- READ ERROR: {}", pf.path, err);
+                    }
+                    results.push(row);
+                    any_problem = true;
+                    continue;
+                }
+                any_would_change = true;
+                results.push(row);
+                record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
+                continue;
+            }
             // Strict target load (#1896); creation allows missing → empty.
             let original = match load_patch_target(&file_path, load_rel, pf.is_creation) {
                 Ok(s) => s,
@@ -747,10 +825,12 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     continue;
                 }
             };
-            // Path-only copy/rename/empty-create: content may match, apply still writes.
+            // Path-only copy/rename/empty-create/empty-hunk delete: content may
+            // match, apply still writes (unlink).
             let is_path_op = pf.rename_from.as_ref().is_some_and(|from| from != &pf.path)
                 || pf.copy_from.is_some()
-                || (pf.is_creation && pf.hunks.is_empty() && pf.copy_from.is_none());
+                || (pf.is_creation && pf.hunks.is_empty() && pf.copy_from.is_none())
+                || pf.is_deletion;
             match apply_hunks(&original, &pf.hunks) {
                 Ok(new_content) if new_content == original && !is_path_op => {
                     results.push(PatchFileResult {
@@ -852,7 +932,25 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Git rename/copy: load source path (parity with non-merge check).
             let load_rel = patch_load_rel(pf);
             let file_path = cwd.join(load_rel);
-            // Merge check: missing target → empty; binary/utf8 → typed kinds.
+            // Empty-hunk delete is path-only (same as patch check): PathGuard
+            // dest first, then exists / unlinkable. Binary / dangling / FIFO
+            // → would_change, missing → not_found.
+            if pf.is_deletion && pf.hunks.is_empty() {
+                let row = preview_empty_hunk_delete(global, &cwd, pf, &file_path)?;
+                if row.status == "missing" || row.status == "error" {
+                    all_ok = false;
+                    results.push(row);
+                    continue;
+                }
+                any_would_change = true;
+                results.push(row);
+                record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
+                continue;
+            }
+            // PathGuard dest first so --contain escape is guard_rejected,
+            // not Strict peel (parity with apply).
+            ensure_patch_dest_contained(global, &cwd, &file_path)?;
+            // Merge check: missing target → empty (creation / hunked merge).
             let original = match load_patch_target(&file_path, load_rel, true) {
                 Ok(s) => s,
                 Err(PatchTargetError::Binary(msg)) => {
@@ -867,9 +965,19 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     global.emit_error_json_kind(Some("invalid_input"), &msg)?;
                     return Ok(exit::FAILURE);
                 }
-                // missing_as_empty: true → NotFound never returned here.
                 Err(PatchTargetError::NotFound) => {
-                    unreachable!("merge check uses missing_as_empty")
+                    let msg = format!("file not found: {}", file_path.display());
+                    all_ok = false;
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "missing",
+                        error: Some(msg),
+                        conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
+                    });
+                    continue;
                 }
                 Err(PatchTargetError::NotAFile(msg) | PatchTargetError::Io(msg)) => {
                     global.emit_error_json_kind(
@@ -891,7 +999,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     // Pure rename: content may equal original but path still moves.
                     let is_path_rename =
                         pf.rename_from.as_ref().is_some_and(|from| from != &pf.path);
-                    if applied.content != original || is_path_rename {
+                    if applied.content != original || is_path_rename || pf.is_deletion {
                         any_would_change = true;
                     }
                     results.push(patch_file_result(&pf.path, &applied));
@@ -924,12 +1032,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let has_errors = results.iter().any(|r| r.status == "error");
         let has_conflicts = results.iter().any(|r| r.status == "conflict");
         let has_already_exists = results.iter().any(|r| r.status == "already_exists");
+        let has_missing = results.iter().any(|r| r.status == "missing");
         // Identity / already-applied (content == original): exit 0 so agents
         // do not loop on exit 2 forever (parity with patch check).
-        // Errors use shared kind→exit (invalid_input → 1), not always ambiguous.
+        // Errors use shared kind→exit (invalid_input / not_found → 1).
         // When --allow-conflicts, derive kind from non-conflict rows so a
         // read/stale error is not masked as conflicts (exit 8).
-        return Ok(if has_errors || has_already_exists {
+        return Ok(if has_errors || has_already_exists || has_missing {
             if apply_options.allow_conflicts {
                 let non_conflict: Vec<PatchFileResult> = results
                     .iter()

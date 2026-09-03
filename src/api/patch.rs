@@ -317,6 +317,7 @@ fn deletion_after_hunks(
             )
             .into());
         }
+        crate::ops::file::ensure_unlinkable_not_directory(load_path, display_path)?;
         let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
             crate::files::load_text_strict(load_path, load_rel).unwrap_or_default()
         } else {

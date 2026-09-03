@@ -10115,6 +10115,194 @@ index e69de29..0000000\n";
     );
 }
 
+/// Empty-hunk delete of a real directory dest must peel `invalid_input`
+/// on Apply and Check. FIFO / dangling symlink stay unlinkable.
+#[test]
+fn apply_patch_file_delete_directory_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-file-dir";
+    let dest = dir.path().join(dest_name);
+    fs::create_dir(&dest).unwrap();
+    let patch = format!(
+        "\
+diff --git a/{dest_name} b/{dest_name}\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n"
+    );
+    let apply_err = apply_patch_file(&patch, dir.path(), ApplyMode::Apply, None)
+        .expect_err("directory dest delete must error on Apply");
+    assert_eq!(
+        crate::fallback::error_kind_str(&apply_err),
+        Some("invalid_input"),
+        "Apply directory dest must peel invalid_input: {apply_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&apply_err),
+        "Apply directory dest is_invalid_input: {apply_err}"
+    );
+    let check_err = apply_patch_file(&patch, dir.path(), ApplyMode::Check, None)
+        .expect_err("directory dest delete must error on Check");
+    assert_eq!(
+        crate::fallback::error_kind_str(&check_err),
+        Some("invalid_input"),
+        "Check directory dest must peel invalid_input: {check_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&check_err),
+        "Check directory dest is_invalid_input: {check_err}"
+    );
+    assert!(
+        dest.is_dir(),
+        "directory dest must remain after refused delete"
+    );
+}
+
+/// Same directory-dest peel on default `apply_patch` (tx / no-default write).
+#[test]
+fn apply_patch_delete_directory_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-dir";
+    let dest = dir.path().join(dest_name);
+    fs::create_dir(&dest).unwrap();
+    let patch = format!(
+        "\
+diff --git a/{dest_name} b/{dest_name}\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n"
+    );
+    let apply_err = apply_patch(&dest, &patch, ApplyMode::Apply, None)
+        .expect_err("directory dest delete must error on Apply");
+    assert_eq!(
+        crate::fallback::error_kind_str(&apply_err),
+        Some("invalid_input"),
+        "Apply directory dest must peel invalid_input: {apply_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&apply_err),
+        "Apply directory dest is_invalid_input: {apply_err}"
+    );
+    let check_err = apply_patch(&dest, &patch, ApplyMode::Check, None)
+        .expect_err("directory dest delete must error on Check");
+    assert_eq!(
+        crate::fallback::error_kind_str(&check_err),
+        Some("invalid_input"),
+        "Check directory dest must peel invalid_input: {check_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&check_err),
+        "Check directory dest is_invalid_input: {check_err}"
+    );
+    assert!(
+        dest.is_dir(),
+        "directory dest must remain after refused delete"
+    );
+}
+
+/// Empty-hunk delete of a regular NUL file is path-only: unlinks, does not
+/// peel `binary`. `apply_patch` used to Strict-load in the tx snapshot.
+#[test]
+fn apply_patch_empty_hunk_delete_nul_file_unlinks() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-nul-empty-hunk.bin";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, b"line one\x00line two\n").unwrap();
+    let patch = format!(
+        "\
+diff --git a/{dest_name} b/{dest_name}\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n"
+    );
+    let result = apply_patch(&dest, &patch, ApplyMode::Apply, None)
+        .expect("empty-hunk delete of a NUL file");
+    assert!(result.changed, "empty-hunk NUL delete must report changed");
+    assert!(
+        !dest.exists(),
+        "empty-hunk NUL delete must unlink, not peel binary"
+    );
+}
+
+/// Same path-only empty-hunk NUL delete via `apply_patch_file`.
+#[test]
+fn apply_patch_file_empty_hunk_delete_nul_file_unlinks() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-file-nul-empty-hunk.bin";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, b"line one\x00line two\n").unwrap();
+    let patch = format!(
+        "\
+diff --git a/{dest_name} b/{dest_name}\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n"
+    );
+    let results = apply_patch_file(&patch, dir.path(), ApplyMode::Apply, None)
+        .expect("empty-hunk delete of a NUL file");
+    assert_eq!(results.len(), 1);
+    assert!(
+        results[0].changed,
+        "empty-hunk NUL delete must report changed"
+    );
+    assert!(
+        !dest.exists(),
+        "empty-hunk NUL delete must unlink, not peel binary"
+    );
+}
+
+/// Hunked `+++ /dev/null` delete of a binary file still peels `binary`.
+#[test]
+fn apply_patch_hunked_delete_binary_still_peels_binary() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-hunked-binary.bin";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, b"line one\x00line two\n").unwrap();
+    let patch = format!(
+        "\
+--- a/{dest_name}\n\
++++ /dev/null\n\
+@@ -1 +0,0 @@\n\
+-line one\n"
+    );
+    let err = apply_patch(&dest, &patch, ApplyMode::Apply, None)
+        .expect_err("hunked delete of a binary file must peel");
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("binary"),
+        "hunked binary delete must peel binary: {err}"
+    );
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        b"line one\x00line two\n",
+        "hunked binary delete must leave the file"
+    );
+}
+
+/// Same hunked binary peel via `apply_patch_file`.
+#[test]
+fn apply_patch_file_hunked_delete_binary_still_peels_binary() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-file-hunked-binary.bin";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, b"line one\x00line two\n").unwrap();
+    let patch = format!(
+        "\
+--- a/{dest_name}\n\
++++ /dev/null\n\
+@@ -1 +0,0 @@\n\
+-line one\n"
+    );
+    let err = apply_patch_file(&patch, dir.path(), ApplyMode::Apply, None)
+        .expect_err("hunked delete of a binary file must peel");
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("binary"),
+        "hunked binary delete must peel binary: {err}"
+    );
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        b"line one\x00line two\n",
+        "hunked binary delete must leave the file"
+    );
+}
+
 /// Empty-hunk delete of an escaped missing dest must peel `guard_rejected`
 /// on Apply and Check. PathGuard must run before `deletion_after_hunks`
 /// peels `not_found` so `apply_patch_file` matches `apply_patch` / CLI.
