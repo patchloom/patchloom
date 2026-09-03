@@ -1718,6 +1718,202 @@ fn test_patch_check_and_apply_hunked_delete_binary_still_peels_binary() {
     );
 }
 
+/// `--contain` dest escape on empty-hunk delete: check must peel
+/// `guard_rejected` before `not_found` (parity with `patch apply --contain`).
+#[test]
+fn test_patch_check_json_contain_escaped_empty_hunk_delete_is_guard_rejected() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "../gone-check-contain-dest-escape.txt";
+    let dest = dir.path().join(dest_name);
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "patch", "check"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "guard_rejected", "{json}");
+    assert_ne!(
+        json["error_kind"], "not_found",
+        "contain dest escape must not peel not_found: {json}"
+    );
+    assert!(
+        !dest.exists(),
+        "check --contain must not create the escaped dest"
+    );
+}
+
+/// `--contain` dest escape on empty-hunk delete: merge --check must peel
+/// `guard_rejected` before `not_found` (parity with apply --contain).
+#[test]
+fn test_patch_merge_check_json_contain_escaped_empty_hunk_delete_is_guard_rejected() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "../gone-merge-check-contain-dest-escape.txt";
+    let dest = dir.path().join(dest_name);
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--contain", "patch", "merge", "--check"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["error_kind"], "guard_rejected", "{json}");
+    assert_ne!(
+        json["error_kind"], "not_found",
+        "contain dest escape must not peel not_found: {json}"
+    );
+    assert!(
+        !dest.exists(),
+        "merge --check --contain must not create the escaped dest"
+    );
+}
+
+/// Empty-hunk delete of a regular binary file: merge --check is path-only
+/// (would_change / exit 2), not Strict `binary`.
+#[test]
+fn test_patch_merge_check_json_binary_empty_hunk_delete_would_change() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-merge-check-binary-empty-hunk.bin";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, b"line one\x00line two\n").unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "merge", "--check"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["files"][0]["status"], "would_change", "{json}");
+    assert_ne!(
+        json["error_kind"], "binary",
+        "merge --check empty-hunk binary delete must not peel binary: {json}"
+    );
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        b"line one\x00line two\n",
+        "merge --check must not unlink the binary dest"
+    );
+}
+
+/// Empty-hunk delete of a dangling symlink: merge --check is path-only
+/// (would_change / exit 2), not Strict invalid_input.
+#[cfg(unix)]
+#[test]
+fn test_patch_merge_check_json_dangling_empty_hunk_delete_would_change() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-merge-check-dangling-empty-hunk";
+    let dest = dir.path().join(dest_name);
+    std::os::unix::fs::symlink(
+        dir.path().join("missing-merge-check-dangling-empty-hunk"),
+        &dest,
+    )
+    .unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "merge", "--check"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["files"][0]["status"], "would_change", "{json}");
+    assert_ne!(
+        json["error_kind"], "invalid_input",
+        "merge --check empty-hunk dangling delete must not peel invalid_input: {json}"
+    );
+    assert!(
+        fs::symlink_metadata(&dest).is_ok(),
+        "merge --check must not unlink the dangling dest"
+    );
+}
+
 /// Apply when target file is gone: not_found, not STALE/ambiguous.
 #[test]
 fn test_patch_apply_missing_target_json_not_found() {

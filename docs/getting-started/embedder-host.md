@@ -190,8 +190,9 @@ Prefer this (or plan/`execute_plan` patch ops) over looping single-file
 `apply_patch` when a unified diff touches multiple files. An empty-hunk
 git delete of a missing dest peels `not_found` on Apply and Check (same
 as `apply_patch` / `file_delete`); do not treat it as `changed: true`.
-A directory dest peels `invalid_input` (same as `file_delete`); FIFO and
-dangling symlink stay unlinkable.
+A directory dest peels `invalid_input` (same as `file_delete`). FIFO,
+dangling symlink, and binary regular files stay path-only unlinkable
+(same as `file_delete`).
 With a `PathGuard`, an escaped missing dest (`../gone.txt`) peels
 `guard_rejected` first, then in-workspace missing dests peel `not_found`.
 
