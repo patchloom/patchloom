@@ -761,10 +761,13 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if pf.is_deletion && pf.hunks.is_empty() {
                 let row = preview_empty_hunk_delete(global, &cwd, pf, &file_path)?;
                 if row.status == "missing" || row.status == "error" {
-                    if row.status == "error" && !global.json && !global.jsonl && !global.quiet {
-                        if let Some(err) = &row.error {
-                            eprintln!("patch check: {} -- READ ERROR: {}", pf.path, err);
-                        }
+                    if row.status == "error"
+                        && !global.json
+                        && !global.jsonl
+                        && !global.quiet
+                        && let Some(err) = &row.error
+                    {
+                        eprintln!("patch check: {} -- READ ERROR: {}", pf.path, err);
                     }
                     results.push(row);
                     any_problem = true;
