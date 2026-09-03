@@ -10081,6 +10081,40 @@ index e69de29..0000000\n";
     );
 }
 
+/// Missing empty-hunk delete via `apply_patch_file` must peel `not_found`
+/// on Apply and Check. `deletion_after_hunks` used to treat a missing path
+/// as a non-regular file and report `changed: true`.
+#[test]
+fn apply_patch_file_delete_missing_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let patch = "\
+diff --git a/gone.txt b/gone.txt\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n";
+    let apply_err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, None)
+        .expect_err("missing delete must error on Apply");
+    assert_eq!(
+        crate::fallback::error_kind_str(&apply_err),
+        Some("not_found"),
+        "Apply missing delete must peel not_found: {apply_err}"
+    );
+    assert!(
+        crate::fallback::is_not_found(&apply_err),
+        "Apply missing delete is_not_found: {apply_err}"
+    );
+    let check_err = apply_patch_file(patch, dir.path(), ApplyMode::Check, None)
+        .expect_err("missing delete must error on Check, not changed:true");
+    assert_eq!(
+        crate::fallback::error_kind_str(&check_err),
+        Some("not_found"),
+        "Check missing delete must peel not_found: {check_err}"
+    );
+    assert!(
+        crate::fallback::is_not_found(&check_err),
+        "Check missing delete is_not_found: {check_err}"
+    );
+}
+
 #[test]
 fn apply_patch_file_case_only_rename_preserves_inode_content() {
     let dir = TempDir::new().unwrap();

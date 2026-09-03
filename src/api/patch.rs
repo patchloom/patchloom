@@ -167,13 +167,7 @@ fn patch_write(
         if pf.is_deletion {
             // file_delete snapshot: empty original for symlink / FIFO / socket.
             // apply_patch_with_loader is cfg-gated; this is the no-default path.
-            if !crate::ops::file::path_entry_exists(&load_path) {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("file not found: {load_rel}"),
-                )
-                .into());
-            }
+            // Missing dest is fail-closed in deletion_after_hunks.
             match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
                 HunkedDeleteOutcome::Delete { original } => {
                     let (applied, backup_session) = if mode == ApplyMode::Apply {
@@ -315,6 +309,13 @@ fn deletion_after_hunks(
     display_path: &str,
 ) -> anyhow::Result<HunkedDeleteOutcome> {
     if hunks.is_empty() {
+        if !crate::ops::file::path_entry_exists(load_path) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("file not found: {load_rel}"),
+            )
+            .into());
+        }
         let original = if crate::ops::file::is_regular_file_for_backup(load_path) {
             crate::files::load_text_strict(load_path, load_rel).unwrap_or_default()
         } else {
