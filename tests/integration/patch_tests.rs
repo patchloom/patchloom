@@ -1544,6 +1544,180 @@ index e69de29..0000000
     assert_eq!(json["error_kind"], "not_found", "{json}");
 }
 
+/// Empty-hunk delete of a dangling symlink is path-only: check would_change
+/// (exit 2), apply unlinks the link. Check used to peel invalid_input via
+/// load_text_strict NotAFile.
+#[cfg(unix)]
+#[test]
+fn test_patch_check_json_dangling_empty_hunk_delete_would_change() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-cli-dangling-empty-hunk";
+    let dest = dir.path().join(dest_name);
+    std::os::unix::fs::symlink(dir.path().join("missing-cli-dangling-empty-hunk"), &dest).unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(json["files"][0]["status"], "would_change", "{json}");
+    assert_ne!(
+        json["error_kind"], "invalid_input",
+        "empty-hunk dangling delete must not peel invalid_input: {json}"
+    );
+    assert!(
+        fs::symlink_metadata(&dest).is_ok(),
+        "check must not unlink the dangling dest"
+    );
+
+    let apply = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        apply.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&apply.stdout),
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&apply.stdout).unwrap();
+    assert_eq!(apply_json["applied"], true, "{apply_json}");
+    assert!(
+        fs::symlink_metadata(&dest).is_err(),
+        "apply must unlink the dangling dest"
+    );
+}
+
+/// Empty-hunk delete of a regular binary file is path-only: check would_change,
+/// apply unlinks. Check/apply used to peel error_kind binary via Strict load.
+#[test]
+fn test_patch_check_and_apply_binary_empty_hunk_delete_is_path_only() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-cli-binary-empty-hunk.bin";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, b"line one\x00line two\n").unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(json["files"][0]["status"], "would_change", "{json}");
+    assert_ne!(
+        json["error_kind"], "binary",
+        "empty-hunk binary delete must not peel binary: {json}"
+    );
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        b"line one\x00line two\n",
+        "check must not unlink the binary dest"
+    );
+
+    let apply = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        apply.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&apply.stdout),
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&apply.stdout).unwrap();
+    assert_eq!(apply_json["applied"], true, "{apply_json}");
+    assert_ne!(
+        apply_json["error_kind"], "binary",
+        "empty-hunk binary apply must not peel binary: {apply_json}"
+    );
+    assert!(
+        !dest.exists(),
+        "empty-hunk binary delete must unlink the file"
+    );
+}
+
+/// Hunked `+++ /dev/null` delete of a binary file still peels binary.
+/// Empty-hunk path-only must not open the content-delete path.
+#[test]
+fn test_patch_check_and_apply_hunked_delete_binary_still_peels_binary() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-cli-hunked-delete-binary.bin";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, b"line one\x00line two\n").unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+--- a/{dest_name}
++++ /dev/null
+@@ -1 +0,0 @@
+-line one
+"
+        ),
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["error_kind"], "binary", "{json}");
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        b"line one\x00line two\n",
+        "hunked binary delete check must leave the file"
+    );
+
+    let apply = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        apply.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&apply.stdout),
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&apply.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "binary", "{apply_json}");
+    assert_eq!(
+        fs::read(&dest).unwrap(),
+        b"line one\x00line two\n",
+        "hunked binary delete apply must leave the file"
+    );
+}
+
 /// Apply when target file is gone: not_found, not STALE/ambiguous.
 #[test]
 fn test_patch_apply_missing_target_json_not_found() {

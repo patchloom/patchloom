@@ -701,6 +701,54 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Git rename/copy: check loads source path (#2101 / #2171).
             let load_rel = patch_load_rel(pf);
             let file_path = cwd.join(load_rel);
+            // Empty-hunk delete is path-only: do not load_text_strict
+            // (dangling / FIFO / binary match apply unlink).
+            if pf.is_deletion && pf.hunks.is_empty() {
+                if !crate::ops::file::path_entry_exists(&file_path) {
+                    let msg = format!("file not found: {}", file_path.display());
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "missing",
+                        error: Some(msg.clone()),
+                        conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
+                    });
+                    any_problem = true;
+                    continue;
+                }
+                if let Err(e) =
+                    crate::ops::file::ensure_unlinkable_not_directory(&file_path, &pf.path)
+                {
+                    results.push(PatchFileResult {
+                        path: pf.path.clone(),
+                        status: "error",
+                        error: Some(e.msg.clone()),
+                        conflicts: None,
+                        from: None,
+                        to: None,
+                        action: None,
+                    });
+                    if !global.json && !global.jsonl && !global.quiet {
+                        eprintln!("patch check: {} -- READ ERROR: {}", pf.path, e.msg);
+                    }
+                    any_problem = true;
+                    continue;
+                }
+                any_would_change = true;
+                results.push(PatchFileResult {
+                    path: pf.path.clone(),
+                    status: "would_change",
+                    error: None,
+                    conflicts: None,
+                    from: None,
+                    to: None,
+                    action: None,
+                });
+                record_staged_patch_dest(&cwd, pf, &mut created, &mut deleted);
+                continue;
+            }
             // Strict target load (#1896); creation allows missing → empty.
             let original = match load_patch_target(&file_path, load_rel, pf.is_creation) {
                 Ok(s) => s,

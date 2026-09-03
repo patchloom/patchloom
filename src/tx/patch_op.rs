@@ -72,13 +72,24 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                         .into());
                     }
                     crate::ops::file::ensure_unlinkable_not_directory(&file_path, &result.path)?;
-                    // file_delete snapshot: do not follow symlink / FIFO / socket.
-                    // The hunked loader already followed into pending; overwrite
-                    // Special originals so EditResult cannot leak target bytes.
+                    // FileDelete soft snapshot: binary / invalid UTF-8 /
+                    // unreadable → empty pair. Do not Strict-peel binary on
+                    // empty-hunk path-only delete. Hunked loader already
+                    // Strict-loaded text into pending; keep that original.
+                    // Overwrite Special originals so EditResult cannot leak
+                    // followed symlink / FIFO / socket bytes.
+                    tx.existed_before.insert(file_path.clone());
                     if crate::ops::file::is_regular_file_for_backup(&file_path) {
-                        let _ = read_file_content(tx.pending, tx.existed_before, &file_path)?;
+                        if !tx.pending.contains_key(&file_path) {
+                            if let Some(content) = crate::files::read_text_file(&file_path) {
+                                tx.pending
+                                    .insert(file_path.clone(), (content.clone(), content));
+                            } else {
+                                tx.pending
+                                    .insert(file_path.clone(), (String::new(), String::new()));
+                            }
+                        }
                     } else {
-                        tx.existed_before.insert(file_path.clone());
                         tx.pending
                             .insert(file_path.clone(), (String::new(), String::new()));
                     }
