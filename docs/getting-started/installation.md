@@ -206,6 +206,11 @@ To add AST support without CLI/MCP (LLM agent embedders typically use
 patchloom = { version = "0.32.0", default-features = false, features = ["ast", "files"] } <!-- x-release-please-version -->
 ```
 
+With `ast`, 0.32 pulls `tree-sitter` 0.27 (`links = "tree-sitter"`). Cargo
+allows only one crate with that `links` key. Bump `tree-sitter-highlight`
+(or any other `links = "tree-sitter"` crate) to 0.27 in the same lock
+update. See [Embedder host](embedder-host.md).
+
 See the [crate documentation](https://docs.rs/patchloom) for the full API
 surface (`ReplaceOptions::for_agent`, `fuzzy_span_suspicious`, `require_change`,
 `command_position`, `ast_rename_batch`, `find_files_with_symbol`, `classify_error`,
