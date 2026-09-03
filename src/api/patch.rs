@@ -22,7 +22,8 @@ use super::{ApplyMode, EditResult};
 /// A hunked delete applies the minus lines first. Leftover bytes rewrite
 /// the file (not unlink); preview with `--diff` or inspect `new_content`.
 /// Path-only unlink is `file.delete`. Stale minus lines are `ambiguous`
-/// and the file is not removed.
+/// and the file is not removed. A missing dest peels `not_found` on
+/// Apply and Check (same as `apply_patch_file`).
 ///
 /// Returns an `EditResult` with the patched content.
 pub fn apply_patch(
@@ -356,6 +357,8 @@ fn deletion_after_hunks(
 /// unlinks. A hunked delete applies the minus lines first; leftover bytes
 /// rewrite the file (preview `--diff` or `new_content`). Path-only unlink is
 /// `file.delete`. Stale minus lines are `ambiguous` and the file stays.
+/// A missing dest peels `not_found` on Apply and Check (do not treat it
+/// as `changed: true`).
 pub fn apply_patch_file(
     patch_text: &str,
     cwd: &Path,

@@ -187,7 +187,9 @@ matches that worst-case rollup (#2007).
 session for every path (including creates and rename destinations). Mid-batch
 write failure restores the whole session (no orphan creates or half-renames).
 Prefer this (or plan/`execute_plan` patch ops) over looping single-file
-`apply_patch` when a unified diff touches multiple files.
+`apply_patch` when a unified diff touches multiple files. An empty-hunk
+git delete of a missing dest peels `not_found` on Apply and Check (same
+as `apply_patch` / `file_delete`); do not treat it as `changed: true`.
 
 ## Plan `for_each` and lifecycle commands
 
