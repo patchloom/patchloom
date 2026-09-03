@@ -71,6 +71,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                         )
                         .into());
                     }
+                    crate::ops::file::ensure_unlinkable_not_directory(&file_path, &result.path)?;
                     // file_delete snapshot: do not follow symlink / FIFO / socket.
                     // The hunked loader already followed into pending; overwrite
                     // Special originals so EditResult cannot leak target bytes.

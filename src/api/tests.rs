@@ -10115,6 +10115,89 @@ index e69de29..0000000\n";
     );
 }
 
+/// Empty-hunk delete of a real directory dest must peel `invalid_input`
+/// on Apply and Check. FIFO / dangling symlink stay unlinkable.
+#[test]
+fn apply_patch_file_delete_directory_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-file-dir";
+    let dest = dir.path().join(dest_name);
+    fs::create_dir(&dest).unwrap();
+    let patch = format!(
+        "\
+diff --git a/{dest_name} b/{dest_name}\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n"
+    );
+    let apply_err = apply_patch_file(&patch, dir.path(), ApplyMode::Apply, None)
+        .expect_err("directory dest delete must error on Apply");
+    assert_eq!(
+        crate::fallback::error_kind_str(&apply_err),
+        Some("invalid_input"),
+        "Apply directory dest must peel invalid_input: {apply_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&apply_err),
+        "Apply directory dest is_invalid_input: {apply_err}"
+    );
+    let check_err = apply_patch_file(&patch, dir.path(), ApplyMode::Check, None)
+        .expect_err("directory dest delete must error on Check");
+    assert_eq!(
+        crate::fallback::error_kind_str(&check_err),
+        Some("invalid_input"),
+        "Check directory dest must peel invalid_input: {check_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&check_err),
+        "Check directory dest is_invalid_input: {check_err}"
+    );
+    assert!(
+        dest.is_dir(),
+        "directory dest must remain after refused delete"
+    );
+}
+
+/// Same directory-dest peel on default `apply_patch` (tx / no-default write).
+#[test]
+fn apply_patch_delete_directory_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-apply-patch-dir";
+    let dest = dir.path().join(dest_name);
+    fs::create_dir(&dest).unwrap();
+    let patch = format!(
+        "\
+diff --git a/{dest_name} b/{dest_name}\n\
+deleted file mode 100644\n\
+index e69de29..0000000\n"
+    );
+    let apply_err = apply_patch(&dest, &patch, ApplyMode::Apply, None)
+        .expect_err("directory dest delete must error on Apply");
+    assert_eq!(
+        crate::fallback::error_kind_str(&apply_err),
+        Some("invalid_input"),
+        "Apply directory dest must peel invalid_input: {apply_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&apply_err),
+        "Apply directory dest is_invalid_input: {apply_err}"
+    );
+    let check_err = apply_patch(&dest, &patch, ApplyMode::Check, None)
+        .expect_err("directory dest delete must error on Check");
+    assert_eq!(
+        crate::fallback::error_kind_str(&check_err),
+        Some("invalid_input"),
+        "Check directory dest must peel invalid_input: {check_err}"
+    );
+    assert!(
+        crate::fallback::is_invalid_input(&check_err),
+        "Check directory dest is_invalid_input: {check_err}"
+    );
+    assert!(
+        dest.is_dir(),
+        "directory dest must remain after refused delete"
+    );
+}
+
 /// Empty-hunk delete of an escaped missing dest must peel `guard_rejected`
 /// on Apply and Check. PathGuard must run before `deletion_after_hunks`
 /// peels `not_found` so `apply_patch_file` matches `apply_patch` / CLI.

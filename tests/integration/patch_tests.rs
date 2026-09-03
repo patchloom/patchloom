@@ -1390,6 +1390,160 @@ fn test_patch_check_json_missing_target_not_found_exit_1() {
     assert_eq!(json["files"][0]["status"], "missing");
 }
 
+/// Empty-hunk delete of a missing dest must peel `not_found` on `patch check`.
+#[test]
+fn test_patch_check_json_missing_empty_hunk_delete_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-check-missing-empty-hunk.txt";
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 1, "{json}");
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "not_found", "{json}");
+}
+
+/// Empty-hunk delete of an existing dest is a path op: would_change / exit 2.
+#[test]
+fn test_patch_check_json_existing_empty_hunk_delete_would_change() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-check-empty-hunk.txt";
+    let dest = dir.path().join(dest_name);
+    fs::write(&dest, "keep\n").unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let (code, json) = patch_check_json(&dir, &patch_file);
+    assert_eq!(code, 2, "{json}");
+    assert_eq!(json["files"][0]["status"], "would_change", "{json}");
+    assert_eq!(
+        fs::read_to_string(&dest).unwrap(),
+        "keep\n",
+        "check must not unlink dest"
+    );
+}
+
+/// `patch apply` preview and `--apply` refuse a directory dest as invalid_input.
+#[test]
+fn test_patch_apply_json_directory_dest_empty_hunk_delete_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-cli-apply-dir";
+    let dest = dir.path().join(dest_name);
+    fs::create_dir(&dest).unwrap();
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let preview = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        preview.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&preview.stdout),
+        String::from_utf8_lossy(&preview.stderr)
+    );
+    let preview_json: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(
+        preview_json["error_kind"], "invalid_input",
+        "{preview_json}"
+    );
+    assert!(dest.is_dir(), "preview must not remove the directory dest");
+
+    let apply = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "apply", "--apply"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        apply.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&apply.stdout),
+        String::from_utf8_lossy(&apply.stderr)
+    );
+    let apply_json: serde_json::Value = serde_json::from_slice(&apply.stdout).unwrap();
+    assert_eq!(apply_json["error_kind"], "invalid_input", "{apply_json}");
+    assert!(dest.is_dir(), "apply must not remove the directory dest");
+}
+
+/// `patch merge --check` missing empty-hunk delete is not_found, not clean.
+#[test]
+fn test_patch_merge_check_json_missing_empty_hunk_delete_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let dest_name = "gone-merge-check-empty-hunk.txt";
+    let patch_file = dir.path().join("del.patch");
+    fs::write(
+        &patch_file,
+        format!(
+            "\
+diff --git a/{dest_name} b/{dest_name}
+deleted file mode 100644
+index e69de29..0000000
+"
+        ),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["patch", "merge", "--check"])
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "not_found", "{json}");
+}
+
 /// Apply when target file is gone: not_found, not STALE/ambiguous.
 #[test]
 fn test_patch_apply_missing_target_json_not_found() {
