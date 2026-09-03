@@ -10124,13 +10124,15 @@ fn apply_patch_file_delete_missing_escape_is_guard_rejected() {
     let guard = PathGuard::builder(dir.path().to_path_buf())
         .build()
         .unwrap();
-    let outside = dir.path().join("../gone.txt");
-    let _ = fs::remove_file(&outside);
-    let patch = "\
-diff --git a/../gone.txt b/../gone.txt\n\
+    let dest = "../gone-apply-patch-file-escape.txt";
+    let outside = dir.path().join(dest);
+    let patch = format!(
+        "\
+diff --git a/{dest} b/{dest}\n\
 deleted file mode 100644\n\
-index e69de29..0000000\n";
-    let apply_err = apply_patch_file(patch, dir.path(), ApplyMode::Apply, Some(&guard))
+index e69de29..0000000\n"
+    );
+    let apply_err = apply_patch_file(&patch, dir.path(), ApplyMode::Apply, Some(&guard))
         .expect_err("escaped missing delete must error on Apply");
     assert_eq!(
         crate::fallback::error_kind_str(&apply_err),
@@ -10141,7 +10143,7 @@ index e69de29..0000000\n";
         crate::fallback::is_guard_rejected(&apply_err),
         "Apply escaped missing delete is_guard_rejected: {apply_err}"
     );
-    let check_err = apply_patch_file(patch, dir.path(), ApplyMode::Check, Some(&guard))
+    let check_err = apply_patch_file(&patch, dir.path(), ApplyMode::Check, Some(&guard))
         .expect_err("escaped missing delete must error on Check");
     assert_eq!(
         crate::fallback::error_kind_str(&check_err),
