@@ -11,6 +11,14 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.32.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.32.0...patchloom-v0.32.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* **api:** honest empty-hunk delete dest peels ([#2301](https://github.com/patchloom/patchloom/issues/2301)) ([09d2913](https://github.com/patchloom/patchloom/commit/09d2913b0d97e296cb229d28a96db43d95352599))
+* **api:** peel not_found on apply_patch_file missing delete ([#2299](https://github.com/patchloom/patchloom/issues/2299)) ([9b99cee](https://github.com/patchloom/patchloom/commit/9b99cee88c0ccd14f239f0e09a90755f6832da85))
+
 ## [0.32.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.31.0...patchloom-v0.32.0) (2026-09-02)
 
 
