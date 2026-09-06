@@ -19,7 +19,7 @@
 #[cfg(feature = "cli")]
 use crate::cli::global::GlobalFlags;
 #[cfg(any(feature = "cli", feature = "files"))]
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 #[cfg(any(feature = "cli", feature = "files"))]
 use ignore::WalkBuilder;
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -525,6 +525,17 @@ pub(crate) fn collect_file_paths_opts_with_list(
     Ok(paths)
 }
 
+/// Compile a user `--glob` / exclude / `for_each` pattern.
+///
+/// Windows file names are case-insensitive. `*.txt` must match `Hit.TXT`
+/// the same way `dir *.txt` does. Linux stays case-sensitive.
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
+    GlobBuilder::new(pattern)
+        .case_insensitive(cfg!(windows))
+        .build()
+}
+
 /// Build a compiled glob matcher from globs, or `None` if no globs given.
 /// Available for library use when "files" feature is enabled.
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -534,7 +545,7 @@ pub fn build_glob_matcher(globs: &[String]) -> anyhow::Result<Option<GlobSet>> {
     }
     let mut builder = GlobSetBuilder::new();
     for pattern in globs {
-        builder.add(Glob::new(pattern)?);
+        builder.add(compile_user_glob(pattern)?);
     }
     Ok(Some(builder.build()?))
 }
@@ -2181,6 +2192,27 @@ mod explicit_exclude_tests {
             !rels.iter().any(|r| r.contains("vendor")),
             "vendor/* omits the tree: {rels:?}"
         );
+    }
+}
+
+#[cfg(all(test, any(feature = "cli", feature = "files")))]
+mod user_glob_case_tests {
+    use super::*;
+
+    #[test]
+    fn star_txt_matches_uppercase_ext_only_on_windows() {
+        let set = build_glob_matcher(&["*.txt".into()]).unwrap().unwrap();
+        #[cfg(windows)]
+        assert!(
+            set.is_match("Hit.TXT"),
+            "*.txt must match Hit.TXT on Windows"
+        );
+        #[cfg(not(windows))]
+        assert!(
+            !set.is_match("Hit.TXT"),
+            "*.txt stays case-sensitive off Windows"
+        );
+        assert!(set.is_match("hit.txt"));
     }
 }
 

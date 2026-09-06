@@ -447,6 +447,19 @@ try {
         }
     }
 
+    # --- --glob *.txt matches Hit.TXT (Windows case-insensitive names) ---
+    if ($IsWin) {
+        Set-Content -LiteralPath (Join-Path $ws "Hit.TXT") -Value "needle`n" -NoNewline
+        $r = Invoke-Pl --json --cwd $ws --glob "*.txt" search needle
+        $gCount = Get-JsonField $r.Output "match_count"
+        if ($r.ExitCode -eq 0 -and "$gCount" -eq "1") {
+            Pass "glob *.txt matches Hit.TXT"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "glob case exit=$($r.ExitCode) count=$gCount out=$snip"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {
