@@ -12,7 +12,7 @@ use crate::ops::replace::{
 };
 use crate::plan::Operation;
 use crate::tx::output::merge_match_modes;
-use globset::Glob;
+
 #[cfg(not(any(feature = "cli", feature = "files")))]
 use ignore::WalkBuilder;
 use std::collections::HashSet;
@@ -504,7 +504,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
             Ok(0)
         }
     } else if let Some(pattern) = glob {
-        let matcher = Glob::new(pattern)?.compile_matcher();
+        let matcher = crate::files::compile_user_glob(pattern)?.compile_matcher();
         let matches_pattern = |path: &Path| {
             matcher.is_match(path)
                 || path.file_name().is_some_and(|name| matcher.is_match(name))

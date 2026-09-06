@@ -2236,3 +2236,54 @@ fn test_search_assert_count_zero_all_unreadable_not_success() {
         assert_ne!(v["ok"], true, "must not claim assert-count success: {v}");
     }
 }
+
+#[cfg(windows)]
+#[test]
+fn test_search_glob_txt_matches_uppercase_ext() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Hit.TXT"), "needle\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--glob", "*.txt", "search", "needle"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(parsed["match_count"], 1, "{parsed}");
+}
+
+#[cfg(windows)]
+#[test]
+fn test_replace_glob_txt_matches_uppercase_ext() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("Hit.TXT"), "old\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "--glob", "*.txt", "replace", "old", "--new", "new", "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("Hit.TXT")).unwrap(),
+        "new\n"
+    );
+}

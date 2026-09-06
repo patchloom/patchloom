@@ -69,7 +69,7 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
                 // covers files targeted by glob-based operations.
                 // Shared walker: gitignore, prune .git/.patchloom, no dir-symlink follow.
                 #[cfg(any(feature = "cli", feature = "files"))]
-                if let Ok(glob) = globset::Glob::new(&p)
+                if let Ok(glob) = crate::files::compile_user_glob(&p)
                     && let Ok(walked) =
                         crate::files::collect_file_paths_with_ignores(cwd, &[], &[], false)
                 {
