@@ -172,6 +172,8 @@ pub fn is_windows_ads_path(path: &Path) -> bool {
         let s = raw
             .strip_prefix(r"\\?\")
             .or_else(|| raw.strip_prefix(r"//?/"))
+            .or_else(|| raw.strip_prefix(r"\\.\"))
+            .or_else(|| raw.strip_prefix("//./"))
             .unwrap_or(raw.as_ref());
         let rest = if let Some(after_host) = skip_windows_unc_host(s) {
             after_host
@@ -244,9 +246,18 @@ pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
         let s = raw
             .strip_prefix(r"\\?\")
             .or_else(|| raw.strip_prefix(r"//?/"))
+            .or_else(|| raw.strip_prefix(r"\\.\"))
+            .or_else(|| raw.strip_prefix("//./"))
             .unwrap_or(raw.as_ref());
-        if s.starts_with(r"\\.\") || s.starts_with("//./") {
-            return true;
+        // `\\.\C:\file` is a drive dest (same as C:\file). `\\.\NUL` /
+        // `\\.\pipe\...` stay illegal after this strip (no X:\ form).
+        if raw.contains(r"\\.\") || raw.contains("//./") {
+            let drive_form = s.len() >= 3
+                && s.as_bytes()[1] == b':'
+                && (s.as_bytes()[2] == b'/' || s.as_bytes()[2] == b'\\');
+            if !drive_form {
+                return true;
+            }
         }
         for comp in std::path::Path::new(s).components() {
             let std::path::Component::Normal(name) = comp else {
@@ -1064,6 +1075,14 @@ mod tests {
         assert!(
             !is_windows_illegal_dest_path(std::path::Path::new(r"\\?\C:\Users\name\file.txt")),
             "extended prefix is not illegal"
+        );
+        assert!(
+            !is_windows_illegal_dest_path(std::path::Path::new(r"\\.\C:\Users\name\file.txt")),
+            r"\\.\C:\file is a drive dest, not NUL/pipe"
+        );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new(r"\\.\pipe\pl-test")),
+            r"\\.\pipe stays illegal"
         );
         assert!(ensure_not_windows_illegal_dest(std::path::Path::new("a<b"), "a<b").is_err());
     }

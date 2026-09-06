@@ -649,6 +649,25 @@ try {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "contain //?/ in-ws exit=$($r.ExitCode) body=$cBody out=$snip"
         }
+
+        $dWs = Join-Path $ws "dot-device"
+        New-Item -ItemType Directory -Path $dWs | Out-Null
+        $dHit = Join-Path $dWs "dev.txt"
+        Set-Content -LiteralPath $dHit -Value "old`n" -NoNewline
+        $dDev = "\\.\" + $dHit
+        Push-Location $dWs
+        try {
+            $r = Invoke-Pl --json replace old --new new --apply $dDev
+        } finally {
+            Pop-Location
+        }
+        $dBody = [System.IO.File]::ReadAllText($dHit)
+        if ($r.ExitCode -eq 0 -and $dBody -eq "new`n") {
+            Pass "replace dot-device drive dest"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "dot-device replace exit=$($r.ExitCode) body=$dBody out=$snip"
+        }
     }
 
     # --- version ---

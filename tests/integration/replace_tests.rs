@@ -4139,3 +4139,30 @@ fn test_contain_forward_extended_prefix_in_workspace() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
 }
+
+/// `\\.\C:\ws\in.txt` exists and must apply like `C:\ws\in.txt` (#2322).
+#[cfg(windows)]
+#[test]
+fn test_replace_dot_device_drive_applies() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("in.txt");
+    fs::write(&file, "x\n").unwrap();
+    let drive = file.to_string_lossy();
+    assert!(drive.len() >= 3 && drive.as_bytes()[1] == b':');
+    let dev = format!(r"\\.\{}", drive);
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["--json", "replace", "x", "--new", "y", "--apply", &dev])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "dot-device drive replace: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
+}

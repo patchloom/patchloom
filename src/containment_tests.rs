@@ -438,6 +438,24 @@ fn prefer_openable_path_forward_extended_prefix_is_lexical() {
     );
 }
 
+/// `\\.\C:\...` is the same drive dest as `C:\...` (#2322).
+#[cfg(windows)]
+#[test]
+fn prefer_openable_path_dot_device_drive_is_lexical() {
+    let p = std::path::PathBuf::from(r"\\.\C:\does-not-exist-xyz\t.txt");
+    let open = super::prefer_openable_path(&p);
+    assert_eq!(
+        open,
+        std::path::PathBuf::from(r"C:\does-not-exist-xyz\t.txt")
+    );
+    let nul = super::prefer_openable_path(std::path::Path::new(r"\\.\NUL"));
+    assert_eq!(
+        nul,
+        std::path::PathBuf::from(r"\\.\NUL"),
+        "NUL device must not map to a drive"
+    );
+}
+
 /// `--contain` must treat `//?/C:/ws/file` as inside `C:\ws` (#2320).
 #[cfg(windows)]
 #[test]
@@ -454,12 +472,10 @@ fn contain_forward_extended_prefix_in_workspace() {
     let resolved = guard
         .check_path(&fwd)
         .unwrap_or_else(|e| panic!("//?/ in-ws must be contained: {fwd} {e}"));
-    let open = super::prefer_openable_path(&resolved);
-    let root = dunce::simplified(dir.path());
-    assert!(
-        open.starts_with(root) || dunce::simplified(&open).starts_with(root),
-        "resolved must stay under temp dir: resolved={resolved:?} open={open:?} root={:?}",
-        dir.path()
+    assert_eq!(
+        resolved.file_name().and_then(|n| n.to_str()),
+        Some("con.txt"),
+        "GHA TEMP can be 8.3 (RUNNER~1) while the dest is the long name"
     );
 }
 
