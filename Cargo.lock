@@ -1497,6 +1497,7 @@ dependencies = [
  "tree-sitter-typescript",
  "tree-sitter-xml",
  "tree-sitter-yaml",
+ "winapi-util",
  "yaml-edit",
 ]
 

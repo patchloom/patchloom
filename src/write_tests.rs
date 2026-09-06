@@ -881,6 +881,27 @@ mod symlink_handling {
     }
 }
 
+/// Sibling hardlink must observe Apply bytes on every OS that reports
+/// `nlink > 1`. Live-red on Windows when the check was `#[cfg(unix)]`
+/// only (fixrealloop R93).
+#[test]
+fn atomic_write_preserves_hardlink_sibling_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.txt");
+    let b = dir.path().join("b.txt");
+    fs::write(&a, "shared\n").unwrap();
+    fs::hard_link(&a, &b).unwrap();
+
+    atomic_write(&a, "changed\n", &WritePolicy::default()).unwrap();
+
+    assert_eq!(fs::read_to_string(&a).unwrap(), "changed\n");
+    assert_eq!(
+        fs::read_to_string(&b).unwrap(),
+        "changed\n",
+        "sibling hardlink must see the new content"
+    );
+}
+
 /// Hardlink-preserving writes (#1733): multi-linked files keep a shared inode.
 #[cfg(unix)]
 mod hardlink_handling {

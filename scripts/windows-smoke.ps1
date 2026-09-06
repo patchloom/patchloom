@@ -7,7 +7,8 @@
   Fixrealloop-style dogfood under PowerShell: nested relative paths (backslash
   form on Windows; forward-slash nested form on macOS/Linux pwsh), absolute
   paths, JSON error_kind peels, insert-after, contain, multi-op tx, rename
-  --force overwrite, and path-only binary rename (#2031).
+  --force overwrite, path-only binary rename (#2031), and hardlink
+  sibling replace.
   Not part of make check. CI runs on ci-windows; local pwsh on macOS/Linux is
   supported for peels/tx/rename dogfood (Windows-only path spelling is gated).
 
@@ -247,6 +248,24 @@ try {
         Pass "rename --force overwrites dest"
     } else {
         Fail "rename force exit=$($r.ExitCode) to=$to fromExists=$fromExists out=$($r.Output)"
+    }
+
+    # --- replace keeps hardlink siblings in sync ---
+    $hlA = Join-Path $ws "hl-a.txt"
+    $hlB = Join-Path $ws "hl-b.txt"
+    Set-Content -LiteralPath $hlA -Value "shared`n"
+    try {
+        New-Item -ItemType HardLink -Path $hlB -Target $hlA | Out-Null
+        $r = Invoke-Pl --json --cwd $ws replace shared --new CHANGED hl-a.txt --apply
+        $aTxt = Get-Content -LiteralPath $hlA -Raw
+        $bTxt = Get-Content -LiteralPath $hlB -Raw
+        if ($r.ExitCode -eq 0 -and $aTxt -match "CHANGED" -and $bTxt -match "CHANGED") {
+            Pass "replace preserves hardlink siblings"
+        } else {
+            Fail "hardlink replace exit=$($r.ExitCode) a=$aTxt b=$bTxt out=$($r.Output)"
+        }
+    } catch {
+        Fail "hardlink setup failed: $_"
     }
 
     # --- path-only binary rename (NUL byte; #2031 host contract on Windows) ---

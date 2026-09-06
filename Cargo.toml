@@ -126,6 +126,11 @@ tree-sitter-php = { version = "0.24", optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+# Safe GetFileInformationByHandle wrapper (nNumberOfLinks). std's
+# MetadataExt::number_of_links is unstable (`windows_by_handle`).
+winapi-util = "0.1"
+
 [dev-dependencies]
 assert_cmd = "2"
 expectrl = "0.9"
