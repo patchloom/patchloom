@@ -917,3 +917,41 @@ fn test_rename_format_failure_json_error_kind() {
         "content\n"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn test_rename_share_lock_json_rollback_kind() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("src.txt");
+    fs::write(&src, "x\n").unwrap();
+    let _hold = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .share_mode(3)
+        .open(&src)
+        .unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "rename", "src.txt", "dst.txt", "--apply", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(7), "{:?}", output);
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(
+        parsed["error_kind"], "rollback",
+        "share-lock persist after backup must set error_kind: {parsed}"
+    );
+    assert_ne!(
+        parsed
+            .get("applied")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        serde_json::Value::Bool(true),
+        "must not claim applied: {parsed}"
+    );
+    assert!(src.exists(), "source must stay");
+    assert!(!dir.path().join("dst.txt").exists(), "dest must not appear");
+}
