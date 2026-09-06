@@ -4166,3 +4166,28 @@ fn test_replace_dot_device_drive_applies() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
 }
+
+/// `read \\.\CON` must refuse before open (console device hangs).
+#[cfg(windows)]
+#[test]
+fn test_read_dot_device_con_refuses() {
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "read", r"\\.\CON"])
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "read \\\\.\\CON must not succeed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let blob = format!("{stdout}{stderr}");
+    assert!(
+        blob.contains("not a file name") || blob.contains("invalid_input"),
+        "expected illegal dest refuse, got stdout={stdout} stderr={stderr}"
+    );
+}

@@ -1084,6 +1084,10 @@ mod tests {
             is_windows_illegal_dest_path(std::path::Path::new(r"\\.\pipe\pl-test")),
             r"\\.\pipe stays illegal"
         );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new(r"\\.\CON")),
+            r"\\.\CON is the console device, not a file"
+        );
         assert!(ensure_not_windows_illegal_dest(std::path::Path::new("a<b"), "a<b").is_err());
     }
 
