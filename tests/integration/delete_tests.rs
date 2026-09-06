@@ -441,3 +441,47 @@ fn test_delete_json_not_found_sets_error_kind() {
         "delete --json missing file should set error_kind: {parsed}"
     );
 }
+
+/// Windows directory junction: unlink the reparse point, leave the target.
+#[cfg(windows)]
+#[test]
+fn test_delete_junction_unlinks_link_not_target() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("real");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("keep.txt"), "keep\n").unwrap();
+    let link = dir.path().join("alias");
+    let status = std::process::Command::new("cmd")
+        .args([
+            "/C",
+            "mklink",
+            "/J",
+            &link.to_string_lossy(),
+            &target.to_string_lossy(),
+        ])
+        .status()
+        .expect("mklink");
+    if !status.success() {
+        eprintln!("skip junction delete: mklink /J failed");
+        return;
+    }
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "delete", "alias", "--apply"])
+        .assert()
+        .code(0);
+
+    assert!(
+        fs::symlink_metadata(&link).is_err(),
+        "junction entry must be unlinked"
+    );
+    assert!(target.is_dir(), "target dir must remain");
+    assert_eq!(
+        fs::read_to_string(target.join("keep.txt")).unwrap(),
+        "keep\n",
+        "target contents must remain"
+    );
+}

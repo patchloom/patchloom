@@ -228,7 +228,7 @@ pub(crate) fn commit_changes(
             }
             if deletions.contains(path) {
                 injected_write_failure(path)?;
-                std::fs::remove_file(path)
+                crate::ops::file::unlink_path_entry(path)
                     .with_context(|| format!("deleting {}", path.display()))?;
             } else if renamed_to.contains(path.as_path()) {
                 // Dest exists after rename; rewrite final content in place so
@@ -268,7 +268,7 @@ pub(crate) fn commit_changes(
             }
             // path_entry_exists includes dangling symlinks (#2087).
             if crate::ops::file::path_entry_exists(path) {
-                std::fs::remove_file(path)
+                crate::ops::file::unlink_path_entry(path)
                     .with_context(|| format!("deleting {}", path.display()))?;
             }
         }

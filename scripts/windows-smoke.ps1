@@ -324,6 +324,29 @@ try {
         Fail "CRLF exit=$($r.ExitCode) hex=$hex"
     }
 
+    # --- delete directory junction unlinks the link, not the target ---
+    if ($IsWin) {
+        $jreal = Join-Path $ws "jreal"
+        $jlink = Join-Path $ws "jlink"
+        New-Item -ItemType Directory -Path $jreal | Out-Null
+        Set-Content -LiteralPath (Join-Path $jreal "keep.txt") -Value "keep`n" -NoNewline
+        $mklink = cmd /c mklink /J $jlink $jreal
+        if ($LASTEXITCODE -eq 0) {
+            $r = Invoke-Pl --json --cwd $ws delete jlink --apply
+            $keep = Test-Path -LiteralPath (Join-Path $jreal "keep.txt")
+            $linkLeft = Test-Path -LiteralPath $jlink
+            $jApplied = Get-JsonField $r.Output "applied"
+            if ($r.ExitCode -eq 0 -and $keep -and -not $linkLeft -and ("$jApplied" -eq "True" -or $jApplied -eq $true)) {
+                Pass "delete junction unlinks link not target"
+            } else {
+                $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+                Fail "junction delete exit=$($r.ExitCode) keep=$keep linkLeft=$linkLeft applied=$jApplied out=$snip"
+            }
+        } else {
+            Write-Host "SKIP: mklink /J failed ($mklink)"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {

@@ -77,9 +77,13 @@ pub fn classify_path_entry(path: &Path) -> PathEntryKind {
             // Unix: the link itself reports is_dir/is_file false.
             // Windows: a dest file symlink can report is_file() == true;
             // exclude those so dest-symlink refuse does not treat them as RegularFile.
-            if ft.is_dir() && !ft.is_symlink() {
+            // Windows directory junctions are reparse points that often report
+            // is_dir() and may or may not report is_symlink() (mount-point tag
+            // vs IO_REPARSE_TAG_SYMLINK). Treat them as Special so delete
+            // unlinks the junction and does not refuse them as RealDirectory.
+            if ft.is_dir() && !ft.is_symlink() && !is_windows_reparse_point(&meta) {
                 PathEntryKind::RealDirectory
-            } else if ft.is_file() && !ft.is_symlink() {
+            } else if ft.is_file() && !ft.is_symlink() && !is_windows_reparse_point(&meta) {
                 PathEntryKind::RegularFile
             } else {
                 PathEntryKind::Special
@@ -119,6 +123,61 @@ pub fn ensure_unlinkable_not_directory(
         });
     }
     Ok(())
+}
+
+/// True when `meta` is a Windows reparse point (junction, symlink, mount).
+#[cfg(windows)]
+fn is_windows_reparse_point(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_windows_reparse_point(_meta: &std::fs::Metadata) -> bool {
+    false
+}
+
+/// Unlink a directory entry without following it.
+///
+/// Regular files and Unix / Windows file symlinks use [`std::fs::remove_file`].
+/// Windows directory junctions report `is_dir()` on the entry. Rust 1.98
+/// `remove_dir` follows the junction and hits ACCESS_DENIED on the non-empty
+/// target; `remove_file` often returns ERROR_DIRECTORY. `cmd rmdir` maps to
+/// `RemoveDirectoryW`, which unlinks the reparse point only. Never
+/// `remove_dir_all`.
+pub fn unlink_path_entry(path: &Path) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(path)?;
+    #[cfg(windows)]
+    if is_windows_reparse_point(&meta) || meta.file_type().is_symlink() {
+        // Junctions often report is_symlink() && !is_dir(). remove_file then
+        // ACCESS_DENIED. cmd rmdir is RemoveDirectoryW on the reparse point.
+        return unlink_via_cmd_rmdir(path);
+    }
+    if meta.file_type().is_dir() {
+        std::fs::remove_dir(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+}
+
+/// `RemoveDirectoryW` via `cmd rmdir`. Unlinks a directory junction or
+/// directory symlink without following the target.
+#[cfg(windows)]
+fn unlink_via_cmd_rmdir(path: &Path) -> std::io::Result<()> {
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "rmdir"])
+        .arg(path)
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(std::io::Error::other(format!(
+            "cmd rmdir failed for {}: {stderr}",
+            path.display()
+        )))
+    }
 }
 
 /// True when the path is a regular file suitable for byte backup via `fs::copy`.
@@ -694,6 +753,65 @@ mod tests {
         assert!(
             dest.symlink_metadata().unwrap().file_type().is_symlink(),
             "dest must remain a symlink"
+        );
+    }
+
+    #[cfg(windows)]
+    fn try_create_junction(target: &std::path::Path, link: &std::path::Path) -> bool {
+        let status = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &link.to_string_lossy(),
+                &target.to_string_lossy(),
+            ])
+            .status();
+        matches!(status, Ok(s) if s.success()) && link.exists()
+    }
+
+    /// Directory junctions must classify as Special (unlinkable), not RealDirectory.
+    #[cfg(windows)]
+    #[test]
+    fn directory_junction_is_special_not_real_directory() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep\n").unwrap();
+        let link = dir.path().join("alias");
+        if !try_create_junction(&target, &link) {
+            eprintln!("skip junction classify: mklink /J failed");
+            return;
+        }
+        assert_eq!(
+            classify_path_entry(&link),
+            PathEntryKind::Special,
+            "junction must not classify as RealDirectory"
+        );
+        assert!(!is_real_directory(&link));
+        assert!(!is_regular_file_for_backup(&link));
+        ensure_unlinkable_not_directory(&link, "alias").unwrap();
+    }
+
+    /// Unlink the junction reparse point; leave the target tree.
+    #[cfg(windows)]
+    #[test]
+    fn unlink_path_entry_removes_junction_not_target() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep\n").unwrap();
+        let link = dir.path().join("alias");
+        if !try_create_junction(&target, &link) {
+            eprintln!("skip junction unlink: mklink /J failed");
+            return;
+        }
+        unlink_path_entry(&link).expect("unlink junction");
+        assert!(!path_entry_exists(&link), "junction entry must be gone");
+        assert!(target.is_dir(), "target dir must remain");
+        assert_eq!(
+            fs::read_to_string(target.join("keep.txt")).unwrap(),
+            "keep\n"
         );
     }
 
