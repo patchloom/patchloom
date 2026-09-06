@@ -557,6 +557,19 @@ try {
         }
     }
 
+    # --- doc get multi-doc YAML with UTF-8 BOM (Notepad --- first) ---
+    if ($IsWin) {
+        $bomYaml = Join-Path $ws "bom-multi.yaml"
+        [System.IO.File]::WriteAllBytes($bomYaml, [byte[]](0xEF, 0xBB, 0xBF) + [Text.Encoding]::UTF8.GetBytes("---`r`na: 1`r`n---`r`nb: 2`r`n"))
+        $r = Invoke-Pl --json --cwd $ws doc get bom-multi.yaml 0.a
+        if ($r.ExitCode -eq 0 -and $r.Output -match '"value"\s*:\s*1') {
+            Pass "doc get YAML multi-doc UTF-8 BOM"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "doc BOM YAML multi-doc exit=$($r.ExitCode) out=$snip"
+        }
+    }
+
     # --- batch file with UTF-8 BOM (Notepad/VS) ---
     if ($IsWin) {
         $bomHit = Join-Path $ws "bom-batch.txt"

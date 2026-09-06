@@ -807,13 +807,14 @@ pub(super) fn yaml_semantic_eq(text: &str, expected: &serde_json::Value) -> bool
 }
 
 pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {
+    // Notepad/VS/Out-File prefix. JSON rejects BOM; YAML multi-doc `---`
+    // after U+FEFF is not a document marker (parse_error at `a:`).
+    let content = crate::ops::file::strip_utf8_bom(content);
     match format {
         // Empty / whitespace-only files: treat as empty object so `doc set`
         // can bootstrap a new document (YAML/TOML already accept empty input;
         // serde_json rejects EOF — fixrealloop 2026-07-15).
         FileFormat::Json => {
-            // serde_json rejects a leading UTF-8 BOM (Notepad/VS JSON).
-            let content = crate::ops::file::strip_utf8_bom(content);
             if content.trim().is_empty() {
                 Ok(serde_json::json!({}))
             } else {
