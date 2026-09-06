@@ -811,3 +811,39 @@ fn test_create_apply_json_reports_applied_true() {
         "create --apply --json must set applied:true for agent parity with delete: {json}"
     );
 }
+
+/// Windows ADS dest must not claim applied (R100 live red).
+#[cfg(windows)]
+#[test]
+fn test_create_ads_path_invalid_input_not_applied() {
+    let dir = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "create",
+            "fresh.txt:stream",
+            "--content",
+            "x",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "ADS create must set error_kind: {parsed}"
+    );
+    assert_ne!(
+        parsed
+            .get("applied")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        serde_json::Value::Bool(true),
+        "must not claim applied: {parsed}"
+    );
+}

@@ -499,6 +499,7 @@ impl GlobalFlags {
             }
             .into());
         }
+        crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(path), path)?;
         if let Some(guard) = self.workspace_guard(cwd)? {
             let resolved = if entry {
                 guard

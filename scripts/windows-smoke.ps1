@@ -365,6 +365,19 @@ try {
         }
     }
 
+    # --- ADS create is invalid_input, not applied ---
+    if ($IsWin) {
+        $r = Invoke-Pl --json --cwd $ws create "ads.txt:stream" --content x --apply
+        $adsKind = Get-JsonField $r.Output "error_kind"
+        $adsApplied = Get-JsonField $r.Output "applied"
+        if ($r.ExitCode -eq 1 -and $adsKind -eq "invalid_input" -and ("$adsApplied" -ne "True")) {
+            Pass "ADS create invalid_input not applied"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "ADS create exit=$($r.ExitCode) kind=$adsKind applied=$adsApplied out=$snip"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {

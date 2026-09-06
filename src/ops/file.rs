@@ -138,6 +138,46 @@ fn is_windows_reparse_point(_meta: &std::fs::Metadata) -> bool {
     false
 }
 
+/// True when `path` names a Windows Alternate Data Stream (`file.txt:stream`).
+///
+/// Drive letters (`C:\…`) and `\\?\` prefixes are not streams. Extra `:` after
+/// the first component is an ADS (or a device path like `\\.\NUL`).
+pub fn is_windows_ads_path(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        let s = raw
+            .strip_prefix(r"\\?\")
+            .or_else(|| raw.strip_prefix(r"//?/"))
+            .unwrap_or(raw.as_ref());
+        let rest =
+            if s.len() >= 2 && s.as_bytes()[1] == b':' && s.as_bytes()[0].is_ascii_alphabetic() {
+                &s[2..]
+            } else {
+                s
+            };
+        rest.contains(':')
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Refuse Windows ADS / device-colon paths as `invalid_input`.
+pub fn ensure_not_windows_ads_path(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    if is_windows_ads_path(path) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("refusing Windows alternate data stream path: {display}"),
+        });
+    }
+    Ok(())
+}
+
 /// Unlink a directory entry without following it.
 ///
 /// Regular files and Unix / Windows file symlinks use [`std::fs::remove_file`].
@@ -791,6 +831,22 @@ mod tests {
         assert!(!is_real_directory(&link));
         assert!(!is_regular_file_for_backup(&link));
         ensure_unlinkable_not_directory(&link, "alias").unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ads_path_detects_stream_not_drive() {
+        assert!(is_windows_ads_path(std::path::Path::new(
+            "notes.txt:secret"
+        )));
+        assert!(is_windows_ads_path(std::path::Path::new(
+            r"src\lib.rs:stream"
+        )));
+        assert!(!is_windows_ads_path(std::path::Path::new(
+            r"C:\Users\name\file.txt"
+        )));
+        assert!(!is_windows_ads_path(std::path::Path::new("notes.txt")));
+        assert!(ensure_not_windows_ads_path(std::path::Path::new("a.txt:s"), "a.txt:s").is_err());
     }
 
     /// Unlink the junction reparse point; leave the target tree.
