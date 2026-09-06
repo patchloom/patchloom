@@ -923,3 +923,30 @@ fn test_create_trailing_space_force_does_not_overwrite_collapsed_name() {
         "trailing-space dest must not collapse onto file.txt"
     );
 }
+
+/// Long dest without `\\?\` used to persist as `rollback` (R125).
+#[cfg(windows)]
+#[test]
+fn test_create_long_path_without_verbatim_prefix() {
+    let dir = TempDir::new().unwrap();
+    let dest = dir.path().join(format!("{}.txt", "L".repeat(240)));
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "create",
+            dest.to_str().unwrap(),
+            "--content",
+            "hi\n",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "create long dest: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let verbatim = std::path::PathBuf::from(format!(r"\\?\{}", dest.display()));
+    assert_eq!(std::fs::read_to_string(&verbatim).unwrap(), "hi\n");
+}

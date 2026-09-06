@@ -654,7 +654,7 @@ pub(crate) fn atomic_create_new(
             .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
     }
 
-    tmp.persist_noclobber(path).map_err(|e| {
+    tmp.persist_noclobber(persist_dest(path)).map_err(|e| {
         if e.error.kind() == std::io::ErrorKind::AlreadyExists {
             anyhow::Error::new(crate::exit::AlreadyExistsError {
                 msg: format!("file already exists: {}", path.display()),
@@ -757,10 +757,50 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
             .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
     }
 
-    tmp.persist(write_path)
+    tmp.persist(persist_dest(write_path))
         .with_context(|| format!("failed to persist tempfile to {}", write_path.display()))?;
 
     Ok(())
+}
+
+/// Dest path for tempfile persist. On Windows, long dests need the `\\?\`
+/// prefix or `MoveFileEx` returns `rollback` (MAX_PATH 260). Short dests
+/// stay unchanged so 8.3 and existing tests keep the same spelling.
+fn persist_dest(path: &Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        windows_extended_persist_path(path)
+    }
+    #[cfg(not(windows))]
+    {
+        path.to_path_buf()
+    }
+}
+
+/// `\\?\C:\...` or `\\?\UNC\server\share\...` when the dest is at or past
+/// the legacy 260-char limit. Already-prefixed and short dests are unchanged.
+#[cfg(windows)]
+fn windows_extended_persist_path(path: &Path) -> std::path::PathBuf {
+    const MAX_PATH_BUDGET: usize = 248;
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    let raw = abs.as_os_str().to_string_lossy();
+    if raw.starts_with(r"\\?\") || raw.starts_with(r"\\.\") {
+        return abs;
+    }
+    if raw.len() < MAX_PATH_BUDGET {
+        return abs;
+    }
+    if raw.starts_with(r"\\") {
+        let rest = raw.trim_start_matches('\\');
+        return std::path::PathBuf::from(format!(r"\\?\UNC\{rest}"));
+    }
+    std::path::PathBuf::from(format!(r"\\?\{raw}"))
 }
 
 /// NTFS named streams restored onto the tempfile before persist.

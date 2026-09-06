@@ -1007,6 +1007,22 @@ fn atomic_write_readonly_with_motw_leaves_dest() {
         .status();
 }
 
+/// Create a dest past MAX_PATH without `\\?\` must persist (fixrealloop R125).
+#[cfg(windows)]
+#[test]
+fn atomic_create_new_long_path_without_verbatim_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join(format!("{}.txt", "L".repeat(240)));
+    assert!(
+        dest.to_string_lossy().len() >= 248,
+        "fixture must exceed the persist_dest budget: {}",
+        dest.to_string_lossy().len()
+    );
+    atomic_create_new(&dest, "hi\n", &WritePolicy::default()).unwrap();
+    let verbatim = std::path::PathBuf::from(format!(r"\\?\{}", dest.display()));
+    assert_eq!(fs::read_to_string(&verbatim).unwrap(), "hi\n");
+}
+
 /// Sibling hardlink must observe Apply bytes on every OS that reports
 /// `nlink > 1`. Live-red on Windows when the check was `#[cfg(unix)]`
 /// only (fixrealloop R93).

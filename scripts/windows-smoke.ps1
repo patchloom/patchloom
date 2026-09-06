@@ -478,6 +478,25 @@ try {
         }
     }
 
+    # --- create dest past MAX_PATH without \\?\ ---
+    if ($IsWin) {
+        $longLeaf = ("L" * 240) + ".txt"
+        $longDest = Join-Path $ws $longLeaf
+        $r = Invoke-Pl --json --cwd $ws create $longDest --content "hi`n" --apply
+        $longBody = $null
+        try {
+            $longBody = [System.IO.File]::ReadAllText("\\?\$longDest")
+        } catch {
+            $longBody = $null
+        }
+        if ($r.ExitCode -eq 0 -and $longBody -eq "hi`n") {
+            Pass "create long dest without verbatim prefix"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "long create exit=$($r.ExitCode) body=$longBody out=$snip"
+        }
+    }
+
     # --- replace keeps Zone.Identifier (MOTW) through atomic persist ---
     if ($IsWin) {
         $motw = Join-Path $ws "motw.txt"
