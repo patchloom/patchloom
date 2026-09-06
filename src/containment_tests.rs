@@ -438,6 +438,31 @@ fn prefer_openable_path_forward_extended_prefix_is_lexical() {
     );
 }
 
+/// `--contain` must treat `//?/C:/ws/file` as inside `C:\ws` (#2320).
+#[cfg(windows)]
+#[test]
+fn contain_forward_extended_prefix_in_workspace() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("con.txt");
+    fs::write(&file, "in\n").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let fwd = format!("//?/{}", file.display().to_string().replace('\\', "/"));
+    let resolved = guard
+        .check_path(&fwd)
+        .unwrap_or_else(|e| panic!("//?/ in-ws must be contained: {fwd} {e}"));
+    let open = super::prefer_openable_path(&resolved);
+    let root = dunce::simplified(dir.path());
+    assert!(
+        open.starts_with(root) || dunce::simplified(&open).starts_with(root),
+        "resolved must stay under temp dir: resolved={resolved:?} open={open:?} root={:?}",
+        dir.path()
+    );
+}
+
 /// `\\[::1]\C$\...` is the same file as `C:\...` (fixrealloop R131).
 #[cfg(windows)]
 #[test]

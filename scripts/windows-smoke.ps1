@@ -630,6 +630,25 @@ try {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "forward extended replace exit=$($r.ExitCode) body=$fwdBody rel=$rel out=$snip"
         }
+
+        $cWs = Join-Path $ws "fwd-contain"
+        New-Item -ItemType Directory -Path $cWs | Out-Null
+        $cHit = Join-Path $cWs "con.txt"
+        Set-Content -LiteralPath $cHit -Value "in`n" -NoNewline
+        $cFwd = "//?/" + ($cHit -replace '\\', '/')
+        Push-Location $cWs
+        try {
+            $r = Invoke-Pl --json --contain replace in --new out --apply $cFwd
+        } finally {
+            Pop-Location
+        }
+        $cBody = [System.IO.File]::ReadAllText($cHit)
+        if ($r.ExitCode -eq 0 -and $cBody -eq "out`n") {
+            Pass "contain forward extended prefix in-workspace"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "contain //?/ in-ws exit=$($r.ExitCode) body=$cBody out=$snip"
+        }
     }
 
     # --- version ---

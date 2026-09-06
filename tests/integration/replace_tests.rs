@@ -4105,3 +4105,37 @@ fn test_replace_forward_extended_prefix_applies() {
         "x\n"
     );
 }
+
+/// `--contain` + `//?/C:/ws/in.txt` must apply when dest is in-ws (#2320).
+#[cfg(windows)]
+#[test]
+fn test_contain_forward_extended_prefix_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("in.txt");
+    fs::write(&file, "x\n").unwrap();
+    let fwd = format!("//?/{}", file.display().to_string().replace('\\', "/"));
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "--contain",
+            "replace",
+            "x",
+            "--new",
+            "y",
+            "--apply",
+            &fwd,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "contain //?/ in-ws: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
+}

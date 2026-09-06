@@ -113,6 +113,15 @@ fn path_is_under(path: &Path, root: &Path) -> bool {
                 return mapped.starts_with(root_mapped);
             }
         }
+        if let Some(drive) = windows_extended_prefix_to_drive(path) {
+            if drive.starts_with(root) {
+                return true;
+            }
+            let root_simple = dunce::simplified(root);
+            if drive.starts_with(root_simple) {
+                return true;
+            }
+        }
     }
     false
 }
@@ -705,9 +714,13 @@ fn normalize_lexical(path: &Path) -> PathBuf {
 /// Uses [`safe_canonicalize`] (dunce) so Windows UNC prefixes do not break
 /// containment `starts_with` checks against the PathGuard root.
 fn canonicalize_or_ancestor(path: &Path) -> std::io::Result<PathBuf> {
+    // Rewrite //?/C:/... to C:\... before exists/canonicalize. Path::exists
+    // accepts that spelling but dunce/std canonicalize can leave a form
+    // that does not start_with a drive-letter root (#2320).
+    let openable = prefer_openable_path(path);
     // Normalize `..` and `.` lexically first so the ancestor walk never
     // encounters components that `file_name()` would silently skip.
-    let normalized = normalize_lexical(path);
+    let normalized = normalize_lexical(&openable);
     let path = normalized.as_path();
 
     if path.exists() {
