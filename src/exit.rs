@@ -541,9 +541,11 @@ pub fn structured_error_payload(err: &anyhow::Error) -> (serde_json::Value, u8) 
         output["backup_session"] = serde_json::Value::String(bs.to_string());
     }
     let written = format_failed_written_files(err);
-    // Write landed if we have written paths, or a backup session (callback
-    // renames / soft-empty path-only ops attach backup with empty written[]).
-    let write_landed = !written.is_empty() || backup_session_from_error(err).is_some();
+    // Write landed only when format_failed lists paths or carries a session.
+    // MutationAfterBackup also has a session, but that is persist-fail after
+    // backup (Windows readonly / sharing lock): disk is original or restored,
+    // so a session id must not imply applied:true.
+    let write_landed = !written.is_empty() || format_failed_backup_session(err).is_some();
     if write_landed {
         // Canonical with other mutators (#1831 / #1788): agents branch on
         // `applied`. Keep `write_applied` as a deprecated alias for one release.
@@ -592,6 +594,8 @@ pub fn error_kind_implies_not_applied(kind: &str) -> bool {
             | "parse_error"
             | "changes_detected"
             | "fuzzy_span_suspicious"
+            | "rollback"
+            | "rollback_failed"
     )
 }
 
@@ -629,6 +633,18 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
         Some(("changes_detected", CHANGES_DETECTED))
     } else if is_format_failed(err) {
         Some(("format_failed", FAILURE))
+    } else if let Some(m) = err
+        .chain()
+        .find_map(|c| c.downcast_ref::<MutationAfterBackupError>())
+    {
+        // Persist failed after backup finalize. `restored` means disk is
+        // back to the pre-write bytes (exit 7). `restore_failed` means
+        // undo did not complete (exit 1). Neither is a successful apply.
+        if m.restored {
+            Some(("rollback", ROLLBACK))
+        } else {
+            Some(("rollback_failed", FAILURE))
+        }
     } else if let Some(edit) = err
         .chain()
         .find_map(|c| c.downcast_ref::<crate::fallback::EditError>())
@@ -808,11 +824,16 @@ mod tests {
     fn structured_error_payload_includes_mutation_after_backup_session() {
         let err: anyhow::Error = MutationAfterBackupError::restored("json_1", "disk full").into();
         let (payload, code) = structured_error_payload(&err);
-        assert_eq!(code, FAILURE);
+        assert_eq!(code, ROLLBACK);
+        assert_eq!(payload["error_kind"], "rollback");
         assert_eq!(payload["backup_session"], "json_1");
         assert_eq!(
-            payload["applied"], true,
-            "fail-restore means write attempt landed (session finalized): {payload}"
+            payload["applied"], false,
+            "restored fail-restore did not leave the write on disk: {payload}"
+        );
+        assert!(
+            payload.get("write_applied").is_none() || payload["write_applied"] == false,
+            "must not claim write_applied after restore: {payload}"
         );
         assert!(
             payload["error"]
@@ -820,6 +841,21 @@ mod tests {
                 .unwrap_or("")
                 .contains("restored session json_1"),
             "error text should mention session: {payload}"
+        );
+    }
+
+    #[test]
+    fn structured_error_payload_restore_failed_is_not_applied() {
+        let err: anyhow::Error =
+            MutationAfterBackupError::restore_failed("7_0", "permission denied", "write failed")
+                .into();
+        let (payload, code) = structured_error_payload(&err);
+        assert_eq!(code, FAILURE);
+        assert_eq!(payload["error_kind"], "rollback_failed");
+        assert_eq!(payload["backup_session"], "7_0");
+        assert_eq!(
+            payload["applied"], false,
+            "restore-failed persist miss must not claim applied: {payload}"
         );
     }
 
@@ -985,6 +1021,8 @@ mod tests {
         assert!(error_kind_implies_not_applied("binary"));
         assert!(error_kind_implies_not_applied("invalid_encoding"));
         assert!(error_kind_implies_not_applied("fuzzy_span_suspicious"));
+        assert!(error_kind_implies_not_applied("rollback"));
+        assert!(error_kind_implies_not_applied("rollback_failed"));
         assert!(!error_kind_implies_not_applied("format_failed"));
     }
 
@@ -1124,6 +1162,17 @@ mod tests {
                 )
                 .into(),
                 "fuzzy_span_suspicious",
+                FAILURE,
+            ),
+            (
+                MutationAfterBackupError::restored("s1", "persist failed").into(),
+                "rollback",
+                ROLLBACK,
+            ),
+            (
+                MutationAfterBackupError::restore_failed("s2", "restore failed", "persist failed")
+                    .into(),
+                "rollback_failed",
                 FAILURE,
             ),
         ];
