@@ -3900,9 +3900,13 @@ fn test_replace_readonly_fail_restore_json_not_applied() {
         "readonly dest must keep original bytes"
     );
 
-    let mut perms = fs::metadata(&file).unwrap().permissions();
-    perms.set_readonly(false);
-    fs::set_permissions(&file, perms).unwrap();
+    // Clear FILE_ATTRIBUTE_READONLY so TempDir cleanup can unlink.
+    // Do not use Permissions::set_readonly(false): clippy denies it
+    // (Unix would become world-writable).
+    let _ = std::process::Command::new("attrib")
+        .args(["-R"])
+        .arg(&file)
+        .status();
 }
 
 /// Open handle share-locks the dest. Persist fails; restore succeeds.
