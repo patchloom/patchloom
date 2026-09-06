@@ -1400,6 +1400,53 @@ fn test_tx_file_rename_fails_if_dst_exists() {
     );
 }
 
+/// Tx rename dest with an illegal Windows name must peel before backup.
+#[cfg(windows)]
+#[test]
+fn test_tx_file_rename_illegal_dest_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("old.txt"), "src\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.rename", "from": "old.txt", "to": "bad<name.txt"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "tx rename illegal dest must not be rollback: {parsed}"
+    );
+    assert_ne!(
+        parsed
+            .get("applied")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        serde_json::Value::Bool(true),
+        "{parsed}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("old.txt")).unwrap(),
+        "src\n"
+    );
+}
+
 /// Force overwrite of existing binary dest must back up dest bytes for undo.
 #[test]
 fn test_tx_file_rename_force_binary_undo_restores_dest() {
