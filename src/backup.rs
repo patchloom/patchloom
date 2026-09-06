@@ -135,9 +135,13 @@ pub struct Manifest {
 /// strips the root `/` (or drive prefix on Windows) so the path can be safely
 /// joined under the session directory without replacing it.
 pub(crate) fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBuf {
-    // Strip Windows \\?\ (and //?/) so strip_prefix and drive-letter parsing
-    // work when the caller passed a std::fs::canonicalize path (#1931).
-    let file_path = dunce::simplified(file_path);
+    // Rewrite //?/C:/... to C:\... first. dunce::simplified only strips
+    // \\?\ , so a forward-slash extended dest would otherwise land under
+    // __external__///?/C:/... (invalid `?` component, OS 123).
+    let openable = crate::containment::prefer_openable_path(file_path);
+    // Strip Windows \\?\ so strip_prefix and drive-letter parsing work
+    // when the caller passed a std::fs::canonicalize path (#1931).
+    let file_path = dunce::simplified(&openable);
     let project_root = dunce::simplified(project_root);
     if let Ok(rel) = file_path.strip_prefix(project_root) {
         return rel.to_path_buf();
@@ -247,6 +251,8 @@ impl BackupSession {
     /// Save the original content of a file before it is modified.
     /// If the file does not exist, records it as a "created" action.
     pub fn save_before_write(&mut self, file_path: &Path) -> anyhow::Result<()> {
+        let openable = crate::containment::prefer_openable_path(file_path);
+        let file_path = openable.as_path();
         let rel = sanitize_rel_path(file_path, &self.project_root);
         let rel_str = rel.to_string_lossy().to_string();
 
@@ -295,6 +301,8 @@ impl BackupSession {
 
     /// Record a file that was deleted by the apply operation.
     pub fn save_before_delete(&mut self, file_path: &Path) -> anyhow::Result<()> {
+        let openable = crate::containment::prefer_openable_path(file_path);
+        let file_path = openable.as_path();
         let rel = sanitize_rel_path(file_path, &self.project_root);
         let rel_str = rel.to_string_lossy().to_string();
 
@@ -1530,6 +1538,92 @@ mod tests {
         let file = Path::new("/tmp/other/file.txt");
         let rel = sanitize_rel_path(file, root);
         assert_eq!(rel, PathBuf::from("__external__/tmp/other/file.txt"));
+    }
+
+    /// `//?/C:/ws/t.txt` must strip to `t.txt`, not `__external__///?/C:/...`.
+    #[cfg(windows)]
+    #[test]
+    fn sanitize_rel_path_forward_extended_prefix_inside_project() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("t.txt");
+        std::fs::write(&file, "x").unwrap();
+        let fwd = PathBuf::from(format!(
+            "//?/{}",
+            file.display().to_string().replace('\\', "/")
+        ));
+        let rel = sanitize_rel_path(&fwd, dir.path());
+        assert_eq!(rel, PathBuf::from("t.txt"), "got {rel:?}");
+    }
+
+    /// Backup blob for a `//?/` dest must be the workspace sibling, not
+    /// `__external__*` (create_dir_all of `?` is OS 123).
+    #[cfg(windows)]
+    #[test]
+    fn save_before_write_forward_extended_prefix_is_workspace_relative() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("t.txt");
+        std::fs::write(&file, "orig\n").unwrap();
+        let fwd = PathBuf::from(format!(
+            "//?/{}",
+            file.display().to_string().replace('\\', "/")
+        ));
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&fwd).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].entries.len(), 1);
+        assert_eq!(
+            sessions[0].entries[0].path.replace('\\', "/"),
+            "t.txt",
+            "manifest path must be workspace-relative, not __external__: {}",
+            sessions[0].entries[0].path
+        );
+        assert!(
+            !sessions[0].entries[0].path.contains('?'),
+            "manifest must not keep ?: {}",
+            sessions[0].entries[0].path
+        );
+
+        let blob = dir.path().join(BACKUP_DIR).join(&ts).join("t.txt");
+        assert_eq!(std::fs::read_to_string(&blob).unwrap(), "orig\n");
+    }
+
+    /// Canonicalize-first would follow the link and copy target bytes.
+    #[cfg(windows)]
+    #[test]
+    fn save_before_write_forward_extended_symlink_is_empty_marker() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("target.txt");
+        let link = dir.path().join("link.txt");
+        std::fs::write(&target, "secret\n").unwrap();
+        if let Err(e) = std::os::windows::fs::symlink_file(&target, &link) {
+            eprintln!("skip file symlink test: {e}");
+            return;
+        }
+        let fwd = PathBuf::from(format!(
+            "//?/{}",
+            link.display().to_string().replace('\\', "/")
+        ));
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&fwd).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(
+            sessions[0].entries[0].path.replace('\\', "/"),
+            "link.txt",
+            "got {}",
+            sessions[0].entries[0].path
+        );
+        let blob = dir.path().join(BACKUP_DIR).join(&ts).join("link.txt");
+        assert_eq!(
+            std::fs::read(&blob).unwrap(),
+            b"",
+            "symlink dest must be #2087 empty marker, not target bytes"
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "secret\n");
     }
 
     #[test]

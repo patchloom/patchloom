@@ -130,6 +130,46 @@ fn prefer_local_drive_path(path: PathBuf) -> PathBuf {
     path
 }
 
+/// Spelling Win32 `CopyFile` / backup accepts.
+///
+/// `//?/C:/Users/...` exists for `Path::exists` (and Python) but
+/// `std::fs::copy` returns `ERROR_INVALID_NAME` (123). Rewrite
+/// lexically to a drive-letter path. Do **not** canonicalize: that
+/// follows a symlink dest and would copy the target instead of the
+/// #2087 empty marker.
+///
+/// Also maps local `X$` UNC to `X:\` without following links.
+pub(crate) fn prefer_openable_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(drive) = windows_extended_prefix_to_drive(path) {
+            return drive;
+        }
+        if let Some(mapped) = windows_local_drive_share_path(path) {
+            return mapped;
+        }
+    }
+    path.to_path_buf()
+}
+
+/// `//?/C:/Users/foo` or `\\?\C:\Users\foo` -> `C:\Users\foo`.
+///
+/// Leaves `\\?\UNC\...` for [`windows_local_drive_share_path`].
+#[cfg(windows)]
+fn windows_extended_prefix_to_drive(path: &Path) -> Option<PathBuf> {
+    let raw = path.to_string_lossy();
+    let rest = raw
+        .strip_prefix("//?/")
+        .or_else(|| raw.strip_prefix(r"\\?\"))?;
+    if rest.len() >= 3
+        && rest.as_bytes()[1] == b':'
+        && (rest.as_bytes()[2] == b'/' || rest.as_bytes()[2] == b'\\')
+    {
+        return Some(PathBuf::from(rest.replace('/', "\\")));
+    }
+    None
+}
+
 /// `\\localhost\C$\Users\foo` -> `C:\Users\foo` when the host is this machine.
 #[cfg(windows)]
 fn windows_local_drive_share_path(path: &Path) -> Option<PathBuf> {

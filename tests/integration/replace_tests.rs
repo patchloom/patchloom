@@ -4059,3 +4059,49 @@ fn test_contain_ipv6_loopback_admin_share_in_workspace() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
 }
+
+/// `//?/C:/...` replace must back up (CopyFile rejects that spelling).
+#[cfg(windows)]
+#[test]
+fn test_replace_forward_extended_prefix_applies() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("in.txt");
+    fs::write(&file, "x\n").unwrap();
+    let fwd = format!("//?/{}", file.display().to_string().replace('\\', "/"));
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["--json", "replace", "x", "--new", "y", "--apply", &fwd])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "forward extended replace: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
+
+    let backup_root = dir.path().join(".patchloom/backups");
+    let session = fs::read_dir(&backup_root)
+        .unwrap()
+        .next()
+        .expect("one backup session")
+        .unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(session.path().join("manifest.json")).unwrap())
+            .unwrap();
+    let rel = manifest["entries"][0]["path"].as_str().unwrap();
+    assert_eq!(
+        rel.replace('\\', "/"),
+        "in.txt",
+        "backup must be workspace-relative, not __external__: {rel}"
+    );
+    assert!(!rel.contains('?'), "backup path must not keep ?: {rel}");
+    assert_eq!(
+        fs::read_to_string(session.path().join("in.txt")).unwrap(),
+        "x\n"
+    );
+}

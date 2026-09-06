@@ -603,6 +603,35 @@ try {
         }
     }
 
+    # --- replace via //?/C:/... (CopyFile rejects that spelling) ---
+    if ($IsWin) {
+        # Isolated dir so we do not pick an earlier session's manifest
+        # (Get-ChildItem on the shared $ws first hit taken.txt).
+        $fwdWs = Join-Path $ws "fwd-prefix"
+        New-Item -ItemType Directory -Path $fwdWs | Out-Null
+        $fwdHit = Join-Path $fwdWs "fwd.txt"
+        Set-Content -LiteralPath $fwdHit -Value "old`n" -NoNewline
+        $fwd = "//?/" + ($fwdHit -replace '\\', '/')
+        Push-Location $fwdWs
+        try {
+            $r = Invoke-Pl --json replace old --new new --apply $fwd
+        } finally {
+            Pop-Location
+        }
+        $fwdBody = [System.IO.File]::ReadAllText($fwdHit)
+        $rel = $null
+        $manifests = Get-ChildItem -Path (Join-Path $fwdWs ".patchloom\backups") -Filter manifest.json -Recurse -ErrorAction SilentlyContinue
+        if ($manifests) {
+            $rel = (Get-Content -Raw $manifests[0].FullName | ConvertFrom-Json).entries[0].path
+        }
+        if ($r.ExitCode -eq 0 -and $fwdBody -eq "new`n" -and $rel -eq "fwd.txt") {
+            Pass "replace forward extended prefix"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "forward extended replace exit=$($r.ExitCode) body=$fwdBody rel=$rel out=$snip"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {

@@ -390,6 +390,54 @@ fn windows_remote_admin_share_is_not_mapped() {
     );
 }
 
+/// `//?/C:/...` exists for Path::exists but CopyFile is OS 123 (R137).
+#[cfg(windows)]
+#[test]
+fn prefer_openable_path_forward_extended_prefix() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let file = dir.path().join("t.txt");
+    fs::write(&file, "x\n").unwrap();
+    let fwd = std::path::PathBuf::from(format!(
+        "//?/{}",
+        file.display().to_string().replace('\\', "/")
+    ));
+    assert!(fwd.exists(), "Python/std exists accepts //?/: {fwd:?}");
+    let open = super::prefer_openable_path(&fwd);
+    let dest = dir.path().join("copy.txt");
+    std::fs::copy(&open, &dest)
+        .unwrap_or_else(|e| panic!("copy via prefer_openable_path must work: open={open:?} {e}"));
+    assert_eq!(fs::read_to_string(&dest).unwrap(), "x\n");
+    let s = open.to_string_lossy();
+    assert!(
+        !s.starts_with("//?/"),
+        "openable spelling must not keep //?/: {s}"
+    );
+    assert!(
+        s.len() >= 2 && s.as_bytes()[1] == b':',
+        "openable must be drive-letter: {s}"
+    );
+    let root = dunce::simplified(dir.path());
+    let open_simple = dunce::simplified(&open);
+    assert!(
+        open_simple.strip_prefix(root).is_ok(),
+        "openable must stay under temp dir: open={open:?} root={:?}",
+        dir.path()
+    );
+    assert_eq!(open.file_name().and_then(|n| n.to_str()), Some("t.txt"));
+}
+
+/// Lexical rewrite must not require the dest to exist (no canonicalize).
+#[cfg(windows)]
+#[test]
+fn prefer_openable_path_forward_extended_prefix_is_lexical() {
+    let p = std::path::PathBuf::from("//?/C:/does-not-exist-xyz/t.txt");
+    let open = super::prefer_openable_path(&p);
+    assert_eq!(
+        open,
+        std::path::PathBuf::from(r"C:\does-not-exist-xyz\t.txt")
+    );
+}
+
 /// `\\[::1]\C$\...` is the same file as `C:\...` (fixrealloop R131).
 #[cfg(windows)]
 #[test]
