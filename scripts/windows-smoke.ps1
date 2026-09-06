@@ -268,6 +268,32 @@ try {
         Fail "hardlink setup failed: $_"
     }
 
+    # --- replace via 8.3 name keeps the long directory entry ---
+    if ($IsWin) {
+        $long8 = Join-Path $ws "LongFileName.txt"
+        Set-Content -LiteralPath $long8 -Value "old8`n" -NoNewline
+        try {
+            $fso = New-Object -ComObject Scripting.FileSystemObject
+            $short8 = $fso.GetFile($long8).ShortPath
+            $shortLeaf = if ($short8) { Split-Path -Leaf $short8 } else { "" }
+            if ($shortLeaf -and ($shortLeaf -match '~')) {
+                $r = Invoke-Pl --json --cwd $ws replace old8 --new NEW8 $shortLeaf --apply
+                $longLeft = Test-Path -LiteralPath $long8
+                $longBody = if ($longLeft) { Get-Content -LiteralPath $long8 -Raw } else { "" }
+                $extraShort = Test-Path -LiteralPath (Join-Path $ws $shortLeaf)
+                if ($r.ExitCode -eq 0 -and $longLeft -and $longBody -match "NEW8") {
+                    Pass "replace via 8.3 keeps long name"
+                } else {
+                    Fail "8.3 replace exit=$($r.ExitCode) longLeft=$longLeft extra=$extraShort body=$longBody out=$($r.Output)"
+                }
+            } else {
+                Write-Host "SKIP: 8.3 short names disabled"
+            }
+        } catch {
+            Write-Host "SKIP: 8.3 probe failed ($_)"
+        }
+    }
+
     # --- path-only binary rename (NUL byte; #2031 host contract on Windows) ---
     $binSrc = Join-Path $ws "blob.bin"
     $binDst = Join-Path $ws "blob-moved.bin"
