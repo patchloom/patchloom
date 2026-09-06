@@ -708,6 +708,17 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
                 path
             }
         }
+    } else if path.is_file() {
+        // Windows 8.3 names (LONGFI~1.TXT) alias the long directory entry.
+        // persist() rename using the short spelling replaces that entry
+        // (LongFileName.txt vanishes; a new LONGFI~1.TXT file appears).
+        match crate::containment::safe_canonicalize(path) {
+            Ok(p) => {
+                resolved = p;
+                resolved.as_path()
+            }
+            Err(_) => path,
+        }
     } else {
         path
     };
