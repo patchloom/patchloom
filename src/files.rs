@@ -431,6 +431,7 @@ pub(crate) fn collect_file_paths_opts_with_list(
 
     let first = resolve(&effective[0]);
     let mut builder = WalkBuilder::new(&first);
+    apply_platform_ignore_case(&mut builder);
     for p in &effective[1..] {
         builder.add(resolve(p));
     }
@@ -534,6 +535,13 @@ pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
     GlobBuilder::new(pattern)
         .case_insensitive(cfg!(windows))
         .build()
+}
+
+/// Git on Windows defaults `core.ignorecase=true`. Honor that so
+/// `.gitignore` `*.log` also drops `app.LOG` (R121 live red).
+#[cfg(any(feature = "cli", feature = "files"))]
+pub(crate) fn apply_platform_ignore_case(builder: &mut WalkBuilder) {
+    builder.ignore_case_insensitive(cfg!(windows));
 }
 
 /// Build a compiled glob matcher from globs, or `None` if no globs given.
@@ -986,6 +994,7 @@ pub fn collect_file_paths_with_ignores(
     include_hidden: bool,
 ) -> anyhow::Result<Vec<PathBuf>> {
     let mut builder = WalkBuilder::new(root);
+    apply_platform_ignore_case(&mut builder);
     if include_hidden {
         builder.hidden(false);
     }
@@ -2191,6 +2200,37 @@ mod explicit_exclude_tests {
         assert!(
             !rels.iter().any(|r| r.contains("vendor")),
             "vendor/* omits the tree: {rels:?}"
+        );
+    }
+}
+
+#[cfg(all(test, any(feature = "cli", feature = "files")))]
+mod gitignore_case_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn gitignore_star_log_skips_uppercase_ext_only_on_windows() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::create_dir(dir.path().join(".git")).unwrap();
+        fs::write(dir.path().join(".gitignore"), "*.log\n").unwrap();
+        fs::write(dir.path().join("app.LOG"), "hit\n").unwrap();
+        fs::write(dir.path().join("keep.txt"), "hit\n").unwrap();
+        let paths = collect_file_paths_with_ignores(dir.path(), &[], &[], false).unwrap();
+        let names: Vec<String> = paths
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        assert!(names.iter().any(|n| n == "keep.txt"), "{names:?}");
+        #[cfg(windows)]
+        assert!(
+            !names.iter().any(|n| n.eq_ignore_ascii_case("app.LOG")),
+            "gitignore *.log must drop app.LOG on Windows: {names:?}"
+        );
+        #[cfg(not(windows))]
+        assert!(
+            names.iter().any(|n| n == "app.LOG"),
+            "gitignore stays case-sensitive off Windows: {names:?}"
         );
     }
 }

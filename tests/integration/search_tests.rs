@@ -2239,6 +2239,38 @@ fn test_search_assert_count_zero_all_unreadable_not_success() {
 
 #[cfg(windows)]
 #[test]
+fn test_search_gitignore_star_log_skips_uppercase_ext() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join(".git")).unwrap();
+    fs::write(dir.path().join(".gitignore"), "*.log\n").unwrap();
+    fs::write(dir.path().join("app.LOG"), "needle\n").unwrap();
+    fs::write(dir.path().join("keep.txt"), "needle\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "needle"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], true, "{parsed}");
+    assert_eq!(parsed["match_count"], 1, "{parsed}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.to_ascii_lowercase().contains("app.log"),
+        "gitignore *.log must drop app.LOG: {stdout}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn test_search_glob_txt_matches_uppercase_ext() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("Hit.TXT"), "needle\n").unwrap();
