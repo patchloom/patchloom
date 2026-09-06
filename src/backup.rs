@@ -247,6 +247,8 @@ impl BackupSession {
     /// Save the original content of a file before it is modified.
     /// If the file does not exist, records it as a "created" action.
     pub fn save_before_write(&mut self, file_path: &Path) -> anyhow::Result<()> {
+        let openable = crate::containment::prefer_openable_path(file_path);
+        let file_path = openable.as_path();
         let rel = sanitize_rel_path(file_path, &self.project_root);
         let rel_str = rel.to_string_lossy().to_string();
 
@@ -295,6 +297,8 @@ impl BackupSession {
 
     /// Record a file that was deleted by the apply operation.
     pub fn save_before_delete(&mut self, file_path: &Path) -> anyhow::Result<()> {
+        let openable = crate::containment::prefer_openable_path(file_path);
+        let file_path = openable.as_path();
         let rel = sanitize_rel_path(file_path, &self.project_root);
         let rel_str = rel.to_string_lossy().to_string();
 

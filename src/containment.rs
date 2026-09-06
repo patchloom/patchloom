@@ -130,6 +130,29 @@ fn prefer_local_drive_path(path: PathBuf) -> PathBuf {
     path
 }
 
+/// Spelling Win32 `CopyFile` / backup accepts.
+///
+/// `//?/C:/Users/...` exists for `Path::exists` (and Python) but
+/// `std::fs::copy` returns `ERROR_INVALID_NAME` (123). Prefer
+/// `dunce` / drive-letter form. Also maps local `X$` UNC.
+pub(crate) fn prefer_openable_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Ok(canon) = safe_canonicalize(path) {
+            return canon;
+        }
+        let raw = path.to_string_lossy();
+        if let Some(rest) = raw.strip_prefix("//?/") {
+            let drive = PathBuf::from(rest.replace('/', "\\"));
+            return safe_canonicalize(&drive).unwrap_or(drive);
+        }
+        if let Some(mapped) = windows_local_drive_share_path(path) {
+            return safe_canonicalize(&mapped).unwrap_or(mapped);
+        }
+    }
+    path.to_path_buf()
+}
+
 /// `\\localhost\C$\Users\foo` -> `C:\Users\foo` when the host is this machine.
 #[cfg(windows)]
 fn windows_local_drive_share_path(path: &Path) -> Option<PathBuf> {
