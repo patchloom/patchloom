@@ -463,6 +463,23 @@ fn contain_forward_extended_prefix_in_workspace() {
     );
 }
 
+/// Outside `//?/C:/Windows/...` must still be Escaped under --contain.
+#[cfg(windows)]
+#[test]
+fn contain_forward_extended_prefix_outside_workspace() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let err = guard.check_path("//?/C:/Windows/win.ini").unwrap_err();
+    assert!(
+        matches!(err, ContainmentError::Escaped { .. }),
+        "outside //?/ must stay Escaped, got {err:?}"
+    );
+}
+
 /// `\\[::1]\C$\...` is the same file as `C:\...` (fixrealloop R131).
 #[cfg(windows)]
 #[test]
