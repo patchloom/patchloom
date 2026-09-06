@@ -179,7 +179,18 @@ fn windows_local_drive_share_path(path: &Path) -> Option<PathBuf> {
 
 #[cfg(windows)]
 fn windows_unc_host_is_local(host: &str) -> bool {
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
     if host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" {
+        return true;
+    }
+    // IPv6 loopback: `::1`, `[::1]`, `0:0:0:0:0:0:0:1` (fixrealloop R131).
+    if host
+        .parse::<std::net::Ipv6Addr>()
+        .is_ok_and(|addr| addr.is_loopback())
+    {
         return true;
     }
     std::env::var("COMPUTERNAME")

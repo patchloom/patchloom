@@ -493,6 +493,18 @@ try {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "UNC contain exit=$($r.ExitCode) body=$uncBody out=$snip"
         }
+
+        $unc6File = Join-Path $ws "unc-v6.txt"
+        Set-Content -LiteralPath $unc6File -Value "x`n" -NoNewline
+        $unc6 = "\\[::1]\${drive}`$\${rest}\unc-v6.txt"
+        $r6 = Invoke-Pl --json --cwd $ws --contain replace x --new y $unc6 --apply
+        $unc6Body = Get-Content -LiteralPath $unc6File -Raw
+        if ($r6.ExitCode -eq 0 -and $unc6Body -eq "y`n") {
+            Pass "contain IPv6 loopback C`$ in-workspace"
+        } else {
+            $snip = if ($r6.Output.Length -gt 240) { $r6.Output.Substring(0, 240) } else { $r6.Output }
+            Fail "IPv6 UNC contain exit=$($r6.ExitCode) body=$unc6Body out=$snip"
+        }
     }
 
     # --- create dest past MAX_PATH without \\?\ ---

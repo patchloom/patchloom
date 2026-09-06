@@ -163,6 +163,8 @@ fn is_windows_reparse_point(_meta: &std::fs::Metadata) -> bool {
 ///
 /// Drive letters (`C:\…`) and `\\?\` prefixes are not streams. Extra `:` after
 /// the first component is an ADS (or a device path like `\\.\NUL`).
+/// IPv6 UNC hosts (`\\[::1]\C$\…`, `\\::1\C$\…`) contain `:` in the host;
+/// those colons are not a stream (fixrealloop R131).
 pub fn is_windows_ads_path(path: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -171,12 +173,13 @@ pub fn is_windows_ads_path(path: &Path) -> bool {
             .strip_prefix(r"\\?\")
             .or_else(|| raw.strip_prefix(r"//?/"))
             .unwrap_or(raw.as_ref());
-        let rest =
-            if s.len() >= 2 && s.as_bytes()[1] == b':' && s.as_bytes()[0].is_ascii_alphabetic() {
-                &s[2..]
-            } else {
-                s
-            };
+        let rest = if let Some(after_host) = skip_windows_unc_host(s) {
+            after_host
+        } else if s.len() >= 2 && s.as_bytes()[1] == b':' && s.as_bytes()[0].is_ascii_alphabetic() {
+            &s[2..]
+        } else {
+            s
+        };
         rest.contains(':')
     }
     #[cfg(not(windows))]
@@ -184,6 +187,34 @@ pub fn is_windows_ads_path(path: &Path) -> bool {
         let _ = path;
         false
     }
+}
+
+/// Share+path after a UNC host (`\\host\…`, `//host/…`, or `UNC\host\…`).
+///
+/// IPv6 hosts may be bracketed (`[::1]`) or bare (`::1`). Returns `None`
+/// when `s` is not a UNC spelling.
+#[cfg(windows)]
+fn skip_windows_unc_host(s: &str) -> Option<&str> {
+    let s = s
+        .strip_prefix(r"UNC\")
+        .or_else(|| s.strip_prefix(r"unc\"))
+        .or_else(|| s.strip_prefix(r"UNC/"))
+        .or_else(|| s.strip_prefix(r"unc/"))
+        .or_else(|| {
+            if s.starts_with(r"\\") || s.starts_with("//") {
+                Some(s.trim_start_matches(['\\', '/']))
+            } else {
+                None
+            }
+        })?;
+    if let Some(rest) = s.strip_prefix('[') {
+        let end = rest.find(']')?;
+        let after = &rest[end + 1..];
+        return Some(after.trim_start_matches(['\\', '/']));
+    }
+    let is_sep = |c: u8| c == b'\\' || c == b'/';
+    let host_end = s.as_bytes().iter().position(|&c| is_sep(c))?;
+    Some(&s[host_end + 1..])
 }
 
 /// Refuse Windows ADS / device-colon paths as `invalid_input`.
@@ -961,6 +992,32 @@ mod tests {
         )));
         assert!(!is_windows_ads_path(std::path::Path::new("notes.txt")));
         assert!(ensure_not_windows_ads_path(std::path::Path::new("a.txt:s"), "a.txt:s").is_err());
+        assert!(
+            !is_windows_ads_path(std::path::Path::new(r"\\[::1]\C$\Users\name\file.txt")),
+            "IPv6 loopback UNC host colons are not ADS"
+        );
+        assert!(
+            !is_windows_ads_path(std::path::Path::new(r"\\::1\C$\Users\name\file.txt")),
+            "bare IPv6 loopback UNC host colons are not ADS"
+        );
+        assert!(
+            !is_windows_ads_path(std::path::Path::new(
+                r"\\?\UNC\[::1]\C$\Users\name\file.txt"
+            )),
+            "verbatim IPv6 UNC is not ADS"
+        );
+        assert!(
+            is_windows_ads_path(std::path::Path::new(
+                r"\\[::1]\C$\Users\name\file.txt:secret"
+            )),
+            "stream after an IPv6 UNC dest is still ADS"
+        );
+        assert!(
+            is_windows_ads_path(std::path::Path::new(
+                r"\\localhost\C$\Users\name\file.txt:s"
+            )),
+            "stream after a named UNC dest is still ADS"
+        );
     }
 
     #[cfg(windows)]
