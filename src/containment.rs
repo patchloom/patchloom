@@ -94,6 +94,99 @@ pub fn safe_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
     dunce::canonicalize(path)
 }
 
+/// True when `path` is under `root` after canonicalize-style compare.
+///
+/// On Windows, `\\localhost\C$\Users\...` is the same file as `C:\Users\...`
+/// but [`Path::starts_with`] does not treat them as nested. Map local
+/// `X$` admin shares to `X:\` before the prefix check (fixrealloop R117/R127).
+fn path_is_under(path: &Path, root: &Path) -> bool {
+    if path.starts_with(root) {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        if let Some(mapped) = windows_local_drive_share_path(path) {
+            if mapped.starts_with(root) {
+                return true;
+            }
+            if let Some(root_mapped) = windows_local_drive_share_path(root) {
+                return mapped.starts_with(root_mapped);
+            }
+        }
+    }
+    false
+}
+
+/// Prefer `C:\...` over `\\localhost\C$\...` so later open/backup/persist
+/// use a spelling Win32 accepts (verbatim UNC `\\?\UNC\localhost\C$` is
+/// `ERROR_INVALID_NAME` on some backup paths).
+fn prefer_local_drive_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(mapped) = windows_local_drive_share_path(&path) {
+            return safe_canonicalize(&mapped).unwrap_or(mapped);
+        }
+    }
+    path
+}
+
+/// `\\localhost\C$\Users\foo` -> `C:\Users\foo` when the host is this machine.
+#[cfg(windows)]
+fn windows_local_drive_share_path(path: &Path) -> Option<PathBuf> {
+    let raw = path.to_string_lossy();
+    let s = raw
+        .strip_prefix(r"\\?\")
+        .or_else(|| raw.strip_prefix(r"//?/"))
+        .unwrap_or(raw.as_ref());
+    let s = s
+        .strip_prefix(r"UNC\")
+        .or_else(|| s.strip_prefix(r"unc\"))
+        .or_else(|| s.strip_prefix(r"UNC/"))
+        .unwrap_or(s);
+    let s = s.trim_start_matches(['\\', '/']);
+    let is_sep = |c: u8| c == b'\\' || c == b'/';
+    let host_end = s.as_bytes().iter().position(|&c| is_sep(c))?;
+    let host = &s[..host_end];
+    let after_host = &s[host_end + 1..];
+    let share_end = after_host
+        .as_bytes()
+        .iter()
+        .position(|&c| is_sep(c))
+        .unwrap_or(after_host.len());
+    let share = &after_host[..share_end];
+    let rest = if share_end < after_host.len() {
+        &after_host[share_end + 1..]
+    } else {
+        ""
+    };
+    if share.len() != 2 {
+        return None;
+    }
+    let drive = share.as_bytes()[0];
+    if !drive.is_ascii_alphabetic() || share.as_bytes()[1] != b'$' {
+        return None;
+    }
+    if !windows_unc_host_is_local(host) {
+        return None;
+    }
+    let letter = (drive as char).to_ascii_uppercase();
+    if rest.is_empty() {
+        Some(PathBuf::from(format!(r"{letter}:\")))
+    } else {
+        Some(PathBuf::from(format!(r"{letter}:\{rest}")))
+    }
+}
+
+#[cfg(windows)]
+fn windows_unc_host_is_local(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" {
+        return true;
+    }
+    std::env::var("COMPUTERNAME")
+        .map(|name| name.eq_ignore_ascii_case(host))
+        .unwrap_or(false)
+}
+
 /// Policy for handling absolute paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbsolutePathPolicy {
@@ -357,7 +450,9 @@ impl PathGuard {
                 path: display.to_string(),
                 source: e,
             })?;
-        let contained = allowed_roots.iter().any(|r| parent_canon.starts_with(r));
+        let contained = allowed_roots
+            .iter()
+            .any(|r| path_is_under(parent_canon.as_path(), r));
         if !contained {
             return Err(ContainmentError::Escaped {
                 path: dunce::simplified(Path::new(display))
@@ -366,7 +461,7 @@ impl PathGuard {
                 root: self.root.display().to_string(),
             });
         }
-        let mut entry = parent_canon;
+        let mut entry = prefer_local_drive_path(parent_canon);
         entry.push(file_name);
         Ok(entry)
     }
@@ -382,7 +477,7 @@ impl PathGuard {
             path: path.to_string(),
             source: e,
         })?;
-        let contained = allowed_roots.iter().any(|r| canon.starts_with(r));
+        let contained = allowed_roots.iter().any(|r| path_is_under(&canon, r));
         if !contained {
             return Err(ContainmentError::Escaped {
                 // Prefer dunce-simplified display so agent JSON does not echo \\?\ (#1931).
@@ -392,7 +487,7 @@ impl PathGuard {
                 root: self.root.display().to_string(),
             });
         }
-        Ok(canon)
+        Ok(prefer_local_drive_path(canon))
     }
 
     /// Check that a relative path, joined with root, resolves within the workspace.
@@ -403,7 +498,7 @@ impl PathGuard {
                 path: path.to_string(),
                 source: e,
             })?;
-        if !canon.starts_with(&self.canon_root) {
+        if !path_is_under(&canon, &self.canon_root) {
             return Err(ContainmentError::Escaped {
                 path: dunce::simplified(Path::new(path))
                     .to_string_lossy()
@@ -411,7 +506,7 @@ impl PathGuard {
                 root: self.root.display().to_string(),
             });
         }
-        Ok(canon)
+        Ok(prefer_local_drive_path(canon))
     }
 }
 

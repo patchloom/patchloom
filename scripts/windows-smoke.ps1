@@ -478,6 +478,23 @@ try {
         }
     }
 
+    # --- --contain accepts in-workspace \\localhost\C$\... ---
+    if ($IsWin) {
+        $uncFile = Join-Path $ws "unc-in.txt"
+        Set-Content -LiteralPath $uncFile -Value "x`n" -NoNewline
+        $drive = $ws.Substring(0, 1)
+        $rest = $ws.Substring(2).TrimStart('\')
+        $unc = "\\localhost\${drive}`$\${rest}\unc-in.txt"
+        $r = Invoke-Pl --json --cwd $ws --contain replace x --new y $unc --apply
+        $uncBody = Get-Content -LiteralPath $uncFile -Raw
+        if ($r.ExitCode -eq 0 -and $uncBody -eq "y`n") {
+            Pass "contain localhost C`$ in-workspace"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "UNC contain exit=$($r.ExitCode) body=$uncBody out=$snip"
+        }
+    }
+
     # --- create dest past MAX_PATH without \\?\ ---
     if ($IsWin) {
         $longLeaf = ("L" * 240) + ".txt"
