@@ -860,6 +860,30 @@ fn parse_plan_auto_defaults_to_json() {
 }
 
 #[test]
+fn parse_plan_json_strips_leading_utf8_bom() {
+    // Windows Notepad / VS / Out-File often prefix JSON with U+FEFF.
+    let json =
+        "\u{feff}{\"version\":1,\"operations\":[{\"op\":\"replace\",\"old\":\"a\",\"new\":\"b\"}]}";
+    let plan = parse_plan(json).expect("leading UTF-8 BOM must not fail JSON plan parse");
+    assert_eq!(plan.operations.len(), 1);
+}
+
+#[test]
+fn parse_plan_yaml_strips_leading_utf8_bom() {
+    let yaml = "\u{feff}version: 1\noperations:\n  - op: replace\n    old: a\n    new: b\n";
+    let plan = parse_plan_yaml(yaml).expect("leading UTF-8 BOM must not fail YAML plan parse");
+    assert_eq!(plan.operations.len(), 1);
+}
+
+#[test]
+fn parse_plan_toml_strips_leading_utf8_bom() {
+    let toml =
+        "\u{feff}version = 1\n\n[[operations]]\nop = \"replace\"\nold = \"a\"\nnew = \"b\"\n";
+    let plan = parse_plan_toml(toml).expect("leading UTF-8 BOM must not fail TOML plan parse");
+    assert_eq!(plan.operations.len(), 1);
+}
+
+#[test]
 fn parse_plan_defaults_strict_when_omitted() {
     let json = r#"{"version": 1, "operations": [{"op": "replace", "old": "a", "new": "b"}]}"#;
     let plan = parse_plan(json).unwrap();

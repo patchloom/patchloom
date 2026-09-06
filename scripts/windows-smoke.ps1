@@ -557,6 +557,39 @@ try {
         }
     }
 
+    # --- batch file with UTF-8 BOM (Notepad/VS) ---
+    if ($IsWin) {
+        $bomHit = Join-Path $ws "bom-batch.txt"
+        Set-Content -LiteralPath $bomHit -Value "old`n" -NoNewline
+        $bomBat = Join-Path $ws "bom-ops.batch"
+        [System.IO.File]::WriteAllBytes($bomBat, [byte[]](0xEF, 0xBB, 0xBF) + [Text.Encoding]::UTF8.GetBytes("replace bom-batch.txt old new`n"))
+        $r = Invoke-Pl --json --cwd $ws batch $bomBat --apply
+        $hitBody = [System.IO.File]::ReadAllText($bomHit)
+        if ($r.ExitCode -eq 0 -and $hitBody -eq "new`n") {
+            Pass "batch file UTF-8 BOM"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "batch BOM exit=$($r.ExitCode) body=$hitBody out=$snip"
+        }
+    }
+
+    # --- tx JSON plan with UTF-8 BOM (Notepad/VS) ---
+    if ($IsWin) {
+        $bomHit = Join-Path $ws "bom-tx.txt"
+        Set-Content -LiteralPath $bomHit -Value "old`n" -NoNewline
+        $bomPlan = Join-Path $ws "bom-plan.json"
+        $planJson = "{`"ops`":[{`"op`":`"replace`",`"path`":`"bom-tx.txt`",`"old`":`"old`",`"new`":`"new`"}]}"
+        [System.IO.File]::WriteAllBytes($bomPlan, [byte[]](0xEF, 0xBB, 0xBF) + [Text.Encoding]::UTF8.GetBytes($planJson))
+        $r = Invoke-Pl --json --cwd $ws tx $bomPlan --apply
+        $hitBody = [System.IO.File]::ReadAllText($bomHit)
+        if ($r.ExitCode -eq 0 -and $hitBody -eq "new`n") {
+            Pass "tx JSON plan UTF-8 BOM"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "tx BOM plan exit=$($r.ExitCode) body=$hitBody out=$snip"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {

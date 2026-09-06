@@ -436,18 +436,21 @@ pub struct ValidationStep {
 
 /// Parse a plan from a JSON string.
 pub fn parse_plan(input: &str) -> anyhow::Result<Plan> {
+    let input = crate::ops::file::strip_utf8_bom(input);
     let plan: Plan = serde_json::from_str(input)?;
     Ok(plan)
 }
 
 /// Parse a plan from a YAML string.
 pub fn parse_plan_yaml(input: &str) -> anyhow::Result<Plan> {
+    let input = crate::ops::file::strip_utf8_bom(input);
     let plan: Plan = serde_yaml_ng::from_str(input)?;
     Ok(plan)
 }
 
 /// Parse a plan from a TOML string.
 pub fn parse_plan_toml(input: &str) -> anyhow::Result<Plan> {
+    let input = crate::ops::file::strip_utf8_bom(input);
     let plan: Plan = toml_edit::de::from_str(input)?;
     Ok(plan)
 }

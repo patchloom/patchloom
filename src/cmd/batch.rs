@@ -1088,6 +1088,7 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         })?
     };
+    let input = crate::ops::file::strip_utf8_bom(&input);
 
     // Parse lines into operations. Replace-order file checks use --cwd,
     // not the process cwd (notes.md under --cwd vs process-cwd Cargo.toml).
