@@ -1,7 +1,6 @@
 //! Atomic write, final newline, EOL normalization, trailing-whitespace trimming.
 //!
-//! size-waiver: atomic write + hardlink + symlink write-through domain (#1230 / #1733);
-//! dangling-link replace co-located with live-link resolve. Policy #1408.
+//! size-waiver: atomic write + hardlink + symlink + Windows MOTW persist (#1230 / #1733 / #1408).
 
 use std::path::Path;
 
@@ -746,6 +745,12 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
     std::fs::write(tmp.path(), final_content.as_bytes())
         .with_context(|| format!("failed to write to tempfile {}", tmp.path().display()))?;
 
+    // Copy NTFS MOTW onto the tempfile before applying dest permissions.
+    // A readonly dest would make `path:Zone.Identifier` unwritable if we
+    // set_permissions first. Hardlink in-place writes already keep streams.
+    #[cfg(windows)]
+    copy_windows_named_streams(write_path, tmp.path())?;
+
     // Restore the original permissions on the temp file before renaming.
     if let Some(perms) = original_perms {
         std::fs::set_permissions(tmp.path(), perms)
@@ -755,6 +760,54 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
     tmp.persist(write_path)
         .with_context(|| format!("failed to persist tempfile to {}", write_path.display()))?;
 
+    Ok(())
+}
+
+/// NTFS named streams restored onto the tempfile before persist.
+///
+/// Listing every stream needs `FindFirstStreamW` (unsafe; this crate denies
+/// it). Mark of the Web is the live-red: `atomic_write` rename otherwise
+/// drops `:Zone.Identifier` on downloaded files.
+#[cfg(windows)]
+const WINDOWS_PRESERVED_STREAMS: &[&str] = &["Zone.Identifier"];
+
+/// `path:stream` without going through [`crate::ops::file::is_windows_ads_path`]
+/// (that helper refuses dests that *look* like ADS, which these are).
+#[cfg(windows)]
+fn windows_stream_path(path: &Path, stream: &str) -> std::path::PathBuf {
+    let mut raw = path.as_os_str().to_os_string();
+    raw.push(":");
+    raw.push(stream);
+    std::path::PathBuf::from(raw)
+}
+
+/// Copy well-known NTFS streams from `from` onto `to` (the tempfile).
+///
+/// Missing streams are skipped. A stream that exists but cannot be copied
+/// fails the write so we do not claim success after dropping MOTW.
+#[cfg(windows)]
+fn copy_windows_named_streams(from: &Path, to: &Path) -> anyhow::Result<()> {
+    if !from.is_file() {
+        return Ok(());
+    }
+    for name in WINDOWS_PRESERVED_STREAMS {
+        let src = windows_stream_path(from, name);
+        // CopyFileEx rejects an ADS dest (ERROR_INVALID_PARAMETER). Read
+        // then write through the `path:stream` spelling instead.
+        let bytes = match std::fs::read(&src) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    format!("failed to read NTFS stream {name} from {}", from.display())
+                });
+            }
+        };
+        let dest = windows_stream_path(to, name);
+        std::fs::write(&dest, bytes).with_context(|| {
+            format!("failed to restore NTFS stream {name} onto {}", to.display())
+        })?;
+    }
     Ok(())
 }
 

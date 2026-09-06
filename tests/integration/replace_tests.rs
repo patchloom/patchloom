@@ -3951,3 +3951,36 @@ fn test_replace_locked_file_restored_json_not_applied() {
     assert_eq!(output.status.code(), Some(7), "{parsed}");
     assert_eq!(fs::read_to_string(&file).unwrap(), "alpha\n");
 }
+
+/// `replace --apply` must keep Mark of the Web (temp+rename persist).
+#[cfg(windows)]
+#[test]
+fn test_replace_keeps_zone_identifier() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("dl.txt");
+    fs::write(&file, "old line\n").unwrap();
+    let motw = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+    let mut ads = file.as_os_str().to_os_string();
+    ads.push(":Zone.Identifier");
+    fs::write(&ads, motw).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json", "replace", "old", "--new", "new", "--apply", "dl.txt",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "replace apply: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "new line\n");
+    assert_eq!(
+        fs::read(&ads).expect("Zone.Identifier must remain after replace"),
+        motw
+    );
+}
