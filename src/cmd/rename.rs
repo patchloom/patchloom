@@ -1,3 +1,5 @@
+//! size-waiver: CLI rename (engine path plus direct persist and Windows
+//! share-lock rollback) is one command surface (policy #1408).
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::execute_via_engine;
 use crate::cmd::write_dispatch::{WriteMessages, execute_write};
