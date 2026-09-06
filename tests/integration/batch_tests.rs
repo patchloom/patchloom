@@ -94,6 +94,29 @@ fn test_batch_apply_modifies_files() {
     );
 }
 
+#[test]
+fn test_batch_file_leading_utf8_bom() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "old\n").unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    let mut bytes = b"\xef\xbb\xbf".to_vec();
+    bytes.extend(b"replace hit.txt old new\n");
+    fs::write(&ops, bytes).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("hit.txt")).unwrap(),
+        "new\n"
+    );
+}
+
 /// Batch `md.insert_after_section` places a sibling after the full body (#1726).
 #[test]
 fn test_batch_md_insert_after_section() {
