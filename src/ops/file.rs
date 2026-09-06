@@ -1041,6 +1041,8 @@ mod tests {
             )),
             "stream after a named UNC dest is still ADS"
         );
+        assert!(!is_windows_ads_path(std::path::Path::new(r"\\.\C:\Users\name\file.txt")));
+        assert!(!is_windows_ads_path(std::path::Path::new(r"\\.\NUL")));
     }
 
     #[cfg(windows)]
@@ -1058,6 +1060,8 @@ mod tests {
         assert!(is_windows_illegal_dest_path(std::path::Path::new(
             "//./NUL"
         )));
+        assert!(is_windows_illegal_dest_path(std::path::Path::new(r"\\.\pipe\mypipe")));
+        assert!(!is_windows_illegal_dest_path(std::path::Path::new(r"\\.\C:\Users\name\file.txt")));
         assert!(!is_windows_illegal_dest_path(std::path::Path::new(
             r"C:\Users\name\file.txt"
         )));
