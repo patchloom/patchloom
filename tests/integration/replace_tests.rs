@@ -3984,3 +3984,40 @@ fn test_replace_keeps_zone_identifier() {
         motw
     );
 }
+
+/// `--contain` must allow an in-workspace dest spelled as `\\localhost\C$\...`.
+#[cfg(windows)]
+#[test]
+fn test_contain_localhost_admin_share_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("in.txt");
+    fs::write(&file, "x\n").unwrap();
+    let drive = dir.path().to_string_lossy();
+    assert!(drive.len() >= 3 && drive.as_bytes()[1] == b':');
+    let letter = drive.as_bytes()[0] as char;
+    let rest = drive[2..].trim_start_matches(['\\', '/']);
+    let unc = format!(r"\\localhost\{letter}$\{rest}\in.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "--contain",
+            "replace",
+            "x",
+            "--new",
+            "y",
+            "--apply",
+            &unc,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "contain UNC in-ws: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
+}

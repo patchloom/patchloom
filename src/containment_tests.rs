@@ -351,6 +351,45 @@ fn windows_mixed_unc_and_plain_still_contain() {
     );
 }
 
+/// `\\localhost\C$\...` is the same file as `C:\...` (fixrealloop R117/R127).
+#[cfg(windows)]
+#[test]
+fn windows_localhost_admin_share_is_contained() {
+    let dir = tempfile::TempDir::new().unwrap();
+    fs::write(dir.path().join("inside.txt"), "x").unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let drive = dir.path().to_string_lossy();
+    assert!(
+        drive.len() >= 3 && drive.as_bytes()[1] == b':',
+        "temp dir must be a drive path: {drive}"
+    );
+    let letter = drive.as_bytes()[0] as char;
+    let rest = drive[2..].trim_start_matches(['\\', '/']);
+    let unc = format!(r"\\localhost\{letter}$\{rest}\inside.txt");
+    let resolved = guard
+        .check_path(&unc)
+        .unwrap_or_else(|e| panic!("UNC in-ws must be contained: {unc} {e}"));
+    let resolved_s = resolved.to_string_lossy();
+    assert!(
+        resolved_s.as_bytes().get(1) == Some(&b':'),
+        "resolved dest must be a drive path for backup/persist, got {resolved_s}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_remote_admin_share_is_not_mapped() {
+    assert!(
+        super::windows_local_drive_share_path(std::path::Path::new(r"\\otherhost\C$\Windows"))
+            .is_none(),
+        "remote C$ must not map to a local drive"
+    );
+}
+
 #[test]
 fn new_with_nonexistent_root_returns_canonicalize_error() {
     let err = PathGuard::new(
