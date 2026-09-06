@@ -1,3 +1,4 @@
+//! size-waiver: CLI rename persist and Windows share-lock rollback (policy #1408).
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::execute_via_engine;
 use crate::cmd::write_dispatch::{WriteMessages, execute_write};
@@ -316,7 +317,13 @@ fn run_direct_rename(
                 fs::create_dir_all(parent)?;
             }
             let session = backup.finalize()?;
-            crate::ops::file::rename_or_copy(src, dst)?;
+            if let Err(e) = crate::ops::file::rename_or_copy(src, dst) {
+                return Err(crate::api::mutation_err_after_backup(
+                    cwd,
+                    session.as_deref(),
+                    e,
+                ));
+            }
             Ok(session)
         },
         WriteMessages {
@@ -934,6 +941,40 @@ mod tests {
             !sessions.is_empty(),
             "at least one backup session should be created"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rename_share_lock_after_backup_is_rollback_kind() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src.txt");
+        let dst = dir.path().join("dst.txt");
+        fs::write(&src, "x\n").unwrap();
+        // Rust's default share includes FILE_SHARE_DELETE, which still
+        // allows rename. Deny delete-share so persist hits ERROR_SHARING_VIOLATION
+        // (same class as Python open() / an editor lock).
+        use std::os::windows::fs::OpenOptionsExt;
+        let _hold = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(3) // FILE_SHARE_READ | FILE_SHARE_WRITE, no DELETE
+            .open(&src)
+            .unwrap();
+
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
+        let err = run(args, &global).expect_err("share lock must fail persist");
+        let classified = crate::exit::classify_typed_error(&err)
+            .expect("MutationAfterBackupError must classify");
+        assert_eq!(classified, ("rollback", exit::ROLLBACK), "{err:#}");
+        assert!(src.exists(), "source must stay");
+        assert!(!dst.exists(), "dest must not appear");
     }
 
     #[cfg(unix)]
