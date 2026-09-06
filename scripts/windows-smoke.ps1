@@ -324,6 +324,50 @@ try {
         Fail "CRLF exit=$($r.ExitCode) hex=$hex"
     }
 
+    # --- delete directory junction unlinks the link, not the target ---
+    if ($IsWin) {
+        $jreal = Join-Path $ws "jreal"
+        $jlink = Join-Path $ws "jlink"
+        New-Item -ItemType Directory -Path $jreal | Out-Null
+        Set-Content -LiteralPath (Join-Path $jreal "keep.txt") -Value "keep`n" -NoNewline
+        $mklink = cmd /c mklink /J $jlink $jreal
+        if ($LASTEXITCODE -eq 0) {
+            $r = Invoke-Pl --json --cwd $ws delete jlink --apply
+            $keep = Test-Path -LiteralPath (Join-Path $jreal "keep.txt")
+            $linkLeft = Test-Path -LiteralPath $jlink
+            $jApplied = Get-JsonField $r.Output "applied"
+            if ($r.ExitCode -eq 0 -and $keep -and -not $linkLeft -and ("$jApplied" -eq "True" -or $jApplied -eq $true)) {
+                Pass "delete junction unlinks link not target"
+            } else {
+                $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+                Fail "junction delete exit=$($r.ExitCode) keep=$keep linkLeft=$linkLeft applied=$jApplied out=$snip"
+            }
+        } else {
+            Write-Host "SKIP: mklink /J failed ($mklink)"
+        }
+
+        # Name with `&` must unlink the reparse point (not become cmd operators).
+        $jampReal = Join-Path $ws "jamp-real"
+        $jampLink = Join-Path $ws "jamp&echo"
+        New-Item -ItemType Directory -Path $jampReal | Out-Null
+        Set-Content -LiteralPath (Join-Path $jampReal "keep.txt") -Value "keep`n" -NoNewline
+        try {
+            New-Item -ItemType Junction -LiteralPath $jampLink -Target $jampReal | Out-Null
+            $r = Invoke-Pl --json --cwd $ws delete "jamp&echo" --apply
+            $keep = Test-Path -LiteralPath (Join-Path $jampReal "keep.txt")
+            $linkLeft = Test-Path -LiteralPath $jampLink
+            $jApplied = Get-JsonField $r.Output "applied"
+            if ($r.ExitCode -eq 0 -and $keep -and -not $linkLeft -and ("$jApplied" -eq "True" -or $jApplied -eq $true)) {
+                Pass "delete junction with & unlinks link not target"
+            } else {
+                $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+                Fail "junction & delete exit=$($r.ExitCode) keep=$keep linkLeft=$linkLeft applied=$jApplied out=$snip"
+            }
+        } catch {
+            Write-Host "SKIP: junction with & create failed ($_)"
+        }
+    }
+
     # --- readonly replace fail-restore is applied:false (Windows attribute) ---
     if ($IsWin) {
         $ro = Join-Path $ws "ro-win.txt"
@@ -339,6 +383,19 @@ try {
         } else {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "readonly replace exit=$($r.ExitCode) kind=$roKind applied=$roApplied body=$roBody out=$snip"
+        }
+    }
+
+    # --- ADS create is invalid_input, not applied ---
+    if ($IsWin) {
+        $r = Invoke-Pl --json --cwd $ws create "ads.txt:stream" --content x --apply
+        $adsKind = Get-JsonField $r.Output "error_kind"
+        $adsApplied = Get-JsonField $r.Output "applied"
+        if ($r.ExitCode -eq 1 -and $adsKind -eq "invalid_input" -and ("$adsApplied" -ne "True")) {
+            Pass "ADS create invalid_input not applied"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "ADS create exit=$($r.ExitCode) kind=$adsKind applied=$adsApplied out=$snip"
         }
     }
 

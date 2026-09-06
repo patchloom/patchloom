@@ -152,7 +152,7 @@ fn file_write(
                     None, // already checked with entry semantics
                     |backup| backup.save_before_delete(path),
                     || {
-                        std::fs::remove_file(path)
+                        crate::ops::file::unlink_path_entry(path)
                             .with_context(|| format!("failed to delete {}", path.display()))
                     },
                 )?

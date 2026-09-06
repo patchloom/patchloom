@@ -625,7 +625,7 @@ pub fn apply_patch_file(
                     }
                     StageOp::Delete { path, .. } => {
                         if crate::ops::file::path_entry_exists(path) {
-                            std::fs::remove_file(path).map_err(|e| {
+                            crate::ops::file::unlink_path_entry(path).map_err(|e| {
                                 anyhow::anyhow!(
                                     "patch delete: failed to remove {}: {e}",
                                     path.display()

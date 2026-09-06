@@ -77,9 +77,13 @@ pub fn classify_path_entry(path: &Path) -> PathEntryKind {
             // Unix: the link itself reports is_dir/is_file false.
             // Windows: a dest file symlink can report is_file() == true;
             // exclude those so dest-symlink refuse does not treat them as RegularFile.
-            if ft.is_dir() && !ft.is_symlink() {
+            // Windows directory junctions are reparse points that often report
+            // is_dir() and may or may not report is_symlink() (mount-point tag
+            // vs IO_REPARSE_TAG_SYMLINK). Treat them as Special so delete
+            // unlinks the junction and does not refuse them as RealDirectory.
+            if ft.is_dir() && !ft.is_symlink() && !is_windows_reparse_point(&meta) {
                 PathEntryKind::RealDirectory
-            } else if ft.is_file() && !ft.is_symlink() {
+            } else if ft.is_file() && !ft.is_symlink() && !is_windows_reparse_point(&meta) {
                 PathEntryKind::RegularFile
             } else {
                 PathEntryKind::Special
@@ -119,6 +123,117 @@ pub fn ensure_unlinkable_not_directory(
         });
     }
     Ok(())
+}
+
+/// True when `meta` is a Windows reparse point (junction, symlink, mount).
+#[cfg(windows)]
+fn is_windows_reparse_point(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_windows_reparse_point(_meta: &std::fs::Metadata) -> bool {
+    false
+}
+
+/// True when `path` names a Windows Alternate Data Stream (`file.txt:stream`).
+///
+/// Drive letters (`C:\…`) and `\\?\` prefixes are not streams. Extra `:` after
+/// the first component is an ADS (or a device path like `\\.\NUL`).
+pub fn is_windows_ads_path(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        let s = raw
+            .strip_prefix(r"\\?\")
+            .or_else(|| raw.strip_prefix(r"//?/"))
+            .unwrap_or(raw.as_ref());
+        let rest =
+            if s.len() >= 2 && s.as_bytes()[1] == b':' && s.as_bytes()[0].is_ascii_alphabetic() {
+                &s[2..]
+            } else {
+                s
+            };
+        rest.contains(':')
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Refuse Windows ADS / device-colon paths as `invalid_input`.
+pub fn ensure_not_windows_ads_path(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    if is_windows_ads_path(path) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("refusing Windows alternate data stream path: {display}"),
+        });
+    }
+    Ok(())
+}
+
+/// Unlink a directory entry without following it.
+///
+/// Regular files and Unix / Windows file symlinks use [`std::fs::remove_file`].
+/// Windows directory junctions report `is_dir()` on the entry. Rust 1.98
+/// `remove_dir` follows the junction and hits ACCESS_DENIED on the non-empty
+/// target; `remove_file` often returns ERROR_DIRECTORY. Directory reparse
+/// points are unlinked via .NET `Directory.Delete` (maps to
+/// `RemoveDirectoryW` on the reparse point). Never `remove_dir_all`.
+pub fn unlink_path_entry(path: &Path) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(path)?;
+    #[cfg(windows)]
+    if is_windows_reparse_point(&meta) && is_windows_directory_entry(&meta) {
+        // Junctions often report !is_dir() on FileType. File symlinks are
+        // reparse without DIRECTORY and must stay on remove_file.
+        return unlink_windows_reparse_dir(path);
+    }
+    if meta.file_type().is_dir() {
+        std::fs::remove_dir(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+}
+
+#[cfg(windows)]
+fn is_windows_directory_entry(meta: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+    meta.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+}
+
+/// Unlink a directory junction / dir symlink without following the target.
+///
+/// Path is passed in an env var. .NET `Directory.Delete(..., false)` unlinks
+/// the reparse point only. `Remove-Item` treats a junction as a container
+/// with children and prompts (or `-Recurse` would walk the target).
+/// `cmd /C rmdir` would interpret `&` / `|` after unquoted expansion.
+#[cfg(windows)]
+fn unlink_windows_reparse_dir(path: &Path) -> std::io::Result<()> {
+    let output = std::process::Command::new("powershell")
+        .env("PATCHLOOM_UNLINK", path)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ErrorActionPreference='Stop'; [System.IO.Directory]::Delete($env:PATCHLOOM_UNLINK, $false)",
+        ])
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(std::io::Error::other(format!(
+            "failed to unlink directory reparse point {}: {stderr}",
+            path.display()
+        )))
+    }
 }
 
 /// True when the path is a regular file suitable for byte backup via `fs::copy`.
@@ -695,6 +810,135 @@ mod tests {
             dest.symlink_metadata().unwrap().file_type().is_symlink(),
             "dest must remain a symlink"
         );
+    }
+
+    #[cfg(windows)]
+    fn try_create_junction(target: &std::path::Path, link: &std::path::Path) -> bool {
+        let status = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &link.to_string_lossy(),
+                &target.to_string_lossy(),
+            ])
+            .status();
+        matches!(status, Ok(s) if s.success()) && link.exists()
+    }
+
+    #[cfg(windows)]
+    fn try_create_junction_literal(target: &std::path::Path, link: &std::path::Path) -> bool {
+        let status = std::process::Command::new("powershell")
+            .env("PATCHLOOM_LINK", link)
+            .env("PATCHLOOM_TARGET", target)
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path $env:PATCHLOOM_LINK -Value $env:PATCHLOOM_TARGET",
+            ])
+            .status();
+        matches!(status, Ok(s) if s.success()) && link.exists()
+    }
+
+    /// Directory junctions must classify as Special (unlinkable), not RealDirectory.
+    #[cfg(windows)]
+    #[test]
+    fn directory_junction_is_special_not_real_directory() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep\n").unwrap();
+        let link = dir.path().join("alias");
+        if !try_create_junction(&target, &link) {
+            eprintln!("skip junction classify: mklink /J failed");
+            return;
+        }
+        assert_eq!(
+            classify_path_entry(&link),
+            PathEntryKind::Special,
+            "junction must not classify as RealDirectory"
+        );
+        assert!(!is_real_directory(&link));
+        assert!(!is_regular_file_for_backup(&link));
+        ensure_unlinkable_not_directory(&link, "alias").unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_ads_path_detects_stream_not_drive() {
+        assert!(is_windows_ads_path(std::path::Path::new(
+            "notes.txt:secret"
+        )));
+        assert!(is_windows_ads_path(std::path::Path::new(
+            r"src\lib.rs:stream"
+        )));
+        assert!(!is_windows_ads_path(std::path::Path::new(
+            r"C:\Users\name\file.txt"
+        )));
+        assert!(!is_windows_ads_path(std::path::Path::new("notes.txt")));
+        assert!(ensure_not_windows_ads_path(std::path::Path::new("a.txt:s"), "a.txt:s").is_err());
+    }
+
+    /// Unlink the junction reparse point; leave the target tree.
+    #[cfg(windows)]
+    #[test]
+    fn unlink_path_entry_removes_junction_not_target() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep\n").unwrap();
+        let link = dir.path().join("alias");
+        if !try_create_junction(&target, &link) {
+            eprintln!("skip junction unlink: mklink /J failed");
+            return;
+        }
+        unlink_path_entry(&link).expect("unlink junction");
+        assert!(!path_entry_exists(&link), "junction entry must be gone");
+        assert!(target.is_dir(), "target dir must remain");
+        assert_eq!(
+            fs::read_to_string(target.join("keep.txt")).unwrap(),
+            "keep\n"
+        );
+    }
+
+    /// `&` in the name must not become a `cmd /C` operator (reviewer #2305).
+    #[cfg(windows)]
+    #[test]
+    fn unlink_path_entry_removes_junction_with_ampersand_name() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("keep.txt"), "keep\n").unwrap();
+        let link = dir.path().join("alias&echo injected");
+        if !try_create_junction_literal(&target, &link) {
+            eprintln!("skip junction unlink ampersand: create failed");
+            return;
+        }
+        unlink_path_entry(&link).expect("unlink junction with &");
+        assert!(!path_entry_exists(&link), "junction entry must be gone");
+        assert!(target.is_dir(), "target dir must remain");
+        assert_eq!(
+            fs::read_to_string(target.join("keep.txt")).unwrap(),
+            "keep\n"
+        );
+    }
+
+    /// File reparse points stay on `remove_file` (not directory unlink).
+    #[cfg(windows)]
+    #[test]
+    fn unlink_path_entry_removes_file_symlink_not_target() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real.txt");
+        fs::write(&target, "keep\n").unwrap();
+        let link = dir.path().join("alias.txt");
+        if let Err(e) = std::os::windows::fs::symlink_file(&target, &link) {
+            eprintln!("skip file symlink unlink: {e}");
+            return;
+        }
+        unlink_path_entry(&link).expect("unlink file symlink");
+        assert!(!path_entry_exists(&link), "symlink entry must be gone");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep\n");
     }
 
     #[test]

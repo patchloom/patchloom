@@ -78,6 +78,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             content,
             force,
         } => {
+            crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(path), path)?;
             let file_path = tx.cwd.join(path);
             // Dangling symlinks are present entries (Path::exists is false).
             // Use classify/path_entry_exists so create matches delete/rename

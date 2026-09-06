@@ -8941,6 +8941,39 @@ fn file_delete_symlink_to_directory() {
     );
 }
 
+/// Windows directory junction: unlink the reparse point, leave the target.
+#[cfg(all(windows, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_junction_unlinks_link_not_target() {
+    let dir = TempDir::new().unwrap();
+    let real_dir = dir.path().join("realdir");
+    fs::create_dir(&real_dir).unwrap();
+    fs::write(real_dir.join("inside.txt"), "x\n").unwrap();
+    let link = dir.path().join("alias");
+    let status = std::process::Command::new("cmd")
+        .args([
+            "/C",
+            "mklink",
+            "/J",
+            &link.to_string_lossy(),
+            &real_dir.to_string_lossy(),
+        ])
+        .status()
+        .expect("mklink");
+    if !status.success() {
+        eprintln!("skip junction file_delete: mklink /J failed");
+        return;
+    }
+    let r = file_delete(&link, ApplyMode::Apply, None).expect("junction delete");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(real_dir.is_dir());
+    assert_eq!(
+        fs::read_to_string(real_dir.join("inside.txt")).unwrap(),
+        "x\n"
+    );
+}
+
 /// Rename of outside-target symlink under workspace guard (#2115).
 #[cfg(all(unix, any(feature = "cli", feature = "files")))]
 #[test]

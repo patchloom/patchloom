@@ -250,7 +250,7 @@ pub(crate) fn apply_begin_patch_ops(
                     }
                     StageOp::Delete { path, .. } => {
                         if path_entry_exists(path) {
-                            std::fs::remove_file(path).map_err(|e| {
+                            crate::ops::file::unlink_path_entry(path).map_err(|e| {
                                 anyhow::anyhow!(
                                     "Begin Patch delete: failed to remove {}: {e}",
                                     path.display()
