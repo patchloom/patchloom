@@ -178,6 +178,55 @@ pub fn ensure_not_windows_ads_path(
     Ok(())
 }
 
+/// True when a dest cannot be a Windows file name (`<>"|?*`, C0, or `\\.\`).
+///
+/// Reserved names like `CON` are not listed: Win11 can create a real `CON`
+/// file. ADS / extra `:` is [`is_windows_ads_path`].
+pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let raw = path.to_string_lossy();
+        let s = raw
+            .strip_prefix(r"\\?\")
+            .or_else(|| raw.strip_prefix(r"//?/"))
+            .unwrap_or(raw.as_ref());
+        if s.starts_with(r"\\.\") || s.starts_with("//./") {
+            return true;
+        }
+        for comp in std::path::Path::new(s).components() {
+            let std::path::Component::Normal(name) = comp else {
+                continue;
+            };
+            if name
+                .as_encoded_bytes()
+                .iter()
+                .any(|b| matches!(*b, 0x00..=0x1F | b'<' | b'>' | b'"' | b'|' | b'?' | b'*'))
+            {
+                return true;
+            }
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// Refuse dests Windows cannot persist, before backup (`rollback` lie).
+pub fn ensure_not_windows_illegal_dest(
+    path: &Path,
+    display: &str,
+) -> Result<(), crate::exit::InvalidInputError> {
+    if is_windows_illegal_dest_path(path) {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!("refusing Windows dest that is not a file name: {display}"),
+        });
+    }
+    Ok(())
+}
+
 /// Unlink a directory entry without following it.
 ///
 /// Regular files and Unix / Windows file symlinks use [`std::fs::remove_file`].
@@ -878,6 +927,30 @@ mod tests {
         )));
         assert!(!is_windows_ads_path(std::path::Path::new("notes.txt")));
         assert!(ensure_not_windows_ads_path(std::path::Path::new("a.txt:s"), "a.txt:s").is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_illegal_dest_detects_angle_and_device() {
+        assert!(is_windows_illegal_dest_path(std::path::Path::new(
+            "bad<name.txt"
+        )));
+        assert!(is_windows_illegal_dest_path(std::path::Path::new(
+            r"dir\foo|bar.txt"
+        )));
+        assert!(is_windows_illegal_dest_path(std::path::Path::new(
+            r"\\.\NUL"
+        )));
+        assert!(is_windows_illegal_dest_path(std::path::Path::new(
+            "//./NUL"
+        )));
+        assert!(!is_windows_illegal_dest_path(std::path::Path::new(
+            r"C:\Users\name\file.txt"
+        )));
+        assert!(!is_windows_illegal_dest_path(std::path::Path::new(
+            "notes.txt"
+        )));
+        assert!(ensure_not_windows_illegal_dest(std::path::Path::new("a<b"), "a<b").is_err());
     }
 
     /// Unlink the junction reparse point; leave the target tree.
