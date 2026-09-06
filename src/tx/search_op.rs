@@ -2,6 +2,8 @@ use super::execute::TxState;
 use super::output::{TxSearchMatch, TxSearchResult};
 use crate::plan::Operation;
 
+#[cfg(not(any(feature = "cli", feature = "files")))]
+use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
 
 /// Execute a search operation within a transaction.
@@ -104,7 +106,9 @@ pub(crate) fn execute_search_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
     #[cfg(not(any(feature = "cli", feature = "files")))]
     let candidate_paths: Vec<PathBuf> = if is_dir {
         let mut paths = Vec::new();
-        for entry in WalkBuilder::new(&resolved).build() {
+        let mut builder = WalkBuilder::new(&resolved);
+        builder.ignore_case_insensitive(cfg!(windows));
+        for entry in builder.build() {
             let entry = entry?;
             if entry.file_type().is_some_and(|ft| ft.is_file()) {
                 paths.push(entry.into_path());

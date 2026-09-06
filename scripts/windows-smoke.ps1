@@ -460,6 +460,24 @@ try {
         }
     }
 
+    # --- .gitignore *.log drops app.LOG (git core.ignorecase on Windows) ---
+    if ($IsWin) {
+        $ig = Join-Path $ws "igcase"
+        New-Item -ItemType Directory -Path (Join-Path $ig ".git") | Out-Null
+        Set-Content -LiteralPath (Join-Path $ig ".gitignore") -Value "*.log`n" -NoNewline
+        Set-Content -LiteralPath (Join-Path $ig "app.LOG") -Value "needle`n" -NoNewline
+        Set-Content -LiteralPath (Join-Path $ig "keep.txt") -Value "needle`n" -NoNewline
+        $r = Invoke-Pl --json --cwd $ig search needle
+        $igCount = Get-JsonField $r.Output "match_count"
+        $igOut = $r.Output
+        if ($r.ExitCode -eq 0 -and "$igCount" -eq "1" -and ($igOut -notmatch "(?i)app\.log")) {
+            Pass "gitignore *.log drops app.LOG"
+        } else {
+            $snip = if ($igOut.Length -gt 240) { $igOut.Substring(0, 240) } else { $igOut }
+            Fail "gitignore case exit=$($r.ExitCode) count=$igCount out=$snip"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {

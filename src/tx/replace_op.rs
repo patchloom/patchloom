@@ -528,7 +528,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         #[cfg(not(any(feature = "cli", feature = "files")))]
         let walked = {
             let mut paths = Vec::new();
-            for entry in WalkBuilder::new(tx.cwd).build() {
+            let mut builder = WalkBuilder::new(tx.cwd);
+            builder.ignore_case_insensitive(cfg!(windows));
+            for entry in builder.build() {
                 let entry = match entry {
                     Ok(e) => e,
                     Err(_) => continue,

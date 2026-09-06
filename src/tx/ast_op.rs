@@ -16,7 +16,9 @@ fn collect_ast_source_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         // Match CLI/library walks: never enter .git / .patchloom (even with
         // hidden=false so other dotfiles can still be considered).
-        let walker = WalkBuilder::new(dir)
+        let mut builder = WalkBuilder::new(dir);
+        crate::files::apply_platform_ignore_case(&mut builder);
+        let walker = builder
             .follow_links(false)
             .standard_filters(true)
             .hidden(false)
