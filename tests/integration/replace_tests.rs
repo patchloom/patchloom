@@ -3847,3 +3847,107 @@ fn test_replace_files_from_fifo_refused_not_regular_file() {
         "--json keeps FIFO skip off stderr (reason is refused[]): {stderr}"
     );
 }
+
+/// Windows FILE_ATTRIBUTE_READONLY blocks persist after backup. Restore also
+/// fails (same attribute). JSON must not claim `applied: true`.
+#[cfg(windows)]
+#[test]
+fn test_replace_readonly_fail_restore_json_not_applied() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ro.txt");
+    fs::write(&file, "hello-win\n").unwrap();
+    let mut perms = fs::metadata(&file).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&file, perms).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "replace",
+            "hello-win",
+            "--new",
+            "HELLO-WIN",
+            "--apply",
+            "ro.txt",
+        ])
+        .output()
+        .unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "readonly persist must fail: {parsed}");
+    assert_eq!(
+        parsed["applied"], false,
+        "persist never landed; applied must be false: {parsed}"
+    );
+    assert_ne!(
+        parsed
+            .get("write_applied")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        serde_json::Value::Bool(true),
+        "must not set write_applied: {parsed}"
+    );
+    assert_eq!(
+        parsed["error_kind"], "rollback_failed",
+        "restore also hits readonly: {parsed}"
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        "hello-win\n",
+        "readonly dest must keep original bytes"
+    );
+
+    // Clear FILE_ATTRIBUTE_READONLY so TempDir cleanup can unlink.
+    // Do not use Permissions::set_readonly(false): clippy denies it
+    // (Unix would become world-writable).
+    let _ = std::process::Command::new("attrib")
+        .args(["-R"])
+        .arg(&file)
+        .status();
+}
+
+/// Open handle share-locks the dest. Persist fails; restore succeeds.
+/// JSON is `rollback` / exit 7 / `applied: false`.
+#[cfg(windows)]
+#[test]
+fn test_replace_locked_file_restored_json_not_applied() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("locked.txt");
+    fs::write(&file, "alpha\n").unwrap();
+    let _hold = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&file)
+        .expect("hold exclusive-ish handle");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "replace",
+            "alpha",
+            "--new",
+            "BETA",
+            "--apply",
+            "locked.txt",
+        ])
+        .output()
+        .unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(
+        parsed["applied"], false,
+        "successful restore must not claim applied: {parsed}"
+    );
+    assert_eq!(
+        parsed["error_kind"], "rollback",
+        "restore succeeded: {parsed}"
+    );
+    assert_eq!(output.status.code(), Some(7), "{parsed}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "alpha\n");
+}
