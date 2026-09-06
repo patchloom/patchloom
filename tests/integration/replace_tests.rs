@@ -4021,3 +4021,41 @@ fn test_contain_localhost_admin_share_in_workspace() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
 }
+
+/// `--contain` must allow an in-workspace dest spelled as `\\[::1]\C$\...`.
+#[cfg(windows)]
+#[test]
+fn test_contain_ipv6_loopback_admin_share_in_workspace() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("in.txt");
+    fs::write(&file, "x\n").unwrap();
+    let drive = dir.path().to_string_lossy();
+    assert!(drive.len() >= 3 && drive.as_bytes()[1] == b':');
+    let letter = drive.as_bytes()[0] as char;
+    let rest = drive[2..].trim_start_matches(['\\', '/']);
+    let unc = format!(r"\\[::1]\{letter}$\{rest}\in.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "--contain",
+            "replace",
+            "x",
+            "--new",
+            "y",
+            "--apply",
+            &unc,
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "contain IPv6 UNC in-ws: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
+}
