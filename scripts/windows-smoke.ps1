@@ -605,13 +605,22 @@ try {
 
     # --- replace via //?/C:/... (CopyFile rejects that spelling) ---
     if ($IsWin) {
-        $fwdHit = Join-Path $ws "fwd.txt"
+        # Isolated dir so we do not pick an earlier session's manifest
+        # (Get-ChildItem on the shared $ws first hit taken.txt).
+        $fwdWs = Join-Path $ws "fwd-prefix"
+        New-Item -ItemType Directory -Path $fwdWs | Out-Null
+        $fwdHit = Join-Path $fwdWs "fwd.txt"
         Set-Content -LiteralPath $fwdHit -Value "old`n" -NoNewline
         $fwd = "//?/" + ($fwdHit -replace '\\', '/')
-        $r = Invoke-Pl --json replace old --new new --apply $fwd
+        Push-Location $fwdWs
+        try {
+            $r = Invoke-Pl --json replace old --new new --apply $fwd
+        } finally {
+            Pop-Location
+        }
         $fwdBody = [System.IO.File]::ReadAllText($fwdHit)
         $rel = $null
-        $manifests = Get-ChildItem -Path (Join-Path $ws ".patchloom\backups") -Filter manifest.json -Recurse -ErrorAction SilentlyContinue
+        $manifests = Get-ChildItem -Path (Join-Path $fwdWs ".patchloom\backups") -Filter manifest.json -Recurse -ErrorAction SilentlyContinue
         if ($manifests) {
             $rel = (Get-Content -Raw $manifests[0].FullName | ConvertFrom-Json).entries[0].path
         }
