@@ -847,3 +847,79 @@ fn test_create_ads_path_invalid_input_not_applied() {
         "must not claim applied: {parsed}"
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn test_create_illegal_windows_dest_invalid_input_not_applied() {
+    let dir = TempDir::new().unwrap();
+    for dest in ["bad<name.txt", r"\\.\NUL", "file.txt ", "file.txt."] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args([
+                "--json",
+                "create",
+                dest,
+                "--content",
+                "x",
+                "--apply",
+                "--cwd",
+            ])
+            .arg(dir.path())
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "dest={dest}");
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(parsed["ok"], false, "{dest} {parsed}");
+        assert_eq!(
+            parsed["error_kind"], "invalid_input",
+            "must peel before backup: {dest} {parsed}"
+        );
+        assert_ne!(
+            parsed
+                .get("applied")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+            serde_json::Value::Bool(true),
+            "must not claim applied: {dest} {parsed}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_create_trailing_space_force_does_not_overwrite_collapsed_name() {
+    let dir = TempDir::new().unwrap();
+    let existing = dir.path().join("file.txt");
+    std::fs::write(&existing, "KEEP\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "create",
+            "file.txt ",
+            "--content",
+            "OVER",
+            "--force",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["error_kind"], "invalid_input", "{parsed}");
+    assert_ne!(
+        parsed
+            .get("applied")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        serde_json::Value::Bool(true),
+        "must not claim applied: {parsed}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&existing).unwrap(),
+        "KEEP\n",
+        "trailing-space dest must not collapse onto file.txt"
+    );
+}

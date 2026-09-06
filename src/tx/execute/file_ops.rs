@@ -79,6 +79,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             force,
         } => {
             crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(path), path)?;
+            crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(path), path)?;
             let file_path = tx.cwd.join(path);
             // Dangling symlinks are present entries (Path::exists is false).
             // Use classify/path_entry_exists so create matches delete/rename
@@ -181,6 +182,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
         }
 
         Operation::FileRename { from, to, force } => {
+            crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(from), from)?;
+            crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(from), from)?;
+            crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(to), to)?;
+            crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(to), to)?;
             let src_path = tx.cwd.join(from);
             let dst_path = tx.cwd.join(to);
 
