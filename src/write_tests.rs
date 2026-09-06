@@ -939,6 +939,74 @@ fn atomic_write_via_8dot3_keeps_long_name() {
     );
 }
 
+/// Temp+rename persist must keep Mark of the Web (fixrealloop R123).
+#[cfg(windows)]
+#[test]
+fn atomic_write_keeps_zone_identifier() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("dl.txt");
+    fs::write(&target, "old\n").unwrap();
+    let motw = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+    fs::write(super::windows_stream_path(&target, "Zone.Identifier"), motw).unwrap();
+
+    atomic_write(&target, "new\n", &WritePolicy::default()).unwrap();
+
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert_eq!(
+        fs::read(super::windows_stream_path(&target, "Zone.Identifier")).unwrap(),
+        motw,
+        "MOTW must survive temp+rename persist"
+    );
+}
+
+/// A file with no named streams must not grow a Zone.Identifier.
+#[cfg(windows)]
+#[test]
+fn atomic_write_without_ads_does_not_invent_motw() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("plain.txt");
+    fs::write(&target, "old\n").unwrap();
+    atomic_write(&target, "new\n", &WritePolicy::default()).unwrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert!(
+        fs::read(super::windows_stream_path(&target, "Zone.Identifier")).is_err(),
+        "must not invent MOTW on a file that had none"
+    );
+}
+
+/// Readonly dest + MOTW: stream copy must not run after set_permissions
+/// on the tempfile. Persist still fails (FILE_ATTRIBUTE_READONLY); dest
+/// bytes and MOTW stay.
+#[cfg(windows)]
+#[test]
+fn atomic_write_readonly_with_motw_leaves_dest() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("ro.txt");
+    fs::write(&target, "old\n").unwrap();
+    let motw = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+    fs::write(super::windows_stream_path(&target, "Zone.Identifier"), motw).unwrap();
+    let mut perms = fs::metadata(&target).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&target, perms).unwrap();
+
+    let err = atomic_write(&target, "new\n", &WritePolicy::default()).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        fs::read_to_string(&target).unwrap() == "old\n",
+        "readonly dest must keep original bytes: {msg}"
+    );
+    assert_eq!(
+        fs::read(super::windows_stream_path(&target, "Zone.Identifier")).unwrap(),
+        motw,
+        "MOTW must remain when persist cannot replace dest: {msg}"
+    );
+
+    let _ = std::process::Command::new("attrib")
+        .args(["-R"])
+        .arg(&target)
+        .status();
+}
+
 /// Sibling hardlink must observe Apply bytes on every OS that reports
 /// `nlink > 1`. Live-red on Windows when the check was `#[cfg(unix)]`
 /// only (fixrealloop R93).

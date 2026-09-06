@@ -478,6 +478,23 @@ try {
         }
     }
 
+    # --- replace keeps Zone.Identifier (MOTW) through atomic persist ---
+    if ($IsWin) {
+        $motw = Join-Path $ws "motw.txt"
+        Set-Content -LiteralPath $motw -Value "old line`n" -NoNewline
+        Set-Content -LiteralPath "${motw}:Zone.Identifier" -Value "[ZoneTransfer]`r`nZoneId=3`r`n" -NoNewline
+        $r = Invoke-Pl --json --cwd $ws replace old --new new motw.txt --apply
+        $motwBody = Get-Content -LiteralPath $motw -Raw
+        $zone = $null
+        try { $zone = Get-Content -LiteralPath $motw -Stream Zone.Identifier -Raw -ErrorAction Stop } catch { $zone = $null }
+        if ($r.ExitCode -eq 0 -and $motwBody -match "new line" -and $zone -match "ZoneId=3") {
+            Pass "replace keeps Zone.Identifier MOTW"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "MOTW persist exit=$($r.ExitCode) body=$motwBody zone=$zone out=$snip"
+        }
+    }
+
     # --- doc set JSON with UTF-8 BOM (Notepad/VS) ---
     if ($IsWin) {
         $bomJson = Join-Path $ws "bom.json"
