@@ -178,8 +178,11 @@ pub fn ensure_not_windows_ads_path(
     Ok(())
 }
 
-/// True when a dest cannot be a Windows file name (`<>"|?*`, C0, or `\\.\`).
+/// True when a dest cannot be a Windows file name (`<>"|?*`, C0, `\\.\`,
+/// or a component that ends in space or `.`).
 ///
+/// Win32 strips trailing spaces and dots, so `file.txt ` / `file.txt.`
+/// persist as `file.txt` and `--force` overwrites the collapsed name.
 /// Reserved names like `CON` are not listed: Win11 can create a real `CON`
 /// file. ADS / extra `:` is [`is_windows_ads_path`].
 pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
@@ -197,8 +200,11 @@ pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
             let std::path::Component::Normal(name) = comp else {
                 continue;
             };
-            if name
-                .as_encoded_bytes()
+            let bytes = name.as_encoded_bytes();
+            if bytes.last().is_some_and(|b| *b == b' ' || *b == b'.') {
+                return true;
+            }
+            if bytes
                 .iter()
                 .any(|b| matches!(*b, 0x00..=0x1F | b'<' | b'>' | b'"' | b'|' | b'?' | b'*'))
             {
@@ -950,6 +956,30 @@ mod tests {
         assert!(!is_windows_illegal_dest_path(std::path::Path::new(
             "notes.txt"
         )));
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new("file.txt ")),
+            "Win32 strips a trailing space so dest collapses to file.txt"
+        );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new("file.txt.")),
+            "Win32 strips a trailing dot so dest collapses to file.txt"
+        );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new(r"dir\file.txt...")),
+            "repeated trailing dots also collapse"
+        );
+        assert!(
+            !is_windows_illegal_dest_path(std::path::Path::new(".gitignore")),
+            "leading dot is a real name"
+        );
+        assert!(
+            !is_windows_illegal_dest_path(std::path::Path::new("my file.txt")),
+            "interior space is a real name"
+        );
+        assert!(
+            !is_windows_illegal_dest_path(std::path::Path::new(r"\\?\C:\Users\name\file.txt")),
+            "extended prefix is not illegal"
+        );
         assert!(ensure_not_windows_illegal_dest(std::path::Path::new("a<b"), "a<b").is_err());
     }
 

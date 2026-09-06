@@ -433,6 +433,18 @@ try {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "illegal dest exit=$($r.ExitCode) kind=$badKind applied=$badApplied out=$snip"
         }
+
+        Set-Content -LiteralPath (Join-Path $ws "file.txt") -Value "KEEP`n" -NoNewline
+        $r = Invoke-Pl --json --cwd $ws create "file.txt " --content OVER --force --apply
+        $spKind = Get-JsonField $r.Output "error_kind"
+        $spApplied = Get-JsonField $r.Output "applied"
+        $kept = (Get-Content -LiteralPath (Join-Path $ws "file.txt") -Raw)
+        if ($r.ExitCode -eq 1 -and $spKind -eq "invalid_input" -and ("$spApplied" -ne "True") -and $kept -eq "KEEP`n") {
+            Pass "trailing-space dest invalid_input does not overwrite"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "trailing-space dest exit=$($r.ExitCode) kind=$spKind applied=$spApplied body=$kept out=$snip"
+        }
     }
 
     # --- version ---
