@@ -347,6 +347,24 @@ try {
         }
     }
 
+    # --- readonly replace fail-restore is applied:false (Windows attribute) ---
+    if ($IsWin) {
+        $ro = Join-Path $ws "ro-win.txt"
+        Set-Content -LiteralPath $ro -Value "hello-win`n" -NoNewline
+        attrib +R $ro
+        $r = Invoke-Pl --json --cwd $ws replace hello-win --new HELLO-WIN ro-win.txt --apply
+        $roKind = Get-JsonField $r.Output "error_kind"
+        $roApplied = Get-JsonField $r.Output "applied"
+        $roBody = Get-Content -LiteralPath $ro -Raw
+        attrib -R $ro
+        if ($r.ExitCode -eq 1 -and $roKind -eq "rollback_failed" -and ("$roApplied" -eq "False" -or $roApplied -eq $false) -and $roBody -match "hello-win") {
+            Pass "readonly replace fail-restore applied:false"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "readonly replace exit=$($r.ExitCode) kind=$roKind applied=$roApplied body=$roBody out=$snip"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {
