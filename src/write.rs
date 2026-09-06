@@ -676,11 +676,12 @@ pub(crate) fn atomic_create_new(
 /// target is never left half-written for normal files.
 ///
 /// When the resolved target is a regular file with **more than one hard link**
-/// (`nlink > 1` on Unix), rename would break siblings (they would keep the old
-/// inode). In that case the full payload is staged to a same-dir temp first,
-/// then written into the **existing** inode so all hardlink paths stay in sync
-/// (#1733). Symlinks are resolved first (#1230); the hardlink rule applies to
-/// the resolved path.
+/// (`nlink > 1` / Windows `nNumberOfLinks > 1`), rename would
+/// break siblings (they would keep the old inode). In that case the full
+/// payload is staged to a same-dir temp first, then written into the
+/// **existing** inode so all hardlink paths stay in sync (#1733).
+/// Symlinks are resolved first (#1230); the
+/// hardlink rule applies to the resolved path.
 pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
     let final_content = apply_policy(content, policy);
 
@@ -715,20 +716,12 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
     let original_meta = std::fs::metadata(write_path).ok();
     let original_perms = original_meta.as_ref().map(|m| m.permissions());
 
-    // Preserve hardlinks on Unix when the resolved target is multi-linked (#1733).
-    #[cfg(unix)]
+    // Preserve hardlinks when the resolved target is multi-linked (#1733).
+    if let Some(ref meta) = original_meta
+        && meta.is_file()
+        && hard_link_count(write_path, meta) > 1
     {
-        use std::os::unix::fs::MetadataExt;
-        if let Some(ref meta) = original_meta
-            && meta.is_file()
-            && meta.nlink() > 1
-        {
-            return write_preserving_hardlinks(
-                write_path,
-                final_content.as_bytes(),
-                original_perms,
-            );
-        }
+        return write_preserving_hardlinks(write_path, final_content.as_bytes(), original_perms);
     }
 
     let parent = write_path
@@ -754,12 +747,37 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
     Ok(())
 }
 
+/// Directory-entry count for this file. Unix `nlink`; Windows
+/// `nNumberOfLinks` via `winapi-util` (stable `MetadataExt::number_of_links`
+/// is gated on `windows_by_handle`). Other targets report 1 so
+/// [`atomic_write`] keeps temp+rename.
+fn hard_link_count(path: &Path, meta: &std::fs::Metadata) -> u64 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let _ = path;
+        meta.nlink()
+    }
+    #[cfg(windows)]
+    {
+        let _ = meta;
+        match std::fs::File::open(path).and_then(winapi_util::file::information) {
+            Ok(info) => info.number_of_links(),
+            Err(_) => 1,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (path, meta);
+        1
+    }
+}
+
 /// Stage full content on a same-dir temp, then rewrite the existing inode in
 /// place so all hardlink paths observe the new bytes (`nlink` stays > 1).
 ///
-/// Used only when `metadata(path).nlink() > 1`. Single-link files keep the
-/// rename path in [`atomic_write`].
-#[cfg(unix)]
+/// Used only when [`hard_link_count`] is greater than 1. Single-link files
+/// keep the rename path in [`atomic_write`].
 fn write_preserving_hardlinks(
     path: &Path,
     bytes: &[u8],
