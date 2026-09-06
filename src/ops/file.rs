@@ -173,6 +173,20 @@ pub fn is_windows_ads_path(path: &Path) -> bool {
             .strip_prefix(r"\\?\")
             .or_else(|| raw.strip_prefix(r"//?/"))
             .unwrap_or(raw.as_ref());
+        // `\\.\X:\...` is a drive-path spelling, not ADS.
+        // `\\.\NUL` etc. are device paths, not ADS either.
+        let s: &str = if let Some(after) = s.strip_prefix(r"\\.\").or_else(|| s.strip_prefix("//./")) {
+            if after.len() >= 2
+                && after.as_bytes()[0].is_ascii_alphabetic()
+                && after.as_bytes()[1] == b':'
+            {
+                after
+            } else {
+                return false;
+            }
+        } else {
+            s
+        };
         let rest = if let Some(after_host) = skip_windows_unc_host(s) {
             after_host
         } else if s.len() >= 2 && s.as_bytes()[1] == b':' && s.as_bytes()[0].is_ascii_alphabetic() {
@@ -245,9 +259,18 @@ pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
             .strip_prefix(r"\\?\")
             .or_else(|| raw.strip_prefix(r"//?/"))
             .unwrap_or(raw.as_ref());
-        if s.starts_with(r"\\.\") || s.starts_with("//./") {
-            return true;
-        }
+        let s: &str = if let Some(after) = s.strip_prefix(r"\\.\").or_else(|| s.strip_prefix("//./")) {
+            if after.len() >= 2
+                && after.as_bytes()[0].is_ascii_alphabetic()
+                && after.as_bytes()[1] == b':'
+            {
+                after
+            } else {
+                return true;
+            }
+        } else {
+            s
+        };
         for comp in std::path::Path::new(s).components() {
             let std::path::Component::Normal(name) = comp else {
                 continue;
