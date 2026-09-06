@@ -897,10 +897,15 @@ fn windows_short_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
         return None;
     }
     let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if s.is_empty() || !s.contains('~') {
+    if s.is_empty() {
         return None;
     }
-    Some(std::path::PathBuf::from(s))
+    let p = std::path::PathBuf::from(s);
+    let leaf = p.file_name()?.to_string_lossy();
+    if !leaf.contains('~') {
+        return None;
+    }
+    Some(p)
 }
 
 /// Replace via the 8.3 name must keep the long directory entry.

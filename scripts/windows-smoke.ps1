@@ -275,8 +275,8 @@ try {
         try {
             $fso = New-Object -ComObject Scripting.FileSystemObject
             $short8 = $fso.GetFile($long8).ShortPath
-            if ($short8 -and ($short8 -match '~')) {
-                $shortLeaf = Split-Path -Leaf $short8
+            $shortLeaf = if ($short8) { Split-Path -Leaf $short8 } else { "" }
+            if ($shortLeaf -and ($shortLeaf -match '~')) {
                 $r = Invoke-Pl --json --cwd $ws replace old8 --new NEW8 $shortLeaf --apply
                 $longLeft = Test-Path -LiteralPath $long8
                 $longBody = if ($longLeft) { Get-Content -LiteralPath $long8 -Raw } else { "" }
