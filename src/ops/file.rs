@@ -21,13 +21,34 @@ pub fn append_content(existing: &str, append: &str) -> String {
     combined
 }
 
+/// Drop a leading UTF-8 BOM (`U+FEFF`). Windows Notepad, VS, and PowerShell
+/// `Out-File` often write one; serde_json and ATX heading parse reject it.
+pub fn strip_utf8_bom(s: &str) -> &str {
+    s.strip_prefix('\u{feff}').unwrap_or(s)
+}
+
 pub fn prepend_content(existing: &str, prepend: &str) -> String {
-    let mut combined = prepend.to_string();
-    if !combined.is_empty() && !ends_with_line_ending(&combined) && !existing.is_empty() {
-        combined.push_str(preferred_line_ending(existing));
+    if prepend.is_empty() {
+        return existing.to_string();
     }
-    combined.push_str(existing);
-    combined
+    // Keep a leading BOM at byte 0 so the file stays UTF-8-with-BOM.
+    let (bom, rest) = match existing.strip_prefix('\u{feff}') {
+        Some(rest) => ("\u{feff}", rest),
+        None => ("", existing),
+    };
+    let mut combined = prepend.to_string();
+    if !ends_with_line_ending(&combined) && !rest.is_empty() {
+        combined.push_str(preferred_line_ending(rest));
+    }
+    combined.push_str(rest);
+    if bom.is_empty() {
+        combined
+    } else {
+        let mut out = String::with_capacity(bom.len() + combined.len());
+        out.push_str(bom);
+        out.push_str(&combined);
+        out
+    }
 }
 
 #[inline]
@@ -735,6 +756,13 @@ mod tests {
     #[test]
     fn prepend_empty_both() {
         assert_eq!(prepend_content("", ""), "");
+    }
+
+    #[test]
+    fn prepend_keeps_utf8_bom_at_start() {
+        let existing = "\u{feff}body\n";
+        let out = prepend_content(existing, "HEAD\n");
+        assert_eq!(out, "\u{feff}HEAD\nbody\n");
     }
 
     #[test]

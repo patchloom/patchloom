@@ -812,6 +812,8 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
         // can bootstrap a new document (YAML/TOML already accept empty input;
         // serde_json rejects EOF — fixrealloop 2026-07-15).
         FileFormat::Json => {
+            // serde_json rejects a leading UTF-8 BOM (Notepad/VS JSON).
+            let content = crate::ops::file::strip_utf8_bom(content);
             if content.trim().is_empty() {
                 Ok(serde_json::json!({}))
             } else {

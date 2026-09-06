@@ -381,6 +381,20 @@ fn test_prepend_cli_apply() {
 }
 
 #[test]
+fn test_prepend_cli_keeps_utf8_bom_at_start() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bom.txt");
+    fs::write(&file, "\u{feff}body\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args(["prepend", "bom.txt", "--content", "HEAD\n", "--apply"])
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(&file).unwrap(), "\u{feff}HEAD\nbody\n");
+}
+
+#[test]
 fn test_prepend_cli_check_returns_exit_2() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("log.txt");
