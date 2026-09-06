@@ -610,11 +610,16 @@ try {
         $fwd = "//?/" + ($fwdHit -replace '\\', '/')
         $r = Invoke-Pl --json replace old --new new --apply $fwd
         $fwdBody = [System.IO.File]::ReadAllText($fwdHit)
-        if ($r.ExitCode -eq 0 -and $fwdBody -eq "new`n") {
+        $rel = $null
+        $manifests = Get-ChildItem -Path (Join-Path $ws ".patchloom\backups") -Filter manifest.json -Recurse -ErrorAction SilentlyContinue
+        if ($manifests) {
+            $rel = (Get-Content -Raw $manifests[0].FullName | ConvertFrom-Json).entries[0].path
+        }
+        if ($r.ExitCode -eq 0 -and $fwdBody -eq "new`n" -and $rel -eq "fwd.txt") {
             Pass "replace forward extended prefix"
         } else {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
-            Fail "forward extended replace exit=$($r.ExitCode) body=$fwdBody out=$snip"
+            Fail "forward extended replace exit=$($r.ExitCode) body=$fwdBody rel=$rel out=$snip"
         }
     }
 

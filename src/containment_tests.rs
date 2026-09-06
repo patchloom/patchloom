@@ -412,6 +412,30 @@ fn prefer_openable_path_forward_extended_prefix() {
         !s.starts_with("//?/"),
         "openable spelling must not keep //?/: {s}"
     );
+    assert!(
+        s.len() >= 2 && s.as_bytes()[1] == b':',
+        "openable must be drive-letter: {s}"
+    );
+    let root = dunce::simplified(dir.path());
+    let open_simple = dunce::simplified(&open);
+    assert!(
+        open_simple.strip_prefix(root).is_ok(),
+        "openable must stay under temp dir: open={open:?} root={:?}",
+        dir.path()
+    );
+    assert_eq!(open.file_name().and_then(|n| n.to_str()), Some("t.txt"));
+}
+
+/// Lexical rewrite must not require the dest to exist (no canonicalize).
+#[cfg(windows)]
+#[test]
+fn prefer_openable_path_forward_extended_prefix_is_lexical() {
+    let p = std::path::PathBuf::from("//?/C:/does-not-exist-xyz/t.txt");
+    let open = super::prefer_openable_path(&p);
+    assert_eq!(
+        open,
+        std::path::PathBuf::from(r"C:\does-not-exist-xyz\t.txt")
+    );
 }
 
 /// `\\[::1]\C$\...` is the same file as `C:\...` (fixrealloop R131).
