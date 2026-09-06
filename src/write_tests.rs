@@ -881,6 +881,64 @@ mod symlink_handling {
     }
 }
 
+#[cfg(windows)]
+fn windows_short_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let output = std::process::Command::new("powershell")
+        .env("PATCHLOOM_LONG", path)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ErrorActionPreference='Stop'; (New-Object -ComObject Scripting.FileSystemObject).GetFile($env:PATCHLOOM_LONG).ShortPath",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.is_empty() {
+        return None;
+    }
+    let p = std::path::PathBuf::from(s);
+    let leaf = p.file_name()?.to_string_lossy();
+    if !leaf.contains('~') {
+        return None;
+    }
+    Some(p)
+}
+
+/// Replace via the 8.3 name must keep the long directory entry.
+#[cfg(windows)]
+#[test]
+fn atomic_write_via_8dot3_keeps_long_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let long = dir.path().join("LongFileName.txt");
+    fs::write(&long, "old\n").unwrap();
+    let Some(short) = windows_short_path(&long) else {
+        eprintln!("skip 8.3: volume has short names disabled");
+        return;
+    };
+    atomic_write(&short, "new\n", &WritePolicy::default()).unwrap();
+    assert!(
+        long.is_file(),
+        "long name must remain after write via {}",
+        short.display()
+    );
+    assert_eq!(fs::read_to_string(&long).unwrap(), "new\n");
+    assert_eq!(fs::read_to_string(&short).unwrap(), "new\n");
+    let names: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(
+        names.len(),
+        1,
+        "must not create a second short-name entry: {names:?}"
+    );
+}
+
 /// Sibling hardlink must observe Apply bytes on every OS that reports
 /// `nlink > 1`. Live-red on Windows when the check was `#[cfg(unix)]`
 /// only (fixrealloop R93).
