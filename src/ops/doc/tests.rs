@@ -70,6 +70,16 @@ mod basic {
     }
 
     #[test]
+    fn parse_yaml_multidoc_strips_leading_utf8_bom() {
+        // Notepad BOM before `---` hid the first document marker (#2311
+        // only stripped JSON). Live-red: doc get 0.a was parse_error.
+        let val = parse_doc("\u{feff}---\na: 1\n---\nb: 2\n", &FileFormat::Yaml).unwrap();
+        assert_eq!(val, json!([{"a": 1}, {"b": 2}]));
+        let crlf = parse_doc("\u{feff}---\r\na: 1\r\n---\r\nb: 2\r\n", &FileFormat::Yaml).unwrap();
+        assert_eq!(crlf, json!([{"a": 1}, {"b": 2}]));
+    }
+
+    #[test]
     fn parse_empty_yaml_stays_null_for_write_bootstrap() {
         // Write path uses parse_doc. Empty YAML must stay Null so `doc set`
         // keeps the null-to-object bootstrap, not the JSON `{}` rewrite. #2283

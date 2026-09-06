@@ -542,6 +542,26 @@ fn test_doc_set_json_leading_utf8_bom() {
     assert_eq!(v["k"], serde_json::json!(2));
 }
 
+#[test]
+fn test_doc_get_yaml_multidoc_leading_utf8_bom() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bom.yaml");
+    fs::write(&file, "\u{feff}---\na: 1\n---\nb: 2\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("0.a")
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["value"], serde_json::json!(1));
+}
+
 #[cfg(unix)]
 #[test]
 fn test_doc_set_confirm_eof_does_not_modify_file() {
