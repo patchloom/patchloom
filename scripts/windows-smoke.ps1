@@ -478,6 +478,20 @@ try {
         }
     }
 
+    # --- doc set JSON with UTF-8 BOM (Notepad/VS) ---
+    if ($IsWin) {
+        $bomJson = Join-Path $ws "bom.json"
+        [System.IO.File]::WriteAllBytes($bomJson, [byte[]](0xEF, 0xBB, 0xBF) + [Text.Encoding]::UTF8.GetBytes("{`"k`":1}`n"))
+        $r = Invoke-Pl --json --cwd $ws doc set bom.json k 2 --apply
+        $bomBody = [System.IO.File]::ReadAllText($bomJson)
+        if ($r.ExitCode -eq 0 -and $bomBody -match '"k"\s*:\s*2') {
+            Pass "doc set JSON UTF-8 BOM"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "doc BOM JSON exit=$($r.ExitCode) body=$bomBody out=$snip"
+        }
+    }
+
     # --- version ---
     $r = Invoke-Pl --version
     if ($r.ExitCode -eq 0 -and $r.Output -match "patchloom") {

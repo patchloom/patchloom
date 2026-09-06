@@ -42,6 +42,27 @@ fn test_md_replace_section() {
     );
 }
 
+#[test]
+fn test_md_replace_section_leading_utf8_bom() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bom.md");
+    fs::write(&file, "\u{feff}# Title\n\nbody\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["md", "replace-section"])
+        .arg(&file)
+        .args(["--heading", "Title", "--content", "new\n", "--apply"])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("new"),
+        "body should be replaced: {content}"
+    );
+}
+
 /// Replacing `# Intro` includes nested `##` children until the next `#`
 /// (fixrealloop: agents expected sibling ## API to survive).
 #[test]

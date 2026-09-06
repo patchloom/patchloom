@@ -522,6 +522,26 @@ fn test_doc_set_apply() {
     assert_eq!(v["version"], serde_json::json!("2.0"));
 }
 
+#[test]
+fn test_doc_set_json_leading_utf8_bom() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bom.json");
+    fs::write(&file, "\u{feff}{\"k\":1}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "set"])
+        .arg(&file)
+        .args(["k", "2", "--apply"])
+        .assert()
+        .code(0);
+
+    let raw = fs::read_to_string(&file).unwrap();
+    let stripped = raw.trim_start_matches('\u{feff}');
+    let v: serde_json::Value = serde_json::from_str(stripped).unwrap();
+    assert_eq!(v["k"], serde_json::json!(2));
+}
+
 #[cfg(unix)]
 #[test]
 fn test_doc_set_confirm_eof_does_not_modify_file() {

@@ -161,6 +161,7 @@ fn strip_atx_closing(text: &str) -> String {
 }
 
 pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
+    let content = crate::ops::file::strip_utf8_bom(content);
     let mut headings = Vec::new();
     let total_lines = content.lines().count();
 

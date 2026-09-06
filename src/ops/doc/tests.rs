@@ -63,6 +63,13 @@ mod basic {
     }
 
     #[test]
+    fn parse_json_strips_leading_utf8_bom() {
+        let val = parse_doc("\u{feff}{\"k\":1}\n", &FileFormat::Json).unwrap();
+        assert_eq!(val, json!({"k": 1}));
+        assert_eq!(parse_doc("\u{feff}", &FileFormat::Json).unwrap(), json!({}));
+    }
+
+    #[test]
     fn parse_empty_yaml_stays_null_for_write_bootstrap() {
         // Write path uses parse_doc. Empty YAML must stay Null so `doc set`
         // keeps the null-to-object bootstrap, not the JSON `{}` rewrite. #2283
