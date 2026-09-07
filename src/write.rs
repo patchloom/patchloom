@@ -1,6 +1,6 @@
 //! Atomic write, final newline, EOL normalization, trailing-whitespace trimming.
 //!
-//! size-waiver: atomic write + hardlink + symlink + Windows MOTW persist (#1230 / #1733 / #1408).
+//! size-waiver: atomic write + hardlink + symlink + Windows named-stream persist (#1230 / #1733 / #1408 / #2341).
 
 use std::path::Path;
 
@@ -806,11 +806,7 @@ fn windows_extended_persist_path(path: &Path) -> std::path::PathBuf {
     std::path::PathBuf::from(format!(r"\\?\{raw}"))
 }
 
-/// NTFS named streams restored onto the tempfile before persist.
-///
-/// Listing every stream needs `FindFirstStreamW` (unsafe; this crate denies
-/// it). Mark of the Web is the live-red: `atomic_write` rename otherwise
-/// drops `:Zone.Identifier` on downloaded files.
+/// Always try these names even when `dir /R` listing fails (MOTW).
 #[cfg(windows)]
 const WINDOWS_PRESERVED_STREAMS: &[&str] = &["Zone.Identifier"];
 
@@ -824,16 +820,24 @@ fn windows_stream_path(path: &Path, stream: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(raw)
 }
 
-/// Copy well-known NTFS streams from `from` onto `to` (the tempfile).
+/// Copy NTFS named streams from `from` onto `to` (the tempfile).
 ///
+/// `dir /R` lists custom streams without `FindFirstStreamW` (this crate
+/// denies `unsafe`). MOTW is always attempted even if listing fails.
 /// Missing streams are skipped. A stream that exists but cannot be copied
-/// fails the write so we do not claim success after dropping MOTW.
+/// fails the write so we do not claim success after dropping it.
 #[cfg(windows)]
 fn copy_windows_named_streams(from: &Path, to: &Path) -> anyhow::Result<()> {
     if !from.is_file() {
         return Ok(());
     }
-    for name in WINDOWS_PRESERVED_STREAMS {
+    let mut names = list_windows_named_stream_names(from);
+    for fallback in WINDOWS_PRESERVED_STREAMS {
+        if !names.iter().any(|n| n == fallback) {
+            names.push((*fallback).to_string());
+        }
+    }
+    for name in &names {
         let src = windows_stream_path(from, name);
         // CopyFileEx rejects an ADS dest (ERROR_INVALID_PARAMETER). Read
         // then write through the `path:stream` spelling instead.
@@ -852,6 +856,66 @@ fn copy_windows_named_streams(from: &Path, to: &Path) -> anyhow::Result<()> {
         })?;
     }
     Ok(())
+}
+
+/// `cmd /U /C dir /R` lists `:name:$DATA` lines. Empty on spawn/parse miss.
+#[cfg(windows)]
+fn list_windows_named_stream_names(path: &Path) -> Vec<String> {
+    let Some(file_name) = path.file_name().and_then(|s| s.to_str()) else {
+        return Vec::new();
+    };
+    let mut cmd = std::process::Command::new("cmd");
+    cmd.args(["/U", "/C", "dir", "/R"]).arg(path);
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let Ok(output) = cmd.output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    parse_dir_r_stream_names(&decode_cmd_u_stdout(&output.stdout), file_name)
+}
+
+/// Decode `cmd /U` stdout (UTF-16 LE, optional BOM). Compiled on every OS
+/// so the unit test locks the decoder without a Windows runner.
+fn decode_cmd_u_stdout(bytes: &[u8]) -> String {
+    let bytes = bytes.strip_prefix(&[0xFF, 0xFE]).unwrap_or(bytes);
+    if !bytes.len().is_multiple_of(2) {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let units: Vec<u16> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
+        .collect();
+    String::from_utf16_lossy(&units)
+}
+
+/// Parse `dir /R` lines such as `6 t.txt:custom:$DATA`.
+fn parse_dir_r_stream_names(text: &str, file_name: &str) -> Vec<String> {
+    let marker = format!("{file_name}:");
+    let mut names = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some(idx) = line.find(&marker) else {
+            continue;
+        };
+        let rest = &line[idx + marker.len()..];
+        let name = rest
+            .strip_suffix(":$DATA")
+            .or_else(|| rest.strip_suffix(":$data"))
+            .unwrap_or("");
+        if name.is_empty() || names.iter().any(|n| n == name) {
+            continue;
+        }
+        names.push(name.to_string());
+    }
+    names
 }
 
 /// Directory-entry count for this file. Unix `nlink`; Windows

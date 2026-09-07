@@ -541,6 +541,23 @@ try {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "MOTW persist exit=$($r.ExitCode) body=$motwBody zone=$zone out=$snip"
         }
+
+        $ads = Join-Path $ws "ads.txt"
+        Set-Content -LiteralPath $ads -Value "old line`n" -NoNewline
+        Set-Content -LiteralPath "${ads}:custom" -Value "secret" -NoNewline
+        Set-Content -LiteralPath "${ads}:Zone.Identifier" -Value "[ZoneTransfer]`r`nZoneId=3`r`n" -NoNewline
+        $r = Invoke-Pl --json --cwd $ws replace old --new new ads.txt --apply
+        $adsBody = Get-Content -LiteralPath $ads -Raw
+        $custom = $null
+        $adsZone = $null
+        try { $custom = Get-Content -LiteralPath $ads -Stream custom -Raw -ErrorAction Stop } catch { $custom = $null }
+        try { $adsZone = Get-Content -LiteralPath $ads -Stream Zone.Identifier -Raw -ErrorAction Stop } catch { $adsZone = $null }
+        if ($r.ExitCode -eq 0 -and $adsBody -match "new line" -and $custom -match "secret" -and $adsZone -match "ZoneId=3") {
+            Pass "replace keeps custom named stream and MOTW"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "custom ADS persist exit=$($r.ExitCode) body=$adsBody custom=$custom zone=$adsZone out=$snip"
+        }
     }
 
     # --- doc set JSON with UTF-8 BOM (Notepad/VS) ---

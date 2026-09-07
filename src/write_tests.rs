@@ -944,6 +944,42 @@ fn atomic_write_via_8dot3_keeps_long_name() {
     );
 }
 
+#[test]
+fn parse_dir_r_stream_names_keeps_custom_and_skips_default_data() {
+    let listing = "\
+ Volume in drive C is Windows\r
+ Directory of C:\\tmp\r
+\r
+09/07/2026  08:00 AM                10 t.txt\r
+                                    10 t.txt:custom:$DATA\r
+                                    26 t.txt:Zone.Identifier:$DATA\r
+               1 File(s)             10 bytes\r
+";
+    assert_eq!(
+        super::parse_dir_r_stream_names(listing, "t.txt"),
+        ["custom", "Zone.Identifier"]
+    );
+}
+
+#[test]
+fn parse_dir_r_stream_names_accepts_full_path_and_lowercase_data() {
+    let listing = r"C:\Users\seb\t.txt:secret:$data";
+    assert_eq!(
+        super::parse_dir_r_stream_names(listing, "t.txt"),
+        ["secret"]
+    );
+}
+
+#[test]
+fn decode_cmd_u_stdout_utf16_le_with_bom() {
+    let mut bytes = vec![0xFF, 0xFE];
+    for unit in "t.txt:custom:$DATA\r\n".encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    let text = super::decode_cmd_u_stdout(&bytes);
+    assert_eq!(super::parse_dir_r_stream_names(&text, "t.txt"), ["custom"]);
+}
+
 /// Temp+rename persist must keep Mark of the Web (fixrealloop R123).
 #[cfg(windows)]
 #[test]
@@ -961,6 +997,33 @@ fn atomic_write_keeps_zone_identifier() {
         fs::read(super::windows_stream_path(&target, "Zone.Identifier")).unwrap(),
         motw,
         "MOTW must survive temp+rename persist"
+    );
+}
+
+/// Custom ADS must survive the same persist path as MOTW (#2341).
+#[cfg(windows)]
+#[test]
+fn atomic_write_keeps_custom_named_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("ads.txt");
+    fs::write(&target, "old\n").unwrap();
+    let custom = b"secret";
+    let motw = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+    fs::write(super::windows_stream_path(&target, "custom"), custom).unwrap();
+    fs::write(super::windows_stream_path(&target, "Zone.Identifier"), motw).unwrap();
+
+    atomic_write(&target, "new\n", &WritePolicy::default()).unwrap();
+
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert_eq!(
+        fs::read(super::windows_stream_path(&target, "custom")).unwrap(),
+        custom,
+        "custom named stream must survive temp+rename persist"
+    );
+    assert_eq!(
+        fs::read(super::windows_stream_path(&target, "Zone.Identifier")).unwrap(),
+        motw,
+        "MOTW must still survive when a custom stream is also present"
     );
 }
 
