@@ -141,6 +141,25 @@ fn pattern_has_line_anchor(pattern: &str) -> bool {
     pattern_has_unescaped_dollar(pattern) || pattern_has_unescaped_caret(pattern)
 }
 
+fn pattern_has_unescaped_dot(pattern: &str) -> bool {
+    let mut escaped = false;
+    let mut in_class = false;
+    for c in pattern.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '[' if !in_class => in_class = true,
+            ']' if in_class => in_class = false,
+            '.' if !in_class => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 fn pattern_has_unescaped_dollar(pattern: &str) -> bool {
     let mut escaped = false;
     let mut in_class = false;
@@ -706,14 +725,11 @@ fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> St
 pub fn count_content_matches(content: &str, from: &str, compiled_re: Option<&Regex>) -> usize {
     let content = crate::ops::file::strip_utf8_bom(content);
     match compiled_re {
-        Some(re) if pattern_has_line_anchor(from) => crate::ops::file::text_lines(content)
-            .map(|line| {
-                let line_len = line.len();
-                re.find_iter(line)
-                    .filter(|m| !(m.start() == line_len && m.end() == line_len))
-                    .count()
-            })
-            .sum(),
+        Some(re) if pattern_has_line_anchor(from) && !pattern_has_unescaped_dot(from) => {
+            crate::ops::file::text_lines(content)
+                .map(|line| re.find_iter(line).count())
+                .sum()
+        }
         Some(re) => {
             let content_len = content.len();
             re.find_iter(content)
@@ -813,6 +829,7 @@ pub fn replace_content<'a>(
     apply_with_optional_bom(content, |content| {
         if let Some(re) = compiled_re
             && pattern_has_line_anchor(from)
+            && !pattern_has_unescaped_dot(from)
         {
             return replace_line_anchor_content(content, from, to, re, nth);
         }
@@ -931,12 +948,11 @@ fn replace_line_anchor_content<'a>(
     if parts.is_empty() {
         return (Cow::Borrowed(content), 0);
     }
-    let single = parts.len() == 1;
+    let n_parts = parts.len();
     let mut out = String::with_capacity(content.len());
     let mut total = 0usize;
     let mut seen = 0usize;
-    for (line, ending) in &parts {
-        let line_len = line.len();
+    for (i, (line, ending)) in parts.iter().enumerate() {
         let mut line_out = String::with_capacity(line.len());
         let mut last = 0usize;
         let mut n_this = 0usize;
@@ -944,9 +960,6 @@ fn replace_line_anchor_content<'a>(
             let Some(m) = caps.get(0) else {
                 continue;
             };
-            if m.start() == line_len && m.end() == line_len {
-                continue;
-            }
             seen += 1;
             if let Some(want) = nth
                 && seen != want
@@ -969,7 +982,7 @@ fn replace_line_anchor_content<'a>(
         }
         total += n_this;
         let drop_eos_cr =
-            single && *ending == "\r" && n_this > 0 && pattern_has_unescaped_dollar(from);
+            i + 1 == n_parts && *ending == "\r" && n_this > 0 && pattern_has_unescaped_dollar(from);
         if !drop_eos_cr {
             out.push_str(ending);
         }
