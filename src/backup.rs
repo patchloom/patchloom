@@ -769,6 +769,11 @@ pub fn restore_path_from_session_with_guard(
     };
 
     check_restore_policy(project_root, &session_dir, &entry.path, guard)?;
+    if let Some((deleted, other)) = case_only_partner_entries(&manifest.entries, entry)
+        && restore_live_case_only_pair(project_root, &session_dir, deleted, other)?
+    {
+        return Ok(true);
+    }
     let target = resolve_restore_path(project_root, &entry.path);
 
     match entry.action {
@@ -838,6 +843,57 @@ fn same_case_insensitive_file(a: &Path, b: &Path) -> bool {
         (Ok(ca), Ok(cb)) => ca == cb,
         _ => false,
     }
+}
+
+/// `(Deleted, Modified|Created)` pair for a case-only rename, if present.
+fn case_only_partner_entries<'a>(
+    entries: &'a [ManifestEntry],
+    entry: &'a ManifestEntry,
+) -> Option<(&'a ManifestEntry, &'a ManifestEntry)> {
+    match entry.action {
+        FileAction::Deleted => {
+            let other = entries.iter().find(|o| {
+                matches!(o.action, FileAction::Modified | FileAction::Created)
+                    && is_case_only_path_pair(&entry.path, &o.path)
+            })?;
+            Some((entry, other))
+        }
+        FileAction::Modified | FileAction::Created => {
+            let deleted = entries.iter().find(|d| {
+                matches!(d.action, FileAction::Deleted)
+                    && is_case_only_path_pair(&d.path, &entry.path)
+            })?;
+            Some((deleted, entry))
+        }
+    }
+}
+
+/// Rename the live case-insensitive entry back to `deleted.path`, then copy
+/// the Deleted blob so later edits of the new name do not survive undo.
+fn restore_live_case_only_pair(
+    project_root: &Path,
+    session_dir: &Path,
+    deleted: &ManifestEntry,
+    other: &ManifestEntry,
+) -> anyhow::Result<bool> {
+    let original = resolve_restore_path(project_root, &deleted.path);
+    let current = resolve_restore_path(project_root, &other.path);
+    if !current.exists() || !same_case_insensitive_file(&original, &current) {
+        return Ok(false);
+    }
+    refuse_restore_onto_non_regular(&original, &deleted.path)?;
+    crate::ops::file::rename_or_copy(&current, &original).with_context(|| {
+        format!(
+            "restoring case-only name {} -> {}",
+            other.path, deleted.path
+        )
+    })?;
+    let blob = session_dir.join(&deleted.path);
+    if blob.exists() {
+        std::fs::copy(&blob, &original)
+            .with_context(|| format!("restoring deleted file {}", deleted.path))?;
+    }
+    Ok(true)
 }
 
 /// Restore a specific backup session, returning the number of files restored.
@@ -915,22 +971,12 @@ pub fn restore_session_with_guard(
             {
                 continue;
             }
-            let original = resolve_restore_path(project_root, &deleted.path);
-            let current = resolve_restore_path(project_root, &other.path);
-            if !current.exists() || !same_case_insensitive_file(&original, &current) {
-                continue;
+            if restore_live_case_only_pair(project_root, &session_dir, deleted, other)? {
+                skip.insert(i);
+                skip.insert(j);
+                restored += 1;
+                break;
             }
-            refuse_restore_onto_non_regular(&original, &deleted.path)?;
-            crate::ops::file::rename_or_copy(&current, &original).with_context(|| {
-                format!(
-                    "restoring case-only name {} -> {}",
-                    other.path, deleted.path
-                )
-            })?;
-            skip.insert(i);
-            skip.insert(j);
-            restored += 1;
-            break;
         }
     }
     for (idx, entry) in manifest.entries.iter().enumerate() {
@@ -1322,9 +1368,33 @@ mod tests {
         let ts = session.finalize().unwrap().unwrap();
         crate::ops::file::rename_or_copy(&original, &dir.path().join("hello.txt")).unwrap();
         assert_eq!(on_disk_file_name(&original).as_deref(), Some("hello.txt"));
+        std::fs::write(dir.path().join("hello.txt"), "edited\n").unwrap();
 
         let restored = restore_session(dir.path(), &ts).unwrap();
         assert_eq!(restored, 1, "case-only pair is one logical restore");
+        assert_eq!(on_disk_file_name(&original).as_deref(), Some("Hello.txt"));
+        assert_eq!(std::fs::read_to_string(&original).unwrap(), "payload\n");
+    }
+
+    #[test]
+    fn restore_path_case_only_rename_restores_original_casing() {
+        let dir = TempDir::new().unwrap();
+        if !fs_is_case_insensitive(dir.path()) {
+            return;
+        }
+        let original = dir.path().join("Hello.txt");
+        std::fs::write(&original, "payload\n").unwrap();
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_delete(&original).unwrap();
+        session
+            .save_before_write(&dir.path().join("hello.txt"))
+            .unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+        crate::ops::file::rename_or_copy(&original, &dir.path().join("hello.txt")).unwrap();
+        std::fs::write(dir.path().join("hello.txt"), "edited\n").unwrap();
+
+        let ok = restore_path_from_session(dir.path(), &ts, &dir.path().join("hello.txt")).unwrap();
+        assert!(ok);
         assert_eq!(on_disk_file_name(&original).as_deref(), Some("Hello.txt"));
         assert_eq!(std::fs::read_to_string(&original).unwrap(), "payload\n");
     }
