@@ -421,6 +421,7 @@ pub fn anchor_is_whole_line(file_content: &str, anchor: &str) -> bool {
 /// Like [`anchor_is_whole_line`]; when `case_insensitive`, compare with
 /// ASCII case folding so `-i debug` matches a whole line `Debug`.
 pub fn anchor_is_whole_line_ci(file_content: &str, anchor: &str, case_insensitive: bool) -> bool {
+    let file_content = crate::ops::file::strip_utf8_bom(file_content);
     if anchor.is_empty() || file_content.is_empty() {
         return false;
     }

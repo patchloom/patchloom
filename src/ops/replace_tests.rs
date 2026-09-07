@@ -314,6 +314,11 @@ mod replace_tests {
         }
 
         #[test]
+        fn anchor_is_whole_line_after_utf8_bom() {
+            assert!(anchor_is_whole_line("\u{feff}end\r\n", "end"));
+        }
+
+        #[test]
         fn anchor_is_whole_line_ci_case_insensitive_matches_on_disk_casing() {
             assert!(anchor_is_whole_line_ci("Debug\n", "debug", true));
             assert!(!anchor_is_whole_line_ci("Debug\n", "debug", false));

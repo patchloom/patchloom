@@ -44,10 +44,7 @@ pub fn prepend_content(existing: &str, prepend: &str) -> String {
         return existing.to_string();
     }
     // Keep a leading BOM at byte 0 so the file stays UTF-8-with-BOM.
-    let (bom, rest) = match existing.strip_prefix('\u{feff}') {
-        Some(rest) => ("\u{feff}", rest),
-        None => ("", existing),
-    };
+    let (bom, rest) = split_utf8_bom(existing);
     let mut combined = prepend.to_string();
     if !ends_with_line_ending(&combined) && !rest.is_empty() {
         combined.push_str(preferred_line_ending(rest));
