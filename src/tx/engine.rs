@@ -248,6 +248,7 @@ pub fn execute_precomputed(
         let abs_path = cwd.join(&rel_path);
         existed_before.insert(abs_path.clone());
         let policy = ctx.write_policy(Some(&abs_path));
+        policy.refuse_unsupported_charset()?;
         let final_content = apply_policy(&new_content, &policy).into_owned();
         if final_content != original {
             pending.insert(abs_path.clone(), (original.clone(), final_content.clone()));

@@ -26,6 +26,7 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 trim_trailing_whitespace: true,
                 normalize_eol: EolMode::Keep,
                 collapse_blanks: false,
+                charset: crate::write::CharsetMode::Keep,
             };
             if let Some(ov) = tx.plan_write_policy {
                 policy.apply_override(ov)?;
@@ -42,6 +43,7 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             if let Some(v) = *collapse_blanks {
                 policy.collapse_blanks = v;
             }
+            policy.refuse_unsupported_charset()?;
             let mut new = crate::write::apply_policy(&content, &policy).into_owned();
 
             // Apply dedent/indent after policy normalization.

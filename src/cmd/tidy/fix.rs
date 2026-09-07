@@ -241,6 +241,14 @@ pub(super) fn run_fix(
     global.check_paths_contained(&cwd, &paths)?;
     // Read --files-from once (including stdin `-`); do not re-read empty stdin.
     let files_from_list = global.read_files_from()?;
+    let charset_paths = files_from_list.as_deref().unwrap_or(&paths);
+    if let Some(name) =
+        super::check::first_unsupported_editorconfig_charset(charset_paths, global, &cwd)
+    {
+        let msg = format!("editorconfig charset '{name}' is not supported; use utf-8 or utf-8-bom");
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(exit::FAILURE);
+    }
     if let Some(err) =
         crate::ops::file::sole_explicit_non_text_for_scan(&paths, files_from_list.as_deref(), &cwd)
     {
@@ -291,16 +299,21 @@ pub(super) fn run_fix(
         ..GlobalFlags::default()
     };
 
+    let charset_err = std::sync::Mutex::new(None::<&'static str>);
     let dirty_rel_paths: Vec<String> = crate::par_process_files(
         &fix_file_paths,
         glob_matcher.as_ref(),
         &glob_roots,
         |file_path| {
+            let policy = policy_from_flags(&policy_global, Some(file_path));
+            if let Some(name) = policy.unsupported_charset() {
+                *charset_err.lock().unwrap_or_else(|e| e.into_inner()) = Some(name);
+                return None;
+            }
             let original = match crate::files::read_text_file_logged(file_path, "tidy", quiet) {
                 Some(text) => text,
                 None => return None,
             };
-            let policy = policy_from_flags(&policy_global, Some(file_path));
             let mut fixed = apply_policy(&original, &policy).into_owned();
             if let Some(spec) = dedent_ref {
                 fixed = crate::write::dedent_content(&fixed, spec, line_range);
@@ -321,6 +334,11 @@ pub(super) fn run_fix(
     );
 
     crate::verbose!("tidy: {} file(s) need fixing", dirty_rel_paths.len());
+    if let Some(name) = charset_err.into_inner().unwrap_or_else(|e| e.into_inner()) {
+        let msg = format!("editorconfig charset '{name}' is not supported; use utf-8 or utf-8-bom");
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(crate::exit::FAILURE);
+    }
     if dirty_rel_paths.is_empty() {
         let all_missing = if let Some(ref files) = files_from_list {
             crate::files::all_explicit_paths_missing(files, Some(&cwd))

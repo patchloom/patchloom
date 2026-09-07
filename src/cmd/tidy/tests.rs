@@ -13,7 +13,7 @@ fn detects_missing_final_newline() {
     let file = tmp.path().join("no_newline.txt");
     std::fs::write(&file, b"hello").unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(
         issues.iter().any(|i| i.issue == "missing final newline"),
         "expected missing final newline issue, got: {issues:?}"
@@ -28,7 +28,7 @@ fn empty_file_no_missing_newline() {
     let file = tmp.path().join("empty.txt");
     std::fs::write(&file, b"").unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(
         !issues.iter().any(|i| i.issue == "missing final newline"),
         "empty file should not be flagged for missing final newline: {issues:?}"
@@ -42,7 +42,7 @@ fn detects_mixed_line_endings() {
     // First line uses CRLF, second uses bare LF.
     std::fs::write(&file, b"line1\r\nline2\nline3\n").unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(
         issues.iter().any(|i| i.issue == "mixed line endings"),
         "expected mixed line endings issue, got: {issues:?}"
@@ -55,7 +55,7 @@ fn detects_trailing_whitespace() {
     let file = tmp.path().join("trailing.txt");
     std::fs::write(&file, b"hello   \nworld\n").unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     let trailing: Vec<_> = issues
         .iter()
         .filter(|i| i.issue == "trailing whitespace")
@@ -70,7 +70,7 @@ fn clean_file_produces_no_issues_and_exit_zero() {
     let file = tmp.path().join("clean.txt");
     std::fs::write(&file, b"hello\nworld\n").unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(issues.is_empty(), "expected no issues for clean file");
 
     let global = GlobalFlags::test_with_cwd(tmp.path());
@@ -91,7 +91,7 @@ fn multiple_issues_in_one_file() {
     // Missing final newline + trailing whitespace on line 1 + mixed endings.
     std::fs::write(&file, b"hello \r\nworld\nfoo").unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     let issue_types: Vec<&str> = issues.iter().map(|i| i.issue).collect();
     assert!(
         issue_types.contains(&"missing final newline"),
@@ -116,7 +116,7 @@ fn binary_files_are_skipped() {
     data.insert(3, 0x00);
     std::fs::write(&file, &data).unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(
         issues.is_empty(),
         "expected no issues for binary file, got: {issues:?}"
@@ -131,7 +131,7 @@ fn large_binary_files_are_skipped_via_header_probe() {
     data[4096] = 0;
     std::fs::write(&file, &data).unwrap();
 
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(
         issues.is_empty(),
         "expected no issues for large binary file, got: {issues:?}"
@@ -562,14 +562,20 @@ fn check_detects_crlf_when_eol_target_is_lf() {
     std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
 
     // Without --normalize-eol: no EOL issue (consistent CRLF is fine).
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(
         !issues.iter().any(|i| i.issue.contains("normalization")),
         "no normalization issue without eol target: {issues:?}"
     );
 
     // With --normalize-eol lf: should detect CRLF as needing normalization.
-    let issues = check_file(&file, true, Some(crate::write::EolMode::Lf), true);
+    let issues = check_file(
+        &file,
+        true,
+        Some(crate::write::EolMode::Lf),
+        true,
+        crate::write::CharsetMode::Keep,
+    );
     assert!(
         issues
             .iter()
@@ -601,7 +607,13 @@ fn check_detects_lf_when_eol_target_is_crlf() {
     let file = tmp.path().join("lf.txt");
     std::fs::write(&file, b"line1\nline2\n").unwrap();
 
-    let issues = check_file(&file, true, Some(crate::write::EolMode::Crlf), true);
+    let issues = check_file(
+        &file,
+        true,
+        Some(crate::write::EolMode::Crlf),
+        true,
+        crate::write::CharsetMode::Keep,
+    );
     assert!(
         issues
             .iter()
@@ -617,7 +629,13 @@ fn check_no_eol_issue_when_already_matching() {
     let file = tmp.path().join("lf.txt");
     std::fs::write(&file, b"line1\nline2\n").unwrap();
 
-    let issues = check_file(&file, true, Some(crate::write::EolMode::Lf), true);
+    let issues = check_file(
+        &file,
+        true,
+        Some(crate::write::EolMode::Lf),
+        true,
+        crate::write::CharsetMode::Keep,
+    );
     assert!(
         !issues.iter().any(|i| i.issue.contains("normalization")),
         "LF file with LF target should not be flagged: {issues:?}"
@@ -742,17 +760,156 @@ fn check_file_skips_trailing_ws_when_disabled() {
     std::fs::write(&file, "hello   \nworld\n").unwrap();
 
     // With check_trailing_ws = true: should find trailing whitespace
-    let issues = check_file(&file, true, None, true);
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
     assert!(
         issues.iter().any(|i| i.issue == "trailing whitespace"),
         "should find trailing ws with check_trailing_ws=true"
     );
 
     // With check_trailing_ws = false: should NOT find trailing whitespace
-    let issues = check_file(&file, true, None, false);
+    let issues = check_file(&file, true, None, false, crate::write::CharsetMode::Keep);
     assert!(
         !issues.iter().any(|i| i.issue == "trailing whitespace"),
         "should not find trailing ws with check_trailing_ws=false"
+    );
+}
+
+#[test]
+fn check_file_utf8_bom_missing() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("x.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Utf8Bom);
+    assert!(
+        issues.iter().any(|i| i.issue == "missing UTF-8 BOM"),
+        "charset=utf-8-bom must flag a file without U+FEFF: {issues:?}"
+    );
+}
+
+#[test]
+fn check_file_utf8_unexpected_bom() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("x.txt");
+    std::fs::write(&file, "\u{feff}hello\n").unwrap();
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Utf8);
+    assert!(
+        issues.iter().any(|i| i.issue == "unexpected UTF-8 BOM"),
+        "charset=utf-8 must flag a leading BOM: {issues:?}"
+    );
+}
+
+#[test]
+fn check_respect_editorconfig_utf8_bom() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-8-bom\nend_of_line = lf\n",
+    )
+    .unwrap();
+    std::fs::write(tmp.path().join("x.txt"), "hello\n").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.respect_editorconfig = true;
+    let args = TidyArgs {
+        action: TidyAction::Check {
+            paths: vec![".".to_string()],
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(
+        code,
+        exit::CHANGES_DETECTED,
+        "tidy check --respect-editorconfig must detect missing utf-8-bom"
+    );
+}
+
+#[test]
+fn check_respect_editorconfig_utf16le_is_invalid_input() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-16le\n",
+    )
+    .unwrap();
+    std::fs::write(tmp.path().join("x.txt"), "hello\n").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.respect_editorconfig = true;
+    let args = TidyArgs {
+        action: TidyAction::Check {
+            paths: vec![".".to_string()],
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(
+        code,
+        exit::FAILURE,
+        "unsupported charset must be invalid_input (exit 1), not a silent no-op"
+    );
+}
+
+#[test]
+fn check_respect_editorconfig_utf16le_walk_is_invalid_input() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".editorconfig"),
+        "root = true\n\n[*.txt]\ncharset = utf-16le\n",
+    )
+    .unwrap();
+    // Real UTF-16 LE "hi\n" (BOM + h i LF). Soft-load would skip as binary.
+    std::fs::write(
+        tmp.path().join("x.txt"),
+        [0xff, 0xfe, 0x68, 0x00, 0x69, 0x00, 0x0a, 0x00],
+    )
+    .unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.respect_editorconfig = true;
+    let args = TidyArgs {
+        action: TidyAction::Check {
+            paths: vec![".".to_string()],
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(
+        code,
+        exit::FAILURE,
+        "walk of a UTF-16 dest with charset=utf-16le must be invalid_input"
+    );
+}
+
+#[test]
+fn fix_empty_utf8_bom_adds_bom_and_final_newline() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-8-bom\ninsert_final_newline = true\nend_of_line = lf\n",
+    )
+    .unwrap();
+    std::fs::write(tmp.path().join("x.txt"), b"").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.respect_editorconfig = true;
+    global.apply = true;
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec!["x.txt".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS, "one-pass tidy fix must succeed");
+    let got = std::fs::read(tmp.path().join("x.txt")).unwrap();
+    assert_eq!(
+        got,
+        [0xef, 0xbb, 0xbf, b'\n'],
+        "empty + utf-8-bom + insert_final_newline must be BOM then LF, got {got:?}"
     );
 }
 

@@ -71,7 +71,7 @@ A write policy controls transformations applied to all content before it reaches
 - `--ensure-final-newline` -- non-empty files always end with `\n`
 - `--normalize-eol <lf|crlf|cr>` -- standardize line endings
 - `--trim-trailing-whitespace` -- remove trailing spaces on every line
-- `--respect-editorconfig` -- read policy from `.editorconfig` if present
+- `--respect-editorconfig` -- read policy from `.editorconfig` if present (newline, whitespace, and `charset`)
 
 Standalone write commands use these flags directly. In `tx`, the same flags act as defaults for all writes, and plan-level `write_policy` entries override conflicting CLI flags for self-contained plans.
 
