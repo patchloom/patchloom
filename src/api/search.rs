@@ -324,6 +324,7 @@ pub fn search_one_file(
         Some(c) => c,
         None => return vec![],
     };
+    let content = crate::ops::file::strip_utf8_bom(&content);
     let display = crate::files::relative_display(path, root);
     let pat = if opts.literal || (opts.multiline && !opts.regex) {
         // Auto-escape when literal is set, or when multiline mode is used
@@ -357,7 +358,7 @@ pub fn search_one_file(
         let re = re.as_ref().expect("multiline always builds regex");
         let mut results = Vec::new();
         let all_lines: Vec<&str> = content.lines().collect();
-        for m in re.find_iter(&content) {
+        for m in re.find_iter(content) {
             let start_byte = m.start();
             let line_num = content[..start_byte].matches('\n').count();
             let line_text = all_lines.get(line_num).unwrap_or(&"").to_string();

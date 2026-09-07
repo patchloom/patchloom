@@ -539,6 +539,19 @@ mod replace_tests {
         }
 
         #[test]
+        fn regex_caret_matches_after_utf8_bom_crlf() {
+            // Windows Notepad/VS write U+FEFF. Search strips it from the
+            // first line; replace must match ^ the same way and keep the BOM.
+            let re = compile_replace_regex("^end", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "\u{feff}end\r\nnext\r\n";
+            let (result, count) = replace_content(content, "^end", "END", Some(&re), None);
+            assert_eq!(count, 1, "BOM must not hide ^end");
+            assert_eq!(&*result, "\u{feff}END\r\nnext\r\n");
+        }
+
+        #[test]
         fn regex_dollar_matches_line_end() {
             // $ should match the end of every line, not just the end of the file.
             let re = compile_replace_regex(";$", true, false, false, false)

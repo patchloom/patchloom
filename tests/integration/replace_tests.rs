@@ -269,6 +269,22 @@ fn test_replace_regex_dollar_keeps_crlf() {
     assert_eq!(fs::read(&file).unwrap(), b"END\r\nnext\r\n");
 }
 
+#[test]
+fn test_replace_regex_caret_keeps_utf8_bom_crlf() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("bom.txt");
+    fs::write(&file, b"\xef\xbb\xbfend\r\nnext\r\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "^end", "--new", "END", "--regex", "--apply"])
+        .arg(&file)
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read(&file).unwrap(), b"\xef\xbb\xbfEND\r\nnext\r\n");
+}
+
 // ---------------------------------------------------------------------------
 // replace --whole-line, --range, --collapse-blanks
 // ---------------------------------------------------------------------------

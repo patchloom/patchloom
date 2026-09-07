@@ -748,6 +748,27 @@ pub fn count_nth_candidates(
     }
 }
 
+/// Run a content rewrite on the file body after a leading UTF-8 BOM.
+/// Search already ignores that BOM for `^`; keep it at byte 0 on write.
+fn apply_with_optional_bom<'a, F>(content: &'a str, f: F) -> (std::borrow::Cow<'a, str>, usize)
+where
+    F: FnOnce(&'a str) -> (std::borrow::Cow<'a, str>, usize),
+{
+    use std::borrow::Cow;
+    let (bom, rest) = crate::ops::file::split_utf8_bom(content);
+    let (out, n) = f(rest);
+    if n == 0 {
+        return (Cow::Borrowed(content), 0);
+    }
+    if bom.is_empty() {
+        return (out, n);
+    }
+    let mut s = String::with_capacity(bom.len() + out.len());
+    s.push_str(bom);
+    s.push_str(out.as_ref());
+    (Cow::Owned(s), n)
+}
+
 pub fn replace_content<'a>(
     content: &'a str,
     from: &str,
@@ -756,7 +777,7 @@ pub fn replace_content<'a>(
     nth: Option<usize>,
 ) -> (std::borrow::Cow<'a, str>, usize) {
     use std::borrow::Cow;
-    match (nth, compiled_re) {
+    apply_with_optional_bom(content, |content| match (nth, compiled_re) {
         (Some(n), Some(re)) => {
             let content_len = content.len();
             let mut count = 0usize;
@@ -855,7 +876,7 @@ pub fn replace_content<'a>(
             result.push_str(&content[last..]);
             (Cow::Owned(result), count)
         }
-    }
+    })
 }
 
 /// Start of horizontal whitespace before `start` when that whitespace is the
@@ -893,6 +914,19 @@ fn insert_before_is_line_oriented(
 /// `fn compute() {}` style `--before 'let x = 1;'` on an indented line must
 /// not steal the indent onto the new line and leave `let x` at column 0.
 pub fn replace_insert_before<'a>(
+    content: &'a str,
+    from: &str,
+    insert: &str,
+    compiled_re: Option<&Regex>,
+    nth: Option<usize>,
+    case_insensitive: bool,
+) -> (std::borrow::Cow<'a, str>, usize) {
+    apply_with_optional_bom(content, |content| {
+        replace_insert_before_body(content, from, insert, compiled_re, nth, case_insensitive)
+    })
+}
+
+fn replace_insert_before_body<'a>(
     content: &'a str,
     from: &str,
     insert: &str,
@@ -1205,6 +1239,19 @@ pub fn context_filtered_span_with_re(
 /// For regex patterns, capture groups in `to` are expanded using the match
 /// found on each line.
 pub fn replace_whole_lines<'a>(
+    content: &'a str,
+    from: &str,
+    to: &str,
+    compiled_re: Option<&Regex>,
+    nth: Option<usize>,
+    range: Option<(usize, Option<usize>)>,
+) -> (std::borrow::Cow<'a, str>, usize) {
+    apply_with_optional_bom(content, |content| {
+        replace_whole_lines_body(content, from, to, compiled_re, nth, range)
+    })
+}
+
+fn replace_whole_lines_body<'a>(
     content: &'a str,
     from: &str,
     to: &str,

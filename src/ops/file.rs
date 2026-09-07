@@ -27,6 +27,18 @@ pub fn strip_utf8_bom(s: &str) -> &str {
     s.strip_prefix('\u{feff}').unwrap_or(s)
 }
 
+/// Split a leading UTF-8 BOM from `s`.
+///
+/// Returns `("\u{feff}", rest)` when `s` starts with a BOM, otherwise
+/// `("", s)`. Replace uses this so `^` matches the first line the same
+/// way search does, then puts the BOM back at byte 0.
+pub fn split_utf8_bom(s: &str) -> (&str, &str) {
+    match s.strip_prefix('\u{feff}') {
+        Some(rest) => ("\u{feff}", rest),
+        None => ("", s),
+    }
+}
+
 pub fn prepend_content(existing: &str, prepend: &str) -> String {
     if prepend.is_empty() {
         return existing.to_string();
@@ -805,6 +817,12 @@ mod tests {
         let existing = "\u{feff}body\n";
         let out = prepend_content(existing, "HEAD\n");
         assert_eq!(out, "\u{feff}HEAD\nbody\n");
+    }
+
+    #[test]
+    fn split_utf8_bom_peels_leading_mark() {
+        assert_eq!(split_utf8_bom("\u{feff}end"), ("\u{feff}", "end"));
+        assert_eq!(split_utf8_bom("end"), ("", "end"));
     }
 
     #[test]

@@ -196,6 +196,26 @@ fn test_search_json_output_reports_line_and_column_without_context() {
 }
 
 #[test]
+fn test_search_regex_caret_matches_after_utf8_bom() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("bom.txt"), b"\xef\xbb\xbfend\r\nnext\r\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "--regex", "^end"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let matches = parsed["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0]["line"], 1);
+    assert_eq!(matches[0]["column"], 1);
+    assert_eq!(matches[0]["text"], "end");
+}
+
+#[test]
 fn test_search_jsonl_count_output() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("data.txt"), "aaa\naaa\n").unwrap();
