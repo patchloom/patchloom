@@ -30,10 +30,18 @@ pub fn compile_replace_regex(
         )?));
     }
     if regex_mode {
+        let rewritten = crlf_aware_dollar(pattern);
+        // `\b(?:end\r?$)\b` fails on CRLF: after `end\r` both CR and LF
+        // are non-word, so the trailing `\b` does not match. Keep
+        // `\b` against the word, then optional CR (#2325).
         let effective = if word_boundary {
-            format!("\\b(?:{pattern})\\b")
+            if let Some(core) = rewritten.strip_suffix(r"\r?$") {
+                format!("\\b(?:{core})\\b\\r?$")
+            } else {
+                format!("\\b(?:{rewritten})\\b")
+            }
         } else {
-            pattern.to_string()
+            rewritten
         };
         Ok(Some(crate::bounded_regex_build(
             crate::bounded_regex_builder(&effective)
@@ -70,6 +78,87 @@ pub fn validate_replace_mode(
         (true, true, false) | (true, false, true) => Err(ReplaceModeError::ToWithInsert),
         _ => Ok(()),
     }
+}
+
+/// Map unescaped `$` (outside `[]`) to `\r?$` so content-mode `$` matches
+/// the same sites as search `str::lines()` (CR stripped). `\$` and `[$]`
+/// stay literal. [`keep_crlf_after_dollar_match`] puts a consumed CR back
+/// so the file stays CRLF (R145 / #2325). The `regex` crate has no look-ahead.
+fn crlf_aware_dollar(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len() + 8);
+    let mut escaped = false;
+    let mut in_class = false;
+    for c in pattern.chars() {
+        if escaped {
+            out.push(c);
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => {
+                escaped = true;
+                out.push(c);
+            }
+            '[' if !in_class => {
+                in_class = true;
+                out.push(c);
+            }
+            ']' if in_class => {
+                in_class = false;
+                out.push(c);
+            }
+            // Optional CR then `$` (before `\n` / EOS). Trailing CR is put
+            // back on the replacement so CRLF files stay CRLF.
+            '$' if !in_class => out.push_str(r"\r?$"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// True when `pattern` has an unescaped `$` outside `[]` (same scan as
+/// [`crlf_aware_dollar`]). Restore must not run for `\r` / `.` / `$0`.
+fn pattern_has_unescaped_dollar(pattern: &str) -> bool {
+    let mut escaped = false;
+    let mut in_class = false;
+    for c in pattern.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '[' if !in_class => in_class = true,
+            ']' if in_class => in_class = false,
+            '$' if !in_class => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// `\r?$` eats the CR of CRLF. Put it back so `end$` -> `END` stays `END\r\n`.
+/// Only when the user pattern had unescaped `$`. Skip if the replacement
+/// already ends with CR (`$0` / `${0}` already include it).
+fn keep_crlf_after_dollar_match(
+    content: &str,
+    from: &str,
+    m: regex::Match<'_>,
+    mut replacement: String,
+) -> String {
+    if !pattern_has_unescaped_dollar(from) {
+        return replacement;
+    }
+    if replacement.ends_with('\r') {
+        return replacement;
+    }
+    if m.end() > m.start()
+        && content.as_bytes()[m.end() - 1] == b'\r'
+        && content.as_bytes().get(m.end()) == Some(&b'\n')
+    {
+        replacement.push('\r');
+    }
+    replacement
 }
 
 /// Errors from [`validate_replace_args`].
@@ -691,7 +780,12 @@ pub fn replace_content<'a>(
                     return (Cow::Borrowed(content), 0);
                 };
                 result.push_str(&content[..m.start()]);
-                result.push_str(&expand_regex_replacement(&caps, to));
+                result.push_str(&keep_crlf_after_dollar_match(
+                    content,
+                    from,
+                    m,
+                    expand_regex_replacement(&caps, to),
+                ));
                 result.push_str(&content[m.end()..]);
                 return (Cow::Owned(result), 1);
             }
@@ -728,7 +822,11 @@ pub fn replace_content<'a>(
                     return String::new();
                 }
                 count += 1;
-                expand_regex_replacement(caps, to)
+                let repl = expand_regex_replacement(caps, to);
+                match caps.get(0) {
+                    Some(m) => keep_crlf_after_dollar_match(content, from, m, repl),
+                    None => repl,
+                }
             });
             match replaced {
                 Cow::Borrowed(_) => (Cow::Borrowed(content), 0),

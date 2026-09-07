@@ -252,6 +252,23 @@ fn test_replace_multiline_regex() {
     );
 }
 
+/// Content-mode `$` must match CRLF line ends the same way search does (#2325).
+#[test]
+fn test_replace_regex_dollar_keeps_crlf() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("crlf.txt");
+    fs::write(&file, b"end\r\nnext\r\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "end$", "--new", "END", "--regex", "--apply"])
+        .arg(&file)
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read(&file).unwrap(), b"END\r\nnext\r\n");
+}
+
 // ---------------------------------------------------------------------------
 // replace --whole-line, --range, --collapse-blanks
 // ---------------------------------------------------------------------------
