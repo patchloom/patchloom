@@ -7,6 +7,7 @@
 use crate::selector;
 use anyhow::Context;
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -193,13 +194,15 @@ pub fn serialize_value_preserving(
 ) -> anyhow::Result<String> {
     match format {
         FileFormat::Toml => {
-            let mut doc: toml_edit::DocumentMut = original_content.parse().map_err(|e| {
+            let mut doc: toml_edit::DocumentMut = toml_source_for_parse(original_content)
+                .parse()
+                .map_err(|e| {
                 anyhow::Error::new(crate::exit::ParseErrorError {
                     msg: format!("TOML re-parse for comment preservation: {e}"),
                 })
             })?;
             apply_value_diff(doc.as_item_mut(), old_value, new_value);
-            Ok(doc.to_string())
+            Ok(restore_toml_file_eol(original_content, doc.to_string()))
         }
         FileFormat::Yaml => {
             // Multi-document streams must stay multi-document on write. Falling
@@ -806,6 +809,55 @@ pub(super) fn yaml_semantic_eq(text: &str, expected: &serde_json::Value) -> bool
     parse_yaml_semantic(text).is_some_and(|v| v == *expected)
 }
 
+/// TOML 1.0 only names LF and CRLF. `toml_edit` rejects a lone CR.
+/// Normalize those to LF for parse; restore with [`restore_toml_file_eol`].
+fn toml_source_for_parse(content: &str) -> Cow<'_, str> {
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    let mut lone = false;
+    while i < bytes.len() {
+        if bytes[i] == b'\r' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                i += 2;
+            } else {
+                lone = true;
+                break;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    if !lone {
+        return Cow::Borrowed(content);
+    }
+    let mut out = Vec::with_capacity(bytes.len());
+    i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\r' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                out.extend_from_slice(b"\r\n");
+                i += 2;
+            } else {
+                out.push(b'\n');
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    Cow::Owned(String::from_utf8(out).expect("input was UTF-8"))
+}
+
+/// After a TOML CST write, put CR-only files back on CR (EditorConfig `cr`).
+fn restore_toml_file_eol(original: &str, rendered: String) -> String {
+    if crate::write::detect_eol(original) == "\r" {
+        crate::write::normalize_eol(&rendered, crate::write::EolMode::Cr).into_owned()
+    } else {
+        rendered
+    }
+}
+
 pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_json::Value> {
     // Notepad/VS/Out-File prefix. JSON rejects BOM; YAML multi-doc `---`
     // after U+FEFF is not a document marker (parse_error at `a:`).
@@ -841,7 +893,7 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
                 Ok(val)
             }
         }
-        FileFormat::Toml => toml_edit::de::from_str(content)
+        FileFormat::Toml => toml_edit::de::from_str(&toml_source_for_parse(content))
             .map_err(|e| anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })),
     }
 }
