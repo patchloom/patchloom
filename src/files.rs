@@ -472,11 +472,20 @@ pub(crate) fn collect_file_paths_opts_with_list(
         }
     }
     let dest_glob_only = walk_specs.is_empty() && !dest_globs.is_empty();
+    let dest_walk_depth = dest_glob_walk_max_depth(&dest_globs);
     let literal_specs = walk_specs.clone();
+    // Mix + no `**`: walk literals unbounded; walk `.` separately with dest
+    // depth so `search KEEP src *.txt` does not recurse the whole cwd.
+    let mix_capped_dot = !dest_glob_only
+        && dest_walk_depth.is_some()
+        && !walk_specs.iter().any(|s| s == "." || s == "./");
     if walk_specs.is_empty() {
         walk_specs.push(".".to_string());
-    } else if !dest_globs.is_empty() && !walk_specs.iter().any(|s| s == "." || s == "./") {
-        // Mix: also walk cwd so `search KEEP src *.txt` sees cwd `*.txt`.
+    } else if !dest_globs.is_empty()
+        && !walk_specs.iter().any(|s| s == "." || s == "./")
+        && !mix_capped_dot
+    {
+        // Mix + `**`: walk cwd unbounded so dest `**/*.txt` can match.
         walk_specs.push(".".to_string());
     }
     let dest_glob_matcher = build_dest_glob_matcher(&dest_globs)?;
@@ -514,7 +523,18 @@ pub(crate) fn collect_file_paths_opts_with_list(
     }
     // Walk-time prune: ignore crate depth is per root (depth 1 = root +
     // immediate children). Matches list_files max_depth component count (#2078).
-    if let Some(depth) = max_depth {
+    // Dest-glob-only without `**` also caps here (`*.txt` is cwd files).
+    let walk_depth = if dest_glob_only {
+        match (max_depth, dest_walk_depth) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        }
+    } else {
+        max_depth
+    };
+    if let Some(depth) = walk_depth {
         builder.max_depth(Some(depth));
     }
     // Never enter .git / .patchloom; prune exclude prefixes (vendor/**) at walk
@@ -578,6 +598,32 @@ pub(crate) fn collect_file_paths_opts_with_list(
         })
     });
     let mut paths = collected.into_inner().expect("all walkers done");
+
+    if mix_capped_dot {
+        let dest_dot_depth = match (max_depth, dest_walk_depth) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (_, Some(b)) => Some(b),
+            (Some(a), None) => Some(a),
+            (None, None) => None,
+        };
+        let mut dest_builder = WalkBuilder::new(resolve("."));
+        apply_platform_ignore_case(&mut dest_builder);
+        if include_hidden {
+            dest_builder.hidden(false);
+        }
+        if let Some(depth) = dest_dot_depth {
+            dest_builder.max_depth(Some(depth));
+        }
+        attach_walk_entry_filter(
+            &mut dest_builder,
+            exclude_set.clone(),
+            root.map(Path::to_path_buf),
+        );
+        for name in &global.ignore_file {
+            dest_builder.add_custom_ignore_filename(name);
+        }
+        paths.extend(collect_files_from_walk_builder(dest_builder));
+    }
 
     if let Some(ref matcher) = dest_glob_matcher {
         // Root-relative only. Filename fallback would make `*.txt` match
@@ -651,6 +697,30 @@ pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
     GlobBuilder::new(stripped)
         .case_insensitive(cfg!(windows))
         .build()
+}
+
+/// Walk depth for dest-glob retain. `None` is unbounded (`**` or no dest-glob).
+/// `*.txt` / `./*.txt` is cwd files (depth 1). `sub/*.txt` is one directory
+/// (depth 2). `--glob *.txt` is not dest-glob and stays recursive.
+#[cfg(feature = "cli")]
+fn dest_glob_walk_max_depth(globs: &[String]) -> Option<usize> {
+    if globs.is_empty() {
+        return None;
+    }
+    let mut cap = 0usize;
+    for pattern in globs {
+        let stripped = strip_leading_dot_slash(pattern);
+        let normalized = if cfg!(windows) && stripped.contains('\\') {
+            stripped.replace('\\', "/")
+        } else {
+            stripped.to_string()
+        };
+        if normalized.contains("**") {
+            return None;
+        }
+        cap = cap.max(normalized.matches('/').count() + 1);
+    }
+    Some(cap)
 }
 
 /// Dest-glob compile: `/` separators and `*` does not cross directories.
@@ -1713,6 +1783,69 @@ mod tests {
             assert!(!matches_dest_glob(&cwd, &win_slash, &roots));
             assert!(matches_dest_glob(&root.join("Hit.TXT"), &star, &roots));
         }
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn dest_glob_walk_max_depth_cwd_vs_recursive() {
+        assert_eq!(dest_glob_walk_max_depth(&["*.txt".into()]), Some(1));
+        assert_eq!(dest_glob_walk_max_depth(&["./*.txt".into()]), Some(1));
+        assert_eq!(dest_glob_walk_max_depth(&[r".\*.txt".into()]), Some(1));
+        assert_eq!(dest_glob_walk_max_depth(&["sub/*.txt".into()]), Some(2));
+        assert_eq!(dest_glob_walk_max_depth(&["a/b/*.txt".into()]), Some(3));
+        assert_eq!(
+            dest_glob_walk_max_depth(&["*.txt".into(), "sub/*.txt".into()]),
+            Some(2)
+        );
+        assert_eq!(dest_glob_walk_max_depth(&["**/*.txt".into()]), None);
+        assert_eq!(
+            dest_glob_walk_max_depth(&["*.txt".into(), "**/*.md".into()]),
+            None
+        );
+        assert_eq!(dest_glob_walk_max_depth(&[]), None);
+        #[cfg(windows)]
+        {
+            assert_eq!(dest_glob_walk_max_depth(&[r"sub\*.txt".into()]), Some(2));
+            assert_eq!(dest_glob_walk_max_depth(&[r"**\*.txt".into()]), None);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn dest_glob_mix_literal_root_stays_recursive() {
+        use std::fs;
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("src/deep")).unwrap();
+        fs::create_dir_all(root.join("other")).unwrap();
+        fs::write(root.join("keep.txt"), "k\n").unwrap();
+        fs::write(root.join("src/deep/in_src.txt"), "s\n").unwrap();
+        fs::write(root.join("other/nested.txt"), "o\n").unwrap();
+        let global = GlobalFlags::test_with_cwd(root);
+        let paths =
+            collect_file_paths_opts(&["src".into(), "*.txt".into()], &global, false, Some(root))
+                .unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert!(
+            rels.iter().any(|r| r == "keep.txt"),
+            "cwd dest *.txt: {rels:?}"
+        );
+        assert!(
+            rels.iter().any(|r| r.ends_with("in_src.txt")),
+            "literal src must stay recursive: {rels:?}"
+        );
+        assert!(
+            !rels.iter().any(|r| r.contains("other")),
+            "dest *.txt must not pick other/: {rels:?}"
+        );
     }
 
     #[test]
