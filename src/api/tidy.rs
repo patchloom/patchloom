@@ -23,9 +23,10 @@ pub struct TidyIndentOptions {
 
 /// Apply whitespace normalization to a file using the given write policy.
 ///
-/// Normalizes final newlines, line endings, trailing whitespace, and
-/// consecutive blank lines according to the policy options. Optionally
-/// applies dedent/indent transforms via `indent_opts`.
+/// Normalizes final newlines, line endings, trailing whitespace,
+/// consecutive blank lines, and charset (`Utf8Bom` / `Utf8` / `Keep`;
+/// `Unsupported` is `invalid_input`) according to the policy options.
+/// Optionally applies dedent/indent transforms via `indent_opts`.
 pub fn tidy(
     path: &Path,
     policy_opts: &WritePolicyOptions,
