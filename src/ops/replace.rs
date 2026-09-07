@@ -30,11 +30,18 @@ pub fn compile_replace_regex(
         )?));
     }
     if regex_mode {
-        let pattern = crlf_aware_dollar(pattern);
+        let rewritten = crlf_aware_dollar(pattern);
+        // `\b(?:end\r?$)\b` fails on CRLF: after `end\r` both CR and LF
+        // are non-word, so the trailing `\b` does not match. Keep
+        // `\b` against the word, then optional CR (#2325).
         let effective = if word_boundary {
-            format!("\\b(?:{pattern})\\b")
+            if let Some(core) = rewritten.strip_suffix(r"\r?$") {
+                format!("\\b(?:{core})\\b\\r?$")
+            } else {
+                format!("\\b(?:{rewritten})\\b")
+            }
         } else {
-            pattern
+            rewritten
         };
         Ok(Some(crate::bounded_regex_build(
             crate::bounded_regex_builder(&effective)
@@ -109,12 +116,42 @@ fn crlf_aware_dollar(pattern: &str) -> String {
     out
 }
 
+/// True when `pattern` has an unescaped `$` outside `[]` (same scan as
+/// [`crlf_aware_dollar`]). Restore must not run for `\r` / `.` / `$0`.
+fn pattern_has_unescaped_dollar(pattern: &str) -> bool {
+    let mut escaped = false;
+    let mut in_class = false;
+    for c in pattern.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '[' if !in_class => in_class = true,
+            ']' if in_class => in_class = false,
+            '$' if !in_class => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// `\r?$` eats the CR of CRLF. Put it back so `end$` -> `END` stays `END\r\n`.
+/// Only when the user pattern had unescaped `$`. Skip if the replacement
+/// already ends with CR (`$0` / `${0}` already include it).
 fn keep_crlf_after_dollar_match(
     content: &str,
+    from: &str,
     m: regex::Match<'_>,
     mut replacement: String,
 ) -> String {
+    if !pattern_has_unescaped_dollar(from) {
+        return replacement;
+    }
+    if replacement.ends_with('\r') {
+        return replacement;
+    }
     if m.end() > m.start()
         && content.as_bytes()[m.end() - 1] == b'\r'
         && content.as_bytes().get(m.end()) == Some(&b'\n')
@@ -745,6 +782,7 @@ pub fn replace_content<'a>(
                 result.push_str(&content[..m.start()]);
                 result.push_str(&keep_crlf_after_dollar_match(
                     content,
+                    from,
                     m,
                     expand_regex_replacement(&caps, to),
                 ));
@@ -786,7 +824,7 @@ pub fn replace_content<'a>(
                 count += 1;
                 let repl = expand_regex_replacement(caps, to);
                 match caps.get(0) {
-                    Some(m) => keep_crlf_after_dollar_match(content, m, repl),
+                    Some(m) => keep_crlf_after_dollar_match(content, from, m, repl),
                     None => repl,
                 }
             });

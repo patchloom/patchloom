@@ -575,6 +575,51 @@ mod replace_tests {
         }
 
         #[test]
+        fn regex_cr_class_not_restored_on_crlf() {
+            // Restore must not run when the pattern has no unescaped `$`.
+            let re = compile_replace_regex(r"\r", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "end\r\nnext\r\n";
+            let (result, count) = replace_content(content, r"\r", "", Some(&re), None);
+            assert_eq!(count, 2);
+            assert_eq!(&*result, "end\nnext\n");
+        }
+
+        #[test]
+        fn regex_dollar_group0_does_not_double_cr() {
+            let re = compile_replace_regex("end$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "end\r\n";
+            let (result, count) = replace_content(content, "end$", "$0", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "end\r\n");
+        }
+
+        #[test]
+        fn regex_dollar_in_class_stays_literal() {
+            let re = compile_replace_regex("[$]", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "a$b\n";
+            let (result, count) = replace_content(content, "[$]", "X", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "aXb\n");
+        }
+
+        #[test]
+        fn regex_word_boundary_dollar_matches_crlf() {
+            let re = compile_replace_regex("end$", true, false, false, true)
+                .unwrap()
+                .unwrap();
+            let content = "end\r\n";
+            let (result, count) = replace_content(content, "end$", "END", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "END\r\n");
+        }
+
+        #[test]
         fn regex_empty_line_pattern_with_whitespace() {
             let re = compile_replace_regex(r"^\s*$", true, false, false, false)
                 .unwrap()
