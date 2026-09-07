@@ -110,8 +110,12 @@ fn tidy_apply_policy_locally(
         }
         .into());
     }
-    let policy = super::make_write_policy(policy_opts);
+    let mut policy = super::make_write_policy(policy_opts);
     policy.refuse_unsupported_charset()?;
+    let charset = policy.charset;
+    // Indent after whitespace policy but before charset so Utf8Bom stays
+    // a leading U+FEFF (`    \u{feff}` would be a mid-line BOM).
+    policy.charset = crate::write::CharsetMode::Keep;
     let path_str = path.to_string_lossy();
     let original = crate::files::load_text_strict(path, &path_str)?;
     let mut new_content = crate::write::apply_policy(&original, &policy).into_owned();
@@ -127,6 +131,7 @@ fn tidy_apply_policy_locally(
     if let Some(ref spec) = indent_opts.indent {
         new_content = crate::write::indent_content(&new_content, spec, line_range);
     }
+    new_content = crate::write::apply_charset(&new_content, charset).into_owned();
 
     let noop_policy = crate::write::WritePolicy::default();
     let (applied, backup_session) =

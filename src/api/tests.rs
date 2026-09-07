@@ -2790,6 +2790,34 @@ fn tidy_charset_path_refuses_dedent_and_indent() {
 }
 
 #[test]
+fn tidy_utf8_bom_stays_leading_after_indent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("indent-bom.txt");
+    fs::write(&file, "hello\n").unwrap();
+    let opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8Bom,
+        ..WritePolicyOptions::default()
+    };
+    let indent = TidyIndentOptions {
+        dedent: None,
+        indent: Some("4".into()),
+        lines: None,
+    };
+    let result = tidy_with_indent(&file, &opts, &indent, ApplyMode::Apply, None).unwrap();
+    assert!(result.applied);
+    let disk = fs::read_to_string(&file).unwrap();
+    assert!(
+        disk.starts_with('\u{feff}'),
+        "BOM must stay leading after indent: {disk:?}"
+    );
+    assert!(
+        !disk.contains("    \u{feff}"),
+        "indent must not prefix the BOM: {disk:?}"
+    );
+    assert_eq!(disk, "\u{feff}    hello\n");
+}
+
+#[test]
 fn search_finds_matches() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");
