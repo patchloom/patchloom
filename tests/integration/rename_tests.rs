@@ -704,6 +704,73 @@ fn test_rename_case_only_change() {
     );
 }
 
+fn on_disk_file_name(path: &std::path::Path) -> Option<String> {
+    let parent = path.parent()?;
+    let want = path.file_name()?;
+    fs::read_dir(parent)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .find_map(|e| {
+            let name = e.file_name();
+            if name.eq_ignore_ascii_case(want) {
+                Some(name.to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        })
+}
+
+fn fs_is_case_insensitive(dir: &std::path::Path) -> bool {
+    let probe = dir.join("CaseProbe-2345.tmp");
+    let _ = fs::remove_file(&probe);
+    if fs::write(&probe, b"x").is_err() {
+        return false;
+    }
+    let folded = dir.join("caseprobe-2345.tmp");
+    let same = folded.exists();
+    let _ = fs::remove_file(&probe);
+    same
+}
+
+/// Undo after a case-only rename must restore the original NTFS/APFS name (#2345).
+#[test]
+fn test_rename_case_only_undo_restores_original_casing() {
+    let dir = TempDir::new().unwrap();
+    if !fs_is_case_insensitive(dir.path()) {
+        return;
+    }
+    let src = dir.path().join("Hello.txt");
+    fs::write(&src, "payload\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["rename", "Hello.txt", "hello.txt", "--apply", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .code(0);
+    assert_eq!(on_disk_file_name(&src).as_deref(), Some("hello.txt"));
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--apply", "--json", "--cwd"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("\"file_count\": 1") || stdout.contains("\"file_count\":1"),
+        "undo should count one logical restore, got {stdout}"
+    );
+    assert_eq!(on_disk_file_name(&src).as_deref(), Some("Hello.txt"));
+    assert_eq!(fs::read_to_string(&src).unwrap(), "payload\n");
+}
+
 /// Cross-directory rename with case-similar filenames must NOT bypass
 /// the destination-exists check (#1169).
 #[test]
