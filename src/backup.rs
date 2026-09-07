@@ -10,6 +10,7 @@
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 
@@ -819,6 +820,26 @@ pub fn restore_path_from_session_with_guard(
     }
 }
 
+fn is_case_only_path_pair(a: &str, b: &str) -> bool {
+    let pa = Path::new(a);
+    let pb = Path::new(b);
+    pa.parent() == pb.parent()
+        && pa.file_name().is_some()
+        && pa.file_name() != pb.file_name()
+        && pa.file_name().map(|n| n.to_ascii_lowercase())
+            == pb.file_name().map(|n| n.to_ascii_lowercase())
+}
+
+fn same_case_insensitive_file(a: &Path, b: &Path) -> bool {
+    match (
+        crate::containment::safe_canonicalize(a),
+        crate::containment::safe_canonicalize(b),
+    ) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => false,
+    }
+}
+
 /// Restore a specific backup session, returning the number of files restored.
 ///
 /// Uncontained (no [`PathGuard`]). Legitimate `__external__*` entries from a
@@ -879,7 +900,43 @@ pub fn restore_session_with_guard(
 
     // Phase 2: apply restores only after every required blob exists.
     let mut restored = 0;
-    for entry in &manifest.entries {
+    // Case-only rename records Deleted(old) + Modified/Created(new) for the
+    // same directory entry on NTFS/APFS. Copy-restore leaves the new casing
+    // in place (#2345). Rename the live entry back, then skip both rows.
+    let mut skip = HashSet::new();
+    for (i, deleted) in manifest.entries.iter().enumerate() {
+        if !matches!(deleted.action, FileAction::Deleted) {
+            continue;
+        }
+        for (j, other) in manifest.entries.iter().enumerate() {
+            if i == j
+                || !matches!(other.action, FileAction::Modified | FileAction::Created)
+                || !is_case_only_path_pair(&deleted.path, &other.path)
+            {
+                continue;
+            }
+            let original = resolve_restore_path(project_root, &deleted.path);
+            let current = resolve_restore_path(project_root, &other.path);
+            if !current.exists() || !same_case_insensitive_file(&original, &current) {
+                continue;
+            }
+            refuse_restore_onto_non_regular(&original, &deleted.path)?;
+            crate::ops::file::rename_or_copy(&current, &original).with_context(|| {
+                format!(
+                    "restoring case-only name {} -> {}",
+                    other.path, deleted.path
+                )
+            })?;
+            skip.insert(i);
+            skip.insert(j);
+            restored += 1;
+            break;
+        }
+    }
+    for (idx, entry) in manifest.entries.iter().enumerate() {
+        if skip.contains(&idx) {
+            continue;
+        }
         let target = resolve_restore_path(project_root, &entry.path);
         match entry.action {
             FileAction::Modified => {
@@ -1215,6 +1272,61 @@ mod tests {
         let restored = restore_session(dir.path(), &ts).unwrap();
         assert_eq!(restored, 1);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "doomed content");
+    }
+
+    fn on_disk_file_name(path: &Path) -> Option<String> {
+        let parent = path.parent()?;
+        let want = path.file_name()?;
+        std::fs::read_dir(parent)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .find_map(|e| {
+                let name = e.file_name();
+                if name.eq_ignore_ascii_case(want) {
+                    Some(name.to_string_lossy().into_owned())
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn fs_is_case_insensitive(dir: &Path) -> bool {
+        let probe = dir.join("CaseProbe-2345.tmp");
+        let _ = std::fs::remove_file(&probe);
+        if std::fs::write(&probe, b"x").is_err() {
+            return false;
+        }
+        let folded = dir.join("caseprobe-2345.tmp");
+        let same = folded.exists()
+            && crate::containment::safe_canonicalize(&probe).ok()
+                == crate::containment::safe_canonicalize(&folded).ok();
+        let _ = std::fs::remove_file(&probe);
+        same
+    }
+
+    /// Case-only rename backup is Deleted(old) + Modified(new) on the same
+    /// NTFS/APFS file. Undo must restore the original directory-entry case.
+    #[test]
+    fn restore_case_only_rename_pair_restores_original_casing() {
+        let dir = TempDir::new().unwrap();
+        if !fs_is_case_insensitive(dir.path()) {
+            return;
+        }
+        let original = dir.path().join("Hello.txt");
+        std::fs::write(&original, "payload\n").unwrap();
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_delete(&original).unwrap();
+        session
+            .save_before_write(&dir.path().join("hello.txt"))
+            .unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+        crate::ops::file::rename_or_copy(&original, &dir.path().join("hello.txt")).unwrap();
+        assert_eq!(on_disk_file_name(&original).as_deref(), Some("hello.txt"));
+
+        let restored = restore_session(dir.path(), &ts).unwrap();
+        assert_eq!(restored, 1, "case-only pair is one logical restore");
+        assert_eq!(on_disk_file_name(&original).as_deref(), Some("Hello.txt"));
+        assert_eq!(std::fs::read_to_string(&original).unwrap(), "payload\n");
     }
 
     /// `save_before_write` must not `fs::copy` a FIFO (blocks forever).
