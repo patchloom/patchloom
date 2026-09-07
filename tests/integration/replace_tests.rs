@@ -4312,3 +4312,33 @@ fn test_read_dot_device_con_refuses() {
         "expected illegal dest refuse, got stdout={stdout} stderr={stderr}"
     );
 }
+
+#[test]
+fn test_replace_positional_glob_dest_applies() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("skip.md"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "KEEP", "--new", "ZZ", "*.txt", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+        "ZZ\n"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("skip.md")).unwrap(),
+        "KEEP\n"
+    );
+}

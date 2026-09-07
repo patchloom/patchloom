@@ -2358,3 +2358,210 @@ fn test_replace_glob_txt_matches_uppercase_ext() {
         "new\n"
     );
 }
+
+#[test]
+fn test_search_positional_glob_dest_dotslash() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("other.md"), "KEEP\n").unwrap();
+
+    for dest in [r".\*.txt", "./*.txt"] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["search", "KEEP", dest])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "dest={dest} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("keep.txt"),
+            "dest={dest} must expand: {stdout}"
+        );
+        assert!(
+            !stdout.contains("other.md"),
+            "dest={dest} must not pick md: {stdout}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_search_star_dest_is_cwd_not_win32_wildcard() {
+    let dir = std::env::temp_dir().join(format!("pl-glob-cwd-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("sub")).unwrap();
+    fs::write(dir.join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.join("sub").join("nested.txt"), "KEEP\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(&dir)
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("keep.txt"), "cwd *.txt: {stdout}");
+    assert!(
+        !stdout.contains("nested.txt"),
+        "Win32 exists(*.txt) must not recurse: {stdout}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn test_search_extended_prefix_missing_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = format!(r"\\?\{}\nope-r204.txt", dir.path().display());
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", &missing])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+}
+
+#[test]
+fn test_search_positional_glob_dest_finds_cwd_files() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("other.md"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("keep.txt"),
+        "positional *.txt must expand: {stdout}"
+    );
+    assert!(
+        !stdout.contains("other.md"),
+        "positional *.txt must not pick md: {stdout}"
+    );
+    assert!(
+        !stdout.contains("nested.txt"),
+        "positional *.txt must stay cwd (Unix shell / dir *.txt): {stdout}"
+    );
+    assert!(
+        !stdout.contains("\"skipped\""),
+        "glob dest must not appear in skipped: {stdout}"
+    );
+}
+
+#[test]
+fn test_search_positional_glob_dest_subdir_and_space() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::create_dir(dir.path().join("my files")).unwrap();
+    fs::write(dir.path().join("sub").join("hit.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("my files").join("a.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+
+    // Win32 `\` is a separator. On Unix it is a filename character, so
+    // dest `sub\*.txt` is not `sub/*.txt` (no_matches unless that name exists).
+    let dests: &[&str] = if cfg!(windows) {
+        &[
+            "sub/*.txt",
+            r"sub\*.txt",
+            "my files/*.txt",
+            r"my files\*.txt",
+        ]
+    } else {
+        &["sub/*.txt", "my files/*.txt"]
+    };
+    for dest in dests {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["search", "KEEP", dest])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "dest={dest} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if dest.contains("sub") {
+            assert!(
+                stdout.contains("hit.txt"),
+                "dest={dest} must hit sub: {stdout}"
+            );
+            assert!(
+                !stdout.contains("keep.txt"),
+                "dest={dest} must not pick cwd keep.txt: {stdout}"
+            );
+        } else {
+            assert!(
+                stdout.contains("a.txt"),
+                "dest={dest} must hit space dir: {stdout}"
+            );
+        }
+    }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn test_search_backslash_dest_glob_is_not_a_separator_on_unix() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("hit.txt"), "KEEP\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", r"sub\*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+}

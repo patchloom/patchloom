@@ -213,17 +213,50 @@ pub fn is_binary_file(path: &Path) -> bool {
     is_binary(&buf[..n])
 }
 
+/// Length of a Windows extended/device prefix whose `?` is not a glob.
+/// `\\?\C:\file.txt` and `//?/C:/file.txt` must stay literal dests.
+#[cfg(feature = "cli")]
+#[must_use]
+fn windows_extended_prefix_len(path: &str) -> usize {
+    let b = path.as_bytes();
+    if b.len() >= 4 {
+        let p = &b[..4];
+        if p == br"\\?\" || p == b"//?/" || p == br"\\.\" || p == b"//./" {
+            return 4;
+        }
+    }
+    0
+}
+
+/// True when a dest looks like a glob Unix shells expand (`*.txt`, `sub/*.rs`).
+/// Windows cmd and PowerShell pass those through, so scan dests must expand
+/// them instead of peeling `not_found` / illegal dest.
+/// `*` / `?` in a `\\?\` / `//?/` prefix are not glob metacharacters.
+#[cfg(feature = "cli")]
+#[must_use]
+pub(crate) fn looks_like_glob_dest(path: &str) -> bool {
+    let rest = &path[windows_extended_prefix_len(path)..];
+    rest.as_bytes().iter().any(|b| matches!(b, b'*' | b'?'))
+}
+
 /// True when the user supplied explicit path roots and none of them exist.
 ///
 /// Empty `paths` means the caller will default to `.` and is never "all
 /// missing" here. Used so search/replace/tidy can distinguish path typos
 /// (`not_found`) from pattern/whitespace soft success (`no_matches` / clean).
+/// Glob dests are ignored: zero matches is pattern `no_matches`, not dest
+/// `not_found`.
 #[cfg(feature = "cli")]
 pub(crate) fn all_explicit_paths_missing(paths: &[String], root: Option<&Path>) -> bool {
     if paths.is_empty() {
         return false;
     }
-    paths.iter().all(|p| {
+    let literals: Vec<&String> = paths.iter().filter(|p| !looks_like_glob_dest(p)).collect();
+    if literals.is_empty() {
+        // Only glob dests: zero matches is pattern `no_matches`, not dest `not_found`.
+        return false;
+    }
+    literals.iter().all(|p| {
         let resolved = match root {
             Some(r) if !std::path::Path::new(p).is_absolute() => r.join(p),
             _ => std::path::PathBuf::from(p),
@@ -303,6 +336,9 @@ pub(crate) fn scan_missing_entries(
 fn missing_paths_under(cwd: &Path, paths: &[String]) -> Option<Vec<String>> {
     let mut missing = Vec::new();
     for f in paths {
+        if looks_like_glob_dest(f) {
+            continue;
+        }
         if !crate::ops::file::path_entry_exists(&cwd.join(f)) {
             missing.push(f.clone());
         }
@@ -417,6 +453,34 @@ pub(crate) fn collect_file_paths_opts_with_list(
         };
         crate::ops::file::windows_collapse_dest_path(&raw)
     };
+    // Unix shells expand `*.txt` before exec. Windows cmd/PowerShell do not.
+    // Split glob dests from literal walk roots so `search KEEP *.txt` is
+    // `--glob *.txt` over `.`, not dest `not_found`.
+    let mut walk_specs: Vec<String> = Vec::new();
+    let mut dest_globs: Vec<String> = Vec::new();
+    for p in effective {
+        let resolved = resolve(p);
+        // On Windows, `exists("C:\\ws\\*.txt")` is true when any .txt
+        // exists (wildcard FindFirstFile). That skipped dest-glob expand
+        // and walked the tree. `*` / `?` cannot be a real Win32 name.
+        let as_glob = looks_like_glob_dest(p)
+            && (cfg!(windows) || !crate::ops::file::path_entry_exists(&resolved));
+        if as_glob {
+            dest_globs.push(p.clone());
+        } else {
+            walk_specs.push(p.clone());
+        }
+    }
+    let dest_glob_only = walk_specs.is_empty() && !dest_globs.is_empty();
+    let literal_specs = walk_specs.clone();
+    if walk_specs.is_empty() {
+        walk_specs.push(".".to_string());
+    } else if !dest_globs.is_empty() && !walk_specs.iter().any(|s| s == "." || s == "./") {
+        // Mix: also walk cwd so `search KEEP src *.txt` sees cwd `*.txt`.
+        walk_specs.push(".".to_string());
+    }
+    let dest_glob_matcher = build_dest_glob_matcher(&dest_globs)?;
+    let effective: &[String] = &walk_specs;
     // Explicit walk roots under --contain (defense-in-depth for callers that
     // skip an early check_paths_contained on the same list).
     if let Some(r) = root {
@@ -515,6 +579,24 @@ pub(crate) fn collect_file_paths_opts_with_list(
     });
     let mut paths = collected.into_inner().expect("all walkers done");
 
+    if let Some(ref matcher) = dest_glob_matcher {
+        // Root-relative only. Filename fallback would make `*.txt` match
+        // `sub/a.txt`, but Unix shells and `dir *.txt` stay in cwd.
+        let dest_roots: Vec<PathBuf> = match root {
+            Some(r) => vec![normalize_glob_root(r.to_path_buf())],
+            None => vec![PathBuf::from(".")],
+        };
+        if dest_glob_only {
+            paths.retain(|p| matches_dest_glob(p, matcher, &dest_roots));
+        } else {
+            let literal_roots: Vec<PathBuf> = literal_specs.iter().map(|s| resolve(s)).collect();
+            paths.retain(|p| {
+                literal_roots.iter().any(|r| p == r || p.starts_with(r))
+                    || matches_dest_glob(p, matcher, &dest_roots)
+            });
+        }
+    }
+
     // Explicit file path args must not be dropped by exclude. Config like
     // exclude.globs = ["vendor/**"] is for walks; a targeted
     // `replace … vendor/pkg/x.js` must still hit that file. Directory roots
@@ -536,14 +618,54 @@ pub(crate) fn collect_file_paths_opts_with_list(
     Ok(paths)
 }
 
+/// Strip leading `./` / `.\` so `./*.txt` and `.\*.txt` match cwd files.
+/// Unix shells expand those before exec; Windows cmd/PowerShell pass them
+/// through.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn strip_leading_dot_slash(pattern: &str) -> &str {
+    let mut p = pattern;
+    loop {
+        if let Some(rest) = p.strip_prefix("./") {
+            p = rest;
+            continue;
+        }
+        if let Some(rest) = p.strip_prefix(".\\") {
+            p = rest;
+            continue;
+        }
+        break;
+    }
+    p
+}
+
 /// Compile a user `--glob` / exclude / `for_each` pattern.
 ///
 /// Windows file names are case-insensitive. `*.txt` must match `Hit.TXT`
 /// the same way `dir *.txt` does. Linux stays case-sensitive.
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
-    GlobBuilder::new(pattern)
+    let stripped = strip_leading_dot_slash(pattern);
+    // Win32 `\` is a separator. globset otherwise treats it as a literal
+    // (or escape), so `*.txt` matches `sub\a.txt` and `sub\*.txt` misses
+    // a `/`-normalized relative path.
+    GlobBuilder::new(stripped)
         .case_insensitive(cfg!(windows))
+        .build()
+}
+
+/// Dest-glob compile: `/` separators and `*` does not cross directories.
+/// Unix shells and `dir *.txt` stay in one directory; `**` is recursive.
+#[cfg(feature = "cli")]
+fn compile_dest_glob(pattern: &str) -> Result<Glob, globset::Error> {
+    let stripped = strip_leading_dot_slash(pattern);
+    let normalized = if cfg!(windows) && stripped.contains('\\') {
+        stripped.replace('\\', "/")
+    } else {
+        stripped.to_string()
+    };
+    GlobBuilder::new(&normalized)
+        .case_insensitive(cfg!(windows))
+        .literal_separator(true)
         .build()
 }
 
@@ -552,6 +674,18 @@ pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn apply_platform_ignore_case(builder: &mut WalkBuilder) {
     builder.ignore_case_insensitive(cfg!(windows));
+}
+
+#[cfg(feature = "cli")]
+fn build_dest_glob_matcher(globs: &[String]) -> anyhow::Result<Option<GlobSet>> {
+    if globs.is_empty() {
+        return Ok(None);
+    }
+    let mut builder = GlobSetBuilder::new();
+    for pattern in globs {
+        builder.add(compile_dest_glob(pattern)?);
+    }
+    Ok(Some(builder.build()?))
 }
 
 /// Build a compiled glob matcher from globs, or `None` if no globs given.
@@ -652,6 +786,25 @@ fn normalize_glob_root(path: PathBuf) -> PathBuf {
 #[cfg(any(feature = "cli", feature = "files"))]
 fn glob_matches_path(path: &Path, matcher: &GlobSet) -> bool {
     matcher.is_match(path) || path.file_name().is_some_and(|name| matcher.is_match(name))
+}
+
+/// Dest-glob retain: cwd-relative path with `/` separators.
+/// Do not match the absolute walk path: on Windows globset treats `\` as
+/// a normal character, so `*.txt` would match `C:\ws\sub\a.txt`.
+/// `*.txt` is cwd files, like a Unix shell or `dir *.txt`. `--glob`
+/// still uses [`matches_glob_with_roots`] (recursive filename match).
+#[cfg(feature = "cli")]
+fn matches_dest_glob(path: &Path, matcher: &GlobSet, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| {
+        let Ok(relative) = path.strip_prefix(root) else {
+            return false;
+        };
+        if relative.as_os_str().is_empty() {
+            return false;
+        }
+        let rel = relative.to_string_lossy().replace('\\', "/");
+        matcher.is_match(rel.as_str())
+    })
 }
 
 /// Check whether `path` matches any of the globs, either directly or relative
@@ -1478,6 +1631,38 @@ mod tests {
         std::fs::write(dir.path().join("exists.txt"), b"x\n").unwrap();
         let mixed = vec!["exists.txt".to_string(), "nope.txt".to_string()];
         assert!(!all_explicit_paths_missing(&mixed, Some(dir.path())));
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn looks_like_glob_dest_star_and_question() {
+        assert!(looks_like_glob_dest("*.txt"));
+        assert!(looks_like_glob_dest("sub/*.rs"));
+        assert!(looks_like_glob_dest(r"sub\*.rs"));
+        assert!(looks_like_glob_dest("file?.txt"));
+        assert!(looks_like_glob_dest(r"\\?\C:\temp\*.txt"));
+        assert!(looks_like_glob_dest("//?/C:/temp/*.txt"));
+        assert!(!looks_like_glob_dest("keep.txt"));
+        assert!(!looks_like_glob_dest("sub/keep.txt"));
+        assert!(!looks_like_glob_dest(r"\\?\C:\temp\keep.txt"));
+        assert!(!looks_like_glob_dest("//?/C:/temp/keep.txt"));
+        assert!(!looks_like_glob_dest(r"\\.\C:\temp\keep.txt"));
+        assert!(!looks_like_glob_dest("//./C:/temp/keep.txt"));
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn all_explicit_paths_missing_ignores_glob_dests() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(
+            !all_explicit_paths_missing(&["*.txt".into()], Some(dir.path())),
+            "glob dests are not dest not_found"
+        );
+        std::fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+        assert!(!all_explicit_paths_missing(
+            &["keep.txt".into(), "*.md".into()],
+            Some(dir.path())
+        ));
     }
 
     #[cfg(all(windows, feature = "cli"))]
