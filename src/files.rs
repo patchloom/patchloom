@@ -729,13 +729,32 @@ pub(crate) fn dest_glob_is_non_recursive(path: &str) -> bool {
     looks_like_glob_dest(path) && dest_glob_walk_max_depth(&[path.to_string()]).is_some()
 }
 
-/// Dest-glob cwd-only rule for agent JSON `error` (not stderr-only).
+/// Last `/` or `\` component of a dest glob (`*.txt`, `sub/*.txt` → `*.txt`).
+#[cfg(feature = "cli")]
+fn dest_glob_leaf(dest: &str) -> &str {
+    dest.rsplit(['/', '\\']).next().unwrap_or(dest)
+}
+
+/// Dest-glob that walks cwd files only (`*.txt`, `./*.txt`). `sub/*.txt` is not.
+#[cfg(feature = "cli")]
+fn dest_glob_is_cwd_only(path: &str) -> bool {
+    looks_like_glob_dest(path) && dest_glob_walk_max_depth(&[path.to_string()]) == Some(1)
+}
+
+/// Dest-glob scope rule for agent JSON `error` (not stderr-only).
+/// `*.txt` is cwd-only; `sub/*.txt` is that directory only. Remedy uses dest leaf.
 #[cfg(feature = "cli")]
 #[must_use]
 pub(crate) fn dest_glob_cwd_only_rule(paths: &[String]) -> Option<String> {
     let dest = paths.iter().find(|p| dest_glob_is_non_recursive(p))?;
+    let leaf = dest_glob_leaf(dest);
+    let scope = if dest_glob_is_cwd_only(dest) {
+        "the current directory only"
+    } else {
+        "that directory only"
+    };
     Some(format!(
-        "dest `{dest}` matches files in the current directory only; use `**/*.txt` or `--glob '*.txt'` for nested files"
+        "dest `{dest}` matches files in {scope}; use `**/{leaf}` or `--glob '{leaf}'` for nested files"
     ))
 }
 
@@ -751,13 +770,14 @@ pub(crate) fn with_dest_glob_cwd_only_rule(msg: &str, paths: &[String]) -> Strin
 
 /// Skip the `-i` tip when dest-glob expanded zero files or dest-glob
 /// dropped nested-only hits (cwd-only dest such as `*.txt`).
+/// Dest `sub/*.txt` with files found is a content miss: keep the `-i` tip.
 #[cfg(feature = "cli")]
 #[must_use]
 pub(crate) fn dest_glob_skip_case_tip(paths: &[String], dest_glob_files_empty: bool) -> bool {
     if !paths.iter().any(|p| looks_like_glob_dest(p)) {
         return false;
     }
-    dest_glob_files_empty || paths.iter().any(|p| dest_glob_is_non_recursive(p))
+    dest_glob_files_empty || paths.iter().any(|p| dest_glob_is_cwd_only(p))
 }
 
 /// Dest-glob compile: `/` separators and `*` does not cross directories.
@@ -1850,6 +1870,33 @@ mod tests {
         assert!(!dest_glob_skip_case_tip(&rec, false));
         assert!(!dest_glob_skip_case_tip(&literal, true));
         assert!(!dest_glob_skip_case_tip(&literal, false));
+
+        let sub = vec!["sub/*.txt".to_string()];
+        let sub_rule = dest_glob_cwd_only_rule(&sub).expect("subdir dest-glob rule");
+        assert!(
+            sub_rule.contains("dest `sub/*.txt`")
+                && sub_rule.contains("that directory only")
+                && !sub_rule.contains("current directory only")
+                && sub_rule.contains("--glob")
+                && sub_rule.contains("**/*.txt"),
+            "subdir dest-glob rule must name dest-subject that-directory-only and **/*.txt: {sub_rule}"
+        );
+        let with_sub = with_dest_glob_cwd_only_rule("no matches for 'KEEP' in sub/*.txt", &sub);
+        assert!(
+            with_sub.contains("dest `sub/*.txt`")
+                && with_sub.contains("that directory only")
+                && !with_sub.contains("current directory only")
+                && with_sub.contains("--glob")
+                && with_sub.contains("**/*.txt"),
+            "appended subdir rule must name dest-subject that-directory-only: {with_sub}"
+        );
+        let rs = dest_glob_cwd_only_rule(&["src/*.rs".to_string()]).expect("src dest-glob rule");
+        assert!(
+            rs.contains("**/*.rs") && rs.contains("--glob '*.rs'") && !rs.contains("*.txt"),
+            "src/*.rs remedy must name **/*.rs / --glob '*.rs', not *.txt: {rs}"
+        );
+        assert!(!dest_glob_skip_case_tip(&["sub/*.txt".to_string()], false));
+        assert!(dest_glob_skip_case_tip(&["sub/*.txt".to_string()], true));
     }
 
     #[test]

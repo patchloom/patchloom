@@ -2654,6 +2654,43 @@ fn test_search_positional_glob_dest_cwd_miss_skips_i_tip() {
 }
 
 #[test]
+fn test_search_positional_glob_dest_subdir_miss_is_that_directory_only() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("sub").join("deep")).unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(
+        dir.path().join("sub").join("deep").join("nested.txt"),
+        "KEEP\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "sub/*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("dest `sub/*.txt`")
+            && err.contains("that directory only")
+            && !err.contains("current directory only")
+            && err.contains("--glob"),
+        "dest sub/*.txt miss JSON error must name dest-subject that-directory-only and --glob: {v}"
+    );
+}
+
+#[test]
 fn test_search_positional_glob_dest_subdir_and_space() {
     let dir = TempDir::new().unwrap();
     fs::create_dir(dir.path().join("sub")).unwrap();

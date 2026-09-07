@@ -485,6 +485,10 @@ fn agent_rules_documents_dest_glob_vs_glob_vs_plan_path() {
         "must say dest *.txt is cwd-only (not --glob cwd-only): {out}"
     );
     assert!(
+        out.contains("Dest `sub/*.txt` matches files in that directory only"),
+        "must say dest sub/*.txt is that-directory-only: {out}"
+    );
+    assert!(
         out.contains("--glob"),
         "must name --glob as nested remedy: {out}"
     );
