@@ -106,14 +106,22 @@ clean: ## Remove build artifacts + known temps (cargo clean + git-clean)
 	cargo clean
 	@$(MAKE) --no-print-directory git-clean
 
+# cargo --list on Windows omits #[cfg(unix)] tests, so the local hundreds
+# floor can sit one bucket below Linux CI (the README source of truth).
+# Also strip CR so grep ': test$' matches cargo's CRLF --list lines.
 update-readme: ## Update README.md rounded test count (only changes when hundreds digit changes)
-	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
-	integ=$$(cargo test --test integration --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
-	pty=$$(cargo test --test pty --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
+	@unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | tr -d '\r' | grep ': test$$' | wc -l | tr -d ' '); \
+	integ=$$(cargo test --test integration --all-features -- --list 2>/dev/null | tr -d '\r' | grep ': test$$' | wc -l | tr -d ' '); \
+	pty=$$(cargo test --test pty --all-features -- --list 2>/dev/null | tr -d '\r' | grep ': test$$' | wc -l | tr -d ' '); \
 	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
 	pty=$${pty:-0}; \
 	total=$$((unit + integ + pty)); \
 	rounded=$$((total / 100 * 100)); \
+	existing=$$(sed -n 's/.*tests-\([0-9][0-9]*\)%2B%20passing.*/\1/p' README.md | head -1); \
+	if [ "$${OS}" = "Windows_NT" ] && [ -n "$$existing" ] && [ "$$existing" -gt "$$rounded" ]; then \
+		echo "README.md kept: $$existing+ (Windows cargo --list is $$total; unix-only tests live on Linux CI)"; \
+		exit 0; \
+	fi; \
 	all_cmds=$$(NO_COLOR=1 cargo run --all-features --quiet -- --help 2>/dev/null | sed -n '/^Commands:/,/^$$/p' | grep '^ ' | grep -cv '^ *help'); \
 	sed -i.bak "s/tests-[0-9]*%2B%20passing/tests-$$rounded%2B%20passing/" README.md; \
 	sed -i.bak "s/[0-9]*+ tests across [0-9]* commands/$$rounded+ tests across $$all_cmds commands/" README.md; \
@@ -122,13 +130,23 @@ update-readme: ## Update README.md rounded test count (only changes when hundred
 
 check-readme: ## Verify README.md rounded test count is accurate
 	@if grep -q '<<<<<<' README.md; then echo "ERROR: README.md contains conflict markers"; exit 1; fi; \
-	unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
-	integ=$$(cargo test --test integration --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
-	pty=$$(cargo test --test pty --all-features -- --list 2>/dev/null | grep ': test$$' | wc -l | tr -d ' '); \
+	unit=$$(cargo test --lib --all-features -- --list 2>/dev/null | tr -d '\r' | grep ': test$$' | wc -l | tr -d ' '); \
+	integ=$$(cargo test --test integration --all-features -- --list 2>/dev/null | tr -d '\r' | grep ': test$$' | wc -l | tr -d ' '); \
+	pty=$$(cargo test --test pty --all-features -- --list 2>/dev/null | tr -d '\r' | grep ': test$$' | wc -l | tr -d ' '); \
 	if [ -z "$$unit" ] || [ -z "$$integ" ]; then echo "ERROR: failed to parse test counts (unit=$$unit integ=$$integ)"; exit 1; fi; \
 	pty=$${pty:-0}; \
 	total=$$((unit + integ + pty)); \
 	rounded=$$((total / 100 * 100)); \
+	alt=$$((rounded + 100)); \
+	if [ "$${OS}" = "Windows_NT" ]; then \
+		if { grep -q "tests-$${rounded}%2B%20passing" README.md || grep -q "tests-$${alt}%2B%20passing" README.md; } \
+		&& { grep -q "$${rounded}+ tests across" README.md || grep -q "$${alt}+ tests across" README.md; }; then \
+			echo "README.md count OK: badge matches Windows $$rounded+ or Linux $$alt+ (actual local: $$total)"; \
+			exit 0; \
+		fi; \
+		echo "ERROR: README.md badge is not $${rounded}+ or $${alt}+. Run 'make update-readme' on a Linux host."; \
+		exit 1; \
+	fi; \
 	if ! grep -q "tests-$${rounded}%2B%20passing" README.md; then \
 		echo "ERROR: README.md badge says a different rounded count than $${rounded}+. Run 'make update-readme'."; \
 		exit 1; \

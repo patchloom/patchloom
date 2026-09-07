@@ -1,4 +1,3 @@
-use memchr::memchr_iter;
 use memchr::memmem;
 use regex::Regex;
 use serde::Serialize;
@@ -202,10 +201,9 @@ pub fn search_one_file(
         if params.count_only {
             count = matcher.count_matches(content, stop_after_first_hit(params));
         } else {
-            let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
             for (start, end) in matcher.find_iter_positions(content) {
                 count += 1;
-                let (line, column) = line_and_column_for_offset(&newline_offsets, start);
+                let (line, column) = crate::ops::file::text_line_column(content, start);
                 file_matches.push(SearchMatch {
                     path: path_str.clone(),
                     line,
@@ -220,7 +218,7 @@ pub fn search_one_file(
         // Invert stays line-oriented (lines without a match). Forward match
         // counts every occurrence so search match_count aligns with replace
         // (fixrealloop: "hi hi hi" was search=1 / replace=3).
-        for line in content.lines() {
+        for line in crate::ops::file::text_lines(content) {
             if params.invert_match {
                 if matcher.find(line).is_none() {
                     count += 1;
@@ -242,7 +240,7 @@ pub fn search_one_file(
         let ctx_before = params.before_context.or(params.context).unwrap_or(0);
         let ctx_after = params.after_context.or(params.context).unwrap_or(0);
         let has_ctx = ctx_before > 0 || ctx_after > 0;
-        let lines: Vec<&str> = content.lines().collect();
+        let lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
 
         for (i, line) in lines.iter().copied().enumerate() {
             if params.invert_match {
@@ -565,6 +563,31 @@ mod tests {
         assert_eq!(result.count, 1);
         assert_eq!(result.matches[0].line, 1);
         assert_eq!(result.matches[0].column, 1);
+        assert_eq!(result.matches[0].text, "end");
+    }
+
+    #[test]
+    fn search_one_file_regex_dollar_matches_cr_only_line() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("cr.txt");
+        std::fs::write(&file, "end\rnext\r").unwrap();
+        let matcher = build_matcher("end$", false, false, false).unwrap();
+        let params = SearchFileParams {
+            multiline: false,
+            invert_match: false,
+            count_only: false,
+            files_with_matches: false,
+            files_without_match: false,
+            assert_count: None,
+            before_context: None,
+            after_context: None,
+            context: None,
+            quiet: true,
+        };
+        let result = search_one_file(&file, &matcher, &params, dir.path())
+            .expect("end$ must match a CR-only line the same way replace does");
+        assert_eq!(result.count, 1);
+        assert_eq!(result.matches[0].line, 1);
         assert_eq!(result.matches[0].text, "end");
     }
 

@@ -18,8 +18,11 @@ use tempfile::NamedTempFile;
 pub fn detect_eol(text: &str) -> &'static str {
     let crlf = text.matches("\r\n").count();
     let lf_only = text.matches('\n').count().saturating_sub(crlf);
-    if crlf > 0 && crlf >= lf_only {
+    let cr_only = text.matches('\r').count().saturating_sub(crlf);
+    if crlf > 0 && crlf >= lf_only && crlf >= cr_only {
         "\r\n"
+    } else if cr_only > 0 && cr_only >= lf_only {
+        "\r"
     } else {
         "\n"
     }

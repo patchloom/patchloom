@@ -26,6 +26,17 @@ mod basic {
     }
 
     #[test]
+    fn parse_headings_cr_only_line_endings() {
+        let headings = parse_headings("# Head\rbody\r");
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Head");
+        assert_eq!(headings[0].level, 1);
+        assert_eq!(headings[0].line_start, 0);
+        assert_eq!(headings[0].body_line, 1);
+        assert_eq!(headings[0].line_end, 2);
+    }
+
+    #[test]
     fn parse_headings_section_boundaries() {
         // ## B (level 2) does NOT end # A (level 1); only same-or-higher level ends it
         let content = "# A\nline1\nline2\n## B\nline3\n";
@@ -507,6 +518,53 @@ mod line_endings {
         let bare_lf = result.replace("\r\n", "").contains('\n');
         assert!(!bare_lf, "found bare LF in CRLF output: {:?}", result);
         assert!(result.contains("New body\r\n"));
+    }
+
+    #[test]
+    fn replace_section_cr_only_splices_body() {
+        let content = "# Head\rbody\r# Next\rkeep\r";
+        let result = replace_section_in(content, "Head", "new").unwrap();
+        assert_eq!(result, "# Head\rnew\r# Next\rkeep\r");
+    }
+
+    #[test]
+    fn replace_section_cr_only_strips_heading_prefixed_body() {
+        // Agents often echo the heading back; strip_leading_heading must
+        // treat a lone CR as the heading terminator, not fuse two headings.
+        let content = "# Head\rbody\r# Next\rkeep\r";
+        let result = replace_section_in(content, "Head", "# Head\rnew").unwrap();
+        assert_eq!(result, "# Head\rnew\r# Next\rkeep\r");
+    }
+
+    #[test]
+    fn table_append_cr_only_finds_separator() {
+        let content = "# T\r| H |\r|---|\r| v |\r";
+        let (start, end) = find_section(content, "T").unwrap();
+        let result = table_append_in(content, start, end, "| new |").unwrap();
+        assert_eq!(result, "# T\r| H |\r|---|\r| v |\r| new |\r");
+    }
+
+    #[test]
+    fn upsert_bullet_cr_only_dedups() {
+        let content = "# List\r- item1\r";
+        let result = upsert_bullet_in(content, "List", "- item1").unwrap();
+        assert_eq!(result, "# List\r- item1\r");
+    }
+
+    #[test]
+    fn upsert_bullet_cr_only_inserts() {
+        let content = "# List\r- item1\r";
+        let result = upsert_bullet_in(content, "List", "- item2").unwrap();
+        assert_eq!(result, "# List\r- item1\r- item2\r");
+    }
+
+    #[test]
+    fn lint_cr_only_ending_is_not_missing_final_newline() {
+        let issues = lint_agents_content("# Head\rbody\r");
+        assert!(
+            issues.iter().all(|i| i.issue != "missing final newline"),
+            "CR-only file ending in \\r must not be missing-final-newline: {issues:?}"
+        );
     }
 
     #[test]

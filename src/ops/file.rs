@@ -39,6 +39,82 @@ pub fn split_utf8_bom(s: &str) -> (&str, &str) {
     }
 }
 
+/// Line contents of `s`, treating `\n`, `\r\n`, and a lone `\r` as endings.
+///
+/// [`str::lines`] does not split on a lone CR. Search `$` / `^` and ATX
+/// headings need the same model as [`crate::ops::replace::replace_whole_lines`]
+/// so EditorConfig `end_of_line = cr` files match.
+pub fn text_lines(s: &str) -> TextLines<'_> {
+    TextLines { rest: s }
+}
+
+/// Iterator returned by [`text_lines`].
+pub struct TextLines<'a> {
+    rest: &'a str,
+}
+
+impl<'a> Iterator for TextLines<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        if self.rest.is_empty() {
+            return None;
+        }
+        let bytes = self.rest.as_bytes();
+        let Some(pos) = bytes.iter().position(|&b| b == b'\n' || b == b'\r') else {
+            let line = self.rest;
+            self.rest = "";
+            return Some(line);
+        };
+        let line = &self.rest[..pos];
+        let adv = if bytes[pos] == b'\n' {
+            pos + 1
+        } else if pos + 1 < bytes.len() && bytes[pos + 1] == b'\n' {
+            pos + 2
+        } else {
+            pos + 1
+        };
+        self.rest = &self.rest[adv..];
+        Some(line)
+    }
+}
+
+/// 0-based `text_lines` index of the line that contains `offset`.
+pub fn text_line_index(content: &str, offset: usize) -> usize {
+    let offset = offset.min(content.len());
+    let mut idx = 0;
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < offset {
+        if bytes[i] == b'\n' {
+            idx += 1;
+            i += 1;
+        } else if bytes[i] == b'\r' {
+            idx += 1;
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                i += 2;
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    idx
+}
+
+/// 1-based line and column of `offset`, treating `\n`, `\r\n`, and a lone
+/// `\r` as line ends. Column is the byte offset from the start of that line.
+pub fn text_line_column(content: &str, offset: usize) -> (usize, usize) {
+    let offset = offset.min(content.len());
+    let line = text_line_index(content, offset) + 1;
+    let line_start = content[..offset]
+        .rfind(['\n', '\r'])
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    (line, offset - line_start + 1)
+}
+
 pub fn prepend_content(existing: &str, prepend: &str) -> String {
     if prepend.is_empty() {
         return existing.to_string();
@@ -820,6 +896,48 @@ mod tests {
     fn split_utf8_bom_peels_leading_mark() {
         assert_eq!(split_utf8_bom("\u{feff}end"), ("\u{feff}", "end"));
         assert_eq!(split_utf8_bom("end"), ("", "end"));
+    }
+
+    #[test]
+    fn text_lines_splits_cr_crlf_and_lf() {
+        assert_eq!(
+            text_lines("end\rnext\r").collect::<Vec<_>>(),
+            ["end", "next"]
+        );
+        assert_eq!(
+            text_lines("end\r\nnext\r\n").collect::<Vec<_>>(),
+            ["end", "next"]
+        );
+        assert_eq!(
+            text_lines("end\nnext\n").collect::<Vec<_>>(),
+            ["end", "next"]
+        );
+        assert_eq!(
+            text_lines("# Head\rbody\r").collect::<Vec<_>>(),
+            ["# Head", "body"]
+        );
+    }
+
+    #[test]
+    fn text_lines_matches_str_lines_on_lf() {
+        for s in ["", "a", "a\n", "a\n\n", "a\nb", "a\nb\n"] {
+            assert_eq!(
+                text_lines(s).collect::<Vec<_>>(),
+                s.lines().collect::<Vec<_>>(),
+                "{s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn text_line_index_and_column_cr_only() {
+        let s = "end\rnext\r";
+        assert_eq!(text_line_index(s, 0), 0);
+        assert_eq!(text_line_index(s, 4), 1);
+        assert_eq!(text_line_column(s, 0), (1, 1));
+        assert_eq!(text_line_column(s, 4), (2, 1));
+        assert_eq!(text_line_column("end\r\nnext", 5), (2, 1));
+        assert_eq!(text_line_column("end\nnext", 4), (2, 1));
     }
 
     #[test]
