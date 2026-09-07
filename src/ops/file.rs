@@ -1366,6 +1366,10 @@ mod tests {
         assert!(windows_path_is_drive_or_root_relative(r"d:..\out.txt"));
         assert!(windows_path_is_drive_or_root_relative(r"\foo.txt"));
         assert!(windows_path_is_drive_or_root_relative("/foo.txt"));
+        assert!(
+            windows_path_is_drive_or_root_relative("/tmp/nonexistent.txt"),
+            "Unix /tmp dests are root-relative on Windows"
+        );
         assert!(windows_path_is_drive_or_root_relative(r"\\?\C:foo.txt"));
         assert!(!windows_path_is_drive_or_root_relative(
             r"C:\Users\name\file.txt"

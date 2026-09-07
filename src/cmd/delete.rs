@@ -164,8 +164,11 @@ mod tests {
 
     #[test]
     fn nonexistent_file_returns_error() {
+        // Unix `/tmp/...` is root-relative on Windows and peels
+        // `invalid_input` (#2360). Use a drive-absolute missing dest.
+        let missing = std::env::temp_dir().join("nonexistent_patchloom_test_file_xyz.txt");
         let code = run(
-            make_args("/tmp/nonexistent_patchloom_test_file_xyz.txt"),
+            make_args(missing.to_str().unwrap()),
             &GlobalFlags::default(),
         )
         .unwrap();
