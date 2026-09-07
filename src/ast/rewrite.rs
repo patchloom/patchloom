@@ -155,7 +155,7 @@ pub fn find_function_span(
     let sig_end_line = if sig_end == 0 {
         1
     } else {
-        crate::ops::file::text_line_column(source, sig_end.saturating_sub(1)).0
+        crate::ops::file::text_line_index(source, sig_end.saturating_sub(1)) + 1
     };
 
     Some(FunctionSpan {

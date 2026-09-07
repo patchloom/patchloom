@@ -660,6 +660,16 @@ fn extract_rust_cr_only_lines_match_text_lines() {
 }
 
 #[test]
+fn extract_rust_cr_only_utf8_body_does_not_panic() {
+    let source = "fn foo() { let x = \"é\"; }\rfn bar() {}\r";
+    let symbols = extract_symbols(source, Language::Rust);
+    let foo = symbols.iter().find(|s| s.name == "foo").expect("foo");
+    let bar = symbols.iter().find(|s| s.name == "bar").expect("bar");
+    assert_eq!(foo.start_line, 1);
+    assert_eq!(bar.start_line, 2);
+}
+
+#[test]
 fn extract_rust_lf_and_crlf_lines_unchanged() {
     let lf = extract_symbols("fn foo() {}\nfn bar() {}\n", Language::Rust);
     let crlf = extract_symbols("fn foo() {}\r\nfn bar() {}\r\n", Language::Rust);

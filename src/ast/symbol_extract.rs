@@ -12,12 +12,12 @@ use super::{Language, child_text_by_kind, child_text_by_kinds};
 /// 1-based line span using the same CR/CRLF/LF model as search (`text_lines`).
 /// tree-sitter `Point.row` only counts `\n`.
 pub(crate) fn node_source_lines(source: &str, node: tree_sitter_lib::Node) -> (usize, usize) {
-    let start = crate::ops::file::text_line_column(source, node.start_byte()).0;
+    let start = crate::ops::file::text_line_index(source, node.start_byte()) + 1;
     let end_byte = node.end_byte().min(source.len());
     let end = if end_byte == 0 {
         1
     } else {
-        crate::ops::file::text_line_column(source, end_byte.saturating_sub(1)).0
+        crate::ops::file::text_line_index(source, end_byte.saturating_sub(1)) + 1
     };
     (start, end)
 }
