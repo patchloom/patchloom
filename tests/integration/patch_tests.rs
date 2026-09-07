@@ -2993,3 +2993,49 @@ fn test_patch_apply_mixed_search_replace_and_begin_patch_is_parse_error() {
         "fn old() {}\n"
     );
 }
+
+#[test]
+fn test_patch_apply_mixed_begin_patch_and_backslash_unified_is_parse_error() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("p.txt"), "old\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "*** Begin Patch\n*** Update File: p.txt\n@@\n-old\n+new\n*** End Patch\n--- a\\p.txt\n+++ b\\p.txt\n@@ -1 +1 @@\n-old\n+zzz\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "mixed a\\ unified → parse_error exit 4"
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "parse_error", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("mixed Begin Patch and unified diff grammar"),
+        "expected mixed-grammar refuse, got {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("p.txt")).unwrap(),
+        "old\n"
+    );
+}

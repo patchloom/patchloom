@@ -16,14 +16,9 @@ pub fn has_mixed_begin_patch_grammar(patch: &str) -> bool {
     if !looks_like_begin_patch(patch) {
         return false;
     }
-    patch.lines().any(|line| {
-        let t = line.trim_start();
-        t.starts_with("diff --git ")
-            || t.starts_with("--- a/")
-            || t.starts_with("--- b/")
-            || t.starts_with("+++ a/")
-            || t.starts_with("+++ b/")
-    })
+    patch
+        .lines()
+        .any(crate::ops::patch::line_looks_like_unified_file_header)
 }
 
 /// One file operation from a Begin Patch payload.
@@ -502,6 +497,23 @@ mod tests {
 +++ b/other.rs
 ";
         let err = parse_begin_patch(patch).expect_err("mixed");
+        assert!(err.to_string().to_lowercase().contains("mixed"));
+        assert!(crate::exit::is_parse_error(&err));
+    }
+
+    #[test]
+    fn mixed_grammar_backslash_git_prefix_is_rejected() {
+        let patch = "\
+*** Begin Patch
+*** Update File: code.rs
+@@
+-fn old() {}
++fn new() {}
+*** End Patch
+--- a\\other.rs
++++ b\\other.rs
+";
+        let err = parse_begin_patch(patch).expect_err("mixed backslash");
         assert!(err.to_string().to_lowercase().contains("mixed"));
         assert!(crate::exit::is_parse_error(&err));
     }

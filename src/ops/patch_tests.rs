@@ -1027,6 +1027,18 @@ mod regression {
     }
 
     #[test]
+    fn line_looks_like_unified_file_header_accepts_backslash_prefix() {
+        assert!(line_looks_like_unified_file_header("--- a\\p.txt"));
+        assert!(line_looks_like_unified_file_header("+++ b\\p.txt"));
+        assert!(line_looks_like_unified_file_header(
+            "diff --git a\\p.txt b\\p.txt"
+        ));
+        assert!(line_looks_like_unified_file_header("--- a/p.txt"));
+        assert!(!line_looks_like_unified_file_header("--- comment"));
+        assert!(!line_looks_like_unified_file_header("*** Begin Patch"));
+    }
+
+    #[test]
     fn parse_file_path_minus_with_tab_timestamp() {
         let result = parse_file_path("--- a/src/main.rs\t2024-06-01 12:00:00.000 +0000");
         assert_eq!(result, "src/main.rs");

@@ -479,6 +479,29 @@ mod tests {
     }
 
     #[test]
+    fn apply_begin_patch_mixed_grammar_backslash_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let patch = "\
+*** Begin Patch
+*** Update File: code.rs
+@@
+-fn old() {}
++fn new() {}
+*** End Patch
+--- a\\other.rs
++++ b\\other.rs
+";
+        let err = apply_begin_patch(patch, dir.path(), None, ApplyMode::Preview, None)
+            .expect_err("mixed backslash");
+        assert!(crate::exit::is_parse_error(&err));
+        assert!(
+            err.to_string()
+                .contains("mixed Begin Patch and unified diff grammar"),
+            "expected mixed-grammar peel, got {err}"
+        );
+    }
+
+    #[test]
     fn apply_begin_patch_dest_exists() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("from.rs"), "fn a() {}\n").unwrap();

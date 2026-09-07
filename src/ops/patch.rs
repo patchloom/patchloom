@@ -283,6 +283,19 @@ fn strip_diff_ab_prefix(s: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// True when a line is a git unified-diff file header (`diff --git`,
+/// `--- a/` / `+++ b/`, or the Windows-agent `a\` / `b\` forms).
+#[must_use]
+pub(crate) fn line_looks_like_unified_file_header(line: &str) -> bool {
+    let t = line.trim_start();
+    if t.starts_with("diff --git ") {
+        return true;
+    }
+    t.strip_prefix("--- ")
+        .or_else(|| t.strip_prefix("+++ "))
+        .is_some_and(|path| strip_diff_ab_prefix(path).is_some())
+}
+
 fn split_two_git_path_tokens(rest: &str) -> Option<(String, String)> {
     let mut chars = rest.chars().peekable();
     let first = next_git_path_token(&mut chars)?;
