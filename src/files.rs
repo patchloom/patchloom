@@ -1650,6 +1650,71 @@ mod tests {
         assert!(!looks_like_glob_dest("//./C:/temp/keep.txt"));
     }
 
+    #[cfg(feature = "cli")]
+    fn dest_glob_set(pattern: &str) -> GlobSet {
+        let mut builder = GlobSetBuilder::new();
+        builder.add(compile_dest_glob(pattern).expect("valid dest glob"));
+        builder.build().expect("globset")
+    }
+
+    #[cfg(feature = "cli")]
+    fn dest_glob_root() -> PathBuf {
+        if cfg!(windows) {
+            PathBuf::from(r"C:\pl-dest-glob")
+        } else {
+            PathBuf::from("/tmp/pl-dest-glob")
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn dest_glob_matcher_star_star_matches_nested_star_does_not() {
+        let root = dest_glob_root();
+        let nested = root.join("sub").join("a.txt");
+        let roots = [root];
+        let rec = dest_glob_set("**/*.txt");
+        let star = dest_glob_set("*.txt");
+        assert!(
+            matches_dest_glob(&nested, &rec, &roots),
+            "**/*.txt must match sub/a.txt"
+        );
+        assert!(
+            !matches_dest_glob(&nested, &star, &roots),
+            "*.txt must not match sub/a.txt"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn compile_dest_glob_and_matches_dest_glob_edges() {
+        let root = dest_glob_root();
+        let cwd = root.join("keep.txt");
+        let nested = root.join("sub").join("a.txt");
+        let roots = [root.clone()];
+
+        let star = dest_glob_set("*.txt");
+        assert!(matches_dest_glob(&cwd, &star, &roots));
+        assert!(!matches_dest_glob(&nested, &star, &roots));
+
+        let rec = dest_glob_set("**/*.txt");
+        assert!(matches_dest_glob(&cwd, &rec, &roots));
+        assert!(matches_dest_glob(&nested, &rec, &roots));
+
+        let q = dest_glob_set("file?.txt");
+        assert!(matches_dest_glob(&root.join("fileA.txt"), &q, &roots));
+        assert!(!matches_dest_glob(&root.join("fileAB.txt"), &q, &roots));
+
+        assert!(compile_dest_glob("*[").is_err());
+
+        #[cfg(windows)]
+        {
+            let win_slash = dest_glob_set(r"sub\*.txt");
+            assert!(matches_dest_glob(&nested, &win_slash, &roots));
+            assert!(!matches_dest_glob(&cwd, &win_slash, &roots));
+            assert!(matches_dest_glob(&root.join("Hit.TXT"), &star, &roots));
+        }
+    }
+
     #[test]
     #[cfg(feature = "cli")]
     fn all_explicit_paths_missing_ignores_glob_dests() {
