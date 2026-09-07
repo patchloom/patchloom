@@ -1,6 +1,28 @@
 use super::*;
 
 #[test]
+fn test_files_from_cr_only_list_splits_paths() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "findme\n").unwrap();
+    fs::write(dir.path().join("b.txt"), "findme\n").unwrap();
+    let list = dir.path().join("filelist.txt");
+    fs::write(&list, "a.txt\rb.txt\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("--files-from")
+        .arg(&list)
+        .arg("search")
+        .arg("findme")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("a.txt"))
+        .stdout(predicate::str::contains("b.txt"));
+}
+
+#[test]
 fn test_files_from_restricts_search() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("included.txt"), "findme\n").unwrap();

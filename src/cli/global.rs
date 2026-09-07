@@ -678,9 +678,15 @@ impl GlobalFlags {
             None => return Ok(None),
         };
         let lines: Vec<String> = if source == "-" {
-            // Propagate IO errors (#1449). Do not use map_while(Result::ok),
-            // which silently truncates the list on the first Err.
-            collect_files_from_line_results(std::io::stdin().lock().lines())?
+            // Read the whole stream so a lone CR splits the same way as
+            // LF/CRLF. BufRead::lines only breaks on \n (R150).
+            let mut buf = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin().lock(), &mut buf).map_err(|e| {
+                anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("failed to read --files-from from stdin: {e}"),
+                })
+            })?;
+            files_from_content_lines(&buf)
         } else {
             let list_path = self.resolve_user_path(source)?;
             let content = std::fs::read_to_string(&list_path).map_err(|e| {
@@ -696,11 +702,7 @@ impl GlobalFlags {
                     })
                 }
             })?;
-            let content = content.strip_prefix('\u{FEFF}').unwrap_or(&content);
-            content
-                .lines()
-                .filter_map(normalize_files_from_line)
-                .collect()
+            files_from_content_lines(&content)
         };
         Ok(Some(lines))
     }
@@ -721,6 +723,13 @@ impl GlobalFlags {
 /// Lines whose first non-whitespace character is `#` are comments (gitignore-
 /// style). A path that literally starts with `#` is not supported; document
 /// that agents must not emit comment lines if they need such a path.
+fn files_from_content_lines(content: &str) -> Vec<String> {
+    let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
+    crate::ops::file::text_lines(content)
+        .filter_map(normalize_files_from_line)
+        .collect()
+}
+
 fn normalize_files_from_line(line: &str) -> Option<String> {
     let l = line.trim();
     if l.is_empty() || l.starts_with('#') {
@@ -734,6 +743,7 @@ fn normalize_files_from_line(line: &str) -> Option<String> {
 ///
 /// Used by `--files-from -` (stdin). IO errors are returned as `Err` so a
 /// broken pipe or read failure cannot produce a partial list with success.
+#[cfg(test)]
 fn collect_files_from_line_results(
     lines: impl IntoIterator<Item = std::io::Result<String>>,
 ) -> anyhow::Result<Vec<String>> {
@@ -1260,6 +1270,19 @@ mod tests {
         ];
         let got = collect_files_from_line_results(lines).unwrap();
         assert_eq!(got, vec!["a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn read_files_from_splits_cr_only_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        std::fs::write(&list, "src/main.rs\rlib.rs\r").unwrap();
+        let flags = GlobalFlags {
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["src/main.rs", "lib.rs"]);
     }
 
     #[test]
