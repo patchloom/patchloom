@@ -655,7 +655,7 @@ pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
 
 /// Dest-glob compile: `/` separators and `*` does not cross directories.
 /// Unix shells and `dir *.txt` stay in one directory; `**` is recursive.
-#[cfg(any(feature = "cli", feature = "files"))]
+#[cfg(feature = "cli")]
 fn compile_dest_glob(pattern: &str) -> Result<Glob, globset::Error> {
     let stripped = strip_leading_dot_slash(pattern);
     let normalized = if cfg!(windows) && stripped.contains('\\') {
@@ -676,7 +676,7 @@ pub(crate) fn apply_platform_ignore_case(builder: &mut WalkBuilder) {
     builder.ignore_case_insensitive(cfg!(windows));
 }
 
-#[cfg(any(feature = "cli", feature = "files"))]
+#[cfg(feature = "cli")]
 fn build_dest_glob_matcher(globs: &[String]) -> anyhow::Result<Option<GlobSet>> {
     if globs.is_empty() {
         return Ok(None);
@@ -793,7 +793,7 @@ fn glob_matches_path(path: &Path, matcher: &GlobSet) -> bool {
 /// a normal character, so `*.txt` would match `C:\ws\sub\a.txt`.
 /// `*.txt` is cwd files, like a Unix shell or `dir *.txt`. `--glob`
 /// still uses [`matches_glob_with_roots`] (recursive filename match).
-#[cfg(any(feature = "cli", feature = "files"))]
+#[cfg(feature = "cli")]
 fn matches_dest_glob(path: &Path, matcher: &GlobSet, roots: &[PathBuf]) -> bool {
     roots.iter().any(|root| {
         let Ok(relative) = path.strip_prefix(root) else {
