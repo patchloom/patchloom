@@ -384,8 +384,23 @@ pub(crate) fn windows_path_is_drive_or_root_relative(raw: &str) -> bool {
     !b.is_empty() && (b[0] == b'\\' || b[0] == b'/')
 }
 
+/// True when `s` is a drive letter plus colon after stripping `\\?\` /
+/// `\\.\` / `//?/` / `//./` (`C:`, `\\?\C:`). Used so `\\?\C:\` stays a
+/// drive root instead of collapsing to `\\?\C:` (drive-relative).
+fn windows_is_drive_letter_colon(s: &str) -> bool {
+    let s = s
+        .strip_prefix(r"\\?\")
+        .or_else(|| s.strip_prefix(r"//?/"))
+        .or_else(|| s.strip_prefix(r"\\.\"))
+        .or_else(|| s.strip_prefix("//./"))
+        .unwrap_or(s);
+    let b = s.as_bytes();
+    b.len() == 2 && b[1] == b':' && b[0].is_ascii_alphabetic()
+}
+
 /// Drop trailing `\`/`/` so dest identity matches Win32 (`keep.txt\\` is
-/// `keep.txt`). Leave a drive root (`C:\`) and a lone `\`/`/` alone.
+/// `keep.txt`). Leave a drive root (`C:\`, `\\?\C:\`) and a lone `\`/`/`
+/// alone.
 pub fn windows_collapse_trailing_separators(raw: &str) -> &str {
     let mut t = raw;
     loop {
@@ -396,16 +411,18 @@ pub fn windows_collapse_trailing_separators(raw: &str) -> &str {
         if next.is_empty() {
             return t;
         }
-        let b = next.as_bytes();
-        if b.len() == 2 && b[1] == b':' && b[0].is_ascii_alphabetic() {
+        if windows_is_drive_letter_colon(next) {
             return t;
         }
         t = next;
     }
 }
 
-#[cfg(windows)]
-fn windows_collapse_dest_path(path: &Path) -> PathBuf {
+/// Collapse trailing `\`/`/` so dest identity matches Win32.
+///
+/// Shared by classify, dest-parent, persist, and CLI rewrite. No-op when
+/// the spelling already matches [`windows_collapse_trailing_separators`].
+pub(crate) fn windows_collapse_dest_path(path: &Path) -> PathBuf {
     let raw = path.to_string_lossy();
     let collapsed = windows_collapse_trailing_separators(raw.as_ref());
     if collapsed == raw.as_ref() {
@@ -635,6 +652,8 @@ pub fn refuse_symlink_destination(
     path: &Path,
     display: &str,
 ) -> Result<(), crate::exit::InvalidInputError> {
+    let collapsed = windows_collapse_dest_path(path);
+    let path = collapsed.as_path();
     match std::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_symlink() => Err(crate::exit::InvalidInputError {
             msg: format!("refusing to write through symlink destination: {display}"),
@@ -675,6 +694,11 @@ pub fn refuse_non_regular_destination(
 pub fn ensure_parent_components_are_directories(
     path: &Path,
 ) -> Result<(), crate::exit::InvalidInputError> {
+    // Win32 `keep.txt\\` is `keep.txt`. Raw `Path::parent()` would treat
+    // the existing file as the dest parent (`invalid_input`) instead of
+    // `already_exists`. Collapse dest identity first.
+    let collapsed = windows_collapse_dest_path(path);
+    let path = collapsed.as_path();
     let mut current = path.parent();
     while let Some(p) = current {
         if p.as_os_str().is_empty() {
@@ -1441,6 +1465,17 @@ mod tests {
         );
         assert_eq!(windows_collapse_trailing_separators(r"C:\"), r"C:\");
         assert_eq!(windows_collapse_trailing_separators("C:/"), "C:/");
+        assert_eq!(windows_collapse_trailing_separators(r"\\?\C:\"), r"\\?\C:\");
+        assert_eq!(windows_collapse_trailing_separators("//?/C:/"), "//?/C:/");
+        assert_eq!(windows_collapse_trailing_separators(r"\\.\C:\"), r"\\.\C:\");
+        assert_eq!(
+            windows_collapse_trailing_separators(r"\\server\share\"),
+            r"\\server\share"
+        );
+        assert_eq!(
+            windows_collapse_trailing_separators(r"\\?\C:\Users\"),
+            r"\\?\C:\Users"
+        );
         assert_eq!(
             windows_collapse_trailing_separators(r"C:\Users\"),
             r"C:\Users"
@@ -1561,6 +1596,17 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         let path = nested.join("c.txt");
         ensure_parent_components_are_directories(&path).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ensure_parents_collapses_trailing_separators_on_existing_file() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("keep.txt");
+        fs::write(&file, "KEEP\n").unwrap();
+        let slashed = PathBuf::from(format!("{}\\", file.display()));
+        ensure_parent_components_are_directories(&slashed)
+            .expect("keep.txt\\ parent is the dir, not keep.txt");
     }
 
     #[test]

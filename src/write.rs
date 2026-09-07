@@ -726,7 +726,8 @@ pub(crate) fn atomic_create_new(
     policy.refuse_unsupported_charset()?;
     let final_content = apply_policy(content, policy);
 
-    let parent = path
+    let dest = persist_dest(path);
+    let parent = dest
         .parent()
         .context("cannot determine parent directory of target path")?;
 
@@ -746,7 +747,7 @@ pub(crate) fn atomic_create_new(
             .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
     }
 
-    tmp.persist_noclobber(persist_dest(path)).map_err(|e| {
+    tmp.persist_noclobber(&dest).map_err(|e| {
         if e.error.kind() == std::io::ErrorKind::AlreadyExists {
             anyhow::Error::new(crate::exit::AlreadyExistsError {
                 msg: format!("file already exists: {}", path.display()),
@@ -827,7 +828,8 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
         return write_preserving_hardlinks(write_path, final_content.as_bytes(), original_perms);
     }
 
-    let parent = write_path
+    let dest = persist_dest(write_path);
+    let parent = dest
         .parent()
         .context("cannot determine parent directory of target path")?;
 
@@ -850,7 +852,7 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
             .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
     }
 
-    tmp.persist(persist_dest(write_path))
+    tmp.persist(&dest)
         .with_context(|| format!("failed to persist tempfile to {}", write_path.display()))?;
 
     Ok(())
@@ -882,13 +884,7 @@ fn windows_extended_persist_path(path: &Path) -> std::path::PathBuf {
             .map(|cwd| cwd.join(path))
             .unwrap_or_else(|_| path.to_path_buf())
     };
-    let raw = abs.as_os_str().to_string_lossy();
-    let collapsed = crate::ops::file::windows_collapse_trailing_separators(raw.as_ref());
-    let abs = if collapsed == raw.as_ref() {
-        abs
-    } else {
-        std::path::PathBuf::from(collapsed)
-    };
+    let abs = crate::ops::file::windows_collapse_dest_path(&abs);
     let raw = abs.as_os_str().to_string_lossy();
     if raw.starts_with(r"\\?\") || raw.starts_with(r"\\.\") {
         return abs;
