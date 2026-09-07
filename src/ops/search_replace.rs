@@ -42,14 +42,9 @@ pub fn has_mixed_search_replace_grammar(input: &str) -> bool {
 }
 
 fn has_unified_diff_headers(input: &str) -> bool {
-    input.lines().any(|line| {
-        let t = line.trim_start();
-        t.starts_with("diff --git ")
-            || t.starts_with("--- a/")
-            || t.starts_with("--- b/")
-            || t.starts_with("+++ a/")
-            || t.starts_with("+++ b/")
-    })
+    input
+        .lines()
+        .any(crate::ops::patch::line_looks_like_unified_file_header)
 }
 
 /// Parse SEARCH/REPLACE, or DiffFenced (fenced unwrap) when the document
@@ -411,6 +406,29 @@ new
 ";
         assert!(has_mixed_search_replace_grammar(input));
         let err = parse_search_replace_document(input).expect_err("mixed");
+        assert!(!err.truncated, "mixed grammar is malformed, not truncated");
+        assert!(
+            err.message.contains("mixed SEARCH/REPLACE"),
+            "expected mixed-grammar refuse, got {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn mixed_search_replace_and_backslash_unified_headers_refused() {
+        let input = "\
+<<<<<<< SEARCH
+file.rs
+-------
+old
+=======
+new
+>>>>>>> REPLACE
+--- a\\file.rs
++++ b\\file.rs
+";
+        assert!(has_mixed_search_replace_grammar(input));
+        let err = parse_search_replace_document(input).expect_err("mixed backslash");
         assert!(!err.truncated, "mixed grammar is malformed, not truncated");
         assert!(
             err.message.contains("mixed SEARCH/REPLACE"),
