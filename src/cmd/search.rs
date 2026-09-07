@@ -14,6 +14,7 @@ EXAMPLES:
   patchloom search 'fn main' src/ --count
   patchloom search 'error|warn' --regex src/ -C 2
   patchloom search 'password' . --glob '*.yaml'
+  patchloom search 'TODO' '*.txt'
   patchloom search 'TODO' . --ignore-file .agentignore --exclude 'target/**' --max-results 50")]
 pub struct SearchArgs {
     /// Pattern to search for.
@@ -105,11 +106,12 @@ impl SearchArgs {
     /// must not look like a content miss (and must not tip `-i`).
     pub(crate) fn no_match_message(&self, path_desc: &str) -> String {
         let pat = crate::fallback::truncate_str(&self.pattern, 60);
-        if self.files_without_match {
+        let base = if self.files_without_match {
             format!("no files without matches for '{pat}' in {path_desc}")
         } else {
             format!("no matches for '{pat}' in {path_desc}")
-        }
+        };
+        crate::files::with_dest_glob_cwd_only_rule(&base, &self.paths)
     }
 }
 
@@ -726,7 +728,9 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         "hint: --literal is set but the pattern looks like a regex, try removing --literal"
                     );
                 }
-                if !args.case_insensitive {
+                if !args.case_insensitive
+                    && !crate::files::dest_glob_skip_case_tip(&args.paths, scanned.is_empty())
+                {
                     eprintln!("hint: try -i for case-insensitive matching");
                 }
             }
@@ -1087,6 +1091,12 @@ mod tests {
         assert_eq!(msg, "no files without matches for 'needle' in .");
         let content = make_args("needle", vec![".".into()]).no_match_message("src");
         assert_eq!(content, "no matches for 'needle' in src");
+        let dest = make_args("needle", vec!["*.txt".into()]).no_match_message("*.txt");
+        assert!(
+            dest.contains("current directory only")
+                && (dest.contains("**/*.txt") || dest.contains("--glob")),
+            "dest-glob miss must name cwd-only / **/*.txt or --glob: {dest}"
+        );
     }
 
     #[test]

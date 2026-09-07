@@ -2574,6 +2574,12 @@ fn test_search_positional_glob_dest_cwd_miss_is_no_matches() {
     );
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["error_kind"], "no_matches", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("current directory only")
+            && (err.contains("**/*.txt") || err.contains("--glob")),
+        "dest-glob miss JSON error must name cwd-only / **/*.txt or --glob: {v}"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stdout.contains("\"skipped\""),
@@ -2582,6 +2588,11 @@ fn test_search_positional_glob_dest_cwd_miss_is_no_matches() {
     assert!(
         !stdout.contains("nested.txt"),
         "cwd *.txt must not hit nested: {stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("try -i"),
+        "dest-glob miss must not tip -i: {stderr}"
     );
 
     let empty = TempDir::new().unwrap();
@@ -2601,10 +2612,49 @@ fn test_search_positional_glob_dest_cwd_miss_is_no_matches() {
     );
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["error_kind"], "no_matches", "empty dest *.txt: {v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("current directory only")
+            && (err.contains("**/*.txt") || err.contains("--glob")),
+        "empty dest-glob miss JSON error must name cwd-only: {v}"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stdout.contains("\"skipped\""),
         "empty dest *.txt must not list skipped: {stdout}"
+    );
+}
+
+#[test]
+fn test_search_positional_glob_dest_cwd_miss_skips_i_tip() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("current directory only")
+            || stderr.contains("**/*.txt")
+            || stderr.contains("--glob"),
+        "human dest-glob miss must name dest-glob rule: {stderr}"
+    );
+    assert!(
+        !stderr.contains("try -i"),
+        "dest-glob miss must not tip -i: {stderr}"
     );
 }
 

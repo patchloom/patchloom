@@ -478,6 +478,27 @@ fn agent_rules_documents_for_each_plan_json_shape() {
 }
 
 #[test]
+fn agent_rules_documents_dest_glob_vs_glob_vs_plan_path() {
+    let out = generate_agent_rules(&args(AgentMode::All, AgentPlatform::All));
+    assert!(
+        out.contains("current directory only"),
+        "must say dest *.txt is cwd-only: {out}"
+    );
+    assert!(
+        out.contains("**/*.txt") && out.contains("--glob"),
+        "must name dest **/*.txt and --glob: {out}"
+    );
+    assert!(
+        out.contains("for_each.glob") && out.contains("plan"),
+        "must say plan path is not dest-glob: {out}"
+    );
+    assert!(
+        out.contains("search/replace/tidy"),
+        "must say dest glob is search/replace/tidy only: {out}"
+    );
+}
+
+#[test]
 fn agent_rules_documents_doc_query_envelope_and_has_exit() {
     // #1838 / #1843 lock strings for CLI agent hosts.
     let out = generate_agent_rules(&args(AgentMode::Cli, AgentPlatform::All));

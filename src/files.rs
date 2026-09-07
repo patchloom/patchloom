@@ -215,7 +215,6 @@ pub fn is_binary_file(path: &Path) -> bool {
 
 /// Length of a Windows extended/device prefix whose `?` is not a glob.
 /// `\\?\C:\file.txt` and `//?/C:/file.txt` must stay literal dests.
-#[cfg(feature = "cli")]
 #[must_use]
 fn windows_extended_prefix_len(path: &str) -> usize {
     let b = path.as_bytes();
@@ -232,7 +231,7 @@ fn windows_extended_prefix_len(path: &str) -> usize {
 /// Windows cmd and PowerShell pass those through, so scan dests must expand
 /// them instead of peeling `not_found` / illegal dest.
 /// `*` / `?` in a `\\?\` / `//?/` prefix are not glob metacharacters.
-#[cfg(feature = "cli")]
+/// Always compiled: plan/tx path validation uses this without dest-glob expand.
 #[must_use]
 pub(crate) fn looks_like_glob_dest(path: &str) -> bool {
     let rest = &path[windows_extended_prefix_len(path)..];
@@ -721,6 +720,44 @@ fn dest_glob_walk_max_depth(globs: &[String]) -> Option<usize> {
         cap = cap.max(normalized.matches('/').count() + 1);
     }
     Some(cap)
+}
+
+/// Dest-glob with no `**` (`*.txt`, `sub/*.txt`). Not recursive.
+#[cfg(feature = "cli")]
+#[must_use]
+pub(crate) fn dest_glob_is_non_recursive(path: &str) -> bool {
+    looks_like_glob_dest(path) && dest_glob_walk_max_depth(&[path.to_string()]).is_some()
+}
+
+/// Dest-glob cwd-only rule for agent JSON `error` (not stderr-only).
+#[cfg(feature = "cli")]
+#[must_use]
+pub(crate) fn dest_glob_cwd_only_rule(paths: &[String]) -> Option<String> {
+    let dest = paths.iter().find(|p| dest_glob_is_non_recursive(p))?;
+    Some(format!(
+        "dest `{dest}` matches files in the current directory only; use `**/*.txt` or `--glob '*.txt'` for nested files"
+    ))
+}
+
+/// Append [`dest_glob_cwd_only_rule`] so JSON `error` names dest-glob scope.
+#[cfg(feature = "cli")]
+#[must_use]
+pub(crate) fn with_dest_glob_cwd_only_rule(msg: &str, paths: &[String]) -> String {
+    match dest_glob_cwd_only_rule(paths) {
+        Some(rule) => format!("{msg}. {rule}"),
+        None => msg.to_string(),
+    }
+}
+
+/// Skip the `-i` tip when dest-glob expanded zero files or dest-glob
+/// dropped nested-only hits (cwd-only dest such as `*.txt`).
+#[cfg(feature = "cli")]
+#[must_use]
+pub(crate) fn dest_glob_skip_case_tip(paths: &[String], dest_glob_files_empty: bool) -> bool {
+    if !paths.iter().any(|p| looks_like_glob_dest(p)) {
+        return false;
+    }
+    dest_glob_files_empty || paths.iter().any(|p| dest_glob_is_non_recursive(p))
 }
 
 /// Dest-glob compile: `/` separators and `*` does not cross directories.
@@ -1704,7 +1741,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "cli")]
     fn looks_like_glob_dest_star_and_question() {
         assert!(looks_like_glob_dest("*.txt"));
         assert!(looks_like_glob_dest("sub/*.rs"));
@@ -1783,6 +1819,33 @@ mod tests {
             assert!(!matches_dest_glob(&cwd, &win_slash, &roots));
             assert!(matches_dest_glob(&root.join("Hit.TXT"), &star, &roots));
         }
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn dest_glob_cwd_only_rule_and_skip_case_tip() {
+        let cwd = vec!["*.txt".to_string()];
+        let rec = vec!["**/*.txt".to_string()];
+        let literal = vec!["keep.txt".to_string()];
+        let rule = dest_glob_cwd_only_rule(&cwd).expect("cwd dest-glob rule");
+        assert!(
+            rule.contains("current directory only"),
+            "rule must name cwd-only: {rule}"
+        );
+        assert!(
+            rule.contains("**/*.txt") && rule.contains("--glob"),
+            "rule must name **/*.txt or --glob: {rule}"
+        );
+        assert!(dest_glob_cwd_only_rule(&rec).is_none());
+        assert!(dest_glob_cwd_only_rule(&literal).is_none());
+        let with_rule = with_dest_glob_cwd_only_rule("no matches for 'KEEP' in *.txt", &cwd);
+        assert!(with_rule.contains("current directory only"));
+        assert!(dest_glob_skip_case_tip(&cwd, true));
+        assert!(dest_glob_skip_case_tip(&cwd, false));
+        assert!(dest_glob_skip_case_tip(&rec, true));
+        assert!(!dest_glob_skip_case_tip(&rec, false));
+        assert!(!dest_glob_skip_case_tip(&literal, true));
+        assert!(!dest_glob_skip_case_tip(&literal, false));
     }
 
     #[test]

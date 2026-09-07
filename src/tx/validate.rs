@@ -19,6 +19,18 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         }
     }
 
+    // Plan `path` is one file or directory. Dest-glob (`*.txt`) is CLI
+    // search/replace/tidy dest only. Do not dest-glob expand plan/tx/MCP path.
+    // Replace `glob` / Search `globs` / `for_each.glob` stay legal.
+    for p in dest_paths_excluding_glob(op) {
+        if crate::files::looks_like_glob_dest(&p) {
+            return Err(crate::exit::InvalidInputError {
+                msg: "plan `path` is one file or directory; use \"glob\": \"*.txt\" or for_each.glob. CLI dest `*.txt` is search/replace/tidy only".into(),
+            }
+            .into());
+        }
+    }
+
     match op {
         Operation::Replace {
             old,
@@ -158,6 +170,15 @@ pub(crate) fn validate_plan_operations(plan: &Plan) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Operation dests that are one file or directory. Excludes replace `glob`
+/// (and does not invent dest-glob expand on plan).
+fn dest_paths_excluding_glob(op: &Operation) -> Vec<String> {
+    match op {
+        Operation::Replace { path, .. } => path.iter().cloned().collect(),
+        _ => op.declared_paths(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,6 +303,39 @@ mod tests {
             err.to_string().contains("path must not be empty"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn replace_glob_dest_path_rejected() {
+        let mut op = replace_op(false, false, None);
+        if let Operation::Replace { ref mut path, .. } = op {
+            *path = Some("*.txt".into());
+        }
+        let err = validate_operation(&op).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("plan `path` is one file or directory"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            msg.contains("glob") && msg.contains("search/replace/tidy"),
+            "must name glob / CLI dest: {err}"
+        );
+    }
+
+    #[test]
+    fn replace_glob_field_is_not_a_dest_path() {
+        let mut op = replace_op(false, false, None);
+        if let Operation::Replace {
+            ref mut path,
+            ref mut glob,
+            ..
+        } = op
+        {
+            *path = None;
+            *glob = Some("*.txt".into());
+        }
+        validate_operation(&op).unwrap();
     }
 
     #[test]

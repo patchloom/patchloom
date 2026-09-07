@@ -157,6 +157,13 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** A command should only see a narrow file type or subtree, even if the input path is broader.
 - **Prefer instead:** Use `--files-from` when another tool has already determined the exact file list.
 
+| Form | Scope | Use |
+|------|-------|-----|
+| dest `*.txt` | Current directory only | CLI `search` / `replace` / `tidy` dest (Windows/PowerShell pass it through; Unix shells expand it before exec) |
+| dest `**/*.txt` | Recursive dest glob | Nested files as a search/replace/tidy dest |
+| `--glob '*.txt'` | Filter after walking dest roots | Nested files under `.` or `src/` |
+| plan `path` | One file or directory | Never `*.txt`. Use replace `"glob": "*.txt"` or plan-level `for_each.glob` |
+
 <!-- ref:global-flag:exclude -->
 ### `--exclude`
 

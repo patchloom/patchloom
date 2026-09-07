@@ -30,6 +30,57 @@ fn test_tx_replace_empty_from_rejected() {
 }
 
 #[test]
+fn test_tx_replace_glob_dest_path_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "path": "*.txt",
+            "old": "KEEP",
+            "new": "ZZ"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "--apply"])
+        .arg(&plan_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("plan `path` is one file or directory")
+            && (err.contains("glob") || err.contains("for_each")),
+        "plan dest-glob path must name glob / for_each: {v}"
+    );
+    assert!(
+        err.contains("search/replace/tidy"),
+        "must say CLI dest is search/replace/tidy only: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("sub").join("nested.txt")).unwrap(),
+        "KEEP\n"
+    );
+}
+
+#[test]
 fn test_tx_ops_alias_accepted() {
     // Agents often emit "ops" instead of the canonical "operations" field.
     let dir = TempDir::new().unwrap();
