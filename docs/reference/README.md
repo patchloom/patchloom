@@ -139,7 +139,7 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **What it does:** Sets the working directory used to resolve relative paths for operation targets **and** meta-input files: `tx` plan files, `batch` ops files, `patch` patch files, `explain` plan files, and `--files-from` list files (absolute meta paths are unchanged).
 - **Use when:** You are invoking Patchloom from outside the target repo, or you want scripts to behave predictably regardless of the caller's current directory. Example: `patchloom --cwd /repo batch ops.txt` finds `/repo/ops.txt`.
 - **Prefer instead:** Use a plan level `cwd` in `tx` when the directory choice should travel with the plan itself, but keep it inside the invocation root. Relative plan `cwd` values resolve from the caller's working directory (`--cwd` or the process cwd), not from the plan file location.
-- **Not a sandbox:** Without `--contain`, paths may escape via `../` or absolute paths. MCP always enforces containment; use `--contain` for the same on CLI.
+- **Not a sandbox:** Without `--contain`, paths may escape via `../` or absolute paths. MCP always enforces containment; use `--contain` for the same on CLI. On Windows, drive-relative dests (`C:foo`) and root-relative dests (`\foo`) are `invalid_input`: they ignore `--cwd` (process current directory on that drive, or the drive root).
 
 <!-- ref:global-flag:contain -->
 ### `--contain`

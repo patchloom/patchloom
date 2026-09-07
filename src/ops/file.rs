@@ -354,19 +354,50 @@ pub fn ensure_not_windows_ads_path(
     Ok(())
 }
 
+/// True for Windows drive-relative (`C:foo`) or root-relative (`\foo`) dests.
+///
+/// `C:foo` is the current directory on drive `C:`, not `--cwd`. `\foo`
+/// is `C:\foo` (drive root). Both ignore `--cwd` and are not portable
+/// file names. `C:\foo`, `C:/foo`, and UNC stay false.
+pub(crate) fn windows_path_is_drive_or_root_relative(raw: &str) -> bool {
+    let s = raw
+        .strip_prefix(r"\\?\")
+        .or_else(|| raw.strip_prefix(r"//?/"))
+        .or_else(|| raw.strip_prefix(r"\\.\"))
+        .or_else(|| raw.strip_prefix("//./"))
+        .unwrap_or(raw);
+    if s.starts_with(r"\\") || s.starts_with("//") {
+        return false;
+    }
+    let head = s.get(..4).unwrap_or(s);
+    if head.eq_ignore_ascii_case(r"unc\") || head.eq_ignore_ascii_case("unc/") {
+        return false;
+    }
+    let b = s.as_bytes();
+    if b.len() >= 2 && b[1] == b':' && b[0].is_ascii_alphabetic() {
+        return b.len() == 2 || (b[2] != b'\\' && b[2] != b'/');
+    }
+    !b.is_empty() && (b[0] == b'\\' || b[0] == b'/')
+}
+
 /// True when a dest cannot be a Windows file name (`<>"|?*`, C0, `\\.\`,
-/// a component that ends in space or `.`, or a bare `NUL` component).
+/// a component that ends in space or `.`, a bare `NUL` component,
+/// drive-relative `C:foo`, or root-relative `\foo`).
 ///
 /// Win32 strips trailing spaces and dots, so `file.txt ` / `file.txt.`
 /// persist as `file.txt` and `--force` overwrites the collapsed name.
 /// Bare `NUL` is the null device and persist is `already_exists` then
 /// `rollback`. `NUL.txt` is a real file. Reserved names like `CON` are
 /// not listed: Win11 can create a real `CON` file. ADS / extra `:` is
-/// [`is_windows_ads_path`].
+/// [`is_windows_ads_path`]. Drive-relative / root-relative dests ignore
+/// `--cwd` (fixrealloop R188).
 pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
     #[cfg(windows)]
     {
         let raw = path.to_string_lossy();
+        if windows_path_is_drive_or_root_relative(raw.as_ref()) {
+            return true;
+        }
         let s = raw
             .strip_prefix(r"\\?\")
             .or_else(|| raw.strip_prefix(r"//?/"))
@@ -413,15 +444,22 @@ pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
     }
 }
 
-/// Refuse dests Windows cannot persist, before backup (`rollback` lie).
+/// Refuse dests Windows cannot persist, or dests that ignore `--cwd`,
+/// before backup (`rollback` lie / process-cwd leak).
 pub fn ensure_not_windows_illegal_dest(
     path: &Path,
     display: &str,
 ) -> Result<(), crate::exit::InvalidInputError> {
     if is_windows_illegal_dest_path(path) {
-        return Err(crate::exit::InvalidInputError {
-            msg: format!("refusing Windows dest that is not a file name: {display}"),
-        });
+        let raw = path.to_string_lossy();
+        let msg = if windows_path_is_drive_or_root_relative(raw.as_ref()) {
+            format!(
+                "refusing Windows dest that ignores --cwd (drive-relative or root-relative): {display}"
+            )
+        } else {
+            format!("refusing Windows dest that is not a file name: {display}")
+        };
+        return Err(crate::exit::InvalidInputError { msg });
     }
     Ok(())
 }
@@ -1300,6 +1338,52 @@ mod tests {
         );
         assert!(ensure_not_windows_illegal_dest(std::path::Path::new("a<b"), "a<b").is_err());
         assert!(ensure_not_windows_illegal_dest(std::path::Path::new("NUL"), "NUL").is_err());
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new("C:foo.txt")),
+            "drive-relative dest ignores --cwd"
+        );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new(r"\foo.txt")),
+            "root-relative dest writes the drive root"
+        );
+        assert!(
+            !is_windows_illegal_dest_path(std::path::Path::new(r"C:\Users\name\file.txt")),
+            "drive+root remains a normal dest"
+        );
+        let err = ensure_not_windows_illegal_dest(std::path::Path::new("C:foo.txt"), "C:foo.txt")
+            .expect_err("drive-relative");
+        assert!(
+            err.msg.contains("ignores --cwd"),
+            "drive-relative message: {}",
+            err.msg
+        );
+    }
+
+    #[test]
+    fn windows_path_drive_or_root_relative_table() {
+        assert!(windows_path_is_drive_or_root_relative("C:foo.txt"));
+        assert!(windows_path_is_drive_or_root_relative("C:"));
+        assert!(windows_path_is_drive_or_root_relative(r"d:..\out.txt"));
+        assert!(windows_path_is_drive_or_root_relative(r"\foo.txt"));
+        assert!(windows_path_is_drive_or_root_relative("/foo.txt"));
+        assert!(windows_path_is_drive_or_root_relative(r"\\?\C:foo.txt"));
+        assert!(!windows_path_is_drive_or_root_relative(
+            r"C:\Users\name\file.txt"
+        ));
+        assert!(!windows_path_is_drive_or_root_relative(
+            "C:/Users/name/file.txt"
+        ));
+        assert!(!windows_path_is_drive_or_root_relative(
+            r"\\?\C:\Users\name\file.txt"
+        ));
+        assert!(!windows_path_is_drive_or_root_relative(
+            "//?/C:/Users/name/file.txt"
+        ));
+        assert!(!windows_path_is_drive_or_root_relative(
+            r"\\localhost\C$\Users\name\file.txt"
+        ));
+        assert!(!windows_path_is_drive_or_root_relative("notes.txt"));
+        assert!(!windows_path_is_drive_or_root_relative(r"sub\file.txt"));
     }
 
     /// Unlink the junction reparse point; leave the target tree.

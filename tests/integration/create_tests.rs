@@ -860,6 +860,8 @@ fn test_create_illegal_windows_dest_invalid_input_not_applied() {
         r"nested\NUL",
         "file.txt ",
         "file.txt.",
+        "C:foo-r188.txt",
+        r"\foo-r188.txt",
     ] {
         let output = Command::cargo_bin("patchloom")
             .unwrap()
@@ -891,6 +893,39 @@ fn test_create_illegal_windows_dest_invalid_input_not_applied() {
             "must not claim applied: {dest} {parsed}"
         );
     }
+}
+
+/// Drive-relative `C:foo` must not write the process cwd (R188).
+#[cfg(windows)]
+#[test]
+fn test_create_drive_relative_does_not_write_process_cwd() {
+    let dir = TempDir::new().unwrap();
+    let leak = std::env::current_dir()
+        .unwrap()
+        .join("foo-r188-drive-rel-must-not-exist.txt");
+    let _ = std::fs::remove_file(&leak);
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "create",
+            "C:foo-r188-drive-rel-must-not-exist.txt",
+            "--content",
+            "x",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["error_kind"], "invalid_input", "{parsed}");
+    assert!(
+        !leak.exists(),
+        "drive-relative dest wrote process cwd: {}",
+        leak.display()
+    );
 }
 
 #[cfg(windows)]
