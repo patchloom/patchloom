@@ -945,39 +945,11 @@ fn atomic_write_via_8dot3_keeps_long_name() {
 }
 
 #[test]
-fn parse_dir_r_stream_names_keeps_custom_and_skips_default_data() {
-    let listing = "\
- Volume in drive C is Windows\r
- Directory of C:\\tmp\r
-\r
-09/07/2026  08:00 AM                10 t.txt\r
-                                    10 t.txt:custom:$DATA\r
-                                    26 t.txt:Zone.Identifier:$DATA\r
-               1 File(s)             10 bytes\r
-";
+fn parse_stream_name_lines_skips_default_data() {
     assert_eq!(
-        super::parse_dir_r_stream_names(listing, "t.txt"),
+        super::parse_stream_name_lines(":$DATA\r\ncustom\r\nZone.Identifier\r\n"),
         ["custom", "Zone.Identifier"]
     );
-}
-
-#[test]
-fn parse_dir_r_stream_names_accepts_full_path_and_lowercase_data() {
-    let listing = r"C:\Users\seb\t.txt:secret:$data";
-    assert_eq!(
-        super::parse_dir_r_stream_names(listing, "t.txt"),
-        ["secret"]
-    );
-}
-
-#[test]
-fn decode_cmd_u_stdout_utf16_le_with_bom() {
-    let mut bytes = vec![0xFF, 0xFE];
-    for unit in "t.txt:custom:$DATA\r\n".encode_utf16() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    let text = super::decode_cmd_u_stdout(&bytes);
-    assert_eq!(super::parse_dir_r_stream_names(&text, "t.txt"), ["custom"]);
 }
 
 /// Temp+rename persist must keep Mark of the Web (fixrealloop R123).
@@ -1024,6 +996,55 @@ fn atomic_write_keeps_custom_named_stream() {
         fs::read(super::windows_stream_path(&target, "Zone.Identifier")).unwrap(),
         motw,
         "MOTW must still survive when a custom stream is also present"
+    );
+}
+
+/// Dest names with `&` must not be extra `cmd /C` commands (#2356 review).
+#[cfg(windows)]
+#[test]
+fn atomic_write_keeps_custom_stream_when_dest_name_has_ampersand() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("foo&whoami.txt");
+    fs::write(&target, "old\n").unwrap();
+    let custom = b"secret";
+    fs::write(super::windows_stream_path(&target, "custom"), custom).unwrap();
+
+    atomic_write(&target, "new\n", &WritePolicy::default()).unwrap();
+
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert_eq!(
+        fs::read(super::windows_stream_path(&target, "custom")).unwrap(),
+        custom,
+        "custom stream must survive a dest name that cmd would split on"
+    );
+}
+
+/// Hidden dests are skipped by bare `dir /R`; `/A` must still list them.
+#[cfg(windows)]
+#[test]
+fn atomic_write_keeps_custom_stream_on_hidden_dest() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("hidden.txt");
+    fs::write(&target, "old\n").unwrap();
+    let custom = b"secret";
+    fs::write(super::windows_stream_path(&target, "custom"), custom).unwrap();
+    let _ = std::process::Command::new("attrib")
+        .args(["+H"])
+        .arg(&target)
+        .status();
+
+    let result = atomic_write(&target, "new\n", &WritePolicy::default());
+    let _ = std::process::Command::new("attrib")
+        .args(["-H"])
+        .arg(&target)
+        .status();
+    result.unwrap();
+
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+    assert_eq!(
+        fs::read(super::windows_stream_path(&target, "custom")).unwrap(),
+        custom,
+        "custom stream must survive persist of a Hidden dest"
     );
 }
 

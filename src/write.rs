@@ -806,7 +806,7 @@ fn windows_extended_persist_path(path: &Path) -> std::path::PathBuf {
     std::path::PathBuf::from(format!(r"\\?\{raw}"))
 }
 
-/// Always try these names even when `dir /R` listing fails (MOTW).
+/// Always try these names even when stream listing fails (MOTW).
 #[cfg(windows)]
 const WINDOWS_PRESERVED_STREAMS: &[&str] = &["Zone.Identifier"];
 
@@ -822,8 +822,9 @@ fn windows_stream_path(path: &Path, stream: &str) -> std::path::PathBuf {
 
 /// Copy NTFS named streams from `from` onto `to` (the tempfile).
 ///
-/// `dir /R` lists custom streams without `FindFirstStreamW` (this crate
-/// denies `unsafe`). MOTW is always attempted even if listing fails.
+/// `Get-Item -Stream *` lists custom streams without `FindFirstStreamW`
+/// (this crate denies `unsafe`). MOTW is always attempted even if listing
+/// fails.
 /// Missing streams are skipped. A stream that exists but cannot be copied
 /// fails the write so we do not claim success after dropping it.
 #[cfg(windows)]
@@ -858,14 +859,20 @@ fn copy_windows_named_streams(from: &Path, to: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `cmd /U /C dir /R` lists `:name:$DATA` lines. Empty on spawn/parse miss.
+/// List NTFS stream names via `Get-Item -Stream *`. Empty on spawn/parse miss.
+///
+/// Path goes through `PATCHLOOM_DIR_R` and `-LiteralPath` so dest names
+/// with `&` / `|` are not extra commands. `-Force` includes Hidden and
+/// System dests that `dir /R` and unforced `Get-Item` skip.
 #[cfg(windows)]
 fn list_windows_named_stream_names(path: &Path) -> Vec<String> {
-    let Some(file_name) = path.file_name().and_then(|s| s.to_str()) else {
-        return Vec::new();
-    };
-    let mut cmd = std::process::Command::new("cmd");
-    cmd.args(["/U", "/C", "dir", "/R"]).arg(path);
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.env("PATCHLOOM_DIR_R", path).args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference='Stop'; Get-Item -LiteralPath $env:PATCHLOOM_DIR_R -Force -Stream * | ForEach-Object { $_.Stream }",
+    ]);
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -877,40 +884,21 @@ fn list_windows_named_stream_names(path: &Path) -> Vec<String> {
     if !output.status.success() {
         return Vec::new();
     }
-    parse_dir_r_stream_names(&decode_cmd_u_stdout(&output.stdout), file_name)
+    parse_stream_name_lines(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// Decode `cmd /U` stdout (UTF-16 LE, optional BOM). Compiled on every OS
-/// so the unit test locks the decoder without a Windows runner.
-fn decode_cmd_u_stdout(bytes: &[u8]) -> String {
-    let bytes = bytes.strip_prefix(&[0xFF, 0xFE]).unwrap_or(bytes);
-    if !bytes.len().is_multiple_of(2) {
-        return String::from_utf8_lossy(bytes).into_owned();
-    }
-    let units: Vec<u16> = bytes
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|c| u16::from_le_bytes(*c))
-        .collect();
-    String::from_utf16_lossy(&units)
-}
-
-/// Parse `dir /R` lines such as `6 t.txt:custom:$DATA`.
-fn parse_dir_r_stream_names(text: &str, file_name: &str) -> Vec<String> {
-    let marker = format!("{file_name}:");
+/// One stream name per `Get-Item -Stream *` line. Skips the default `:$DATA`.
+fn parse_stream_name_lines(text: &str) -> Vec<String> {
     let mut names = Vec::new();
     for line in text.lines() {
-        let line = line.trim();
-        let Some(idx) = line.find(&marker) else {
+        let name = line.trim();
+        if name.is_empty()
+            || name.eq_ignore_ascii_case(":$DATA")
+            || name.eq_ignore_ascii_case("::$DATA")
+        {
             continue;
-        };
-        let rest = &line[idx + marker.len()..];
-        let name = rest
-            .strip_suffix(":$DATA")
-            .or_else(|| rest.strip_suffix(":$data"))
-            .unwrap_or("");
-        if name.is_empty() || names.iter().any(|n| n == name) {
+        }
+        if names.iter().any(|n| n == name) {
             continue;
         }
         names.push(name.to_string());
