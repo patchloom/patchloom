@@ -314,6 +314,11 @@ mod replace_tests {
         }
 
         #[test]
+        fn anchor_is_whole_line_after_utf8_bom() {
+            assert!(anchor_is_whole_line("\u{feff}end\r\n", "end"));
+        }
+
+        #[test]
         fn anchor_is_whole_line_ci_case_insensitive_matches_on_disk_casing() {
             assert!(anchor_is_whole_line_ci("Debug\n", "debug", true));
             assert!(!anchor_is_whole_line_ci("Debug\n", "debug", false));
@@ -536,6 +541,19 @@ mod replace_tests {
             let (result, count) = replace_content(content, "^#", "##", Some(&re), None);
             assert_eq!(count, 2, "should match both lines starting with #");
             assert_eq!(&*result, "## heading\ntext\n## another\n");
+        }
+
+        #[test]
+        fn regex_caret_matches_after_utf8_bom_crlf() {
+            // Windows Notepad/VS write U+FEFF. Search strips it from the
+            // first line; replace must match ^ the same way and keep the BOM.
+            let re = compile_replace_regex("^end", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let content = "\u{feff}end\r\nnext\r\n";
+            let (result, count) = replace_content(content, "^end", "END", Some(&re), None);
+            assert_eq!(count, 1, "BOM must not hide ^end");
+            assert_eq!(&*result, "\u{feff}END\r\nnext\r\n");
         }
 
         #[test]
@@ -1271,6 +1289,18 @@ mod nth_count_tests {
         let ranged = "a\nb\na\na\nc\n";
         assert_eq!(
             count_nth_candidates(ranged, "a", None, true, Some((2, Some(4)))),
+            2
+        );
+    }
+
+    #[test]
+    fn count_nth_candidates_regex_caret_after_utf8_bom() {
+        let re = crate::ops::replace::compile_replace_regex("^end", true, false, false, false)
+            .unwrap()
+            .unwrap();
+        let content = "\u{feff}end\nend\n";
+        assert_eq!(
+            count_nth_candidates(content, "^end", Some(&re), false, None),
             2
         );
     }

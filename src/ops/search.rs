@@ -186,6 +186,9 @@ pub fn search_one_file(
     let content = crate::files::read_text_file_logged(path, "search", params.quiet)?;
     #[cfg(not(feature = "cli"))]
     let content = crate::files::read_text_file(path)?;
+    // Notepad/VS UTF-8 BOM is not line content. Strip so `^end` matches
+    // the first line the same way md/doc already strip for parse (#2311).
+    let content = crate::ops::file::strip_utf8_bom(&content);
 
     #[cfg(any(feature = "cli", feature = "files"))]
     let display = crate::files::relative_display(path, cwd);
@@ -197,10 +200,10 @@ pub fn search_one_file(
 
     if params.multiline {
         if params.count_only {
-            count = matcher.count_matches(&content, stop_after_first_hit(params));
+            count = matcher.count_matches(content, stop_after_first_hit(params));
         } else {
             let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
-            for (start, end) in matcher.find_iter_positions(&content) {
+            for (start, end) in matcher.find_iter_positions(content) {
                 count += 1;
                 let (line, column) = line_and_column_for_offset(&newline_offsets, start);
                 file_matches.push(SearchMatch {
@@ -537,6 +540,32 @@ mod tests {
         assert_eq!(result.matches.len(), 2);
         assert_eq!(result.matches[0].line, 1);
         assert_eq!(result.matches[1].line, 3);
+    }
+
+    #[test]
+    fn search_one_file_regex_caret_matches_after_utf8_bom() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("bom.txt");
+        std::fs::write(&file, "\u{feff}end\r\nnext\r\n").unwrap();
+        let matcher = build_matcher("^end", false, false, false).unwrap();
+        let params = SearchFileParams {
+            multiline: false,
+            invert_match: false,
+            count_only: false,
+            files_with_matches: false,
+            files_without_match: false,
+            assert_count: None,
+            before_context: None,
+            after_context: None,
+            context: None,
+            quiet: true,
+        };
+        let result = search_one_file(&file, &matcher, &params, dir.path())
+            .expect("^end must match the first line after a UTF-8 BOM");
+        assert_eq!(result.count, 1);
+        assert_eq!(result.matches[0].line, 1);
+        assert_eq!(result.matches[0].column, 1);
+        assert_eq!(result.matches[0].text, "end");
     }
 
     #[test]
