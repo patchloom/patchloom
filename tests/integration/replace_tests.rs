@@ -301,6 +301,39 @@ fn test_replace_regex_dollar_on_cr_only() {
     assert_eq!(fs::read(&file).unwrap(), b"END");
 }
 
+/// Mid-file lone CR is a line end for search `$`; replace must agree (#2338).
+#[test]
+fn test_replace_regex_dollar_mid_file_cr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cr.txt");
+    fs::write(&file, b"end\rnext\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "end$", "--new", "END", "--regex", "--apply"])
+        .arg(&file)
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read(&file).unwrap(), b"END\rnext\r");
+}
+
+#[test]
+fn test_replace_regex_caret_mid_file_cr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cr.txt");
+    fs::write(&file, b"aaa\rbbb\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "^bbb", "--new", "BBB", "--regex", "--apply"])
+        .arg(&file)
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read(&file).unwrap(), b"aaa\rBBB\r");
+}
+
 // ---------------------------------------------------------------------------
 // replace --whole-line, --range, --collapse-blanks
 // ---------------------------------------------------------------------------

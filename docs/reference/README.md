@@ -220,7 +220,7 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:replace -->
 ## `replace`
 
-- **What it does:** Performs mechanical string replacement across one or many text files, with literal or regex matching. Binary and invalid UTF-8 files are skipped.
+- **What it does:** Performs mechanical string replacement across one or many text files, with literal or regex matching. Binary and invalid UTF-8 files are skipped. Regex `^` and `$` use the same line ends as `search` (LF, CRLF, and a lone CR), including mid-file CR.
 - **Use when:** You are doing a rename, version bump, boilerplate rewrite, or another string level change where plain text semantics are enough. For AI agents doing single-file replacements, native search_replace tools are typically faster; use patchloom `replace` inside `tx` plans when batching multiple file edits.
 - **Prefer instead:** Use `doc` for structured data, `md` for heading aware markdown, or `patch` when you already have a unified diff.
 - **Failure behavior:** Soft pattern miss exits `3` with `error_kind: "no_matches"`; `--unique` multi-match exits `5` with `ambiguous`. All-explicit-path-missing (or all-missing `--files-from` list) exits `1` with `not_found`. Empty `--files-from` (empty list file or empty stdin) exits `1` with `invalid_input` (not pattern miss; #1796). Validation failures and invalid regex patterns use `invalid_input`.
