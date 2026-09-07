@@ -391,6 +391,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     {
         Ok(p) => p,
         Err(e) => {
+            if let Some((kind, code)) = crate::exit::classify_typed_error(&e) {
+                if structured {
+                    let ok = emit_error_json(kind, &e.to_string(), None, compact);
+                    return Ok(exit_after_emit(ok, code));
+                }
+                eprintln!("tx: plan parse error: {e}");
+                return Ok(code);
+            }
             if structured {
                 let ok = emit_error_json("parse_error", &e.to_string(), None, compact);
                 return Ok(exit_after_emit(ok, exit::PARSE_ERROR));

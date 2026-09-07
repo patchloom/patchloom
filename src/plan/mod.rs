@@ -444,8 +444,30 @@ pub fn parse_plan(input: &str) -> anyhow::Result<Plan> {
 /// Parse a plan from a YAML string.
 pub fn parse_plan_yaml(input: &str) -> anyhow::Result<Plan> {
     let input = crate::ops::file::strip_utf8_bom(input);
-    let plan: Plan = serde_yaml_ng::from_str(input)?;
-    Ok(plan)
+    serde_yaml_ng::from_str(input).map_err(|err| map_yaml_plan_parse_error(input, err))
+}
+
+/// Quoted `C:\Users` is invalid YAML (`\U` escape). Peel invalid_input (#2352).
+fn map_yaml_plan_parse_error(input: &str, err: serde_yaml_ng::Error) -> anyhow::Error {
+    let msg = err.to_string();
+    let win_path = input
+        .as_bytes()
+        .windows(3)
+        .any(|w| w[0].is_ascii_alphabetic() && w[1] == b':' && w[2] == b'\\');
+    let l = msg.to_ascii_lowercase();
+    let escape = l.contains("hexadecimal number") || l.contains("unknown escape");
+    if win_path && escape {
+        return crate::exit::InvalidInputError {
+            msg: format!(
+                "quoted YAML path looks like a Windows path with single backslashes \
+                 (YAML treats \\U in C:\\Users as a unicode escape). \
+                 Use forward slashes (C:/Users/...) or doubled backslashes \
+                 (C:\\\\Users\\\\...): {msg}"
+            ),
+        }
+        .into();
+    }
+    err.into()
 }
 
 /// Parse a plan from a TOML string.

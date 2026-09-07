@@ -876,6 +876,55 @@ fn parse_plan_yaml_strips_leading_utf8_bom() {
 }
 
 #[test]
+fn parse_plan_yaml_quoted_windows_users_path_is_invalid_input() {
+    let yaml =
+        "ops:\n  - op: replace\n    path: \"C:\\Users\\seb\\p.txt\"\n    old: old\n    new: new\n";
+    let err = parse_plan_yaml(yaml).expect_err("quoted C:\\Users is invalid YAML");
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "must peel invalid_input not a raw YAML parse: {err:#}"
+    );
+    let msg = err.to_string();
+    assert!(
+        msg.contains("forward slashes") && msg.contains("doubled backslashes"),
+        "hint must name / and \\\\ : {msg}"
+    );
+}
+
+#[test]
+fn parse_plan_yaml_quoted_forward_slash_windows_path_parses() {
+    let yaml =
+        "ops:\n  - op: replace\n    path: \"C:/Users/seb/p.txt\"\n    old: old\n    new: new\n";
+    let plan = parse_plan_yaml(yaml).expect("quoted C:/Users must parse");
+    assert_eq!(plan.operations.len(), 1);
+}
+
+#[test]
+fn parse_plan_yaml_quoted_doubled_backslash_windows_path_parses() {
+    let yaml = "ops:\n  - op: replace\n    path: \"C:\\\\Users\\\\seb\\\\p.txt\"\n    old: old\n    new: new\n";
+    let plan = parse_plan_yaml(yaml).expect("quoted C:\\\\Users must parse");
+    assert_eq!(plan.operations.len(), 1);
+}
+
+#[test]
+fn parse_plan_yaml_unquoted_windows_users_path_parses() {
+    let yaml =
+        "ops:\n  - op: replace\n    path: C:\\Users\\seb\\p.txt\n    old: old\n    new: new\n";
+    let plan = parse_plan_yaml(yaml).expect("unquoted C:\\Users must parse");
+    assert_eq!(plan.operations.len(), 1);
+}
+
+#[test]
+fn parse_plan_yaml_quoted_regex_escape_stays_parse_error() {
+    let yaml = "ops:\n  - op: replace\n    path: t.txt\n    old: \"\\s+\"\n    new: x\n";
+    let err = parse_plan_yaml(yaml).expect_err("quoted \\s+ is invalid YAML");
+    assert!(
+        !crate::exit::is_invalid_input(&err),
+        "regex escape must not get the Windows-path peel: {err:#}"
+    );
+}
+
+#[test]
 fn parse_plan_toml_strips_leading_utf8_bom() {
     let toml =
         "\u{feff}version = 1\n\n[[operations]]\nop = \"replace\"\nold = \"a\"\nnew = \"b\"\n";

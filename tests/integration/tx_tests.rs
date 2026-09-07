@@ -7025,6 +7025,34 @@ fn test_tx_malformed_yaml_returns_parse_error() {
 }
 
 #[test]
+fn test_tx_yaml_quoted_windows_users_path_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let plan_file = dir.path().join("win.yaml");
+    fs::write(
+        &plan_file,
+        "ops:\n  - op: replace\n    path: \"C:\\Users\\seb\\p.txt\"\n    old: old\n    new: new\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tx", plan_file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "quoted C:\\Users must not stay a raw YAML parse_error: {json}"
+    );
+    assert_eq!(output.status.code(), Some(1), "{json}");
+    let err = json["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("forward slashes") && err.contains("doubled backslashes"),
+        "{json}"
+    );
+}
+
+#[test]
 fn test_tx_plan_from_stdin() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("test.txt");
