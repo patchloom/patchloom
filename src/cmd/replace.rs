@@ -943,6 +943,9 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_json(&output)?;
         if !global.quiet && !global.json && !global.jsonl {
             eprintln!("no matches for '{}' in {path_desc}", args.old);
+            if let Some(rule) = crate::files::dest_glob_cwd_only_rule(&args.paths) {
+                eprintln!("{rule}");
+            }
             if let Some(ref s) = similar {
                 eprintln!("did you mean: {}?", s.join(", "));
             }

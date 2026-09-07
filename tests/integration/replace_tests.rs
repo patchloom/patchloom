@@ -4367,8 +4367,40 @@ fn test_replace_positional_glob_dest_cwd_miss_is_no_matches() {
     assert_eq!(v["error_kind"], "no_matches", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("current directory only")
-            && (err.contains("**/*.txt") || err.contains("--glob")),
-        "replace dest-glob miss JSON error must name cwd-only / **/*.txt or --glob: {v}"
+        err.contains("dest `*.txt` matches files in the current directory only")
+            && err.contains("--glob"),
+        "replace dest-glob miss JSON error must name dest-subject cwd-only and --glob nested: {v}"
+    );
+}
+
+#[test]
+fn test_replace_positional_glob_dest_cwd_miss_skips_i_tip() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["replace", "KEEP", "--new", "ZZ", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("dest `*.txt` matches files in the current directory only")
+            && stderr.contains("--glob"),
+        "human replace dest-glob miss must name dest-subject cwd-only and --glob nested: {stderr}"
+    );
+    assert!(
+        !stderr.contains("try -i"),
+        "dest-glob miss must not tip -i: {stderr}"
     );
 }

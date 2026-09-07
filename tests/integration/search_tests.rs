@@ -2575,10 +2575,11 @@ fn test_search_positional_glob_dest_cwd_miss_is_no_matches() {
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["error_kind"], "no_matches", "{v}");
     let err = v["error"].as_str().unwrap_or("");
+    // Dest-subject cwd-only (a swapped "--glob cwd-only; dest nested" must fail).
     assert!(
-        err.contains("current directory only")
-            && (err.contains("**/*.txt") || err.contains("--glob")),
-        "dest-glob miss JSON error must name cwd-only / **/*.txt or --glob: {v}"
+        err.contains("dest `*.txt` matches files in the current directory only")
+            && err.contains("--glob"),
+        "dest-glob miss JSON error must name dest-subject cwd-only and --glob nested: {v}"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -2588,11 +2589,6 @@ fn test_search_positional_glob_dest_cwd_miss_is_no_matches() {
     assert!(
         !stdout.contains("nested.txt"),
         "cwd *.txt must not hit nested: {stdout}"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !stderr.contains("try -i"),
-        "dest-glob miss must not tip -i: {stderr}"
     );
 
     let empty = TempDir::new().unwrap();
@@ -2614,9 +2610,9 @@ fn test_search_positional_glob_dest_cwd_miss_is_no_matches() {
     assert_eq!(v["error_kind"], "no_matches", "empty dest *.txt: {v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(
-        err.contains("current directory only")
-            && (err.contains("**/*.txt") || err.contains("--glob")),
-        "empty dest-glob miss JSON error must name cwd-only: {v}"
+        err.contains("dest `*.txt` matches files in the current directory only")
+            && err.contains("--glob"),
+        "empty dest-glob miss JSON error must name dest-subject cwd-only and --glob nested: {v}"
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -2647,14 +2643,50 @@ fn test_search_positional_glob_dest_cwd_miss_skips_i_tip() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("current directory only")
-            || stderr.contains("**/*.txt")
-            || stderr.contains("--glob"),
-        "human dest-glob miss must name dest-glob rule: {stderr}"
+        stderr.contains("dest `*.txt` matches files in the current directory only")
+            && stderr.contains("--glob"),
+        "human dest-glob miss must name dest-subject cwd-only and --glob nested: {stderr}"
     );
     assert!(
         !stderr.contains("try -i"),
         "dest-glob miss must not tip -i: {stderr}"
+    );
+}
+
+#[test]
+fn test_search_positional_glob_dest_subdir_miss_is_that_directory_only() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir_all(dir.path().join("sub").join("deep")).unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(
+        dir.path().join("sub").join("deep").join("nested.txt"),
+        "KEEP\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "sub/*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("dest `sub/*.txt`")
+            && err.contains("that directory only")
+            && !err.contains("current directory only")
+            && err.contains("--glob"),
+        "dest sub/*.txt miss JSON error must name dest-subject that-directory-only and --glob: {v}"
     );
 }
 
@@ -2708,6 +2740,10 @@ fn test_search_positional_glob_dest_subdir_and_space() {
             assert!(
                 stdout.contains("a.txt"),
                 "dest={dest} must hit space dir: {stdout}"
+            );
+            assert!(
+                !stdout.contains("keep.txt"),
+                "dest={dest} must not pick cwd keep.txt: {stdout}"
             );
         }
     }
