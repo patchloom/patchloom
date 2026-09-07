@@ -444,8 +444,36 @@ pub fn parse_plan(input: &str) -> anyhow::Result<Plan> {
 /// Parse a plan from a YAML string.
 pub fn parse_plan_yaml(input: &str) -> anyhow::Result<Plan> {
     let input = crate::ops::file::strip_utf8_bom(input);
-    let plan: Plan = serde_yaml_ng::from_str(input)?;
-    Ok(plan)
+    match serde_yaml_ng::from_str(input) {
+        Ok(plan) => Ok(plan),
+        Err(err) => Err(map_yaml_plan_parse_error(err)),
+    }
+}
+
+/// Quoted `C:\Users\...` is invalid YAML (`\U` is a unicode escape). Agents
+/// on Windows emit that spelling from `Path` debug. Peel `invalid_input`
+/// with a slash hint instead of the raw hex parser message (#2352).
+fn map_yaml_plan_parse_error(err: serde_yaml_ng::Error) -> anyhow::Error {
+    let msg = err.to_string();
+    if yaml_quoted_backslash_escape_error(&msg) {
+        return crate::exit::InvalidInputError {
+            msg: format!(
+                "quoted YAML path looks like a Windows path with single backslashes \
+                 (YAML treats \\U in C:\\Users as a unicode escape). \
+                 Use forward slashes (C:/Users/...) or doubled backslashes \
+                 (C:\\\\Users\\\\...): {msg}"
+            ),
+        }
+        .into();
+    }
+    err.into()
+}
+
+fn yaml_quoted_backslash_escape_error(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    lower.contains("hexadecimal number")
+        || lower.contains("unknown escape")
+        || lower.contains("invalid escape")
 }
 
 /// Parse a plan from a TOML string.

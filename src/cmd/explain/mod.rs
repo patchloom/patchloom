@@ -85,6 +85,10 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         match crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref()) {
             Ok(p) => p,
             Err(e) => {
+                if let Some((kind, code)) = crate::exit::classify_typed_error(&e) {
+                    global.emit_error_json_kind(Some(kind), &e.to_string())?;
+                    return Ok(code);
+                }
                 global.emit_error_json_kind(Some("parse_error"), &e.to_string())?;
                 return Ok(exit::PARSE_ERROR);
             }
