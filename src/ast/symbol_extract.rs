@@ -9,6 +9,19 @@
 use super::symbols::{SymbolDef, SymbolKind};
 use super::{Language, child_text_by_kind, child_text_by_kinds};
 
+/// 1-based line span using the same CR/CRLF/LF model as search (`text_lines`).
+/// tree-sitter `Point.row` only counts `\n`.
+pub(crate) fn node_source_lines(source: &str, node: tree_sitter_lib::Node) -> (usize, usize) {
+    let start = crate::ops::file::text_line_index(source, node.start_byte()) + 1;
+    let end_byte = node.end_byte().min(source.len());
+    let end = if end_byte == 0 {
+        1
+    } else {
+        crate::ops::file::text_line_index(source, end_byte.saturating_sub(1)) + 1
+    };
+    (start, end)
+}
+
 /// Recursively visit tree-sitter nodes and collect symbol definitions.
 pub(crate) fn visit_node(
     cursor: &mut tree_sitter_lib::TreeCursor,
@@ -59,8 +72,7 @@ fn try_extract_symbol(
         _ => extract_generic(node, source)?,
     };
 
-    let start_line = node.start_position().row + 1;
-    let end_line = node.end_position().row + 1;
+    let (start_line, end_line) = node_source_lines(source, node);
     let signature = node_signature(node, source);
 
     Some(SymbolDef {

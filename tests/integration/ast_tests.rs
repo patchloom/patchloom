@@ -43,6 +43,38 @@ fn test_ast_list_basic() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_list_cr_only_line_numbers() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("s.rs");
+    fs::write(&f, b"fn foo() {}\rfn bar() {}\r").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "list", "s.rs", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let val: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("ast list --json must be single JSON document: {e}\n{text}"));
+    let arr = val
+        .as_array()
+        .unwrap_or_else(|| panic!("ast list --json must be a JSON array, got: {val}"));
+    let mut foo_line = None;
+    let mut bar_line = None;
+    for v in arr {
+        match v.get("name").and_then(|n| n.as_str()) {
+            Some("foo") => foo_line = v.get("start_line").and_then(|n| n.as_u64()),
+            Some("bar") => bar_line = v.get("start_line").and_then(|n| n.as_u64()),
+            _ => {}
+        }
+    }
+    assert_eq!(foo_line, Some(1), "foo line from {text}");
+    assert_eq!(bar_line, Some(2), "bar line from {text}");
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_list_proto() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("svc.proto");
