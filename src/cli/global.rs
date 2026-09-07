@@ -686,6 +686,7 @@ impl GlobalFlags {
                     msg: format!("failed to read --files-from from stdin: {e}"),
                 })
             })?;
+            refuse_files_from_nul_text(&buf, "stdin")?;
             files_from_content_lines(&buf)
         } else {
             let list_path = self.resolve_user_path(source)?;
@@ -702,6 +703,7 @@ impl GlobalFlags {
                     })
                 }
             })?;
+            refuse_files_from_nul_text(&content, &list_path.display().to_string())?;
             files_from_content_lines(&content)
         };
         Ok(Some(lines))
@@ -716,6 +718,21 @@ impl GlobalFlags {
             Some(_) => self.read_files_from(),
         }
     }
+}
+
+/// UTF-16 LE without a BOM is valid UTF-8 (embedded NULs). Those "paths"
+/// do not exist, so search used to peel `not_found` of the list file.
+/// Treat NUL in the list as `invalid_input`, same class as a UTF-16 BOM.
+fn refuse_files_from_nul_text(content: &str, display: &str) -> anyhow::Result<()> {
+    if content.contains('\0') {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!(
+                "failed to read --files-from '{display}': not a UTF-8 text path list (NUL bytes)"
+            ),
+        }
+        .into());
+    }
+    Ok(())
 }
 
 fn files_from_content_lines(content: &str) -> Vec<String> {
@@ -1317,6 +1334,31 @@ mod tests {
         assert_eq!(
             file_flags.files_from_for_sole_scan().unwrap().unwrap(),
             vec!["only.bin"]
+        );
+    }
+
+    #[test]
+    fn read_files_from_utf16_le_no_bom_is_invalid_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("files.txt");
+        let bytes: Vec<u8> = "hit.txt\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        std::fs::write(&list, bytes).unwrap();
+        let flags = GlobalFlags {
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let err = flags.read_files_from().unwrap_err();
+        assert!(
+            err.downcast_ref::<crate::exit::InvalidInputError>()
+                .is_some(),
+            "UTF-16 LE no BOM must be InvalidInputError, not missing-list: {err}"
+        );
+        assert!(
+            err.to_string().contains("NUL"),
+            "error should name NUL bytes: {err}"
         );
     }
 
