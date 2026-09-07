@@ -668,6 +668,24 @@ try {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "dot-device replace exit=$($r.ExitCode) body=$dBody out=$snip"
         }
+
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        $r = Invoke-Pl --json read '\\.\CON'
+        $sw.Stop()
+        if ($r.ExitCode -ne 0 -and $r.Output -match "not a file name|invalid_input" -and $sw.Elapsed.TotalSeconds -lt 15) {
+            Pass "read CON device dest refused"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "read CON exit=$($r.ExitCode) ms=$($sw.Elapsed.TotalMilliseconds) out=$snip"
+        }
+
+        $r = Invoke-Pl --json create '\\.\NUL' --content x --apply
+        if ($r.ExitCode -ne 0 -and $r.Output -match "not a file name|invalid_input") {
+            Pass "create NUL device dest refused"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "create NUL exit=$($r.ExitCode) out=$snip"
+        }
     }
 
     # --- version ---

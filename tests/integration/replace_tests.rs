@@ -4171,11 +4171,17 @@ fn test_replace_dot_device_drive_applies() {
 #[cfg(windows)]
 #[test]
 fn test_read_dot_device_con_refuses() {
+    let start = std::time::Instant::now();
     let output = Command::cargo_bin("patchloom")
         .unwrap()
         .args(["--json", "read", r"\\.\CON"])
         .output()
         .unwrap();
+    assert!(
+        start.elapsed().as_secs() < 15,
+        "read \\\\.\\CON hung: {:?}",
+        start.elapsed()
+    );
 
     assert!(
         !output.status.success(),
