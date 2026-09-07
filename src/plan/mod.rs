@@ -446,16 +446,16 @@ pub fn parse_plan_yaml(input: &str) -> anyhow::Result<Plan> {
     let input = crate::ops::file::strip_utf8_bom(input);
     match serde_yaml_ng::from_str(input) {
         Ok(plan) => Ok(plan),
-        Err(err) => Err(map_yaml_plan_parse_error(err)),
+        Err(err) => Err(map_yaml_plan_parse_error(input, err)),
     }
 }
 
 /// Quoted `C:\Users\...` is invalid YAML (`\U` is a unicode escape). Agents
 /// on Windows emit that spelling from `Path` debug. Peel `invalid_input`
 /// with a slash hint instead of the raw hex parser message (#2352).
-fn map_yaml_plan_parse_error(err: serde_yaml_ng::Error) -> anyhow::Error {
+fn map_yaml_plan_parse_error(input: &str, err: serde_yaml_ng::Error) -> anyhow::Error {
     let msg = err.to_string();
-    if yaml_quoted_backslash_escape_error(&msg) {
+    if yaml_looks_like_quoted_windows_path(input) && yaml_backslash_escape_error(&msg) {
         return crate::exit::InvalidInputError {
             msg: format!(
                 "quoted YAML path looks like a Windows path with single backslashes \
@@ -469,11 +469,16 @@ fn map_yaml_plan_parse_error(err: serde_yaml_ng::Error) -> anyhow::Error {
     err.into()
 }
 
-fn yaml_quoted_backslash_escape_error(msg: &str) -> bool {
+fn yaml_looks_like_quoted_windows_path(input: &str) -> bool {
+    input
+        .as_bytes()
+        .windows(3)
+        .any(|w| w[0].is_ascii_alphabetic() && w[1] == b':' && w[2] == b'\\')
+}
+
+fn yaml_backslash_escape_error(msg: &str) -> bool {
     let lower = msg.to_ascii_lowercase();
-    lower.contains("hexadecimal number")
-        || lower.contains("unknown escape")
-        || lower.contains("invalid escape")
+    lower.contains("hexadecimal number") || lower.contains("unknown escape")
 }
 
 /// Parse a plan from a TOML string.
