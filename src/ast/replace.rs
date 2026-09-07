@@ -35,7 +35,7 @@ pub fn replace_in_symbol(
 
     // Use canonical majority-vote detection, consistent with all other AST modules.
     let eol = crate::write::detect_eol(source);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let start_idx = sym.start_line.saturating_sub(1);
     let end_idx = sym.end_line.min(lines.len());
 
@@ -96,7 +96,7 @@ pub fn replace_in_symbol(
     }
 
     // Preserve original trailing newline behavior
-    let ends_with_eol = source.ends_with('\n') || source.ends_with("\r\n");
+    let ends_with_eol = source.ends_with('\n') || source.ends_with('\r');
     if !ends_with_eol && result.ends_with(eol) {
         result.truncate(result.len() - eol.len());
     }
@@ -192,6 +192,29 @@ fn bar() {
         // Verify no bare LF where CRLF was expected
         let without_cr = result.content.replace("\r\n", "");
         assert!(!without_cr.contains('\n'), "no bare LF in CRLF content");
+    }
+
+    #[test]
+    fn replace_in_symbol_cr_only_second_fn() {
+        let source = "fn one() { let x = 1; }\rfn two() { let y = 2; }\r";
+        let result = replace_in_symbol(
+            source,
+            "two",
+            "let y = 2;",
+            "let y = 3;",
+            false,
+            Language::Rust,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.replacements, 1);
+        assert!(
+            result.content.contains("let y = 3;"),
+            "content={}",
+            result.content
+        );
+        assert!(result.content.contains("let x = 1;"));
+        assert!(!result.content.contains("let y = 2;"));
     }
 
     /// Regression: a majority-LF file with one stray CRLF must stay LF,

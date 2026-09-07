@@ -34,7 +34,7 @@ pub fn wrap_code(
     }
 
     let eol = crate::write::detect_eol(source);
-    let source_lines: Vec<&str> = source.lines().collect();
+    let source_lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Determine the range of lines to wrap (0-based indices).
     let (start_idx, end_idx) = if let Some(symbol_names) = symbols_arg {

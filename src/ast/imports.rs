@@ -31,7 +31,7 @@ pub struct ImportStatement {
 /// as a single `ImportStatement` whose `text` is the joined block and whose
 /// `line` is the first line of the block.
 pub fn list_imports(source: &str, lang: Language) -> Vec<ImportStatement> {
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let mut imports = Vec::new();
     let mut i = 0;
 
@@ -75,7 +75,7 @@ pub fn list_imports(source: &str, lang: Language) -> Vec<ImportStatement> {
 /// (after existing imports, or after module doc comments).
 pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> ImportsResult {
     let eol = crate::write::detect_eol(source);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let existing = list_imports(source, lang);
     let existing_texts: std::collections::HashSet<String> =
         existing.iter().map(|i| normalize_import(&i.text)).collect();
@@ -158,7 +158,7 @@ pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> I
 /// entire block is removed.
 pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language) -> ImportsResult {
     let eol = crate::write::detect_eol(source);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let remove_set: std::collections::HashSet<String> = imports_to_remove
         .iter()
         .map(|i| normalize_import(i))
@@ -287,7 +287,7 @@ pub fn remove_imports(source: &str, imports_to_remove: &[String], lang: Language
 /// Deduplicate import statements in source code.
 pub fn dedupe_imports(source: &str, lang: Language) -> ImportsResult {
     let eol = crate::write::detect_eol(source);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let mut seen = std::collections::HashSet::new();
     let mut result = String::new();
     let mut deduped = 0;

@@ -157,7 +157,7 @@ pub fn find_symbol<'a>(symbols: &'a [SymbolDef], name: &str) -> Option<&'a Symbo
 /// `///` and `//!` doc comments for Rust, `/** ... */` JSDoc for JS/TS/Java,
 /// and `//` doc comments preceding Go functions.
 pub fn full_symbol_span(source: &str, sym: &SymbolDef, lang: Language) -> (usize, usize) {
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let sym_start_0 = sym.start_line.saturating_sub(1); // convert to 0-based
     if sym_start_0 == 0 {
         return (sym.start_line, sym.end_line);
@@ -388,7 +388,7 @@ pub(crate) fn compute_line_byte_offsets(source: &str) -> Vec<usize> {
 /// attributes and doc comments).
 pub fn extract_symbol_text<'a>(source: &'a str, sym: &SymbolDef, lang: Language) -> &'a str {
     let (full_start, full_end) = full_symbol_span(source, sym, lang);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let start_0 = full_start.saturating_sub(1);
     let end_0 = full_end.min(lines.len());
 

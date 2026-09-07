@@ -199,7 +199,7 @@ pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u
         }
     };
 
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(&source).collect();
     let start = sym
         .start_line
         .saturating_sub(args.context.saturating_add(1));

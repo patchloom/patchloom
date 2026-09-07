@@ -68,7 +68,7 @@ pub fn group_symbols(
 ) -> anyhow::Result<GroupResult> {
     let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols(source, lang);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Check if target module already exists
     let existing_mod = find_symbol(&symbols, &spec.module)
@@ -182,7 +182,7 @@ pub fn group_symbols(
             let close_line_0 = mod_sym.end_line.saturating_sub(1);
             // Insert before closing brace
             let mut result_lines: Vec<String> = Vec::new();
-            let re_lines: Vec<&str> = modified_source.lines().collect();
+            let re_lines: Vec<&str> = crate::ops::file::text_lines(&modified_source).collect();
             for (i, line) in re_lines.iter().enumerate() {
                 if i == close_line_0 {
                     // Add a blank line before new content if previous line isn't blank

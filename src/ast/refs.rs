@@ -108,7 +108,7 @@ pub fn find_refs_in_source_with_tree(
     tree: &tree_sitter_lib::Tree,
     file_path: &str,
 ) -> Vec<SymbolRef> {
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let mut refs = Vec::new();
     collect_refs(
         tree.root_node(),
@@ -131,7 +131,7 @@ pub fn find_all_refs_in_source_with_tree(
     tree: &tree_sitter_lib::Tree,
     file_path: &str,
 ) -> Vec<(String, SymbolRef)> {
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let mut refs = Vec::new();
     collect_all_refs(tree.root_node(), source, &lines, file_path, &mut refs);
     refs
@@ -171,12 +171,9 @@ fn collect_refs(
         && let Ok(text) = node.utf8_text(source.as_bytes())
         && text == symbol_name
     {
-        let line = node.start_position().row + 1;
-        let context = lines
-            .get(node.start_position().row)
-            .unwrap_or(&"")
-            .trim()
-            .to_string();
+        let line_idx = crate::ops::file::text_line_index(source, node.start_byte());
+        let line = line_idx + 1;
+        let context = lines.get(line_idx).unwrap_or(&"").trim().to_string();
 
         let kind = if is_definition_site(node) {
             RefKind::Definition
@@ -217,12 +214,9 @@ fn collect_all_refs(
     if IDENTIFIER_KINDS.contains(&node.kind())
         && let Ok(text) = node.utf8_text(source.as_bytes())
     {
-        let line = node.start_position().row + 1;
-        let context = lines
-            .get(node.start_position().row)
-            .unwrap_or(&"")
-            .trim()
-            .to_string();
+        let line_idx = crate::ops::file::text_line_index(source, node.start_byte());
+        let line = line_idx + 1;
+        let context = lines.get(line_idx).unwrap_or(&"").trim().to_string();
 
         let kind = if is_definition_site(node) {
             RefKind::Definition

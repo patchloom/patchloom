@@ -40,7 +40,7 @@ pub fn extract_to_file(
     })?;
 
     let (full_start, full_end) = full_symbol_span(source, sym, lang);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let start_0 = full_start.saturating_sub(1);
     let end_0 = full_end.min(lines.len());
 

@@ -657,6 +657,16 @@ fn extract_rust_cr_only_lines_match_text_lines() {
         bar.start_line, 2,
         "bar must not share foo's tree-sitter row"
     );
+    let foo_text = extract_symbol_text(source, foo, Language::Rust);
+    let bar_text = extract_symbol_text(source, bar, Language::Rust);
+    assert!(
+        foo_text.contains("fn foo") && !foo_text.contains("fn bar"),
+        "foo_text={foo_text:?}"
+    );
+    assert!(
+        bar_text.contains("fn bar") && !bar_text.contains("fn foo"),
+        "bar_text={bar_text:?}"
+    );
 }
 
 #[test]

@@ -173,7 +173,7 @@ fn diff_symbol_lists(
 }
 
 fn extract_body<'a>(source: &'a str, sym: &SymbolDef) -> &'a str {
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let start = sym.start_line.saturating_sub(1);
     let end = sym.end_line.min(lines.len());
     if start >= lines.len() || start >= end {

@@ -34,7 +34,7 @@ pub fn rewrite_imports_in_source(
         return None;
     }
 
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let eol = crate::write::detect_eol(source);
     let mut replacements: Vec<(usize, usize, String)> = Vec::new();
     for import in &imports {
