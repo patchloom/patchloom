@@ -228,6 +228,7 @@ pub use crate::ops::search_replace::{
     SearchReplaceBlock, SearchReplaceParseError, looks_like_search_replace, parse_diff_fenced,
     parse_search_replace, parse_search_replace_document, search_replace_declared_paths,
 };
+pub use crate::write::CharsetMode;
 use crate::write::{EolMode, WritePolicy, atomic_write};
 
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -644,7 +645,12 @@ pub use crate::fallback::{
 };
 
 /// Write policy options for controlling file write transformations.
+///
+/// `#[non_exhaustive]`: new knobs may appear in a minor release. Construct
+/// with [`WritePolicyOptions::default`] and `..` (or set only the fields you
+/// need after `Default`).
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct WritePolicyOptions {
     /// Ensure non-empty files end with a newline.
     pub ensure_final_newline: bool,
@@ -654,6 +660,10 @@ pub struct WritePolicyOptions {
     pub trim_trailing_whitespace: bool,
     /// Collapse consecutive blank lines into a single blank line.
     pub collapse_blanks: bool,
+    /// Charset transform applied on write. [`CharsetMode::Keep`] leaves any
+    /// existing BOM unchanged. [`CharsetMode::Utf8Bom`] ensures a leading
+    /// U+FEFF; [`CharsetMode::Utf8`] strips one.
+    pub charset: CharsetMode,
     /// Optional post-Apply format/lint hooks for high-level writers (#1690).
     pub post_write: Option<PostWriteHooks>,
     /// Cwd for [`Self::post_write`] shell commands (default: file parent).
@@ -664,8 +674,9 @@ pub struct WritePolicyOptions {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Convert user-facing `WritePolicyOptions` to the internal `WritePolicy`.
+/// Convert user-facing [`WritePolicyOptions`] to [`WritePolicy`].
 ///
+/// Copies newline, EOL, trim, collapse, and [`WritePolicyOptions::charset`].
 /// Only `tidy` currently accepts `&WritePolicyOptions` at the high-level API.
 /// Other mutating functions (`file_append`, `replace_text`, `doc_*`, `md_*`, etc.) default to
 /// `WritePolicy::default()`. For full control use a 1-op plan via `execute_plan`
@@ -676,7 +687,7 @@ pub fn make_write_policy(opts: &WritePolicyOptions) -> WritePolicy {
         normalize_eol: opts.normalize_eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: opts.trim_trailing_whitespace,
         collapse_blanks: opts.collapse_blanks,
-        charset: crate::write::CharsetMode::Keep,
+        charset: opts.charset,
     }
 }
 

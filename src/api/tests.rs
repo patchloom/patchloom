@@ -2434,12 +2434,35 @@ fn make_write_policy_maps_options() {
         EolMode::Lf,
         "should map EolMode::Lf correctly"
     );
+    assert_eq!(policy.charset, CharsetMode::Keep);
 
     // Default options should produce default policy.
     let default_policy = make_write_policy(&WritePolicyOptions::default());
     assert!(!default_policy.ensure_final_newline);
     assert!(!default_policy.trim_trailing_whitespace);
     assert!(!default_policy.collapse_blanks);
+    assert_eq!(default_policy.charset, CharsetMode::Keep);
+}
+
+#[test]
+fn make_write_policy_maps_charset() {
+    let bom = make_write_policy(&WritePolicyOptions {
+        charset: CharsetMode::Utf8Bom,
+        ..WritePolicyOptions::default()
+    });
+    assert_eq!(bom.charset, CharsetMode::Utf8Bom);
+
+    let utf8 = make_write_policy(&WritePolicyOptions {
+        charset: CharsetMode::Utf8,
+        ..WritePolicyOptions::default()
+    });
+    assert_eq!(utf8.charset, CharsetMode::Utf8);
+
+    let unsupported = make_write_policy(&WritePolicyOptions {
+        charset: CharsetMode::Unsupported("utf-16le"),
+        ..WritePolicyOptions::default()
+    });
+    assert_eq!(unsupported.unsupported_charset(), Some("utf-16le"));
 }
 
 // --- New API function tests (#573) ---
