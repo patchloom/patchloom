@@ -1001,6 +1001,10 @@ mod tests {
         assert!(!is_windows_ads_path(std::path::Path::new(
             r"C:\Users\name\file.txt"
         )));
+        assert!(
+            !is_windows_ads_path(std::path::Path::new(r"\\.\C:\Users\name\file.txt")),
+            r"\\.\C:\file is a drive dest, not ADS host '.'"
+        );
         assert!(!is_windows_ads_path(std::path::Path::new("notes.txt")));
         assert!(ensure_not_windows_ads_path(std::path::Path::new("a.txt:s"), "a.txt:s").is_err());
         assert!(

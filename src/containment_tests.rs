@@ -454,6 +454,12 @@ fn prefer_openable_path_dot_device_drive_is_lexical() {
         std::path::PathBuf::from(r"\\.\NUL"),
         "NUL device must not map to a drive"
     );
+    let pipe = super::prefer_openable_path(std::path::Path::new(r"\\.\pipe\pl-test"));
+    assert_eq!(
+        pipe,
+        std::path::PathBuf::from(r"\\.\pipe\pl-test"),
+        "named pipe must not map to a drive"
+    );
 }
 
 /// `--contain` must treat `//?/C:/ws/file` as inside `C:\ws` (#2320).
