@@ -64,6 +64,11 @@ pub enum CharsetMode {
 }
 
 /// Controls which transformations are applied before writing a file.
+///
+/// `#[non_exhaustive]`: new knobs may appear in a minor release. Construct
+/// with [`WritePolicy::default`] and update fields, or use
+/// [`crate::api::make_write_policy`].
+#[non_exhaustive]
 pub struct WritePolicy {
     pub ensure_final_newline: bool,
     pub normalize_eol: EolMode,
