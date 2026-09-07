@@ -2713,6 +2713,57 @@ fn tidy_normalizes_whitespace() {
 }
 
 #[test]
+fn tidy_maps_charset() {
+    let dir = TempDir::new().unwrap();
+
+    let bom_file = dir.path().join("add-bom.txt");
+    fs::write(&bom_file, "hello\n").unwrap();
+    let bom_opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8Bom,
+        ..WritePolicyOptions::default()
+    };
+    let bom_result = tidy(&bom_file, &bom_opts, ApplyMode::Apply, None).unwrap();
+    assert!(bom_result.applied);
+    let bom_disk = fs::read_to_string(&bom_file).unwrap();
+    assert!(
+        bom_disk.starts_with('\u{feff}'),
+        "Utf8Bom must write a leading U+FEFF: {bom_disk:?}"
+    );
+    assert_eq!(bom_disk, "\u{feff}hello\n");
+
+    let strip_file = dir.path().join("strip-bom.txt");
+    fs::write(&strip_file, "\u{feff}hello\n").unwrap();
+    let utf8_opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8,
+        ..WritePolicyOptions::default()
+    };
+    let utf8_result = tidy(&strip_file, &utf8_opts, ApplyMode::Apply, None).unwrap();
+    assert!(utf8_result.applied);
+    let utf8_disk = fs::read_to_string(&strip_file).unwrap();
+    assert!(
+        !utf8_disk.starts_with('\u{feff}'),
+        "Utf8 must strip a leading U+FEFF: {utf8_disk:?}"
+    );
+    assert_eq!(utf8_disk, "hello\n");
+
+    let bad_file = dir.path().join("utf16.txt");
+    fs::write(&bad_file, "hello\n").unwrap();
+    let bad_opts = WritePolicyOptions {
+        charset: CharsetMode::Unsupported("utf-16le"),
+        ..WritePolicyOptions::default()
+    };
+    let err = tidy(&bad_file, &bad_opts, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        is_invalid_input(&err),
+        "unsupported charset must be invalid_input: {err}"
+    );
+    assert!(
+        err.to_string().contains("utf-16le"),
+        "refuse should name charset: {err}"
+    );
+}
+
+#[test]
 fn search_finds_matches() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");
