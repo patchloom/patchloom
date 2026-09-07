@@ -1,5 +1,22 @@
 use super::*;
 
+/// #2363 sibling: Win32 `keep.txt\\` is `keep.txt`. Read must not OS 267.
+#[cfg(windows)]
+#[test]
+fn test_read_trailing_backslash_reads_collapsed_name() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["read", r"keep.txt\\"])
+        .assert()
+        .success()
+        .stdout("KEEP\n");
+}
+
 #[test]
 fn test_read_prints_file_contents() {
     let dir = TempDir::new().unwrap();
