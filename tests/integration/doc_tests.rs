@@ -2163,6 +2163,85 @@ fn test_doc_set_toml_apply() {
 }
 
 #[test]
+fn test_doc_get_toml_cr_only() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, b"a = 1\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("get")
+        .arg(&file)
+        .arg("a")
+        .arg("--json")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"value\": 1"));
+}
+
+#[test]
+fn test_doc_set_toml_cr_only_keeps_cr() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.toml");
+    fs::write(&file, b"a = 1\rb = 2\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("doc")
+        .arg("set")
+        .arg(&file)
+        .arg("a")
+        .arg("3")
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let bytes = fs::read(&file).unwrap();
+    assert!(
+        bytes.contains(&b'\r') && !bytes.contains(&b'\n'),
+        "doc set must keep CR line ends: {bytes:?}"
+    );
+    let text = String::from_utf8(bytes).unwrap();
+    assert!(text.contains("a = 3"), "updated value missing: {text}");
+}
+
+#[test]
+fn test_doc_get_toml_after_editorconfig_cr_tidy() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("loop.toml");
+    fs::write(&file, "a = 1\n").unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n[loop.toml]\nend_of_line = cr\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix"])
+        .arg(&file)
+        .args(["--respect-editorconfig", "--apply"])
+        .assert()
+        .code(0);
+
+    let after_tidy = fs::read(&file).unwrap();
+    assert_eq!(
+        after_tidy, b"a = 1\r",
+        "editorconfig cr tidy should write CR-only: {after_tidy:?}"
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get"])
+        .arg(&file)
+        .args(["a", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"value\": 1"));
+}
+
+#[test]
 fn test_doc_set_toml_null_json_no_stderr_warning() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.toml");

@@ -171,6 +171,47 @@ mod basic {
     }
 
     #[test]
+    fn parse_toml_cr_only() {
+        let val = parse_doc("a = 1\r", &FileFormat::Toml).unwrap();
+        assert_eq!(val, json!({"a": 1}));
+        let two = parse_doc("a = 1\rb = 2\r", &FileFormat::Toml).unwrap();
+        assert_eq!(two, json!({"a": 1, "b": 2}));
+    }
+
+    #[test]
+    fn parse_toml_crlf_and_lf_unchanged() {
+        assert_eq!(
+            parse_doc("a = 1\r\n", &FileFormat::Toml).unwrap(),
+            json!({"a": 1})
+        );
+        assert_eq!(
+            parse_doc("a = 1\n", &FileFormat::Toml).unwrap(),
+            json!({"a": 1})
+        );
+    }
+
+    #[test]
+    fn serialize_toml_cr_only_keeps_cr() {
+        let orig = "a = 1\rb = 2\r";
+        let old = parse_doc(orig, &FileFormat::Toml).unwrap();
+        let mut newv = old.clone();
+        newv["a"] = json!(3);
+        let out = serialize_value_preserving(orig, &old, &newv, &FileFormat::Toml).unwrap();
+        assert!(
+            out.contains('\r') && !out.contains('\n'),
+            "CR-only TOML write-back must stay CR: {out:?}"
+        );
+        assert!(out.contains("a = 3"), "updated key missing: {out:?}");
+        assert_eq!(parse_doc(&out, &FileFormat::Toml).unwrap()["a"], json!(3));
+    }
+
+    #[test]
+    fn parse_toml_cr_only_keeps_utf8() {
+        let val = parse_doc("name = \"caf\u{e9}\"\r", &FileFormat::Toml).unwrap();
+        assert_eq!(val["name"], json!("café"));
+    }
+
+    #[test]
     fn navigate_mut_existing_key() {
         let mut val = json!({"a": {"b": 42}});
         let seg = crate::selector::parse("a.b").unwrap();
