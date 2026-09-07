@@ -228,7 +228,7 @@ pub(crate) fn all_explicit_paths_missing(paths: &[String], root: Option<&Path>) 
             Some(r) if !std::path::Path::new(p).is_absolute() => r.join(p),
             _ => std::path::PathBuf::from(p),
         };
-        !resolved.exists()
+        !crate::ops::file::path_entry_exists(&resolved)
     })
 }
 
@@ -303,7 +303,7 @@ pub(crate) fn scan_missing_entries(
 fn missing_paths_under(cwd: &Path, paths: &[String]) -> Option<Vec<String>> {
     let mut missing = Vec::new();
     for f in paths {
-        if !cwd.join(f).exists() {
+        if !crate::ops::file::path_entry_exists(&cwd.join(f)) {
             missing.push(f.clone());
         }
     }
@@ -394,9 +394,12 @@ pub(crate) fn collect_file_paths_opts_with_list(
         }
         return Ok(files
             .iter()
-            .map(|f| match root {
-                Some(r) => r.join(f),
-                None => PathBuf::from(f),
+            .map(|f| {
+                let raw = match root {
+                    Some(r) => r.join(f),
+                    None => PathBuf::from(f),
+                };
+                crate::ops::file::windows_collapse_dest_path(&raw)
             })
             .collect());
     }
@@ -408,10 +411,11 @@ pub(crate) fn collect_file_paths_opts_with_list(
         paths
     };
     let resolve = |p: &str| -> PathBuf {
-        match root {
+        let raw = match root {
             Some(r) => r.join(p),
             None => PathBuf::from(p),
-        }
+        };
+        crate::ops::file::windows_collapse_dest_path(&raw)
     };
     // Explicit walk roots under --contain (defense-in-depth for callers that
     // skip an early check_paths_contained on the same list).
@@ -427,7 +431,7 @@ pub(crate) fn collect_file_paths_opts_with_list(
     // [`all_explicit_paths_missing`].
     for p in effective {
         let resolved = resolve(p);
-        if !resolved.exists() && !global.json && !global.jsonl {
+        if !crate::ops::file::path_entry_exists(&resolved) && !global.json && !global.jsonl {
             eprintln!(
                 "patchloom: {}: No such file or directory",
                 resolved.display()
@@ -1474,6 +1478,18 @@ mod tests {
         std::fs::write(dir.path().join("exists.txt"), b"x\n").unwrap();
         let mixed = vec!["exists.txt".to_string(), "nope.txt".to_string()];
         assert!(!all_explicit_paths_missing(&mixed, Some(dir.path())));
+    }
+
+    #[cfg(all(windows, feature = "cli"))]
+    #[test]
+    fn all_explicit_paths_missing_collapses_trailing_separators() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+        let slashed = vec![r"keep.txt\\".to_string()];
+        assert!(
+            !all_explicit_paths_missing(&slashed, Some(dir.path())),
+            "Win32 keep.txt\\ must not peel not_found"
+        );
     }
 
     // ── matches_glob ──────────────────────────────────────────────────
