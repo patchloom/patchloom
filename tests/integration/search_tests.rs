@@ -2496,12 +2496,19 @@ fn test_search_positional_glob_dest_subdir_and_space() {
     fs::write(dir.path().join("my files").join("a.txt"), "KEEP\n").unwrap();
     fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
 
-    for dest in [
-        "sub/*.txt",
-        r"sub\*.txt",
-        "my files/*.txt",
-        r"my files\*.txt",
-    ] {
+    // Win32 `\` is a separator. On Unix it is a filename character, so
+    // dest `sub\*.txt` is not `sub/*.txt` (no_matches unless that name exists).
+    let dests: &[&str] = if cfg!(windows) {
+        &[
+            "sub/*.txt",
+            r"sub\*.txt",
+            "my files/*.txt",
+            r"my files\*.txt",
+        ]
+    } else {
+        &["sub/*.txt", "my files/*.txt"]
+    };
+    for dest in dests {
         let output = Command::cargo_bin("patchloom")
             .unwrap()
             .args(["--json", "--cwd"])
@@ -2533,4 +2540,28 @@ fn test_search_positional_glob_dest_subdir_and_space() {
             );
         }
     }
+}
+
+#[cfg(not(windows))]
+#[test]
+fn test_search_backslash_dest_glob_is_not_a_separator_on_unix() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("hit.txt"), "KEEP\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", r"sub\*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
 }
