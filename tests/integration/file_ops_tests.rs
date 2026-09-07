@@ -193,6 +193,59 @@ fn test_files_from_stdin_multi_reports_refused_binary() {
 }
 
 #[test]
+fn test_files_from_utf16_le_no_bom_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+    let list = dir.path().join("list.txt");
+    let bytes: Vec<u8> = "hit.txt\n"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    fs::write(&list, bytes).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "search", "needle"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "UTF-16 LE no BOM must not peel not_found of the list: {parsed}"
+    );
+    let err = parsed["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("NUL") || err.contains("UTF-8"),
+        "error should name the encoding class: {err}"
+    );
+}
+
+#[test]
+fn test_files_from_utf16_le_bom_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("hit.txt"), "needle\n").unwrap();
+    let list = dir.path().join("list.txt");
+    let mut bom = vec![0xFF, 0xFE];
+    bom.extend("hit.txt\n".encode_utf16().flat_map(u16::to_le_bytes));
+    fs::write(&list, bom).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "search", "needle"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["error_kind"], "invalid_input", "{parsed}");
+}
+
+#[test]
 fn test_files_from_nonexistent_path_fails() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
