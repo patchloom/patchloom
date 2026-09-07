@@ -629,6 +629,31 @@ fn test_ast_validate_json_exit_code_on_invalid_file() {
     );
 }
 
+/// CR-only sources must number syntax errors like LF (#2344).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_validate_cr_only_error_is_line_2() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("bad.rs");
+    fs::write(&f, b"fn ok() {}\rfn bad( {}\r").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["ast", "validate", "bad.rs", "--json"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value = serde_json::from_str(text.trim()).unwrap();
+    let arr = v.as_array().expect("validate --json must be array");
+    assert_eq!(arr[0]["valid"], serde_json::json!(false));
+    assert_eq!(
+        arr[0]["errors"][0]["line"],
+        serde_json::json!(2),
+        "CR-only missing ) is on line 2: {arr:?}"
+    );
+}
+
 /// Multi-file validate --json must be one array, not multi-document JSON.
 #[test]
 #[cfg(feature = "ast")]

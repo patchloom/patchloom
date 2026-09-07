@@ -84,9 +84,18 @@ fn error_node_text(node: tree_sitter_lib::Node, source: &str) -> String {
 
 fn collect_errors(node: tree_sitter_lib::Node, source: &str, errors: &mut Vec<SyntaxError>) {
     if node.is_error() || node.is_missing() {
+        let start = node.start_byte();
+        let line = crate::ops::file::text_line_index(source, start) + 1;
+        // Keep the existing 0-based column, but measure from the last
+        // `\n` / `\r` so CR-only files match LF/CRLF (#2344).
+        let line_start = source[..start.min(source.len())]
+            .rfind(['\n', '\r'])
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let column = start.saturating_sub(line_start);
         errors.push(SyntaxError {
-            line: node.start_position().row + 1,
-            column: node.start_position().column,
+            line,
+            column,
             text: error_node_text(node, source),
         });
         return; // Don't recurse into error nodes
@@ -147,6 +156,22 @@ mod tests {
         assert!(!result.errors.is_empty());
         // Error should be on line 1 or 2
         assert!(result.errors[0].line <= 2);
+    }
+
+    #[test]
+    fn cr_only_syntax_error_uses_same_line_as_lf() {
+        let lf = "fn ok() {}\nfn bad( {}\n";
+        let cr = "fn ok() {}\rfn bad( {}\r";
+        let crlf = "fn ok() {}\r\nfn bad( {}\r\n";
+        let lf_r = validate_source(lf, Language::Rust).unwrap();
+        let cr_r = validate_source(cr, Language::Rust).unwrap();
+        let crlf_r = validate_source(crlf, Language::Rust).unwrap();
+        assert!(!lf_r.valid && !cr_r.valid && !crlf_r.valid);
+        assert_eq!(lf_r.errors[0].line, 2);
+        assert_eq!(cr_r.errors[0].line, 2, "CR-only must not stay on line 1");
+        assert_eq!(crlf_r.errors[0].line, 2);
+        assert_eq!(cr_r.errors[0].column, lf_r.errors[0].column);
+        assert_eq!(crlf_r.errors[0].column, lf_r.errors[0].column);
     }
 
     #[test]
