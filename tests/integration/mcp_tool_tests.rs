@@ -458,6 +458,29 @@ async fn test_mcp_read_round_trip() {
     client.cancel().await.unwrap();
 }
 
+/// Mixed CR/LF: read_file lines must match search numbering (#2334).
+#[tokio::test]
+async fn test_mcp_read_file_lines_mixed_cr() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("mixed.txt"), b"a\nb\rc\r\nd\n").unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "read_file",
+        serde_json::json!({"path": "mixed.txt", "lines": "3"}),
+    )
+    .await;
+    assert!(!is_error, "read_file should succeed: {val}");
+    assert_eq!(val["reads"][0]["content"], "c");
+    assert_eq!(val["reads"][0]["start_line"], 3);
+    assert_eq!(val["reads"][0]["total_lines"], 4);
+    client.cancel().await.unwrap();
+}
+
 /// Boundary: same line count without a trailing newline (str::lines() omits a final empty line).
 #[tokio::test]
 async fn test_mcp_read_round_trip_without_trailing_newline() {

@@ -569,6 +569,53 @@ fn test_read_multiple_files_with_lines() {
     );
 }
 
+/// Mixed CR/LF: --lines must use the same numbering as search (#2334).
+#[test]
+fn test_read_lines_mixed_cr_agrees_with_search() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.txt");
+    fs::write(&file, b"a\nb\rc\r\nd\n").unwrap();
+
+    let search = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("search")
+        .arg("c")
+        .arg(file.to_str().unwrap())
+        .output()
+        .unwrap();
+    assert!(
+        search.status.success(),
+        "search stderr={}",
+        String::from_utf8_lossy(&search.stderr)
+    );
+    let search_json: serde_json::Value = serde_json::from_slice(&search.stdout).unwrap();
+    assert_eq!(
+        search_json["matches"][0]["line"], 3,
+        "search line: {search_json}"
+    );
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("read")
+        .arg(file.to_str().unwrap())
+        .arg("--lines")
+        .arg("3")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "read stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["start_line"], 3);
+    assert_eq!(json["total_lines"], 4);
+    assert_eq!(json["content"], "c");
+}
+
 // ── status command ─────────────────────────────────────────────────
 
 #[cfg(unix)]

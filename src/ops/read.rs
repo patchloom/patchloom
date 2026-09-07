@@ -85,9 +85,12 @@ pub(crate) fn parse_line_range(spec: &str) -> anyhow::Result<LineRange> {
 }
 
 /// Select a range of lines (1-based). Normalizes line endings to LF in output.
+///
+/// Line ends match search / replace / md: LF, CRLF, and a lone CR
+/// ([`crate::ops::file::text_lines`]). [`str::lines`] does not split on CR.
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
-    let all_lines: Vec<&str> = content.lines().collect();
+    let all_lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
     let total_lines = all_lines.len();
     if total_lines == 0 {
         return SelectedLines::empty(total_lines);
@@ -109,7 +112,9 @@ pub(crate) fn select_lines(content: &str, lines: LineRange) -> SelectedLines {
 
     let selected: Vec<&str> = all_lines[start_idx..end_idx].to_vec();
     let joined = selected.join("\n");
-    let add_nl = end_idx == total_lines && content.ends_with('\n');
+    // Join-to-LF output. Restore a terminator on the last selected line
+    // when the source ended with LF, CRLF, or a lone CR.
+    let add_nl = end_idx == total_lines && (content.ends_with('\n') || content.ends_with('\r'));
     let out = if add_nl && !joined.is_empty() {
         joined + "\n"
     } else {
@@ -298,5 +303,30 @@ mod tests {
         let result = select_lines(content, (1, Some(2)));
         // No trailing newline in source, so none added.
         assert_eq!(result.content, "alpha\nbeta");
+    }
+
+    #[test]
+    fn select_mixed_cr_lf_agrees_with_text_lines() {
+        // Search numbers this as a / b / c / d. str::lines() used to
+        // treat "b\rc" as one line so --lines 3 returned d (#2334).
+        let content = "a\nb\rc\r\nd\n";
+        let third = select_lines(content, (3, Some(3)));
+        assert_eq!(third.content, "c");
+        assert_eq!(third.start_line, 3);
+        assert_eq!(third.end_line, 3);
+        assert_eq!(third.total_lines, 4);
+
+        let all = select_lines(content, (1, None));
+        assert_eq!(all.content, "a\nb\nc\nd\n");
+        assert_eq!(all.total_lines, 4);
+        assert_eq!(all.end_line, 4);
+    }
+
+    #[test]
+    fn select_last_line_cr_only_restores_lf_terminator() {
+        let content = "end\rnext\r";
+        let result = select_lines(content, (2, Some(2)));
+        assert_eq!(result.content, "next\n");
+        assert_eq!(result.total_lines, 2);
     }
 }

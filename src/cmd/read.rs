@@ -111,7 +111,7 @@ fn read_one_file(path: &str, lines: Option<LineRange>) -> Result<ReadOutput, Rea
 
     // Fast path: no line range requested, skip split/join (#169).
     if lines.is_none() {
-        let total_lines = content.lines().count();
+        let total_lines = crate::ops::file::text_lines(&content).count();
         let start_line = if total_lines == 0 { 0 } else { 1 };
         return Ok(ReadOutput {
             ok: true,
@@ -623,8 +623,8 @@ mod tests {
 
     #[test]
     fn select_lines_crlf_content_normalizes_to_lf() {
-        // .lines() strips both \n and \r\n, then join("\n") always uses LF.
-        // This documents the intentional behavior.
+        // text_lines strips LF / CRLF / lone CR, then join("\n") uses LF.
+        // This documents the intentional output normalization.
         let content = "alpha\r\nbeta\r\ngamma\r\n";
         let result = select_lines(content, (2, Some(3)));
         assert_eq!(result.content, "beta\ngamma\n");

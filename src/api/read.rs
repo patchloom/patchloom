@@ -18,7 +18,7 @@ pub fn read(
         (None, None) => Ok(content),
         (start, end) => {
             let start = start.unwrap_or(1).saturating_sub(1); // convert to 0-based
-            let lines: Vec<&str> = content.lines().collect();
+            let lines: Vec<&str> = crate::ops::file::text_lines(&content).collect();
             let end = end.unwrap_or(lines.len()).min(lines.len());
             if start >= lines.len() {
                 return Ok(String::new());

@@ -5020,6 +5020,38 @@ fn test_tx_read_with_lines_in_plan() {
 }
 
 #[test]
+fn test_tx_read_lines_mixed_cr_is_line_three() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.txt");
+    fs::write(&file, b"a\nb\rc\r\nd\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{"op": "read", "path": portable_path_str(&file), "lines": "3"}]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["reads"][0]["content"], "c");
+    assert_eq!(json["reads"][0]["start_line"], 3);
+    assert_eq!(json["reads"][0]["total_lines"], 4);
+}
+
+#[test]
 fn test_tx_read_lines_start_past_eof_clamps_metadata() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("short.txt");
