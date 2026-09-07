@@ -4970,6 +4970,39 @@ async fn test_mcp_ast_read_returns_source() {
 
 #[tokio::test]
 #[cfg(feature = "ast")]
+async fn test_mcp_ast_read_cr_only_second_fn() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        b"fn one() { let x = 1; }\rfn two() { let y = 2; }\r",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_read",
+        serde_json::json!({"path": "lib.rs", "symbol": "two"}),
+    )
+    .await;
+    assert!(!is_error, "ast_read two should succeed: {val}");
+    let content = val["content"].as_str().unwrap_or("");
+    assert!(
+        content.contains("let y = 2"),
+        "two body should be readable: {content}"
+    );
+    assert!(
+        !content.contains("let x = 1"),
+        "two must not include one: {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
 async fn test_mcp_ast_read_not_found() {
     if !has_mcp_support() {
         return;

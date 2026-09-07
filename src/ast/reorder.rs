@@ -39,7 +39,7 @@ pub fn reorder_symbols(
 ) -> anyhow::Result<ReorderResult> {
     let eol = crate::write::detect_eol(source);
     let all_symbols = extract_symbols(source, lang);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     let (scope_symbols, scope_start_0, scope_end_0) = if let Some(container) = inside {
         let parent = find_symbol(&all_symbols, container).ok_or_else(|| {

@@ -55,7 +55,7 @@ pub fn insert_code(
 
     let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols(source, lang);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     let ctx = InsertContext {
         source,

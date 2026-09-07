@@ -67,7 +67,7 @@ pub fn move_symbols(
 ) -> anyhow::Result<MoveResult> {
     let eol = crate::write::detect_eol(source);
     let src_symbols = extract_symbols(source, lang);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Collect symbols to move
     let mut to_move: Vec<(usize, usize, String)> = Vec::new(); // (start_0, end_0, text)
@@ -175,7 +175,7 @@ fn insert_into_target(
         return Ok(insert_text.to_string());
     }
 
-    let lines: Vec<&str> = target.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(target).collect();
 
     match position {
         MovePosition::End => {

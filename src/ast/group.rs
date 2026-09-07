@@ -68,7 +68,7 @@ pub fn group_symbols(
 ) -> anyhow::Result<GroupResult> {
     let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols(source, lang);
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Check if target module already exists
     let existing_mod = find_symbol(&symbols, &spec.module)

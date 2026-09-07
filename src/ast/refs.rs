@@ -108,7 +108,7 @@ pub fn find_refs_in_source_with_tree(
     tree: &tree_sitter_lib::Tree,
     file_path: &str,
 ) -> Vec<SymbolRef> {
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let mut refs = Vec::new();
     collect_refs(
         tree.root_node(),
@@ -131,7 +131,7 @@ pub fn find_all_refs_in_source_with_tree(
     tree: &tree_sitter_lib::Tree,
     file_path: &str,
 ) -> Vec<(String, SymbolRef)> {
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
     let mut refs = Vec::new();
     collect_all_refs(tree.root_node(), source, &lines, file_path, &mut refs);
     refs

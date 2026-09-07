@@ -271,6 +271,59 @@ fn test_ast_read_basic() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_read_cr_only_second_fn_is_not_empty() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, b"fn one() { let x = 1; }\rfn two() { let y = 2; }\r").unwrap();
+    let stdout = String::from_utf8(
+        patchloom_in(dir.path())
+            .args(["ast", "read", "lib.rs", "two", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .unwrap();
+    assert!(
+        stdout.contains("let y = 2"),
+        "two body should be readable: {stdout}"
+    );
+    assert!(
+        !stdout.contains("let x = 1"),
+        "two must not include one: {stdout}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_replace_cr_only_second_fn() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("lib.rs");
+    fs::write(&f, b"fn one() { let x = 1; }\rfn two() { let y = 2; }\r").unwrap();
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "replace",
+            "lib.rs",
+            "two",
+            "--old",
+            "let y = 2;",
+            "--new",
+            "let y = 3;",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+    let content = fs::read(&f).unwrap();
+    let text = String::from_utf8_lossy(&content);
+    assert!(text.contains("let y = 3;"), "replaced: {text}");
+    assert!(text.contains("let x = 1;"), "one stays: {text}");
+    assert!(!text.contains("let y = 2;"), "old gone: {text}");
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_read_symbol_not_found_exits_3() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("main.rs");
