@@ -114,6 +114,7 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// `tx::read_and_probe`), not this function.
 pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
     use crate::ops::file::{PathEntryKind, classify_path_entry};
+    crate::ops::file::ensure_not_windows_illegal_dest(path, display)?;
     match classify_path_entry(path) {
         PathEntryKind::RealDirectory => {
             return Err(crate::exit::InvalidInputError {
@@ -171,6 +172,9 @@ pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
 /// text/binary probes. FIFOs, sockets, devices, and directories return false so
 /// callers never block forever on open (#2113 family).
 fn is_openable_regular_file(path: &Path) -> bool {
+    if crate::ops::file::is_windows_illegal_dest_path(path) {
+        return false;
+    }
     match std::fs::metadata(path) {
         Ok(m) => m.is_file(),
         Err(_) => false,
@@ -725,6 +729,12 @@ impl SoftTextSkip {
 pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
     use std::io::Read;
 
+    // `\\.\CON` / `\\.\NUL` / `\\.\pipe\...` are not files. Open hangs
+    // (console) or is a device. Same refuse as dest writes (#2322).
+    if crate::ops::file::is_windows_illegal_dest_path(path) {
+        return Err(SoftTextSkip::NotRegularFile);
+    }
+
     // Metadata-first: `File::open` on a FIFO blocks until a writer connects.
     if !is_openable_regular_file(path) {
         // Same kind as dest-symlink refuse: classify_path_entry, not raw
@@ -1246,6 +1256,23 @@ mod tests {
         let p = dir.path().join("t.txt");
         std::fs::write(&p, "line\n").unwrap();
         assert_eq!(load_text_strict(&p, "t.txt").unwrap(), "line\n");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn load_text_strict_refuses_dot_con_device() {
+        let err = load_text_strict(std::path::Path::new(r"\\.\CON"), r"\\.\CON").unwrap_err();
+        assert!(crate::exit::is_invalid_input(&err), "{err:#}");
+        assert!(err.to_string().contains("not a file name"), "msg: {err}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn try_read_text_file_skips_dot_con_device() {
+        assert_eq!(
+            try_read_text_file(std::path::Path::new(r"\\.\CON")),
+            Err(SoftTextSkip::NotRegularFile)
+        );
     }
 
     #[test]

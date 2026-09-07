@@ -4139,3 +4139,61 @@ fn test_contain_forward_extended_prefix_in_workspace() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
 }
+
+/// `\\.\C:\ws\in.txt` exists and must apply like `C:\ws\in.txt` (#2322).
+#[cfg(windows)]
+#[test]
+fn test_replace_dot_device_drive_applies() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("in.txt");
+    fs::write(&file, "x\n").unwrap();
+    let drive = file.to_string_lossy();
+    assert!(drive.len() >= 3 && drive.as_bytes()[1] == b':');
+    let dev = format!(r"\\.\{}", drive);
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["--json", "replace", "x", "--new", "y", "--apply", &dev])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "dot-device drive replace: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "y\n");
+}
+
+/// `read \\.\CON` must refuse before open (console device hangs).
+#[cfg(windows)]
+#[test]
+fn test_read_dot_device_con_refuses() {
+    let start = std::time::Instant::now();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "read", r"\\.\CON"])
+        .output()
+        .unwrap();
+    assert!(
+        start.elapsed().as_secs() < 15,
+        "read \\\\.\\CON hung: {:?}",
+        start.elapsed()
+    );
+
+    assert!(
+        !output.status.success(),
+        "read \\\\.\\CON must not succeed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let blob = format!("{stdout}{stderr}");
+    assert!(
+        blob.contains("not a file name") || blob.contains("invalid_input"),
+        "expected illegal dest refuse, got stdout={stdout} stderr={stderr}"
+    );
+}

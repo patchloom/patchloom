@@ -161,15 +161,18 @@ pub(crate) fn prefer_openable_path(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
-/// `//?/C:/Users/foo` or `\\?\C:\Users\foo` -> `C:\Users\foo`.
+/// `//?/C:/Users/foo`, `\\?\C:\Users\foo`, or `\\.\C:\Users\foo` -> `C:\Users\foo`.
 ///
 /// Leaves `\\?\UNC\...` for [`windows_local_drive_share_path`].
+/// Does not map `\\.\NUL` / `\\.\pipe\...` (not a drive letter).
 #[cfg(windows)]
 fn windows_extended_prefix_to_drive(path: &Path) -> Option<PathBuf> {
     let raw = path.to_string_lossy();
     let rest = raw
         .strip_prefix("//?/")
-        .or_else(|| raw.strip_prefix(r"\\?\"))?;
+        .or_else(|| raw.strip_prefix(r"\\?\"))
+        .or_else(|| raw.strip_prefix("//./"))
+        .or_else(|| raw.strip_prefix(r"\\.\"))?;
     if rest.len() >= 3
         && rest.as_bytes()[1] == b':'
         && (rest.as_bytes()[2] == b'/' || rest.as_bytes()[2] == b'\\')
