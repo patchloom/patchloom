@@ -80,6 +80,43 @@ fn test_md_replace_section_cr_only_line_endings() {
     assert_eq!(fs::read(&file).unwrap(), b"# Head\rnew\r");
 }
 
+#[test]
+fn test_md_replace_section_cr_only_strips_heading_prefix() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cr.md");
+    fs::write(&file, b"# Head\rbody\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["md", "replace-section"])
+        .arg(&file)
+        .args(["--heading", "Head", "--content", "# Head\rnew", "--apply"])
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read(&file).unwrap(), b"# Head\rnew\r");
+}
+
+#[test]
+fn test_md_table_append_cr_only_line_endings() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cr.md");
+    fs::write(&file, b"# T\r| H |\r|---|\r| v |\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["md", "table-append"])
+        .arg(&file)
+        .args(["--heading", "T", "--row", "| new |", "--apply"])
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read(&file).unwrap(),
+        b"# T\r| H |\r|---|\r| v |\r| new |\r"
+    );
+}
+
 /// Replacing `# Intro` includes nested `##` children until the next `#`
 /// (fixrealloop: agents expected sibling ## API to survive).
 #[test]

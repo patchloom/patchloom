@@ -457,11 +457,11 @@ pub fn move_section_in(
                     find_section(&without_section, position.1).map_err(MoveSectionError::Dest)?;
                 let mut out = String::with_capacity(without_section.len() + section_text.len() + 2);
                 out.push_str(&without_section[..dest_body_end]);
-                if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
+                if !ends_with_blank_line(&out) && !out.is_empty() {
                     out.push_str(eol);
                 }
                 out.push_str(section_text);
-                if !section_text.ends_with('\n') {
+                if !ends_with_eol(section_text) {
                     out.push_str(eol);
                 }
                 out.push_str(&without_section[dest_body_end..]);
@@ -486,11 +486,11 @@ pub fn move_section_in(
                     find_section(dest_content, position.1).map_err(MoveSectionError::Dest)?;
                 let mut out = String::with_capacity(dest_content.len() + section_text.len() + 2);
                 out.push_str(&dest_content[..dest_body_end]);
-                if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") && !out.is_empty() {
+                if !ends_with_blank_line(&out) && !out.is_empty() {
                     out.push_str(eol);
                 }
                 out.push_str(section_text);
-                if !section_text.ends_with('\n') {
+                if !ends_with_eol(section_text) {
                     out.push_str(eol);
                 }
                 out.push_str(&dest_content[dest_body_end..]);
@@ -519,22 +519,18 @@ pub fn replace_section_in(
     // the next heading. If so, preserve that separator so the output
     // remains well-formatted markdown.
     let original_body = &content[body_start..body_end];
-    let had_trailing_blank = original_body.ends_with("\n\n") || original_body.ends_with("\r\n\r\n");
+    let had_trailing_blank = ends_with_blank_line(original_body);
 
     let mut out = String::with_capacity(content.len());
     out.push_str(&content[..body_start]);
     if !replacement.is_empty() {
         out.push_str(replacement);
-        if !replacement.ends_with('\n') {
+        if !ends_with_eol(replacement) {
             out.push_str(eol);
         }
         // Restore the blank-line separator before the next heading when
         // the original content had one and the replacement does not.
-        if had_trailing_blank
-            && !replacement.ends_with("\n\n")
-            && !replacement.ends_with("\r\n\r\n")
-            && body_end < content.len()
-        {
+        if had_trailing_blank && !ends_with_blank_line(replacement) && body_end < content.len() {
             out.push_str(eol);
         }
     }
@@ -542,18 +538,30 @@ pub fn replace_section_in(
     Ok(out)
 }
 
+fn ends_with_eol(s: &str) -> bool {
+    s.ends_with('\n') || s.ends_with('\r')
+}
+
+fn ends_with_blank_line(s: &str) -> bool {
+    s.ends_with("\n\n") || s.ends_with("\r\n\r\n") || s.ends_with("\r\r")
+}
+
+fn skip_one_eol(s: &str) -> &str {
+    s.strip_prefix("\r\n")
+        .or_else(|| s.strip_prefix('\n'))
+        .or_else(|| s.strip_prefix('\r'))
+        .unwrap_or(s)
+}
+
 /// Strip a leading heading line from `text` if it matches `heading`.
 /// Handles optional trailing whitespace and newlines after the heading line.
 fn strip_leading_heading<'a>(text: &'a str, heading: &str) -> &'a str {
     let (level, query) = normalize_heading_query(heading);
-    let first_line = text.lines().next().unwrap_or("");
+    let first_line = crate::ops::file::text_lines(text).next().unwrap_or("");
     let (first_level, first_text) = normalize_heading_query(first_line);
     if first_text == query && (level.is_none() || first_level == level) {
         let after_line = &text[first_line.len()..];
-        // Skip the newline(s) after the heading line
-        after_line
-            .strip_prefix("\r\n")
-            .unwrap_or_else(|| after_line.strip_prefix('\n').unwrap_or(after_line))
+        skip_one_eol(after_line)
     } else {
         text
     }
@@ -569,7 +577,7 @@ pub fn insert_after_heading_in(
     let mut out = String::with_capacity(content.len() + insertion.len());
     out.push_str(&content[..body_start]);
     out.push_str(insertion);
-    if !insertion.is_empty() && !insertion.ends_with('\n') {
+    if !insertion.is_empty() && !ends_with_eol(insertion) {
         out.push_str(eol);
     }
     out.push_str(&content[body_start..]);
@@ -592,14 +600,14 @@ pub fn insert_after_section_in(
     if !insertion.is_empty() {
         // Ensure a blank line before a new sibling section when the prior body
         // does not already end with a blank line.
-        if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
-            if !out.ends_with('\n') {
+        if !ends_with_blank_line(&out) {
+            if !ends_with_eol(&out) {
                 out.push_str(eol);
             }
             out.push_str(eol);
         }
         out.push_str(insertion);
-        if !insertion.ends_with('\n') {
+        if !ends_with_eol(insertion) {
             out.push_str(eol);
         }
     }
@@ -619,10 +627,10 @@ pub fn insert_before_heading_in(
     out.push_str(&content[..heading_start]);
     if !insertion.is_empty() {
         out.push_str(insertion);
-        if !insertion.ends_with('\n') {
+        if !ends_with_eol(insertion) {
             out.push_str(eol);
         }
-        if !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
+        if !ends_with_blank_line(&out) {
             out.push_str(eol);
         }
     }
@@ -659,7 +667,7 @@ pub fn upsert_bullet_in(
 
     // Dedup across bullet styles: compare text content without prefix.
     let new_text = strip_bullet_prefix(&normalized);
-    for line in body.lines() {
+    for line in crate::ops::file::text_lines(body) {
         // Only dedup against top-level bullets (no leading whitespace).
         // Indented sub-bullets (e.g. "  - deploy") should not block
         // insertion of a top-level bullet with the same text (#1157).
@@ -690,7 +698,10 @@ pub fn upsert_bullet_in(
                 && content.as_bytes().get(content_end + 1) == Some(&b'\n')
             {
                 2
-            } else if content.as_bytes().get(content_end) == Some(&b'\n') {
+            } else if matches!(
+                content.as_bytes().get(content_end),
+                Some(&b'\n') | Some(&b'\r')
+            ) {
                 1
             } else {
                 0
@@ -701,14 +712,14 @@ pub fn upsert_bullet_in(
 
     let mut out = String::with_capacity(content.len() + normalized.len() + 4);
     out.push_str(&content[..insert_at]);
-    if !out.is_empty() && !out.ends_with('\n') {
+    if !out.is_empty() && !ends_with_eol(&out) {
         out.push_str(eol);
     }
     out.push_str(&normalized);
     out.push_str(eol);
     // Preserve the blank line separator before the next heading.
     let remainder = &content[insert_at..];
-    if remainder.starts_with('#') && !out.ends_with("\n\n") && !out.ends_with("\r\n\r\n") {
+    if remainder.starts_with('#') && !ends_with_blank_line(&out) {
         out.push_str(eol);
     }
     out.push_str(remainder);
@@ -832,13 +843,16 @@ pub fn table_append_in(
     let mut in_table = false;
     let mut pos = body_start;
 
-    for line in body.lines() {
+    for line in crate::ops::file::text_lines(body) {
         let line_byte_end = pos + line.len();
         let next_pos = if content.as_bytes().get(line_byte_end) == Some(&b'\r')
             && content.as_bytes().get(line_byte_end + 1) == Some(&b'\n')
         {
             line_byte_end + 2
-        } else if content.as_bytes().get(line_byte_end) == Some(&b'\n') {
+        } else if matches!(
+            content.as_bytes().get(line_byte_end),
+            Some(&b'\n') | Some(&b'\r')
+        ) {
             line_byte_end + 1
         } else {
             line_byte_end
@@ -871,8 +885,7 @@ pub fn table_append_in(
     // table to prevent silent corruption of markdown tables (#1172).
     let expected_cols = {
         let section = &content[body_start..body_end];
-        section
-            .lines()
+        crate::ops::file::text_lines(section)
             .find(|l| is_separator_row(l))
             .map(table_column_count)
     };
@@ -888,11 +901,16 @@ pub fn table_append_in(
     // Ensure there is a newline separator before the new row; without
     // this, files that lack a trailing newline get the new row fused
     // onto the last existing data row.
-    if insert_pos > 0 && content.as_bytes().get(insert_pos - 1) != Some(&b'\n') {
+    if insert_pos > 0
+        && !matches!(
+            content.as_bytes().get(insert_pos - 1),
+            Some(&b'\n') | Some(&b'\r')
+        )
+    {
         out.push_str(eol);
     }
     out.push_str(&row);
-    if !row.ends_with('\n') {
+    if !ends_with_eol(&row) {
         out.push_str(eol);
     }
     out.push_str(&content[insert_pos..]);
@@ -1022,7 +1040,7 @@ pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
     }
 
     // 3. Missing final newline.
-    if !content.is_empty() && !content.ends_with('\n') {
+    if !content.is_empty() && !ends_with_eol(content) {
         issues.push(LintIssue {
             issue: "missing final newline".to_string(),
             line: None,

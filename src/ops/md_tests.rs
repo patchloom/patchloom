@@ -528,6 +528,46 @@ mod line_endings {
     }
 
     #[test]
+    fn replace_section_cr_only_strips_heading_prefixed_body() {
+        // Agents often echo the heading back; strip_leading_heading must
+        // treat a lone CR as the heading terminator, not fuse two headings.
+        let content = "# Head\rbody\r# Next\rkeep\r";
+        let result = replace_section_in(content, "Head", "# Head\rnew").unwrap();
+        assert_eq!(result, "# Head\rnew\r# Next\rkeep\r");
+    }
+
+    #[test]
+    fn table_append_cr_only_finds_separator() {
+        let content = "# T\r| H |\r|---|\r| v |\r";
+        let (start, end) = find_section(content, "T").unwrap();
+        let result = table_append_in(content, start, end, "| new |").unwrap();
+        assert_eq!(result, "# T\r| H |\r|---|\r| v |\r| new |\r");
+    }
+
+    #[test]
+    fn upsert_bullet_cr_only_dedups() {
+        let content = "# List\r- item1\r";
+        let result = upsert_bullet_in(content, "List", "- item1").unwrap();
+        assert_eq!(result, "# List\r- item1\r");
+    }
+
+    #[test]
+    fn upsert_bullet_cr_only_inserts() {
+        let content = "# List\r- item1\r";
+        let result = upsert_bullet_in(content, "List", "- item2").unwrap();
+        assert_eq!(result, "# List\r- item1\r- item2\r");
+    }
+
+    #[test]
+    fn lint_cr_only_ending_is_not_missing_final_newline() {
+        let issues = lint_agents_content("# Head\rbody\r");
+        assert!(
+            issues.iter().all(|i| i.issue != "missing final newline"),
+            "CR-only file ending in \\r must not be missing-final-newline: {issues:?}"
+        );
+    }
+
+    #[test]
     fn upsert_bullet_crlf_preserves_endings() {
         let content = "# List\r\n- item1\r\n";
         let result = upsert_bullet_in(content, "List", "- item2").unwrap();
