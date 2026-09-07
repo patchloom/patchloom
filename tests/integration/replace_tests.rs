@@ -4342,3 +4342,33 @@ fn test_replace_positional_glob_dest_applies() {
         "KEEP\n"
     );
 }
+
+#[test]
+fn test_replace_positional_glob_dest_cwd_miss_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["replace", "KEEP", "--new", "ZZ", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("current directory only")
+            && (err.contains("**/*.txt") || err.contains("--glob")),
+        "replace dest-glob miss JSON error must name cwd-only / **/*.txt or --glob: {v}"
+    );
+}

@@ -2488,6 +2488,177 @@ fn test_search_positional_glob_dest_finds_cwd_files() {
 }
 
 #[test]
+fn test_search_positional_glob_dest_star_star_is_recursive() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    // If dest ** were compiled like * (single path segment), dest **/*.txt
+    // would miss cwd keep.txt. This lock fails on that inversion.
+    let dests: &[&str] = if cfg!(windows) {
+        &["**/*.txt", r"**\*.txt"]
+    } else {
+        &["**/*.txt"]
+    };
+    for dest in dests {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["search", "KEEP", dest])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "dest={dest} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("keep.txt"),
+            "dest={dest} must hit cwd keep.txt: {stdout}"
+        );
+        assert!(
+            stdout.contains("nested.txt"),
+            "dest={dest} must hit nested.txt: {stdout}"
+        );
+    }
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("keep.txt"),
+        "dest *.txt must still hit cwd: {stdout}"
+    );
+    assert!(
+        !stdout.contains("nested.txt"),
+        "dest *.txt must still miss nested: {stdout}"
+    );
+}
+
+#[test]
+fn test_search_positional_glob_dest_cwd_miss_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("current directory only")
+            && (err.contains("**/*.txt") || err.contains("--glob")),
+        "dest-glob miss JSON error must name cwd-only / **/*.txt or --glob: {v}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("\"skipped\""),
+        "dest *.txt miss must not list skipped: {stdout}"
+    );
+    assert!(
+        !stdout.contains("nested.txt"),
+        "cwd *.txt must not hit nested: {stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("try -i"),
+        "dest-glob miss must not tip -i: {stderr}"
+    );
+
+    let empty = TempDir::new().unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(empty.path())
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "empty dest *.txt stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "no_matches", "empty dest *.txt: {v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("current directory only")
+            && (err.contains("**/*.txt") || err.contains("--glob")),
+        "empty dest-glob miss JSON error must name cwd-only: {v}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("\"skipped\""),
+        "empty dest *.txt must not list skipped: {stdout}"
+    );
+}
+
+#[test]
+fn test_search_positional_glob_dest_cwd_miss_skips_i_tip() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("current directory only")
+            || stderr.contains("**/*.txt")
+            || stderr.contains("--glob"),
+        "human dest-glob miss must name dest-glob rule: {stderr}"
+    );
+    assert!(
+        !stderr.contains("try -i"),
+        "dest-glob miss must not tip -i: {stderr}"
+    );
+}
+
+#[test]
 fn test_search_positional_glob_dest_subdir_and_space() {
     let dir = TempDir::new().unwrap();
     fs::create_dir(dir.path().join("sub")).unwrap();

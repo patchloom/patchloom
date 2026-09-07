@@ -920,6 +920,7 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 crate::fallback::truncate_str(&args.old, 60)
             ),
         };
+        let error_msg = crate::files::with_dest_glob_cwd_only_rule(&error_msg, &args.paths);
         let output = ReplaceOutput {
             ok: false,
             match_count: 0,
@@ -948,7 +949,9 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             if !args.regex && crate::files::has_regex_metacharacters(&args.old) {
                 eprintln!("hint: pattern contains regex characters, try --regex");
             }
-            if !args.case_insensitive {
+            if !args.case_insensitive
+                && !crate::files::dest_glob_skip_case_tip(&args.paths, file_paths.is_empty())
+            {
                 eprintln!("hint: try -i for case-insensitive matching");
             }
         }
@@ -1288,6 +1291,14 @@ fn run_context_replace(
             global.emit_error_json_kind(Some("not_found"), &msg)?;
             return Ok(exit::FAILURE);
         }
+        let path_desc = global.path_scope_description(&paths);
+        let empty_msg = crate::files::with_dest_glob_cwd_only_rule(
+            &format!(
+                "no matches for '{}' in {path_desc}",
+                crate::fallback::truncate_str(&args.old, 60)
+            ),
+            &paths,
+        );
         let empty = ReplaceOutput {
             ok: args.if_exists,
             match_count: 0,
@@ -1303,7 +1314,11 @@ fn run_context_replace(
             } else {
                 Some("no_matches")
             },
-            error: None,
+            error: if args.if_exists {
+                None
+            } else {
+                Some(empty_msg)
+            },
             match_mode: None,
             match_score: None,
             matched_text: None,
