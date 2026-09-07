@@ -249,7 +249,7 @@ pub fn search_directory(
             // read once for both content and context lines (fallback is rare / no "files" feature)
             let label = root.to_string_lossy();
             let content = crate::files::load_text_strict(root, &label)?;
-            let all_lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
+            let all_lines: Vec<&str> = crate::ops::file::text_lines(&content).collect();
             let results: Vec<SearchResult> = basic
                 .into_iter()
                 .map(|m| {
