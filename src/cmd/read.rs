@@ -481,7 +481,11 @@ mod tests {
 
     #[test]
     fn read_one_file_nonexistent_returns_error() {
-        let result = read_one_file("/tmp/does-not-exist-patchloom-test.txt", None);
+        // Unix `/tmp/...` is root-relative on Windows and peels
+        // `invalid_input` (#2360). Use a unique missing dest under TempDir.
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing = dir.path().join("does-not-exist-patchloom-test.txt");
+        let result = read_one_file(missing.to_str().unwrap(), None);
         assert!(result.is_err(), "expected error, got Ok: {result:?}");
         let err = result.unwrap_err();
         assert_eq!(err.kind, "not_found");

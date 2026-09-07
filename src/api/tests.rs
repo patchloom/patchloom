@@ -4219,13 +4219,11 @@ fn file_append_respects_guard_and_relaxed() {
 
 #[test]
 fn search_nonexistent_file_fails() {
-    let err = search(
-        Path::new("/tmp/nonexistent_patchloom_search.txt"),
-        "x",
-        false,
-        false,
-    )
-    .unwrap_err();
+    // Unix `/tmp/...` is root-relative on Windows and peels
+    // `invalid_input` (#2360). Use a unique missing dest under TempDir.
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nonexistent_patchloom_search.txt");
+    let err = search(&missing, "x", false, false).unwrap_err();
     assert!(err.to_string().contains("failed to read"));
 }
 
@@ -4263,7 +4261,11 @@ fn read_mixed_cr_lf_line_three_is_c() {
 
 #[test]
 fn read_nonexistent_file_fails() {
-    let err = read(Path::new("/tmp/nonexistent_patchloom_read.txt"), None, None).unwrap_err();
+    // Unix `/tmp/...` is root-relative on Windows and peels
+    // `invalid_input` (#2360). Use a unique missing dest under TempDir.
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("nonexistent_patchloom_read.txt");
+    let err = read(&missing, None, None).unwrap_err();
     assert!(err.to_string().contains("failed to read"));
 }
 
