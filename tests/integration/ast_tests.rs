@@ -293,6 +293,25 @@ fn test_ast_read_cr_only_second_fn_is_not_empty() {
         !stdout.contains("let x = 1"),
         "two must not include one: {stdout}"
     );
+
+    let one = String::from_utf8(
+        patchloom_in(dir.path())
+            .args(["ast", "read", "lib.rs", "one", "--json"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone(),
+    )
+    .unwrap();
+    assert!(
+        one.contains("let x = 1"),
+        "one body should be readable: {one}"
+    );
+    assert!(
+        !one.contains("let y = 2"),
+        "one must not include two: {one}"
+    );
 }
 
 #[test]

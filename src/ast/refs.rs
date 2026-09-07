@@ -171,12 +171,9 @@ fn collect_refs(
         && let Ok(text) = node.utf8_text(source.as_bytes())
         && text == symbol_name
     {
-        let line = node.start_position().row + 1;
-        let context = lines
-            .get(node.start_position().row)
-            .unwrap_or(&"")
-            .trim()
-            .to_string();
+        let line_idx = crate::ops::file::text_line_index(source, node.start_byte());
+        let line = line_idx + 1;
+        let context = lines.get(line_idx).unwrap_or(&"").trim().to_string();
 
         let kind = if is_definition_site(node) {
             RefKind::Definition
@@ -217,12 +214,9 @@ fn collect_all_refs(
     if IDENTIFIER_KINDS.contains(&node.kind())
         && let Ok(text) = node.utf8_text(source.as_bytes())
     {
-        let line = node.start_position().row + 1;
-        let context = lines
-            .get(node.start_position().row)
-            .unwrap_or(&"")
-            .trim()
-            .to_string();
+        let line_idx = crate::ops::file::text_line_index(source, node.start_byte());
+        let line = line_idx + 1;
+        let context = lines.get(line_idx).unwrap_or(&"").trim().to_string();
 
         let kind = if is_definition_site(node) {
             RefKind::Definition

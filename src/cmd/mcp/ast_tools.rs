@@ -145,7 +145,7 @@ pub(super) fn handle_ast_read(
         )
     })?;
 
-    let lines: Vec<&str> = source.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(&source).collect();
     let start = sym
         .start_line
         .saturating_sub(1_usize.saturating_add(p.context));
