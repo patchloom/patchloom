@@ -151,8 +151,12 @@ pub fn find_function_span(
     let sig_end = find_body_start(fn_node).unwrap_or(end);
 
     let signature_text = source[start..sig_end].trim_end().to_string();
-    let start_line = fn_node.start_position().row + 1;
-    let sig_end_line = source[..sig_end].matches('\n').count() + 1;
+    let start_line = crate::ast::symbol_extract::node_source_lines(source, fn_node).0;
+    let sig_end_line = if sig_end == 0 {
+        1
+    } else {
+        crate::ops::file::text_line_column(source, sig_end.saturating_sub(1)).0
+    };
 
     Some(FunctionSpan {
         full_range: start..end,
