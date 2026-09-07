@@ -2393,3 +2393,51 @@ fn test_search_positional_glob_dest_finds_cwd_files() {
         "glob dest must not appear in skipped: {stdout}"
     );
 }
+
+#[test]
+fn test_search_positional_glob_dest_subdir_and_space() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::create_dir(dir.path().join("my files")).unwrap();
+    fs::write(dir.path().join("sub").join("hit.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("my files").join("a.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+
+    for dest in [
+        "sub/*.txt",
+        r"sub\*.txt",
+        "my files/*.txt",
+        r"my files\*.txt",
+    ] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["search", "KEEP", dest])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "dest={dest} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if dest.contains("sub") {
+            assert!(
+                stdout.contains("hit.txt"),
+                "dest={dest} must hit sub: {stdout}"
+            );
+            assert!(
+                !stdout.contains("keep.txt"),
+                "dest={dest} must not pick cwd keep.txt: {stdout}"
+            );
+        } else {
+            assert!(
+                stdout.contains("a.txt"),
+                "dest={dest} must hit space dir: {stdout}"
+            );
+        }
+    }
+}

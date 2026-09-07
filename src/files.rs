@@ -558,13 +558,19 @@ pub(crate) fn collect_file_paths_opts_with_list(
     let mut paths = collected.into_inner().expect("all walkers done");
 
     if let Some(ref matcher) = dest_glob_matcher {
+        // Same root-relative match as `--glob`. Filename-only `matches_glob`
+        // accepts `*.txt` but drops `sub\*.txt` / `my files/*.txt`.
+        let dest_roots: Vec<PathBuf> = match root {
+            Some(r) => vec![normalize_glob_root(r.to_path_buf())],
+            None => vec![PathBuf::from(".")],
+        };
         if dest_glob_only {
-            paths.retain(|p| matches_glob(p, Some(matcher)));
+            paths.retain(|p| matches_glob_with_roots(p, Some(matcher), &dest_roots));
         } else {
             let literal_roots: Vec<PathBuf> = literal_specs.iter().map(|s| resolve(s)).collect();
             paths.retain(|p| {
                 literal_roots.iter().any(|r| p == r || p.starts_with(r))
-                    || matches_glob(p, Some(matcher))
+                    || matches_glob_with_roots(p, Some(matcher), &dest_roots)
             });
         }
     }
