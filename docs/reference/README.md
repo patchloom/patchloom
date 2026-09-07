@@ -295,7 +295,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Creates a file from literal content or stdin. Exactly one of `--content` or `--stdin` is required. Passing both is rejected with `--content and --stdin cannot be combined`, and passing neither is rejected with `either --content or --stdin must be provided`. Directory targets are rejected in all modes. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
 - **Use when:** Generating a new tracked file is the whole task, or one step in a larger transaction. For AI agents creating a single file, native file creation tools are typically faster; use `file.create` inside `tx` plans when bundling with other edits.
-- **Failure behavior:** Existing file without `--force` exits `1` with `error_kind: "already_exists"`; bad flags/non-file targets use `invalid_input`. Pre-write failures under `--json`/`--jsonl` set `applied: false`.
+- **Failure behavior:** Existing file without `--force` exits `1` with `error_kind: "already_exists"`; bad flags/non-file targets use `invalid_input`. On Windows, a trailing `\` or `/` on the dest is the same dest without those slashes (`keep.txt\\` is `keep.txt`), so an existing file is `already_exists` and is not unlinked. Pre-write failures under `--json`/`--jsonl` set `applied: false`.
 - **Prefer instead:** Use `doc`, `md`, or `replace` when the file already exists and only needs edits.
 - **Related:** `delete`, `tx file.create`
 

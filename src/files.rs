@@ -114,6 +114,8 @@ pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
 /// `tx::read_and_probe`), not this function.
 pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
     use crate::ops::file::{PathEntryKind, classify_path_entry};
+    let collapsed = crate::ops::file::windows_collapse_dest_path(path);
+    let path = collapsed.as_path();
     crate::ops::file::ensure_not_windows_illegal_dest(path, display)?;
     match classify_path_entry(path) {
         PathEntryKind::RealDirectory => {
@@ -728,6 +730,9 @@ impl SoftTextSkip {
 /// entry, else [`SoftTextSkip::Unreadable`] when missing / metadata fails.
 pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
     use std::io::Read;
+
+    let collapsed = crate::ops::file::windows_collapse_dest_path(path);
+    let path = collapsed.as_path();
 
     // `\\.\CON` / `\\.\NUL` / `\\.\pipe\...` are not files. Open hangs
     // (console) or is a device. Same refuse as dest writes (#2322).
@@ -1408,6 +1413,17 @@ mod tests {
             load_text_strict(&link, "live.txt").unwrap(),
             "hello via link\n"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn load_text_strict_collapses_trailing_separators() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("keep.txt");
+        std::fs::write(&file, "KEEP\n").unwrap();
+        let slashed = std::path::PathBuf::from(format!("{}\\", file.display()));
+        assert_eq!(load_text_strict(&slashed, r"keep.txt\\").unwrap(), "KEEP\n");
+        assert_eq!(try_read_text_file(&slashed).unwrap(), "KEEP\n");
     }
 
     #[test]

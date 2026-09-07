@@ -499,6 +499,8 @@ impl GlobalFlags {
             }
             .into());
         }
+        #[cfg(windows)]
+        let path = crate::ops::file::windows_collapse_trailing_separators(path);
         crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(path), path)?;
         crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(path), path)?;
         if let Some(guard) = self.workspace_guard(cwd)? {
@@ -706,11 +708,14 @@ impl GlobalFlags {
             refuse_files_from_nul_text(&content, &list_path.display().to_string())?;
             files_from_content_lines(&content)
         };
-        for line in &lines {
-            crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(line), line)?;
-            crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(line), line)?;
+        let mut dests = Vec::with_capacity(lines.len());
+        for line in lines {
+            let line = crate::ops::file::windows_collapse_trailing_separators(&line).to_string();
+            crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(&line), &line)?;
+            crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(&line), &line)?;
+            dests.push(line);
         }
-        Ok(Some(lines))
+        Ok(Some(dests))
     }
 
     /// Preload `--files-from` for sole-path non-text checks without stealing
@@ -1452,6 +1457,21 @@ mod tests {
         };
         let result = flags.read_files_from().unwrap().unwrap();
         assert_eq!(result, vec!["C:ok.txt"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn read_files_from_collapses_trailing_separators() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("list.txt");
+        std::fs::write(&list, "keep.txt\\\\\n").unwrap();
+        let flags = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["keep.txt"]);
     }
 
     /// #2361: `C:ok.txt` in the list is a dest peel, not `not_found` of

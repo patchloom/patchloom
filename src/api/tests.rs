@@ -8503,6 +8503,28 @@ fn file_create_already_exists_is_already_exists() {
     );
 }
 
+/// #2363: `keep.txt\\` is Win32 `keep.txt`. Library create must peel
+/// `already_exists`, not dest-parent `invalid_input`.
+#[cfg(all(windows, any(feature = "cli", feature = "files")))]
+#[test]
+fn file_create_trailing_sep_existing_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("keep.txt");
+    fs::write(&file, "KEEP\n").unwrap();
+    let slashed = std::path::PathBuf::from(format!("{}\\", file.display()));
+    let err = file_create(&slashed, "NEW\n", false, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        crate::fallback::is_already_exists(&err),
+        "trailing-sep dest must not dest-parent: {err}"
+    );
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("already_exists"),
+        "{err}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "KEEP\n");
+}
+
 /// Dangling symlink is a present entry → already_exists without force (#2087).
 #[cfg(all(unix, any(feature = "cli", feature = "files")))]
 #[test]
