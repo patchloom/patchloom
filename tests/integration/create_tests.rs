@@ -165,6 +165,55 @@ fn test_create_refuses_overwrite() {
     assert_eq!(content, "original content\n");
 }
 
+/// #2363: `keep.txt\\` is Win32 `keep.txt`. Create must not unlink it.
+#[cfg(windows)]
+#[test]
+fn test_create_trailing_backslash_existing_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["create", r"keep.txt\\", "--content", "NEW", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        parsed["error_kind"], "already_exists",
+        "trailing-sep dest must not rollback: {parsed}"
+    );
+    assert_eq!(parsed["applied"], false, "{parsed}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+        "KEEP\n",
+        "existing dest bytes must stay"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn test_create_trailing_backslash_fresh_writes_collapsed_name() {
+    let dir = TempDir::new().unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["create", r"fresh.txt\\", "--content", "NEW\n", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["applied"], true, "{parsed}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("fresh.txt")).unwrap(),
+        "NEW\n"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // tx
 // ---------------------------------------------------------------------------

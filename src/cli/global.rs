@@ -499,6 +499,8 @@ impl GlobalFlags {
             }
             .into());
         }
+        #[cfg(windows)]
+        let path = crate::ops::file::windows_collapse_trailing_separators(path);
         crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(path), path)?;
         crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(path), path)?;
         if let Some(guard) = self.workspace_guard(cwd)? {

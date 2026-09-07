@@ -883,6 +883,13 @@ fn windows_extended_persist_path(path: &Path) -> std::path::PathBuf {
             .unwrap_or_else(|_| path.to_path_buf())
     };
     let raw = abs.as_os_str().to_string_lossy();
+    let collapsed = crate::ops::file::windows_collapse_trailing_separators(raw.as_ref());
+    let abs = if collapsed == raw.as_ref() {
+        abs
+    } else {
+        std::path::PathBuf::from(collapsed)
+    };
+    let raw = abs.as_os_str().to_string_lossy();
     if raw.starts_with(r"\\?\") || raw.starts_with(r"\\.\") {
         return abs;
     }
