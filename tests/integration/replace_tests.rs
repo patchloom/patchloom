@@ -4067,6 +4067,39 @@ fn test_replace_keeps_zone_identifier() {
     );
 }
 
+/// `replace --apply` must keep a custom NTFS named stream (#2341).
+#[cfg(windows)]
+#[test]
+fn test_replace_keeps_custom_named_stream() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("ads.txt");
+    fs::write(&file, "old line\n").unwrap();
+    let custom = b"secret";
+    let mut ads = file.as_os_str().to_os_string();
+    ads.push(":custom");
+    fs::write(&ads, custom).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json", "replace", "old", "--new", "new", "--apply", "ads.txt",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "replace apply: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "new line\n");
+    assert_eq!(
+        fs::read(&ads).expect("custom named stream must remain after replace"),
+        custom
+    );
+}
+
 /// `--contain` must allow an in-workspace dest spelled as `\\localhost\C$\...`.
 #[cfg(windows)]
 #[test]

@@ -1,6 +1,6 @@
 //! Atomic write, final newline, EOL normalization, trailing-whitespace trimming.
 //!
-//! size-waiver: atomic write + hardlink + symlink + Windows MOTW persist (#1230 / #1733 / #1408).
+//! size-waiver: atomic write + hardlink + symlink + Windows named-stream persist (#1230 / #1733 / #1408 / #2341).
 
 use std::path::Path;
 
@@ -806,11 +806,7 @@ fn windows_extended_persist_path(path: &Path) -> std::path::PathBuf {
     std::path::PathBuf::from(format!(r"\\?\{raw}"))
 }
 
-/// NTFS named streams restored onto the tempfile before persist.
-///
-/// Listing every stream needs `FindFirstStreamW` (unsafe; this crate denies
-/// it). Mark of the Web is the live-red: `atomic_write` rename otherwise
-/// drops `:Zone.Identifier` on downloaded files.
+/// Always try these names even when stream listing fails (MOTW).
 #[cfg(windows)]
 const WINDOWS_PRESERVED_STREAMS: &[&str] = &["Zone.Identifier"];
 
@@ -824,16 +820,25 @@ fn windows_stream_path(path: &Path, stream: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(raw)
 }
 
-/// Copy well-known NTFS streams from `from` onto `to` (the tempfile).
+/// Copy NTFS named streams from `from` onto `to` (the tempfile).
 ///
+/// `Get-Item -Stream *` lists custom streams without `FindFirstStreamW`
+/// (this crate denies `unsafe`). MOTW is always attempted even if listing
+/// fails.
 /// Missing streams are skipped. A stream that exists but cannot be copied
-/// fails the write so we do not claim success after dropping MOTW.
+/// fails the write so we do not claim success after dropping it.
 #[cfg(windows)]
 fn copy_windows_named_streams(from: &Path, to: &Path) -> anyhow::Result<()> {
     if !from.is_file() {
         return Ok(());
     }
-    for name in WINDOWS_PRESERVED_STREAMS {
+    let mut names = list_windows_named_stream_names(from);
+    for fallback in WINDOWS_PRESERVED_STREAMS {
+        if !names.iter().any(|n| n == fallback) {
+            names.push((*fallback).to_string());
+        }
+    }
+    for name in &names {
         let src = windows_stream_path(from, name);
         // CopyFileEx rejects an ADS dest (ERROR_INVALID_PARAMETER). Read
         // then write through the `path:stream` spelling instead.
@@ -852,6 +857,54 @@ fn copy_windows_named_streams(from: &Path, to: &Path) -> anyhow::Result<()> {
         })?;
     }
     Ok(())
+}
+
+/// List NTFS stream names via `Get-Item -Stream *`. Empty on spawn/parse miss.
+///
+/// Path goes through `PATCHLOOM_DIR_R` and `-LiteralPath` so dest names
+/// with `&` / `|` are not extra commands. `-Force` includes Hidden and
+/// System dests that `dir /R` and unforced `Get-Item` skip.
+#[cfg(windows)]
+fn list_windows_named_stream_names(path: &Path) -> Vec<String> {
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.env("PATCHLOOM_DIR_R", path).args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "$ErrorActionPreference='Stop'; Get-Item -LiteralPath $env:PATCHLOOM_DIR_R -Force -Stream * | ForEach-Object { $_.Stream }",
+    ]);
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    let Ok(output) = cmd.output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    parse_stream_name_lines(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// One stream name per `Get-Item -Stream *` line. Skips the default `:$DATA`.
+#[cfg(any(windows, test))]
+fn parse_stream_name_lines(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in text.lines() {
+        let name = line.trim();
+        if name.is_empty()
+            || name.eq_ignore_ascii_case(":$DATA")
+            || name.eq_ignore_ascii_case("::$DATA")
+        {
+            continue;
+        }
+        if names.iter().any(|n| n == name) {
+            continue;
+        }
+        names.push(name.to_string());
+    }
+    names
 }
 
 /// Directory-entry count for this file. Unix `nlink`; Windows
