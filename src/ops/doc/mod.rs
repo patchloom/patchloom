@@ -852,7 +852,7 @@ fn toml_source_for_parse(content: &str) -> Cow<'_, str> {
 /// After a TOML CST write, put CR-only files back on CR (EditorConfig `cr`).
 fn restore_toml_file_eol(original: &str, rendered: String) -> String {
     if crate::write::detect_eol(original) == "\r" {
-        rendered.replace('\n', "\r")
+        crate::write::normalize_eol(&rendered, crate::write::EolMode::Cr).into_owned()
     } else {
         rendered
     }
