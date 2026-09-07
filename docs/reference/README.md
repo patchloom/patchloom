@@ -242,7 +242,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Checks or applies a unified diff, a Codex `*** Begin Patch` document (Add / Update / Delete / Move), or an Aider SEARCH/REPLACE / DiffFenced document.
 - **Use when:** The change already exists as a patch, Begin Patch envelope, or SEARCH/REPLACE document, or you want stale context detection instead of search and replace semantics.
-- **Paths:** A relative patch file path is resolved under `--cwd`. Paths *inside* the unified diff are also resolved against `--cwd`.
+- **Paths:** A relative patch file path is resolved under `--cwd`. Paths *inside* the unified diff are also resolved against `--cwd`. Git dest prefixes `a/` and `b/` also accept `a\` and `b\`.
 - **Prefer instead:** Use `replace`, `doc`, or `md` when you want to describe the mutation directly instead of carrying a diff artifact.
 - **Related:** `patch check`, `patch apply`, `patch merge`, `tx patch.apply`
 

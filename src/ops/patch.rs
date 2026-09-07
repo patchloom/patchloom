@@ -218,11 +218,17 @@ fn is_file_header(lines: &[&str], idx: usize) -> bool {
     }
     let minus_rest = &lines[idx][4..];
     let plus_rest = &lines[idx + 1][4..];
-    // Standard git diff paths start with a/ or b/.
-    if minus_rest.starts_with("a/") || minus_rest.starts_with("/dev/null") {
+    // Standard git diff paths start with a/ or b/ (or a\ / b\ from Windows agents).
+    if minus_rest.starts_with("a/")
+        || minus_rest.starts_with("a\\")
+        || minus_rest.starts_with("/dev/null")
+    {
         return true;
     }
-    if plus_rest.starts_with("b/") || plus_rest.starts_with("/dev/null") {
+    if plus_rest.starts_with("b/")
+        || plus_rest.starts_with("b\\")
+        || plus_rest.starts_with("/dev/null")
+    {
         return true;
     }
     // Traditional diff uses tabs before timestamps.
@@ -272,6 +278,8 @@ pub fn parse_diff_git_paths(line: &str) -> Option<(String, String)> {
 fn strip_diff_ab_prefix(s: &str) -> Option<String> {
     s.strip_prefix("a/")
         .or_else(|| s.strip_prefix("b/"))
+        .or_else(|| s.strip_prefix("a\\"))
+        .or_else(|| s.strip_prefix("b\\"))
         .map(str::to_string)
 }
 
@@ -583,6 +591,8 @@ fn parse_file_path(line: &str) -> String {
     let path = path
         .strip_prefix("b/")
         .or_else(|| path.strip_prefix("a/"))
+        .or_else(|| path.strip_prefix("b\\"))
+        .or_else(|| path.strip_prefix("a\\"))
         .unwrap_or(path);
     path.to_string()
 }
