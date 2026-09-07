@@ -888,6 +888,7 @@ fn list_windows_named_stream_names(path: &Path) -> Vec<String> {
 }
 
 /// One stream name per `Get-Item -Stream *` line. Skips the default `:$DATA`.
+#[cfg(any(windows, test))]
 fn parse_stream_name_lines(text: &str) -> Vec<String> {
     let mut names = Vec::new();
     for line in text.lines() {
