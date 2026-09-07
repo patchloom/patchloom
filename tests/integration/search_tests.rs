@@ -2394,6 +2394,37 @@ fn test_search_positional_glob_dest_dotslash() {
 
 #[cfg(windows)]
 #[test]
+fn test_search_star_dest_is_cwd_not_win32_wildcard() {
+    let dir = std::env::temp_dir().join(format!("pl-glob-cwd-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("sub")).unwrap();
+    fs::write(dir.join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.join("sub").join("nested.txt"), "KEEP\n").unwrap();
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(&dir)
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("keep.txt"), "cwd *.txt: {stdout}");
+    assert!(
+        !stdout.contains("nested.txt"),
+        "Win32 exists(*.txt) must not recurse: {stdout}"
+    );
+}
+
+#[cfg(windows)]
+#[test]
 fn test_search_extended_prefix_missing_is_not_found() {
     let dir = TempDir::new().unwrap();
     let missing = format!(r"\\?\{}\nope-r204.txt", dir.path().display());
@@ -2418,8 +2449,10 @@ fn test_search_extended_prefix_missing_is_not_found() {
 #[test]
 fn test_search_positional_glob_dest_finds_cwd_files() {
     let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("sub")).unwrap();
     fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
     fs::write(dir.path().join("other.md"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("sub").join("nested.txt"), "KEEP\n").unwrap();
 
     let output = Command::cargo_bin("patchloom")
         .unwrap()
@@ -2443,6 +2476,10 @@ fn test_search_positional_glob_dest_finds_cwd_files() {
     assert!(
         !stdout.contains("other.md"),
         "positional *.txt must not pick md: {stdout}"
+    );
+    assert!(
+        !stdout.contains("nested.txt"),
+        "positional *.txt must stay cwd (Unix shell / dir *.txt): {stdout}"
     );
     assert!(
         !stdout.contains("\"skipped\""),

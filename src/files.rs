@@ -460,7 +460,12 @@ pub(crate) fn collect_file_paths_opts_with_list(
     let mut dest_globs: Vec<String> = Vec::new();
     for p in effective {
         let resolved = resolve(p);
-        if looks_like_glob_dest(p) && !crate::ops::file::path_entry_exists(&resolved) {
+        // On Windows, `exists("C:\\ws\\*.txt")` is true when any .txt
+        // exists (wildcard FindFirstFile). That skipped dest-glob expand
+        // and walked the tree. `*` / `?` cannot be a real Win32 name.
+        let as_glob = looks_like_glob_dest(p)
+            && (cfg!(windows) || !crate::ops::file::path_entry_exists(&resolved));
+        if as_glob {
             dest_globs.push(p.clone());
         } else {
             walk_specs.push(p.clone());
@@ -474,7 +479,7 @@ pub(crate) fn collect_file_paths_opts_with_list(
         // Mix: also walk cwd so `search KEEP src *.txt` sees cwd `*.txt`.
         walk_specs.push(".".to_string());
     }
-    let dest_glob_matcher = build_glob_matcher(&dest_globs)?;
+    let dest_glob_matcher = build_dest_glob_matcher(&dest_globs)?;
     let effective: &[String] = &walk_specs;
     // Explicit walk roots under --contain (defense-in-depth for callers that
     // skip an early check_paths_contained on the same list).
@@ -575,19 +580,19 @@ pub(crate) fn collect_file_paths_opts_with_list(
     let mut paths = collected.into_inner().expect("all walkers done");
 
     if let Some(ref matcher) = dest_glob_matcher {
-        // Same root-relative match as `--glob`. Filename-only `matches_glob`
-        // accepts `*.txt` but drops `sub\*.txt` / `my files/*.txt`.
+        // Root-relative only. Filename fallback would make `*.txt` match
+        // `sub/a.txt`, but Unix shells and `dir *.txt` stay in cwd.
         let dest_roots: Vec<PathBuf> = match root {
             Some(r) => vec![normalize_glob_root(r.to_path_buf())],
             None => vec![PathBuf::from(".")],
         };
         if dest_glob_only {
-            paths.retain(|p| matches_glob_with_roots(p, Some(matcher), &dest_roots));
+            paths.retain(|p| matches_dest_glob(p, matcher, &dest_roots));
         } else {
             let literal_roots: Vec<PathBuf> = literal_specs.iter().map(|s| resolve(s)).collect();
             paths.retain(|p| {
                 literal_roots.iter().any(|r| p == r || p.starts_with(r))
-                    || matches_glob_with_roots(p, Some(matcher), &dest_roots)
+                    || matches_dest_glob(p, matcher, &dest_roots)
             });
         }
     }
@@ -639,8 +644,28 @@ fn strip_leading_dot_slash(pattern: &str) -> &str {
 /// the same way `dir *.txt` does. Linux stays case-sensitive.
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
-    GlobBuilder::new(strip_leading_dot_slash(pattern))
+    let stripped = strip_leading_dot_slash(pattern);
+    // Win32 `\` is a separator. globset otherwise treats it as a literal
+    // (or escape), so `*.txt` matches `sub\a.txt` and `sub\*.txt` misses
+    // a `/`-normalized relative path.
+    GlobBuilder::new(stripped)
         .case_insensitive(cfg!(windows))
+        .build()
+}
+
+/// Dest-glob compile: `/` separators and `*` does not cross directories.
+/// Unix shells and `dir *.txt` stay in one directory; `**` is recursive.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn compile_dest_glob(pattern: &str) -> Result<Glob, globset::Error> {
+    let stripped = strip_leading_dot_slash(pattern);
+    let normalized = if cfg!(windows) && stripped.contains('\\') {
+        stripped.replace('\\', "/")
+    } else {
+        stripped.to_string()
+    };
+    GlobBuilder::new(&normalized)
+        .case_insensitive(cfg!(windows))
+        .literal_separator(true)
         .build()
 }
 
@@ -649,6 +674,18 @@ pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn apply_platform_ignore_case(builder: &mut WalkBuilder) {
     builder.ignore_case_insensitive(cfg!(windows));
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+fn build_dest_glob_matcher(globs: &[String]) -> anyhow::Result<Option<GlobSet>> {
+    if globs.is_empty() {
+        return Ok(None);
+    }
+    let mut builder = GlobSetBuilder::new();
+    for pattern in globs {
+        builder.add(compile_dest_glob(pattern)?);
+    }
+    Ok(Some(builder.build()?))
 }
 
 /// Build a compiled glob matcher from globs, or `None` if no globs given.
@@ -749,6 +786,25 @@ fn normalize_glob_root(path: PathBuf) -> PathBuf {
 #[cfg(any(feature = "cli", feature = "files"))]
 fn glob_matches_path(path: &Path, matcher: &GlobSet) -> bool {
     matcher.is_match(path) || path.file_name().is_some_and(|name| matcher.is_match(name))
+}
+
+/// Dest-glob retain: cwd-relative path with `/` separators.
+/// Do not match the absolute walk path: on Windows globset treats `\` as
+/// a normal character, so `*.txt` would match `C:\ws\sub\a.txt`.
+/// `*.txt` is cwd files, like a Unix shell or `dir *.txt`. `--glob`
+/// still uses [`matches_glob_with_roots`] (recursive filename match).
+#[cfg(any(feature = "cli", feature = "files"))]
+fn matches_dest_glob(path: &Path, matcher: &GlobSet, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| {
+        let Ok(relative) = path.strip_prefix(root) else {
+            return false;
+        };
+        if relative.as_os_str().is_empty() {
+            return false;
+        }
+        let rel = relative.to_string_lossy().replace('\\', "/");
+        matcher.is_match(rel.as_str())
+    })
 }
 
 /// Check whether `path` matches any of the globs, either directly or relative
