@@ -826,6 +826,49 @@ fn test_tidy_check_missing_path_is_not_found() {
 }
 
 #[test]
+fn test_tidy_fix_positional_glob_dest_applies() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP ").unwrap();
+    fs::write(dir.path().join("skip.md"), "KEEP ").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "tidy",
+            "fix",
+            "*.txt",
+            "--trim-trailing-whitespace",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("\"skipped\""),
+        "glob dest must not appear in skipped: {stdout}"
+    );
+    let keep = fs::read_to_string(dir.path().join("keep.txt")).unwrap();
+    assert!(
+        keep.starts_with("KEEP") && !keep.contains("KEEP "),
+        "positional *.txt must tidy keep.txt: {keep:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("skip.md")).unwrap(),
+        "KEEP ",
+        "positional *.txt must not tidy md"
+    );
+}
+
+#[test]
 fn test_tidy_fix_missing_path_is_not_found() {
     let dir = TempDir::new().unwrap();
     let missing = dir.path().join("nope.txt");

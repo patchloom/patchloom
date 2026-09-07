@@ -213,17 +213,33 @@ pub fn is_binary_file(path: &Path) -> bool {
     is_binary(&buf[..n])
 }
 
+/// True when a dest looks like a glob Unix shells expand (`*.txt`, `sub/*.rs`).
+/// Windows cmd and PowerShell pass those through, so scan dests must expand
+/// them instead of peeling `not_found` / illegal dest.
+#[cfg(feature = "cli")]
+#[must_use]
+pub(crate) fn looks_like_glob_dest(path: &str) -> bool {
+    path.as_bytes().iter().any(|b| matches!(b, b'*' | b'?'))
+}
+
 /// True when the user supplied explicit path roots and none of them exist.
 ///
 /// Empty `paths` means the caller will default to `.` and is never "all
 /// missing" here. Used so search/replace/tidy can distinguish path typos
 /// (`not_found`) from pattern/whitespace soft success (`no_matches` / clean).
+/// Glob dests are ignored: zero matches is pattern `no_matches`, not dest
+/// `not_found`.
 #[cfg(feature = "cli")]
 pub(crate) fn all_explicit_paths_missing(paths: &[String], root: Option<&Path>) -> bool {
     if paths.is_empty() {
         return false;
     }
-    paths.iter().all(|p| {
+    let literals: Vec<&String> = paths.iter().filter(|p| !looks_like_glob_dest(p)).collect();
+    if literals.is_empty() {
+        // Only glob dests: zero matches is pattern `no_matches`, not dest `not_found`.
+        return false;
+    }
+    literals.iter().all(|p| {
         let resolved = match root {
             Some(r) if !std::path::Path::new(p).is_absolute() => r.join(p),
             _ => std::path::PathBuf::from(p),
@@ -303,6 +319,9 @@ pub(crate) fn scan_missing_entries(
 fn missing_paths_under(cwd: &Path, paths: &[String]) -> Option<Vec<String>> {
     let mut missing = Vec::new();
     for f in paths {
+        if looks_like_glob_dest(f) {
+            continue;
+        }
         if !crate::ops::file::path_entry_exists(&cwd.join(f)) {
             missing.push(f.clone());
         }
@@ -417,6 +436,29 @@ pub(crate) fn collect_file_paths_opts_with_list(
         };
         crate::ops::file::windows_collapse_dest_path(&raw)
     };
+    // Unix shells expand `*.txt` before exec. Windows cmd/PowerShell do not.
+    // Split glob dests from literal walk roots so `search KEEP *.txt` is
+    // `--glob *.txt` over `.`, not dest `not_found`.
+    let mut walk_specs: Vec<String> = Vec::new();
+    let mut dest_globs: Vec<String> = Vec::new();
+    for p in effective {
+        let resolved = resolve(p);
+        if looks_like_glob_dest(p) && !crate::ops::file::path_entry_exists(&resolved) {
+            dest_globs.push(p.clone());
+        } else {
+            walk_specs.push(p.clone());
+        }
+    }
+    let dest_glob_only = walk_specs.is_empty() && !dest_globs.is_empty();
+    let literal_specs = walk_specs.clone();
+    if walk_specs.is_empty() {
+        walk_specs.push(".".to_string());
+    } else if !dest_globs.is_empty() && !walk_specs.iter().any(|s| s == "." || s == "./") {
+        // Mix: also walk cwd so `search KEEP src *.txt` sees cwd `*.txt`.
+        walk_specs.push(".".to_string());
+    }
+    let dest_glob_matcher = build_glob_matcher(&dest_globs)?;
+    let effective: &[String] = &walk_specs;
     // Explicit walk roots under --contain (defense-in-depth for callers that
     // skip an early check_paths_contained on the same list).
     if let Some(r) = root {
@@ -514,6 +556,18 @@ pub(crate) fn collect_file_paths_opts_with_list(
         })
     });
     let mut paths = collected.into_inner().expect("all walkers done");
+
+    if let Some(ref matcher) = dest_glob_matcher {
+        if dest_glob_only {
+            paths.retain(|p| matches_glob(p, Some(matcher)));
+        } else {
+            let literal_roots: Vec<PathBuf> = literal_specs.iter().map(|s| resolve(s)).collect();
+            paths.retain(|p| {
+                literal_roots.iter().any(|r| p == r || p.starts_with(r))
+                    || matches_glob(p, Some(matcher))
+            });
+        }
+    }
 
     // Explicit file path args must not be dropped by exclude. Config like
     // exclude.globs = ["vendor/**"] is for walks; a targeted
@@ -1478,6 +1532,31 @@ mod tests {
         std::fs::write(dir.path().join("exists.txt"), b"x\n").unwrap();
         let mixed = vec!["exists.txt".to_string(), "nope.txt".to_string()];
         assert!(!all_explicit_paths_missing(&mixed, Some(dir.path())));
+    }
+
+    #[test]
+    fn looks_like_glob_dest_star_and_question() {
+        assert!(looks_like_glob_dest("*.txt"));
+        assert!(looks_like_glob_dest("sub/*.rs"));
+        assert!(looks_like_glob_dest(r"sub\*.rs"));
+        assert!(looks_like_glob_dest("file?.txt"));
+        assert!(!looks_like_glob_dest("keep.txt"));
+        assert!(!looks_like_glob_dest("sub/keep.txt"));
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn all_explicit_paths_missing_ignores_glob_dests() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(
+            !all_explicit_paths_missing(&["*.txt".into()], Some(dir.path())),
+            "glob dests are not dest not_found"
+        );
+        std::fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+        assert!(!all_explicit_paths_missing(
+            &["keep.txt".into(), "*.md".into()],
+            Some(dir.path())
+        ));
     }
 
     #[cfg(all(windows, feature = "cli"))]

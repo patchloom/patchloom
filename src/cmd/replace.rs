@@ -672,7 +672,13 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // Relative paths keep agent-facing spelling in skipped/refused JSON.
     let mut normalized_paths = Vec::with_capacity(args.paths.len());
     for p in &args.paths {
-        normalized_paths.push(global.rewrite_user_path_arg(&cwd, p)?);
+        // Scan dests like `*.txt` are globs (Unix shells expand them). Do not
+        // peel `*` as an illegal Windows dest name.
+        if crate::files::looks_like_glob_dest(p) {
+            normalized_paths.push(p.clone());
+        } else {
+            normalized_paths.push(global.rewrite_user_path_arg(&cwd, p)?);
+        }
     }
     args.paths = normalized_paths;
     // Read --files-from once (including stdin `-`); sole/refused/scan must not

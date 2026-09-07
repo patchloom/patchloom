@@ -2358,3 +2358,38 @@ fn test_replace_glob_txt_matches_uppercase_ext() {
         "new\n"
     );
 }
+
+#[test]
+fn test_search_positional_glob_dest_finds_cwd_files() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("other.md"), "KEEP\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", "*.txt"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("keep.txt"),
+        "positional *.txt must expand: {stdout}"
+    );
+    assert!(
+        !stdout.contains("other.md"),
+        "positional *.txt must not pick md: {stdout}"
+    );
+    assert!(
+        !stdout.contains("\"skipped\""),
+        "glob dest must not appear in skipped: {stdout}"
+    );
+}

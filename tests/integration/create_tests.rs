@@ -911,6 +911,7 @@ fn test_create_illegal_windows_dest_invalid_input_not_applied() {
         "file.txt.",
         "C:foo-r188.txt",
         r"\foo-r188.txt",
+        "*.txt",
     ] {
         let output = Command::cargo_bin("patchloom")
             .unwrap()
