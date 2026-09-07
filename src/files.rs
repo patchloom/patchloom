@@ -213,13 +213,30 @@ pub fn is_binary_file(path: &Path) -> bool {
     is_binary(&buf[..n])
 }
 
+/// Length of a Windows extended/device prefix whose `?` is not a glob.
+/// `\\?\C:\file.txt` and `//?/C:/file.txt` must stay literal dests.
+#[cfg(feature = "cli")]
+#[must_use]
+fn windows_extended_prefix_len(path: &str) -> usize {
+    let b = path.as_bytes();
+    if b.len() >= 4 {
+        let p = &b[..4];
+        if p == br"\\?\" || p == b"//?/" || p == br"\\.\" || p == b"//./" {
+            return 4;
+        }
+    }
+    0
+}
+
 /// True when a dest looks like a glob Unix shells expand (`*.txt`, `sub/*.rs`).
 /// Windows cmd and PowerShell pass those through, so scan dests must expand
 /// them instead of peeling `not_found` / illegal dest.
+/// `*` / `?` in a `\\?\` / `//?/` prefix are not glob metacharacters.
 #[cfg(feature = "cli")]
 #[must_use]
 pub(crate) fn looks_like_glob_dest(path: &str) -> bool {
-    path.as_bytes().iter().any(|b| matches!(b, b'*' | b'?'))
+    let rest = &path[windows_extended_prefix_len(path)..];
+    rest.as_bytes().iter().any(|b| matches!(b, b'*' | b'?'))
 }
 
 /// True when the user supplied explicit path roots and none of them exist.
@@ -596,13 +613,33 @@ pub(crate) fn collect_file_paths_opts_with_list(
     Ok(paths)
 }
 
+/// Strip leading `./` / `.\` so `./*.txt` and `.\*.txt` match cwd files.
+/// Unix shells expand those before exec; Windows cmd/PowerShell pass them
+/// through.
+#[cfg(any(feature = "cli", feature = "files"))]
+fn strip_leading_dot_slash(pattern: &str) -> &str {
+    let mut p = pattern;
+    loop {
+        if let Some(rest) = p.strip_prefix("./") {
+            p = rest;
+            continue;
+        }
+        if let Some(rest) = p.strip_prefix(".\\") {
+            p = rest;
+            continue;
+        }
+        break;
+    }
+    p
+}
+
 /// Compile a user `--glob` / exclude / `for_each` pattern.
 ///
 /// Windows file names are case-insensitive. `*.txt` must match `Hit.TXT`
 /// the same way `dir *.txt` does. Linux stays case-sensitive.
 #[cfg(any(feature = "cli", feature = "files"))]
 pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
-    GlobBuilder::new(pattern)
+    GlobBuilder::new(strip_leading_dot_slash(pattern))
         .case_insensitive(cfg!(windows))
         .build()
 }
@@ -1541,13 +1578,20 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "cli")]
     fn looks_like_glob_dest_star_and_question() {
         assert!(looks_like_glob_dest("*.txt"));
         assert!(looks_like_glob_dest("sub/*.rs"));
         assert!(looks_like_glob_dest(r"sub\*.rs"));
         assert!(looks_like_glob_dest("file?.txt"));
+        assert!(looks_like_glob_dest(r"\\?\C:\temp\*.txt"));
+        assert!(looks_like_glob_dest("//?/C:/temp/*.txt"));
         assert!(!looks_like_glob_dest("keep.txt"));
         assert!(!looks_like_glob_dest("sub/keep.txt"));
+        assert!(!looks_like_glob_dest(r"\\?\C:\temp\keep.txt"));
+        assert!(!looks_like_glob_dest("//?/C:/temp/keep.txt"));
+        assert!(!looks_like_glob_dest(r"\\.\C:\temp\keep.txt"));
+        assert!(!looks_like_glob_dest("//./C:/temp/keep.txt"));
     }
 
     #[test]

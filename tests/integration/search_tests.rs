@@ -2360,6 +2360,62 @@ fn test_replace_glob_txt_matches_uppercase_ext() {
 }
 
 #[test]
+fn test_search_positional_glob_dest_dotslash() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
+    fs::write(dir.path().join("other.md"), "KEEP\n").unwrap();
+
+    for dest in [r".\*.txt", "./*.txt"] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "--cwd"])
+            .arg(dir.path())
+            .args(["search", "KEEP", dest])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "dest={dest} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("keep.txt"),
+            "dest={dest} must expand: {stdout}"
+        );
+        assert!(
+            !stdout.contains("other.md"),
+            "dest={dest} must not pick md: {stdout}"
+        );
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn test_search_extended_prefix_missing_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let missing = format!(r"\\?\{}\nope-r204.txt", dir.path().display());
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "KEEP", &missing])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "not_found", "{v}");
+}
+
+#[test]
 fn test_search_positional_glob_dest_finds_cwd_files() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("keep.txt"), "KEEP\n").unwrap();
