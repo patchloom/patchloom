@@ -718,11 +718,6 @@ impl GlobalFlags {
     }
 }
 
-/// Normalize one `--files-from` line: trim, drop blanks and `#` comments (#1811).
-///
-/// Lines whose first non-whitespace character is `#` are comments (gitignore-
-/// style). A path that literally starts with `#` is not supported; document
-/// that agents must not emit comment lines if they need such a path.
 fn files_from_content_lines(content: &str) -> Vec<String> {
     let content = content.strip_prefix('\u{FEFF}').unwrap_or(content);
     crate::ops::file::text_lines(content)
@@ -730,6 +725,11 @@ fn files_from_content_lines(content: &str) -> Vec<String> {
         .collect()
 }
 
+/// Normalize one `--files-from` line: trim, drop blanks and `#` comments (#1811).
+///
+/// Lines whose first non-whitespace character is `#` are comments (gitignore-
+/// style). A path that literally starts with `#` is not supported; document
+/// that agents must not emit comment lines if they need such a path.
 fn normalize_files_from_line(line: &str) -> Option<String> {
     let l = line.trim();
     if l.is_empty() || l.starts_with('#') {
