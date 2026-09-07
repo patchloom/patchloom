@@ -355,12 +355,14 @@ pub fn ensure_not_windows_ads_path(
 }
 
 /// True when a dest cannot be a Windows file name (`<>"|?*`, C0, `\\.\`,
-/// or a component that ends in space or `.`).
+/// a component that ends in space or `.`, or a bare `NUL` component).
 ///
 /// Win32 strips trailing spaces and dots, so `file.txt ` / `file.txt.`
 /// persist as `file.txt` and `--force` overwrites the collapsed name.
-/// Reserved names like `CON` are not listed: Win11 can create a real `CON`
-/// file. ADS / extra `:` is [`is_windows_ads_path`].
+/// Bare `NUL` is the null device and persist is `already_exists` then
+/// `rollback`. `NUL.txt` is a real file. Reserved names like `CON` are
+/// not listed: Win11 can create a real `CON` file. ADS / extra `:` is
+/// [`is_windows_ads_path`].
 pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -393,6 +395,12 @@ pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
                 .iter()
                 .any(|b| matches!(*b, 0x00..=0x1F | b'<' | b'>' | b'"' | b'|' | b'?' | b'*'))
             {
+                return true;
+            }
+            // Bare NUL is the null device. Persist is "already exists" then
+            // rollback. NUL.txt is a real file on Win11. CON/PRN/AUX/COM/LPT
+            // also persist as real files here; do not list them.
+            if bytes.eq_ignore_ascii_case(b"NUL") {
                 return true;
             }
         }
@@ -1270,7 +1278,28 @@ mod tests {
             is_windows_illegal_dest_path(std::path::Path::new(r"\\.\CON")),
             r"\\.\CON is the console device, not a file"
         );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new("NUL")),
+            "bare NUL is the null device"
+        );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new("nul")),
+            "NUL match is case-insensitive"
+        );
+        assert!(
+            is_windows_illegal_dest_path(std::path::Path::new(r"nested\NUL")),
+            "NUL as a path component is still the device"
+        );
+        assert!(
+            !is_windows_illegal_dest_path(std::path::Path::new("NUL.txt")),
+            "NUL.txt is a real file on Win11"
+        );
+        assert!(
+            !is_windows_illegal_dest_path(std::path::Path::new("CON")),
+            "Win11 can persist a real CON file"
+        );
         assert!(ensure_not_windows_illegal_dest(std::path::Path::new("a<b"), "a<b").is_err());
+        assert!(ensure_not_windows_illegal_dest(std::path::Path::new("NUL"), "NUL").is_err());
     }
 
     /// Unlink the junction reparse point; leave the target tree.

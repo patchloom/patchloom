@@ -686,6 +686,14 @@ try {
             $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
             Fail "create NUL exit=$($r.ExitCode) out=$snip"
         }
+
+        $r = Invoke-Pl --json create NUL --content x --apply
+        if ($r.ExitCode -ne 0 -and $r.Output -match "not a file name|invalid_input") {
+            Pass "create bare NUL dest refused"
+        } else {
+            $snip = if ($r.Output.Length -gt 240) { $r.Output.Substring(0, 240) } else { $r.Output }
+            Fail "create bare NUL exit=$($r.ExitCode) out=$snip"
+        }
     }
 
     # --- version ---
