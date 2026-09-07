@@ -103,6 +103,12 @@ fn tidy_apply_policy_locally(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    if indent_opts.dedent.is_some() && indent_opts.indent.is_some() {
+        return Err(crate::exit::InvalidInputError {
+            msg: "tidy.fix: 'dedent' and 'indent' cannot both be set".into(),
+        }
+        .into());
+    }
     let policy = super::make_write_policy(policy_opts);
     policy.refuse_unsupported_charset()?;
     let path_str = path.to_string_lossy();

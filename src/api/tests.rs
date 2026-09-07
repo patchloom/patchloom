@@ -2764,6 +2764,32 @@ fn tidy_maps_charset() {
 }
 
 #[test]
+fn tidy_charset_path_refuses_dedent_and_indent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("both.txt");
+    fs::write(&file, "hello\n").unwrap();
+    let opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8Bom,
+        ..WritePolicyOptions::default()
+    };
+    let indent = TidyIndentOptions {
+        dedent: Some("auto".into()),
+        indent: Some("4".into()),
+        lines: None,
+    };
+    let err = tidy_with_indent(&file, &opts, &indent, ApplyMode::Apply, None).unwrap_err();
+    assert!(
+        is_invalid_input(&err),
+        "both dedent and indent must be invalid_input: {err}"
+    );
+    assert!(
+        err.to_string().contains("cannot both be set"),
+        "refuse should name the pair: {err}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
 fn search_finds_matches() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");
