@@ -59,6 +59,35 @@ fn test_patch_apply_with_apply_flag_writes_file() {
     assert_eq!(content, "line1\nnew line\nline3\n");
 }
 
+/// Git `a/` prefix written with a backslash must still hit workspace p.txt (#2339).
+#[test]
+fn test_patch_apply_backslash_git_prefix() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("p.txt"), "old\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "--- a\\p.txt\n+++ b\\p.txt\n@@ -1 +1 @@\n-old\n+new\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("p.txt")).unwrap(),
+        "new\n"
+    );
+}
+
 /// Relative patch path is resolved under --cwd (parity with `tx` / `batch`).
 #[test]
 fn test_patch_relative_file_respects_cwd() {

@@ -1020,6 +1020,13 @@ mod regression {
     }
 
     #[test]
+    fn parse_file_path_strips_backslash_git_prefix() {
+        assert_eq!(parse_file_path("--- a\\p.txt"), "p.txt");
+        assert_eq!(parse_file_path("+++ b\\p.txt"), "p.txt");
+        assert_eq!(parse_file_path("--- a\\src\\main.rs"), "src\\main.rs");
+    }
+
+    #[test]
     fn parse_file_path_minus_with_tab_timestamp() {
         let result = parse_file_path("--- a/src/main.rs\t2024-06-01 12:00:00.000 +0000");
         assert_eq!(result, "src/main.rs");
