@@ -852,7 +852,15 @@ fn test_create_ads_path_invalid_input_not_applied() {
 #[test]
 fn test_create_illegal_windows_dest_invalid_input_not_applied() {
     let dir = TempDir::new().unwrap();
-    for dest in ["bad<name.txt", r"\\.\NUL", "file.txt ", "file.txt."] {
+    for dest in [
+        "bad<name.txt",
+        r"\\.\NUL",
+        "NUL",
+        "nul",
+        r"nested\NUL",
+        "file.txt ",
+        "file.txt.",
+    ] {
         let output = Command::cargo_bin("patchloom")
             .unwrap()
             .args([
