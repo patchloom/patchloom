@@ -63,6 +63,27 @@ fn test_md_replace_section_leading_utf8_bom() {
     );
 }
 
+#[test]
+fn test_md_replace_section_cr_only_line_endings() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("cr.md");
+    fs::write(&file, b"# Head\rbody\r").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["md", "replace-section"])
+        .arg(&file)
+        .args(["--heading", "Head", "--content", "new", "--apply"])
+        .assert()
+        .code(0);
+
+    let body = fs::read(&file).unwrap();
+    assert!(
+        body.windows(3).any(|w| w == b"new"),
+        "section body should be replaced: {body:?}"
+    );
+}
+
 /// Replacing `# Intro` includes nested `##` children until the next `#`
 /// (fixrealloop: agents expected sibling ## API to survive).
 #[test]

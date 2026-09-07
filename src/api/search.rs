@@ -249,7 +249,7 @@ pub fn search_directory(
             // read once for both content and context lines (fallback is rare / no "files" feature)
             let label = root.to_string_lossy();
             let content = crate::files::load_text_strict(root, &label)?;
-            let all_lines: Vec<&str> = content.lines().collect();
+            let all_lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
             let results: Vec<SearchResult> = basic
                 .into_iter()
                 .map(|m| {
@@ -357,7 +357,7 @@ pub fn search_one_file(
         // and invalid patterns return early with an empty vec.
         let re = re.as_ref().expect("multiline always builds regex");
         let mut results = Vec::new();
-        let all_lines: Vec<&str> = content.lines().collect();
+        let all_lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
         for m in re.find_iter(content) {
             let start_byte = m.start();
             let line_num = content[..start_byte].matches('\n').count();

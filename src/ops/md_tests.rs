@@ -26,6 +26,14 @@ mod basic {
     }
 
     #[test]
+    fn parse_headings_cr_only_line_endings() {
+        let headings = parse_headings("# Head\rbody\r");
+        assert_eq!(headings.len(), 1);
+        assert_eq!(headings[0].text, "Head");
+        assert_eq!(headings[0].level, 1);
+    }
+
+    #[test]
     fn parse_headings_section_boundaries() {
         // ## B (level 2) does NOT end # A (level 1); only same-or-higher level ends it
         let content = "# A\nline1\nline2\n## B\nline3\n";

@@ -710,8 +710,7 @@ pub fn count_whole_line_matches(
     range: Option<(usize, Option<usize>)>,
 ) -> usize {
     let content = crate::ops::file::strip_utf8_bom(content);
-    content
-        .lines()
+    crate::ops::file::text_lines(content)
         .enumerate()
         .filter(|(i, line)| {
             let line_num = i + 1;

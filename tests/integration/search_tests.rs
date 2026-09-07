@@ -216,6 +216,25 @@ fn test_search_regex_caret_matches_after_utf8_bom() {
 }
 
 #[test]
+fn test_search_regex_dollar_matches_cr_only() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("cr.txt"), b"end\rnext\r").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "search", "--regex", "end$"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let matches = parsed["matches"].as_array().unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0]["line"], 1);
+    assert_eq!(matches[0]["text"], "end");
+}
+
+#[test]
 fn test_search_jsonl_count_output() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("data.txt"), "aaa\naaa\n").unwrap();

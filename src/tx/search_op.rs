@@ -242,7 +242,7 @@ fn collect_tx_search_matches(
     scan: &TxSearchScan<'_>,
 ) -> Vec<TxSearchMatch> {
     let content = crate::ops::file::strip_utf8_bom(content);
-    let lines: Vec<&str> = content.lines().collect();
+    let lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
     let mut matches = Vec::new();
     if scan.multiline {
         for m in scan.re.find_iter(content) {

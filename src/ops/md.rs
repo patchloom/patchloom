@@ -35,80 +35,82 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
     let mut is_first_line = true;
     // Track HTML block comments (CommonMark type 2): <!-- ... -->
     let mut in_html_comment = false;
-    content.lines().enumerate().filter(move |(_, line)| {
-        // YAML frontmatter handling: must start on the very first line.
-        if is_first_line {
-            is_first_line = false;
-            let trimmed = line.trim();
-            if trimmed == "---" {
-                in_frontmatter = true;
+    crate::ops::file::text_lines(content)
+        .enumerate()
+        .filter(move |(_, line)| {
+            // YAML frontmatter handling: must start on the very first line.
+            if is_first_line {
+                is_first_line = false;
+                let trimmed = line.trim();
+                if trimmed == "---" {
+                    in_frontmatter = true;
+                    return false;
+                }
+            } else if in_frontmatter {
+                let trimmed = line.trim();
+                if trimmed == "---" || trimmed == "..." {
+                    in_frontmatter = false;
+                }
                 return false;
             }
-        } else if in_frontmatter {
-            let trimmed = line.trim();
-            if trimmed == "---" || trimmed == "..." {
-                in_frontmatter = false;
-            }
-            return false;
-        }
 
-        // CommonMark: fences can be indented 0-3 spaces.
-        let trimmed = line.trim_start_matches(' ');
-        let indent = line.len() - trimmed.len();
-        if indent <= 3 {
-            if let Some((ch, min_len)) = fence {
-                let count = trimmed.bytes().take_while(|&b| b == ch).count();
-                if count >= min_len {
-                    // CommonMark 4.5: the closing code fence may optionally
-                    // be followed by spaces and tabs only. No other characters
-                    // may occur on the line. This applies to both backtick and
-                    // tilde fences.
-                    let after_fence = &trimmed[count..];
-                    if after_fence.bytes().all(|b| b == b' ' || b == b'\t') {
-                        fence = None;
+            // CommonMark: fences can be indented 0-3 spaces.
+            let trimmed = line.trim_start_matches(' ');
+            let indent = line.len() - trimmed.len();
+            if indent <= 3 {
+                if let Some((ch, min_len)) = fence {
+                    let count = trimmed.bytes().take_while(|&b| b == ch).count();
+                    if count >= min_len {
+                        // CommonMark 4.5: the closing code fence may optionally
+                        // be followed by spaces and tabs only. No other characters
+                        // may occur on the line. This applies to both backtick and
+                        // tilde fences.
+                        let after_fence = &trimmed[count..];
+                        if after_fence.bytes().all(|b| b == b' ' || b == b'\t') {
+                            fence = None;
+                            return false;
+                        }
+                    }
+                } else {
+                    let backticks = trimmed.bytes().take_while(|&b| b == b'`').count();
+                    // CommonMark 4.5: if the info string comes after a backtick
+                    // fence, it may not contain any backtick characters.
+                    if backticks >= 3 && !trimmed[backticks..].contains('`') {
+                        fence = Some((b'`', backticks));
+                        return false;
+                    }
+                    let tildes = trimmed.bytes().take_while(|&b| b == b'~').count();
+                    if tildes >= 3 {
+                        fence = Some((b'~', tildes));
                         return false;
                     }
                 }
-            } else {
-                let backticks = trimmed.bytes().take_while(|&b| b == b'`').count();
-                // CommonMark 4.5: if the info string comes after a backtick
-                // fence, it may not contain any backtick characters.
-                if backticks >= 3 && !trimmed[backticks..].contains('`') {
-                    fence = Some((b'`', backticks));
-                    return false;
-                }
-                let tildes = trimmed.bytes().take_while(|&b| b == b'~').count();
-                if tildes >= 3 {
-                    fence = Some((b'~', tildes));
-                    return false;
-                }
             }
-        }
-        if fence.is_some() {
-            return false;
-        }
-
-        // HTML block comment handling (CommonMark type 2): skip lines
-        // inside <!-- ... -->. Only checked outside fenced code blocks.
-        if in_html_comment {
-            if line.contains("-->") {
-                in_html_comment = false;
-            }
-            return false;
-        }
-        let comment_trimmed = trimmed.trim_start_matches(' ');
-        let comment_indent = line.len() - comment_trimmed.len();
-        if comment_indent <= 3 && comment_trimmed.starts_with("<!--") {
-            if !line.contains("-->") {
-                in_html_comment = true;
+            if fence.is_some() {
                 return false;
             }
-            // Single-line comment (<!-- ... --> on one line): skip just this line.
-            return false;
-        }
 
-        true
-    })
+            // HTML block comment handling (CommonMark type 2): skip lines
+            // inside <!-- ... -->. Only checked outside fenced code blocks.
+            if in_html_comment {
+                if line.contains("-->") {
+                    in_html_comment = false;
+                }
+                return false;
+            }
+            let comment_trimmed = trimmed.trim_start_matches(' ');
+            let comment_indent = line.len() - comment_trimmed.len();
+            if comment_indent <= 3 && comment_trimmed.starts_with("<!--") {
+                if !line.contains("-->") {
+                    in_html_comment = true;
+                    return false;
+                }
+                // Single-line comment (<!-- ... --> on one line): skip just this line.
+                return false;
+            }
+
+            true
+        })
 }
 
 /// Check if a line is a setext underline (`===` for h1, `---` for h2).
@@ -163,7 +165,7 @@ fn strip_atx_closing(text: &str) -> String {
 pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
     let content = crate::ops::file::strip_utf8_bom(content);
     let mut headings = Vec::new();
-    let total_lines = content.lines().count();
+    let total_lines = crate::ops::file::text_lines(content).count();
 
     // Collect non-fenced lines into a vec so we can look ahead.
     let nf_lines: Vec<(usize, &str)> = non_fenced_lines(content).collect();

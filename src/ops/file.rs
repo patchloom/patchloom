@@ -39,6 +39,46 @@ pub fn split_utf8_bom(s: &str) -> (&str, &str) {
     }
 }
 
+/// Line contents of `s`, treating `\n`, `\r\n`, and a lone `\r` as endings.
+///
+/// [`str::lines`] does not split on a lone CR. Search `$` / `^` and ATX
+/// headings need the same model as [`crate::ops::replace::replace_whole_lines`]
+/// so EditorConfig `end_of_line = cr` files match.
+pub fn text_lines(s: &str) -> TextLines<'_> {
+    TextLines { rest: s }
+}
+
+/// Iterator returned by [`text_lines`].
+pub struct TextLines<'a> {
+    rest: &'a str,
+}
+
+impl<'a> Iterator for TextLines<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        if self.rest.is_empty() {
+            return None;
+        }
+        let bytes = self.rest.as_bytes();
+        let Some(pos) = bytes.iter().position(|&b| b == b'\n' || b == b'\r') else {
+            let line = self.rest;
+            self.rest = "";
+            return Some(line);
+        };
+        let line = &self.rest[..pos];
+        let adv = if bytes[pos] == b'\n' {
+            pos + 1
+        } else if pos + 1 < bytes.len() && bytes[pos + 1] == b'\n' {
+            pos + 2
+        } else {
+            pos + 1
+        };
+        self.rest = &self.rest[adv..];
+        Some(line)
+    }
+}
+
 pub fn prepend_content(existing: &str, prepend: &str) -> String {
     if prepend.is_empty() {
         return existing.to_string();
@@ -820,6 +860,26 @@ mod tests {
     fn split_utf8_bom_peels_leading_mark() {
         assert_eq!(split_utf8_bom("\u{feff}end"), ("\u{feff}", "end"));
         assert_eq!(split_utf8_bom("end"), ("", "end"));
+    }
+
+    #[test]
+    fn text_lines_splits_cr_crlf_and_lf() {
+        assert_eq!(
+            text_lines("end\rnext\r").collect::<Vec<_>>(),
+            ["end", "next"]
+        );
+        assert_eq!(
+            text_lines("end\r\nnext\r\n").collect::<Vec<_>>(),
+            ["end", "next"]
+        );
+        assert_eq!(
+            text_lines("end\nnext\n").collect::<Vec<_>>(),
+            ["end", "next"]
+        );
+        assert_eq!(
+            text_lines("# Head\rbody\r").collect::<Vec<_>>(),
+            ["# Head", "body"]
+        );
     }
 
     #[test]
