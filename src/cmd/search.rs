@@ -1093,9 +1093,9 @@ mod tests {
         assert_eq!(content, "no matches for 'needle' in src");
         let dest = make_args("needle", vec!["*.txt".into()]).no_match_message("*.txt");
         assert!(
-            dest.contains("current directory only")
-                && (dest.contains("**/*.txt") || dest.contains("--glob")),
-            "dest-glob miss must name cwd-only / **/*.txt or --glob: {dest}"
+            dest.contains("dest `*.txt` matches files in the current directory only")
+                && dest.contains("--glob"),
+            "dest-glob miss must name dest-subject cwd-only and --glob nested: {dest}"
         );
     }
 

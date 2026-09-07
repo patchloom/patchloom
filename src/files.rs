@@ -1829,17 +1829,21 @@ mod tests {
         let literal = vec!["keep.txt".to_string()];
         let rule = dest_glob_cwd_only_rule(&cwd).expect("cwd dest-glob rule");
         assert!(
-            rule.contains("current directory only"),
-            "rule must name cwd-only: {rule}"
+            rule.contains("dest `*.txt` matches files in the current directory only"),
+            "rule must name dest-subject cwd-only: {rule}"
         );
         assert!(
-            rule.contains("**/*.txt") && rule.contains("--glob"),
-            "rule must name **/*.txt or --glob: {rule}"
+            rule.contains("--glob"),
+            "rule must name --glob as nested remedy: {rule}"
         );
         assert!(dest_glob_cwd_only_rule(&rec).is_none());
         assert!(dest_glob_cwd_only_rule(&literal).is_none());
         let with_rule = with_dest_glob_cwd_only_rule("no matches for 'KEEP' in *.txt", &cwd);
-        assert!(with_rule.contains("current directory only"));
+        assert!(
+            with_rule.contains("dest `*.txt` matches files in the current directory only")
+                && with_rule.contains("--glob"),
+            "appended rule must name dest-subject cwd-only and --glob nested: {with_rule}"
+        );
         assert!(dest_glob_skip_case_tip(&cwd, true));
         assert!(dest_glob_skip_case_tip(&cwd, false));
         assert!(dest_glob_skip_case_tip(&rec, true));
