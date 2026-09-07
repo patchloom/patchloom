@@ -4252,6 +4252,16 @@ fn read_start_beyond_file_returns_empty() {
 }
 
 #[test]
+fn read_mixed_cr_lf_line_three_is_c() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.txt");
+    fs::write(&file, b"a\nb\rc\r\nd\n").unwrap();
+
+    let content = read(&file, Some(3), Some(3)).unwrap();
+    assert_eq!(content, "c\n");
+}
+
+#[test]
 fn read_nonexistent_file_fails() {
     let err = read(Path::new("/tmp/nonexistent_patchloom_read.txt"), None, None).unwrap_err();
     assert!(err.to_string().contains("failed to read"));

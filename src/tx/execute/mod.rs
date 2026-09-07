@@ -564,7 +564,7 @@ pub(crate) fn execute_read_op(
     // Fast path: no line range requested, preserve raw content exactly and avoid
     // rebuilding lines. This matches the standalone `read` command contract.
     if lines.is_none() {
-        let total_lines = content.lines().count();
+        let total_lines = crate::ops::file::text_lines(content).count();
         let start_line = if total_lines == 0 { 0 } else { 1 };
         tx.tx_reads.push(TxReadResult {
             path: path.to_string(),
