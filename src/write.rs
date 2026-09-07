@@ -46,12 +46,30 @@ pub enum EolMode {
     Cr,
 }
 
+/// EditorConfig `charset` handling for text writes.
+///
+/// Patchloom is a UTF-8 text tool. `utf-8` / `latin1` never insert a BOM;
+/// `utf-8-bom` ensures a leading U+FEFF. UTF-16 variants are refused.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CharsetMode {
+    /// Leave any existing BOM (or lack of one) unchanged.
+    #[default]
+    Keep,
+    /// UTF-8 without BOM: strip a leading U+FEFF if present.
+    Utf8,
+    /// UTF-8 with BOM: ensure a leading U+FEFF.
+    Utf8Bom,
+    /// EditorConfig charset this process cannot apply (`utf-16le`, `utf-16be`).
+    Unsupported(&'static str),
+}
+
 /// Controls which transformations are applied before writing a file.
 pub struct WritePolicy {
     pub ensure_final_newline: bool,
     pub normalize_eol: EolMode,
     pub trim_trailing_whitespace: bool,
     pub collapse_blanks: bool,
+    pub charset: CharsetMode,
 }
 
 impl WritePolicy {
@@ -62,6 +80,28 @@ impl WritePolicy {
             && matches!(self.normalize_eol, EolMode::Keep)
             && !self.trim_trailing_whitespace
             && !self.collapse_blanks
+            && matches!(self.charset, CharsetMode::Keep)
+    }
+
+    /// EditorConfig charset this write cannot apply, if any.
+    pub fn unsupported_charset(&self) -> Option<&'static str> {
+        match self.charset {
+            CharsetMode::Unsupported(name) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// Fail closed when EditorConfig asks for a charset we cannot write.
+    pub fn refuse_unsupported_charset(&self) -> anyhow::Result<()> {
+        if let Some(name) = self.unsupported_charset() {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!(
+                    "editorconfig charset '{name}' is not supported; use utf-8 or utf-8-bom"
+                ),
+            }
+            .into());
+        }
+        Ok(())
     }
 
     /// Apply an override, setting only the fields that are `Some`.
@@ -96,6 +136,7 @@ impl Default for WritePolicy {
             normalize_eol: EolMode::Keep,
             trim_trailing_whitespace: false,
             collapse_blanks: false,
+            charset: CharsetMode::Keep,
         }
     }
 }
@@ -537,7 +578,37 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
         s = Cow::Owned(new);
     }
 
+    if let Cow::Owned(new) = apply_charset(&s, policy.charset) {
+        s = Cow::Owned(new);
+    }
+
     s
+}
+
+/// Apply EditorConfig `charset` to UTF-8 text. Unsupported modes are a no-op
+/// here; callers must [`WritePolicy::refuse_unsupported_charset`] first.
+pub fn apply_charset(content: &str, mode: CharsetMode) -> std::borrow::Cow<'_, str> {
+    const BOM: char = '\u{feff}';
+    match mode {
+        CharsetMode::Keep | CharsetMode::Unsupported(_) => std::borrow::Cow::Borrowed(content),
+        CharsetMode::Utf8 => {
+            if let Some(rest) = content.strip_prefix(BOM) {
+                std::borrow::Cow::Owned(rest.to_string())
+            } else {
+                std::borrow::Cow::Borrowed(content)
+            }
+        }
+        CharsetMode::Utf8Bom => {
+            if content.starts_with(BOM) {
+                std::borrow::Cow::Borrowed(content)
+            } else {
+                let mut out = String::with_capacity(content.len() + BOM.len_utf8());
+                out.push(BOM);
+                out.push_str(content);
+                std::borrow::Cow::Owned(out)
+            }
+        }
+    }
 }
 
 /// Build a [`WritePolicy`] from [`GlobalFlags`](crate::cli::global::GlobalFlags), optionally merging
@@ -563,7 +634,7 @@ pub fn policy_from_flags(
         false
     };
 
-    let (efn, eol, ttw) = if respect_ec {
+    let (efn, eol, ttw, charset) = if respect_ec {
         #[cfg(feature = "cli")]
         if let Some(p) = file_path {
             #[allow(unused_variables)]
@@ -599,19 +670,20 @@ pub fn policy_from_flags(
                     new_ttw = true;
                 }
 
-                (new_efn, new_eol, new_ttw)
+                let charset = charset_from_editorconfig_props(&props);
+                (new_efn, new_eol, new_ttw, charset)
             } else {
-                (efn, eol, ttw)
+                (efn, eol, ttw, CharsetMode::Keep)
             }
         } else {
-            (efn, eol, ttw)
+            (efn, eol, ttw, CharsetMode::Keep)
         }
         #[cfg(not(feature = "cli"))]
         {
-            (efn, eol, ttw)
+            (efn, eol, ttw, CharsetMode::Keep)
         }
     } else {
-        (efn, eol, ttw)
+        (efn, eol, ttw, CharsetMode::Keep)
     };
 
     WritePolicy {
@@ -619,6 +691,20 @@ pub fn policy_from_flags(
         normalize_eol: eol.unwrap_or(EolMode::Keep),
         trim_trailing_whitespace: ttw,
         collapse_blanks: global.collapse_blanks,
+        charset,
+    }
+}
+
+#[cfg(feature = "cli")]
+pub(crate) fn charset_from_editorconfig_props(props: &ec4rs::Properties) -> CharsetMode {
+    match props.get::<ec4rs::property::Charset>() {
+        Ok(ec4rs::property::Charset::Utf8) | Ok(ec4rs::property::Charset::Latin1) => {
+            CharsetMode::Utf8
+        }
+        Ok(ec4rs::property::Charset::Utf8Bom) => CharsetMode::Utf8Bom,
+        Ok(ec4rs::property::Charset::Utf16Le) => CharsetMode::Unsupported("utf-16le"),
+        Ok(ec4rs::property::Charset::Utf16Be) => CharsetMode::Unsupported("utf-16be"),
+        Err(_) => CharsetMode::Keep,
     }
 }
 
@@ -635,6 +721,7 @@ pub(crate) fn atomic_create_new(
     content: &str,
     policy: &WritePolicy,
 ) -> anyhow::Result<()> {
+    policy.refuse_unsupported_charset()?;
     let final_content = apply_policy(content, policy);
 
     let parent = path
@@ -685,6 +772,7 @@ pub(crate) fn atomic_create_new(
 /// Symlinks are resolved first (#1230); the
 /// hardlink rule applies to the resolved path.
 pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> anyhow::Result<()> {
+    policy.refuse_unsupported_charset()?;
     let final_content = apply_policy(content, policy);
 
     // Resolve live symlinks: write to the target file, not the symlink entry

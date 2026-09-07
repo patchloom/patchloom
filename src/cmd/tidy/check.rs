@@ -18,6 +18,7 @@ pub(super) fn check_file(
     quiet: bool,
     eol_target: Option<crate::write::EolMode>,
     check_trailing_ws: bool,
+    charset: crate::write::CharsetMode,
 ) -> Vec<TidyIssue> {
     let Some(text) = crate::files::read_text_file_logged(path, "tidy", quiet) else {
         return Vec::new();
@@ -26,6 +27,31 @@ pub(super) fn check_file(
 
     let path_str = path.to_string_lossy().into_owned();
     let mut issues = Vec::new();
+
+    match charset {
+        crate::write::CharsetMode::Unsupported(name) => {
+            issues.push(TidyIssue {
+                path: path_str.clone(),
+                issue: unsupported_charset_issue(name),
+                line: None,
+            });
+        }
+        crate::write::CharsetMode::Utf8Bom if !text.starts_with('\u{feff}') => {
+            issues.push(TidyIssue {
+                path: path_str.clone(),
+                issue: "missing UTF-8 BOM",
+                line: None,
+            });
+        }
+        crate::write::CharsetMode::Utf8 if text.starts_with('\u{feff}') => {
+            issues.push(TidyIssue {
+                path: path_str.clone(),
+                issue: "unexpected UTF-8 BOM",
+                line: None,
+            });
+        }
+        _ => {}
+    }
 
     // Check missing final newline.
     if !data.is_empty() && !data.ends_with(b"\n") {
@@ -111,13 +137,33 @@ pub(super) fn check_file(
     issues
 }
 
-/// Resolve both EOL and trailing-whitespace properties from `.editorconfig`
+struct EditorconfigCheck {
+    eol: Option<crate::write::EolMode>,
+    trim: bool,
+    charset: crate::write::CharsetMode,
+}
+
+fn unsupported_charset_issue(name: &'static str) -> &'static str {
+    match name {
+        "utf-16le" => "unsupported editorconfig charset 'utf-16le'",
+        "utf-16be" => "unsupported editorconfig charset 'utf-16be'",
+        _ => "unsupported editorconfig charset",
+    }
+}
+
+/// Resolve EOL, trailing-whitespace, and charset from `.editorconfig`
 /// in a single parse pass.
 #[cfg(feature = "cli")]
-fn editorconfig_check_props(path: &Path) -> (Option<crate::write::EolMode>, bool) {
+fn editorconfig_check_props(path: &Path) -> EditorconfigCheck {
     let props = match ec4rs::properties_of(path) {
         Ok(p) => p,
-        Err(_) => return (None, true),
+        Err(_) => {
+            return EditorconfigCheck {
+                eol: None,
+                trim: true,
+                charset: crate::write::CharsetMode::Keep,
+            };
+        }
     };
     let eol = props
         .get::<ec4rs::property::EndOfLine>()
@@ -131,13 +177,18 @@ fn editorconfig_check_props(path: &Path) -> (Option<crate::write::EolMode>, bool
         Ok(ec4rs::property::TrimTrailingWs::Value(v)) => v,
         _ => true,
     };
-    (eol, trim)
+    let charset = crate::write::charset_from_editorconfig_props(&props);
+    EditorconfigCheck { eol, trim, charset }
 }
 
 /// Stub for non-CLI builds.
 #[cfg(not(feature = "cli"))]
-fn editorconfig_check_props(_path: &Path) -> (Option<crate::write::EolMode>, bool) {
-    (None, true)
+fn editorconfig_check_props(_path: &Path) -> EditorconfigCheck {
+    EditorconfigCheck {
+        eol: None,
+        trim: true,
+        charset: crate::write::CharsetMode::Keep,
+    }
 }
 
 /// First walk plus issues. Remask reuses `scanned`; keep this off the
@@ -191,13 +242,18 @@ pub(super) fn collect_issues_with_list(
             // Resolve editorconfig properties once per file (avoid
             // double-parsing .editorconfig when both EOL and trailing-WS
             // settings are needed).
-            let (file_eol_target, check_trailing_ws) = if respect_ec && eol_target.is_none() {
-                editorconfig_check_props(path)
+            let (file_eol_target, check_trailing_ws, charset) = if respect_ec {
+                let ec = editorconfig_check_props(path);
+                if eol_target.is_none() {
+                    (ec.eol, ec.trim, ec.charset)
+                } else {
+                    (eol_target, true, ec.charset)
+                }
             } else {
-                (eol_target, true)
+                (eol_target, true, crate::write::CharsetMode::Keep)
             };
 
-            let issues = check_file(path, quiet, file_eol_target, check_trailing_ws);
+            let issues = check_file(path, quiet, file_eol_target, check_trailing_ws, charset);
             if issues.is_empty() {
                 None
             } else {
@@ -317,6 +373,13 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
     let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
     let CollectedIssues { issues, scanned } =
         collect_issues_with_list(paths, global, files_from_list.as_deref())?;
+    if let Some(issue) = issues
+        .iter()
+        .find(|i| i.issue.starts_with("unsupported editorconfig charset"))
+    {
+        global.emit_error_json_kind(Some("invalid_input"), issue.issue)?;
+        return Ok(exit::FAILURE);
+    }
     if issues.is_empty() {
         // Unreadable paths soft-skipped as "clean" would mask permission failures.
         // Reuse the first walk; do not collect_file_paths again on a clean tree.

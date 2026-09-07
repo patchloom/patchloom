@@ -73,7 +73,7 @@ These flags shape how written content is normalized before it reaches disk.
 <!-- ref:write-flag:respect-editorconfig -->
 ### `--respect-editorconfig`
 
-- **What it does:** Reads `.editorconfig` when present and applies matching write policy.
+- **What it does:** Reads `.editorconfig` when present and applies matching write policy (`insert_final_newline`, `end_of_line`, `trim_trailing_whitespace`, and `charset`). `charset = utf-8-bom` ensures a leading UTF-8 BOM; `charset = utf-8` does not insert one (and strips a leading BOM). `utf-16le` / `utf-16be` are `invalid_input`.
 - **Use when:** The repo already encodes formatting policy in `.editorconfig` and Patchloom should follow it automatically.
 - **Prefer instead:** Use explicit write flags, or `tx` `write_policy`, when the command should be self-contained and not depend on repo metadata.
 

@@ -146,7 +146,9 @@ fn tidy_write(
             normalize_eol: eol,
             trim_trailing_whitespace: trim_trailing_whitespace.unwrap_or(false),
             collapse_blanks: collapse_blanks.unwrap_or(false),
+            charset: crate::write::CharsetMode::Keep,
         };
+        policy.refuse_unsupported_charset()?;
         let mut new_content = crate::write::apply_policy(&original, &policy).into_owned();
 
         // Apply dedent/indent after policy normalization.

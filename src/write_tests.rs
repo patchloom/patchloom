@@ -477,6 +477,99 @@ mod line_endings {
     }
 
     #[test]
+    fn apply_charset_utf8_bom_inserts_mark() {
+        assert_eq!(
+            apply_charset("hello\n", CharsetMode::Utf8Bom),
+            "\u{feff}hello\n"
+        );
+        assert_eq!(
+            apply_charset("\u{feff}hello\n", CharsetMode::Utf8Bom),
+            "\u{feff}hello\n"
+        );
+    }
+
+    #[test]
+    fn apply_charset_utf8_strips_mark() {
+        assert_eq!(
+            apply_charset("\u{feff}hello\n", CharsetMode::Utf8),
+            "hello\n"
+        );
+        assert_eq!(apply_charset("hello\n", CharsetMode::Utf8), "hello\n");
+    }
+
+    #[test]
+    fn apply_policy_utf8_bom_after_eol() {
+        let policy = WritePolicy {
+            charset: CharsetMode::Utf8Bom,
+            ..Default::default()
+        };
+        assert_eq!(apply_policy("hello\n", &policy), "\u{feff}hello\n");
+        assert!(!policy.is_noop());
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn policy_from_flags_editorconfig_utf8_bom() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".editorconfig"),
+            "root = true\n\n[*]\ncharset = utf-8-bom\nend_of_line = lf\n",
+        )
+        .unwrap();
+        let file = dir.path().join("x.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.respect_editorconfig = true;
+        let policy = policy_from_flags(&global, Some(&file));
+        assert_eq!(policy.charset, CharsetMode::Utf8Bom);
+        assert_eq!(apply_policy("hello\n", &policy), "\u{feff}hello\n");
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn policy_from_flags_editorconfig_utf8_does_not_insert_bom() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".editorconfig"),
+            "root = true\n\n[*]\ncharset = utf-8\n",
+        )
+        .unwrap();
+        let file = dir.path().join("x.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.respect_editorconfig = true;
+        let policy = policy_from_flags(&global, Some(&file));
+        assert_eq!(policy.charset, CharsetMode::Utf8);
+        assert_eq!(apply_policy("hello\n", &policy), "hello\n");
+        assert_eq!(apply_policy("\u{feff}hello\n", &policy), "hello\n");
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn policy_from_flags_editorconfig_utf16le_is_unsupported() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join(".editorconfig"),
+            "root = true\n\n[*]\ncharset = utf-16le\n",
+        )
+        .unwrap();
+        let file = dir.path().join("x.txt");
+        fs::write(&file, "hello\n").unwrap();
+
+        let mut global = test_global_flags();
+        global.respect_editorconfig = true;
+        let policy = policy_from_flags(&global, Some(&file));
+        assert_eq!(policy.charset, CharsetMode::Unsupported("utf-16le"));
+        let err = policy.refuse_unsupported_charset().expect_err("utf-16le");
+        assert!(
+            err.to_string().contains("utf-16le"),
+            "refuse should name charset: {err}"
+        );
+    }
+
+    #[test]
     fn trim_trailing_whitespace_crlf_endings() {
         let result = trim_trailing_whitespace("hello  \r\nworld\t\r\n");
         assert_eq!(result, "hello\r\nworld\r\n");
@@ -603,6 +696,7 @@ mod line_endings {
             collapse_blanks: true,
             normalize_eol: EolMode::Cr,
             ensure_final_newline: true,
+            charset: crate::write::CharsetMode::Keep,
         };
         // Full pipeline: trim trailing ws, normalize to CR, collapse blanks, ensure final \r.
         let input = "hello  \n\n\nworld\t\n";

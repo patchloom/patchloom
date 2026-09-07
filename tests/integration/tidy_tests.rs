@@ -1028,3 +1028,89 @@ fn test_tidy_check_dir_all_unreadable_not_clean() {
         assert_ne!(v["ok"], true, "must not vacuous clean: {v}");
     }
 }
+
+#[test]
+fn test_tidy_fix_respect_editorconfig_utf8_bom() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-8-bom\nend_of_line = lf\n",
+    )
+    .unwrap();
+    let file = dir.path().join("x.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["tidy", "fix", "x.txt", "--respect-editorconfig", "--apply"])
+        .assert()
+        .code(0);
+
+    let got = fs::read(&file).unwrap();
+    assert!(
+        got.starts_with(&[0xef, 0xbb, 0xbf]),
+        "charset=utf-8-bom must write U+FEFF, got {got:?}"
+    );
+    assert_eq!(&got[3..], b"hello\n");
+}
+
+#[test]
+fn test_tidy_fix_respect_editorconfig_utf8_does_not_insert_bom() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-8\n",
+    )
+    .unwrap();
+    let file = dir.path().join("x.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["tidy", "fix", "x.txt", "--respect-editorconfig", "--apply"])
+        .assert()
+        .code(0);
+
+    let got = fs::read(&file).unwrap();
+    assert_eq!(got, b"hello\n", "charset=utf-8 must not insert a BOM");
+}
+
+#[test]
+fn test_tidy_fix_respect_editorconfig_utf16le_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-16le\n",
+    )
+    .unwrap();
+    let file = dir.path().join("x.txt");
+    fs::write(&file, "hello\n").unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args([
+            "--json",
+            "tidy",
+            "fix",
+            "x.txt",
+            "--respect-editorconfig",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let msg = v["error"].as_str().unwrap_or("");
+    assert!(msg.contains("utf-16le"), "error should name charset: {v}");
+    assert_eq!(fs::read(&file).unwrap(), b"hello\n");
+}

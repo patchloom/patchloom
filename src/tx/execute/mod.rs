@@ -1019,6 +1019,7 @@ pub(crate) fn execute_and_collect(
         } else {
             build_write_policy(plan, ctx, path)?
         };
+        write_policy.refuse_unsupported_charset()?;
         let final_content = apply_policy(current, &write_policy);
         // A file creation with empty content still has original == final == "",
         // but must be treated as an effective change because the file does not
