@@ -2818,6 +2818,46 @@ fn tidy_utf8_bom_stays_leading_after_indent() {
 }
 
 #[test]
+fn tidy_utf8_bom_existing_stays_leading_after_indent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("existing-bom.txt");
+    fs::write(&file, "\u{feff}hello\n").unwrap();
+    let opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8Bom,
+        ..WritePolicyOptions::default()
+    };
+    let indent = TidyIndentOptions {
+        dedent: None,
+        indent: Some("4".into()),
+        lines: None,
+    };
+    let result = tidy_with_indent(&file, &opts, &indent, ApplyMode::Apply, None).unwrap();
+    assert!(result.applied);
+    let disk = fs::read_to_string(&file).unwrap();
+    assert_eq!(disk, "\u{feff}    hello\n");
+}
+
+#[test]
+fn tidy_utf8_strips_bom_after_dedent() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("strip-after-dedent.txt");
+    fs::write(&file, "\u{feff}    hello\n").unwrap();
+    let opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8,
+        ..WritePolicyOptions::default()
+    };
+    let indent = TidyIndentOptions {
+        dedent: Some("4".into()),
+        indent: None,
+        lines: None,
+    };
+    let result = tidy_with_indent(&file, &opts, &indent, ApplyMode::Apply, None).unwrap();
+    assert!(result.applied);
+    let disk = fs::read_to_string(&file).unwrap();
+    assert_eq!(disk, "hello\n");
+}
+
+#[test]
 fn search_finds_matches() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("code.rs");

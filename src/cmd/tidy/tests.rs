@@ -913,6 +913,34 @@ fn fix_empty_utf8_bom_adds_bom_and_final_newline() {
     );
 }
 
+#[test]
+fn fix_existing_utf8_bom_indent_stays_leading() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-8-bom\nend_of_line = lf\n",
+    )
+    .unwrap();
+    std::fs::write(tmp.path().join("x.txt"), "\u{feff}hello\n").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.respect_editorconfig = true;
+    global.apply = true;
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec!["x.txt".to_string()],
+            dedent: None,
+            indent: Some("4".into()),
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS, "indent of a BOM file must succeed");
+    let got = std::fs::read_to_string(tmp.path().join("x.txt")).unwrap();
+    assert_eq!(got, "\u{feff}    hello\n");
+}
+
 /// Empty-scan remask must reuse the first collect walk (search remask lock).
 #[test]
 fn collect_issues_with_list_returns_first_walk() {

@@ -902,6 +902,24 @@ mod dedent_indent {
         // min indent in range (lines 2-3) is 8 spaces, so remove 8.
         assert_eq!(result, "    a\nb\nc\n    d\n");
     }
+
+    #[test]
+    fn indent_content_existing_bom_stays_leading() {
+        let result = indent_content("\u{feff}hello\n", "4", None);
+        assert_eq!(result, "\u{feff}    hello\n");
+    }
+
+    #[test]
+    fn dedent_content_existing_bom_stays_leading() {
+        let result = dedent_content("\u{feff}    hello\n", "4", None);
+        assert_eq!(result, "\u{feff}hello\n");
+    }
+
+    #[test]
+    fn indent_content_without_bom_prefixes_spaces() {
+        let result = indent_content("hello\n", "4", None);
+        assert_eq!(result, "    hello\n");
+    }
 }
 
 #[cfg(unix)]
