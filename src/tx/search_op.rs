@@ -241,6 +241,7 @@ fn collect_tx_search_matches(
     file_path: &Path,
     scan: &TxSearchScan<'_>,
 ) -> Vec<TxSearchMatch> {
+    let content = crate::ops::file::strip_utf8_bom(content);
     let lines: Vec<&str> = content.lines().collect();
     let mut matches = Vec::new();
     if scan.multiline {
@@ -435,6 +436,40 @@ mod tests {
         execute_search_op(&op, &mut tx).unwrap();
         drop(tx);
         assert_eq!(f.searches[0].match_count, 2);
+    }
+
+    #[test]
+    fn search_regex_caret_after_utf8_bom() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("bom.txt");
+        std::fs::write(&file, "\u{feff}end\r\nnext\r\n").unwrap();
+
+        let op = Operation::Search {
+            path: "bom.txt".into(),
+            pattern: "^end".into(),
+            regex: true,
+            case_insensitive: false,
+            multiline: false,
+            invert_match: false,
+            context: None,
+            before_context: None,
+            after_context: None,
+            assert_count: None,
+            literal: false,
+            globs: Vec::new(),
+            max_results: 0,
+            exclude_patterns: Vec::new(),
+            custom_ignore_filenames: Vec::new(),
+        };
+
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        execute_search_op(&op, &mut tx).unwrap();
+        drop(tx);
+        assert_eq!(f.searches[0].match_count, 1);
+        assert_eq!(f.searches[0].matches[0].line, 1);
+        assert_eq!(f.searches[0].matches[0].column, 1);
+        assert_eq!(f.searches[0].matches[0].text, "end");
     }
 
     #[test]

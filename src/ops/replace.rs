@@ -680,6 +680,7 @@ fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> St
 /// replace path returns applied count 0, which is otherwise indistinguishable
 /// from a true no-match).
 pub fn count_content_matches(content: &str, from: &str, compiled_re: Option<&Regex>) -> usize {
+    let content = crate::ops::file::strip_utf8_bom(content);
     match compiled_re {
         Some(re) => {
             let content_len = content.len();
@@ -707,6 +708,7 @@ pub fn count_whole_line_matches(
     compiled_re: Option<&Regex>,
     range: Option<(usize, Option<usize>)>,
 ) -> usize {
+    let content = crate::ops::file::strip_utf8_bom(content);
     content
         .lines()
         .enumerate()

@@ -1287,6 +1287,18 @@ mod nth_count_tests {
             2
         );
     }
+
+    #[test]
+    fn count_nth_candidates_regex_caret_after_utf8_bom() {
+        let re = crate::ops::replace::compile_replace_regex("^end", true, false, false, false)
+            .unwrap()
+            .unwrap();
+        let content = "\u{feff}end\nend\n";
+        assert_eq!(
+            count_nth_candidates(content, "^end", Some(&re), false, None),
+            2
+        );
+    }
 }
 
 mod expand_match_anchor_tests {
