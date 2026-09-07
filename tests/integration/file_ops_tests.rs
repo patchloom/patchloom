@@ -283,6 +283,40 @@ fn test_files_from_drive_relative_line_is_invalid_input() {
     );
 }
 
+/// #2361: ADS dests in `--files-from` peel `invalid_input` of the dest,
+/// not `not_found` of the list file (R190 sibling of drive-relative).
+#[cfg(windows)]
+#[test]
+fn test_files_from_ads_line_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("ok.txt"), "hit\n").unwrap();
+    fs::write(dir.path().join("list.txt"), "ok.txt:Zone.Identifier\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--files-from", "list.txt", "search", "hit"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["ok"], false, "{parsed}");
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "ADS list dest must not peel not_found of the list: {parsed}"
+    );
+    let err = parsed["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("alternate data stream") || err.contains("Zone.Identifier"),
+        "error should name the ADS dest: {err}"
+    );
+    assert!(
+        !err.contains("no such file"),
+        "must not name the list as missing: {err}"
+    );
+}
+
 /// #2361: root-relative dests in `--files-from` peel `invalid_input`
 /// of the dest (same remapper as `C:ok.txt`).
 #[cfg(windows)]

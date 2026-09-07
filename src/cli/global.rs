@@ -707,6 +707,7 @@ impl GlobalFlags {
             files_from_content_lines(&content)
         };
         for line in &lines {
+            crate::ops::file::ensure_not_windows_ads_path(std::path::Path::new(line), line)?;
             crate::ops::file::ensure_not_windows_illegal_dest(std::path::Path::new(line), line)?;
         }
         Ok(Some(lines))
@@ -1480,6 +1481,34 @@ mod tests {
         assert!(
             msg.contains("C:ok.txt"),
             "error should name the dest: {msg}"
+        );
+        assert!(
+            !msg.contains("no such file"),
+            "must not name the list as missing: {msg}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn read_files_from_ads_line_is_invalid_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("list.txt");
+        std::fs::write(&list, "ok.txt:Zone.Identifier\n").unwrap();
+        let flags = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let err = flags.read_files_from().unwrap_err();
+        assert!(
+            err.downcast_ref::<crate::exit::InvalidInputError>()
+                .is_some(),
+            "ADS list dest must be InvalidInputError, not missing-list: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("alternate data stream") || msg.contains("Zone.Identifier"),
+            "error should name the ADS dest: {msg}"
         );
         assert!(
             !msg.contains("no such file"),
