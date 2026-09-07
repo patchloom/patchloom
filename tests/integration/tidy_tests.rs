@@ -1,5 +1,36 @@
 use super::*;
 
+/// #2365: `keep.txt\\` is Win32 `keep.txt`. Tidy must not peel not_found.
+#[cfg(windows)]
+#[test]
+fn test_tidy_fix_trailing_backslash_existing_applies() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("keep.txt"), "KEEP ").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "tidy",
+            "fix",
+            r"keep.txt\\",
+            "--trim-trailing-whitespace",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{:?}", output);
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["applied"], true, "{parsed}");
+    assert_ne!(parsed["error_kind"], "not_found", "{parsed}");
+    let body = fs::read_to_string(dir.path().join("keep.txt")).unwrap();
+    assert!(
+        body.starts_with("KEEP") && !body.contains("KEEP "),
+        "trailing space must be gone: {body:?}"
+    );
+}
+
 #[test]
 fn test_tidy_check_detects_missing_newline() {
     let dir = TempDir::new().unwrap();
