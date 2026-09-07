@@ -1436,6 +1436,23 @@ mod tests {
         assert_eq!(result, vec!["a.rs", "b.rs"]);
     }
 
+    /// #2361: Linux treats `C:ok.txt` as a filename. The peel is a
+    /// Windows-only dest class.
+    #[cfg(not(windows))]
+    #[test]
+    fn read_files_from_drive_letter_line_stays_filename_on_unix() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("list.txt");
+        std::fs::write(&list, "C:ok.txt\n").unwrap();
+        let flags = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            files_from: Some(list.to_str().unwrap().to_string()),
+            ..GlobalFlags::test_default()
+        };
+        let result = flags.read_files_from().unwrap().unwrap();
+        assert_eq!(result, vec!["C:ok.txt"]);
+    }
+
     /// #2361: `C:ok.txt` in the list is a dest peel, not `not_found` of
     /// the list file. Linux treats `C:ok.txt` as a filename (no-op peel).
     #[cfg(windows)]
