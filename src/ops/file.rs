@@ -444,7 +444,8 @@ pub fn is_windows_illegal_dest_path(path: &Path) -> bool {
     }
 }
 
-/// Refuse dests Windows cannot persist, before backup (`rollback` lie).
+/// Refuse dests Windows cannot persist, or dests that ignore `--cwd`,
+/// before backup (`rollback` lie / process-cwd leak).
 pub fn ensure_not_windows_illegal_dest(
     path: &Path,
     display: &str,
