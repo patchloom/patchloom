@@ -49,7 +49,7 @@ pub fn search(
     };
 
     let mut matches = Vec::new();
-    for (i, line) in content.lines().enumerate() {
+    for (i, line) in crate::ops::file::text_lines(&content).enumerate() {
         let matched = match &compiled_re {
             Some(Some(re)) => re.is_match(line),
             _ => line.contains(pattern),
@@ -360,7 +360,7 @@ pub fn search_one_file(
         let all_lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
         for m in re.find_iter(content) {
             let start_byte = m.start();
-            let line_num = content[..start_byte].matches('\n').count();
+            let line_num = crate::ops::file::text_line_index(content, start_byte);
             let line_text = all_lines.get(line_num).unwrap_or(&"").to_string();
             let (context_before, context_after) =
                 build_context_lines(&all_lines, line_num, ctx_before, ctx_after);
@@ -377,7 +377,7 @@ pub fn search_one_file(
     }
 
     let mut results = Vec::new();
-    let all_lines: Vec<&str> = content.lines().collect();
+    let all_lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
     for (i, line) in all_lines.iter().enumerate() {
         let found = if let Some(re) = &re {
             re.is_match(line)

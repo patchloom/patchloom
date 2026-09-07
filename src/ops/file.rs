@@ -79,6 +79,42 @@ impl<'a> Iterator for TextLines<'a> {
     }
 }
 
+/// 0-based `text_lines` index of the line that contains `offset`.
+pub fn text_line_index(content: &str, offset: usize) -> usize {
+    let offset = offset.min(content.len());
+    let mut idx = 0;
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < offset {
+        if bytes[i] == b'\n' {
+            idx += 1;
+            i += 1;
+        } else if bytes[i] == b'\r' {
+            idx += 1;
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                i += 2;
+            } else {
+                i += 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    idx
+}
+
+/// 1-based line and column of `offset`, treating `\n`, `\r\n`, and a lone
+/// `\r` as line ends. Column is the byte offset from the start of that line.
+pub fn text_line_column(content: &str, offset: usize) -> (usize, usize) {
+    let offset = offset.min(content.len());
+    let line = text_line_index(content, offset) + 1;
+    let line_start = content[..offset]
+        .rfind(['\n', '\r'])
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    (line, offset - line_start + 1)
+}
+
 pub fn prepend_content(existing: &str, prepend: &str) -> String {
     if prepend.is_empty() {
         return existing.to_string();
@@ -880,6 +916,28 @@ mod tests {
             text_lines("# Head\rbody\r").collect::<Vec<_>>(),
             ["# Head", "body"]
         );
+    }
+
+    #[test]
+    fn text_lines_matches_str_lines_on_lf() {
+        for s in ["", "a", "a\n", "a\n\n", "a\nb", "a\nb\n"] {
+            assert_eq!(
+                text_lines(s).collect::<Vec<_>>(),
+                s.lines().collect::<Vec<_>>(),
+                "{s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn text_line_index_and_column_cr_only() {
+        let s = "end\rnext\r";
+        assert_eq!(text_line_index(s, 0), 0);
+        assert_eq!(text_line_index(s, 4), 1);
+        assert_eq!(text_line_column(s, 0), (1, 1));
+        assert_eq!(text_line_column(s, 4), (2, 1));
+        assert_eq!(text_line_column("end\r\nnext", 5), (2, 1));
+        assert_eq!(text_line_column("end\nnext", 4), (2, 1));
     }
 
     #[test]

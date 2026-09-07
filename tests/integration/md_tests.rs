@@ -77,11 +77,7 @@ fn test_md_replace_section_cr_only_line_endings() {
         .assert()
         .code(0);
 
-    let body = fs::read(&file).unwrap();
-    assert!(
-        body.windows(3).any(|w| w == b"new"),
-        "section body should be replaced: {body:?}"
-    );
+    assert_eq!(fs::read(&file).unwrap(), b"# Head\rnew\r");
 }
 
 /// Replacing `# Intro` includes nested `##` children until the next `#`

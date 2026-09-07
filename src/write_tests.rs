@@ -40,6 +40,11 @@ mod detect_eol_tests {
     fn detect_eol_no_newlines() {
         assert_eq!(detect_eol("no newlines here"), "\n");
     }
+
+    #[test]
+    fn detect_eol_cr_only() {
+        assert_eq!(detect_eol("line1\rline2\r"), "\r");
+    }
 }
 
 mod basic {

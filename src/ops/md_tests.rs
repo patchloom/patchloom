@@ -31,6 +31,9 @@ mod basic {
         assert_eq!(headings.len(), 1);
         assert_eq!(headings[0].text, "Head");
         assert_eq!(headings[0].level, 1);
+        assert_eq!(headings[0].line_start, 0);
+        assert_eq!(headings[0].body_line, 1);
+        assert_eq!(headings[0].line_end, 2);
     }
 
     #[test]
@@ -515,6 +518,13 @@ mod line_endings {
         let bare_lf = result.replace("\r\n", "").contains('\n');
         assert!(!bare_lf, "found bare LF in CRLF output: {:?}", result);
         assert!(result.contains("New body\r\n"));
+    }
+
+    #[test]
+    fn replace_section_cr_only_splices_body() {
+        let content = "# Head\rbody\r# Next\rkeep\r";
+        let result = replace_section_in(content, "Head", "new").unwrap();
+        assert_eq!(result, "# Head\rnew\r# Next\rkeep\r");
     }
 
     #[test]

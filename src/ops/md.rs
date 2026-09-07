@@ -249,9 +249,22 @@ pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
 
 fn line_byte_starts(content: &str) -> Vec<usize> {
     let mut starts = vec![0];
-    for (i, b) in content.bytes().enumerate() {
-        if b == b'\n' {
+    let bytes = content.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\n' {
             starts.push(i + 1);
+            i += 1;
+        } else if bytes[i] == b'\r' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                starts.push(i + 2);
+                i += 2;
+            } else {
+                starts.push(i + 1);
+                i += 1;
+            }
+        } else {
+            i += 1;
         }
     }
     starts

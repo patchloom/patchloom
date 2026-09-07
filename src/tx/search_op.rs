@@ -246,8 +246,12 @@ fn collect_tx_search_matches(
     let mut matches = Vec::new();
     if scan.multiline {
         for m in scan.re.find_iter(content) {
-            let line_idx = content[..m.start()].matches('\n').count();
-            let match_end_line = line_idx + m.as_str().matches('\n').count();
+            let line_idx = crate::ops::file::text_line_index(content, m.start());
+            let match_end_line = if m.end() == 0 {
+                line_idx
+            } else {
+                crate::ops::file::text_line_index(content, m.end() - 1)
+            };
             let start = line_idx.saturating_sub(scan.ctx_before);
             let end = (match_end_line + 1 + scan.ctx_after).min(lines.len());
             let matched_text = m.as_str().to_string();
@@ -260,10 +264,10 @@ fn collect_tx_search_matches(
             } else {
                 matched_text
             };
-            let col = m.start() - content[..m.start()].rfind('\n').map_or(0, |p| p + 1);
+            let (_, col) = crate::ops::file::text_line_column(content, m.start());
             matches.push(TxSearchMatch {
                 line: line_idx + 1,
-                column: col + 1,
+                column: col,
                 text,
                 context_before: lines[start..line_idx.min(lines.len())]
                     .iter()

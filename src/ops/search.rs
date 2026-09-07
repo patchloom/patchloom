@@ -1,4 +1,3 @@
-use memchr::memchr_iter;
 use memchr::memmem;
 use regex::Regex;
 use serde::Serialize;
@@ -202,10 +201,9 @@ pub fn search_one_file(
         if params.count_only {
             count = matcher.count_matches(content, stop_after_first_hit(params));
         } else {
-            let newline_offsets: Vec<usize> = memchr_iter(b'\n', content.as_bytes()).collect();
             for (start, end) in matcher.find_iter_positions(content) {
                 count += 1;
-                let (line, column) = line_and_column_for_offset(&newline_offsets, start);
+                let (line, column) = crate::ops::file::text_line_column(content, start);
                 file_matches.push(SearchMatch {
                     path: path_str.clone(),
                     line,
