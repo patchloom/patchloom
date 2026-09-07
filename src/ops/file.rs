@@ -79,6 +79,43 @@ impl<'a> Iterator for TextLines<'a> {
     }
 }
 
+/// Like [`text_lines`], but each item is `(line, ending)` where `ending` is
+/// `\n`, `\r\n`, `\r`, or empty for a last line with no terminator.
+pub fn text_lines_with_endings(s: &str) -> TextLinesWithEndings<'_> {
+    TextLinesWithEndings { rest: s }
+}
+
+/// Iterator returned by [`text_lines_with_endings`].
+pub struct TextLinesWithEndings<'a> {
+    rest: &'a str,
+}
+
+impl<'a> Iterator for TextLinesWithEndings<'a> {
+    type Item = (&'a str, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.rest.is_empty() {
+            return None;
+        }
+        let bytes = self.rest.as_bytes();
+        let Some(pos) = bytes.iter().position(|&b| b == b'\n' || b == b'\r') else {
+            let line = self.rest;
+            self.rest = "";
+            return Some((line, ""));
+        };
+        let line = &self.rest[..pos];
+        let (ending, adv) = if bytes[pos] == b'\n' {
+            (&self.rest[pos..pos + 1], pos + 1)
+        } else if pos + 1 < bytes.len() && bytes[pos + 1] == b'\n' {
+            (&self.rest[pos..pos + 2], pos + 2)
+        } else {
+            (&self.rest[pos..pos + 1], pos + 1)
+        };
+        self.rest = &self.rest[adv..];
+        Some((line, ending))
+    }
+}
+
 /// 0-based `text_lines` index of the line that contains `offset`.
 pub fn text_line_index(content: &str, offset: usize) -> usize {
     let offset = offset.min(content.len());
@@ -938,6 +975,14 @@ mod tests {
         assert_eq!(text_line_column(s, 4), (2, 1));
         assert_eq!(text_line_column("end\r\nnext", 5), (2, 1));
         assert_eq!(text_line_column("end\nnext", 4), (2, 1));
+    }
+
+    #[test]
+    fn text_lines_with_endings_keeps_cr() {
+        let parts: Vec<_> = text_lines_with_endings("end\rnext\r").collect();
+        assert_eq!(parts, vec![("end", "\r"), ("next", "\r")]);
+        let crlf: Vec<_> = text_lines_with_endings("end\r\nnext\r\n").collect();
+        assert_eq!(crlf, vec![("end", "\r\n"), ("next", "\r\n")]);
     }
 
     #[test]

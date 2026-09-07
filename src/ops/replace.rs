@@ -118,6 +118,29 @@ fn crlf_aware_dollar(pattern: &str) -> String {
 
 /// True when `pattern` has an unescaped `$` outside `[]` (same scan as
 /// [`crlf_aware_dollar`]). Restore must not run for `\r` / `.` / `$0`.
+fn pattern_has_unescaped_caret(pattern: &str) -> bool {
+    let mut escaped = false;
+    let mut in_class = false;
+    for c in pattern.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match c {
+            '\\' => escaped = true,
+            '[' if !in_class => in_class = true,
+            ']' if in_class => in_class = false,
+            '^' if !in_class => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+fn pattern_has_line_anchor(pattern: &str) -> bool {
+    pattern_has_unescaped_dollar(pattern) || pattern_has_unescaped_caret(pattern)
+}
+
 fn pattern_has_unescaped_dollar(pattern: &str) -> bool {
     let mut escaped = false;
     let mut in_class = false;
@@ -683,6 +706,14 @@ fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> St
 pub fn count_content_matches(content: &str, from: &str, compiled_re: Option<&Regex>) -> usize {
     let content = crate::ops::file::strip_utf8_bom(content);
     match compiled_re {
+        Some(re) if pattern_has_line_anchor(from) => crate::ops::file::text_lines(content)
+            .map(|line| {
+                let line_len = line.len();
+                re.find_iter(line)
+                    .filter(|m| !(m.start() == line_len && m.end() == line_len))
+                    .count()
+            })
+            .sum(),
         Some(re) => {
             let content_len = content.len();
             re.find_iter(content)
@@ -779,106 +810,175 @@ pub fn replace_content<'a>(
     nth: Option<usize>,
 ) -> (std::borrow::Cow<'a, str>, usize) {
     use std::borrow::Cow;
-    apply_with_optional_bom(content, |content| match (nth, compiled_re) {
-        (Some(n), Some(re)) => {
-            let content_len = content.len();
-            let mut count = 0usize;
-            let mut result = String::with_capacity(content.len());
-            for caps in re.captures_iter(content) {
-                // Skip zero-length matches at the very end of the content.
-                // With multi_line(true), patterns like ^$ produce a trailing
-                // match after the final newline that search (line-by-line) does
-                // not see. Dropping it keeps nth consistent with search.
-                if let Some(m) = caps.get(0)
-                    && m.start() == content_len
-                    && m.end() == content_len
-                {
-                    continue;
-                }
-                count += 1;
-                if count != n {
-                    continue;
-                }
-                let Some(m) = caps.get(0) else {
-                    return (Cow::Borrowed(content), 0);
-                };
-                result.push_str(&content[..m.start()]);
-                result.push_str(&keep_crlf_after_dollar_match(
-                    content,
-                    from,
-                    m,
-                    expand_regex_replacement(&caps, to),
-                ));
-                result.push_str(&content[m.end()..]);
-                return (Cow::Owned(result), 1);
-            }
-            (Cow::Borrowed(content), 0)
+    apply_with_optional_bom(content, |content| {
+        if let Some(re) = compiled_re
+            && pattern_has_line_anchor(from)
+        {
+            return replace_line_anchor_content(content, from, to, re, nth);
         }
-        (Some(n), None) => {
-            let mut count = 0usize;
-            let mut result = String::with_capacity(content.len());
-            for (start, _) in content.match_indices(from) {
-                count += 1;
-                if count != n {
-                    continue;
+        match (nth, compiled_re) {
+            (Some(n), Some(re)) => {
+                let content_len = content.len();
+                let mut count = 0usize;
+                let mut result = String::with_capacity(content.len());
+                for caps in re.captures_iter(content) {
+                    // Skip zero-length matches at the very end of the content.
+                    // With multi_line(true), patterns like ^$ produce a trailing
+                    // match after the final newline that search (line-by-line) does
+                    // not see. Dropping it keeps nth consistent with search.
+                    if let Some(m) = caps.get(0)
+                        && m.start() == content_len
+                        && m.end() == content_len
+                    {
+                        continue;
+                    }
+                    count += 1;
+                    if count != n {
+                        continue;
+                    }
+                    let Some(m) = caps.get(0) else {
+                        return (Cow::Borrowed(content), 0);
+                    };
+                    result.push_str(&content[..m.start()]);
+                    result.push_str(&keep_crlf_after_dollar_match(
+                        content,
+                        from,
+                        m,
+                        expand_regex_replacement(&caps, to),
+                    ));
+                    result.push_str(&content[m.end()..]);
+                    return (Cow::Owned(result), 1);
                 }
+                (Cow::Borrowed(content), 0)
+            }
+            (Some(n), None) => {
+                let mut count = 0usize;
+                let mut result = String::with_capacity(content.len());
+                for (start, _) in content.match_indices(from) {
+                    count += 1;
+                    if count != n {
+                        continue;
+                    }
 
-                result.push_str(&content[..start]);
-                result.push_str(to);
-                result.push_str(&content[start + from.len()..]);
-                return (Cow::Owned(result), 1);
-            }
-            (Cow::Borrowed(content), 0)
-        }
-        (None, Some(re)) => {
-            let content_len = content.len();
-            let mut count = 0usize;
-            let replaced = re.replace_all(content, |caps: &regex::Captures| {
-                // Skip zero-length matches at the very end of the content.
-                // With multi_line(true), patterns like ^$ produce a trailing
-                // match after the final newline that search (line-by-line) does
-                // not see. Dropping it keeps replace consistent with search.
-                if let Some(m) = caps.get(0)
-                    && m.start() == content_len
-                    && m.end() == content_len
-                {
-                    return String::new();
+                    result.push_str(&content[..start]);
+                    result.push_str(to);
+                    result.push_str(&content[start + from.len()..]);
+                    return (Cow::Owned(result), 1);
                 }
-                count += 1;
-                let repl = expand_regex_replacement(caps, to);
-                match caps.get(0) {
-                    Some(m) => keep_crlf_after_dollar_match(content, from, m, repl),
-                    None => repl,
+                (Cow::Borrowed(content), 0)
+            }
+            (None, Some(re)) => {
+                let content_len = content.len();
+                let mut count = 0usize;
+                let replaced = re.replace_all(content, |caps: &regex::Captures| {
+                    // Skip zero-length matches at the very end of the content.
+                    // With multi_line(true), patterns like ^$ produce a trailing
+                    // match after the final newline that search (line-by-line) does
+                    // not see. Dropping it keeps replace consistent with search.
+                    if let Some(m) = caps.get(0)
+                        && m.start() == content_len
+                        && m.end() == content_len
+                    {
+                        return String::new();
+                    }
+                    count += 1;
+                    let repl = expand_regex_replacement(caps, to);
+                    match caps.get(0) {
+                        Some(m) => keep_crlf_after_dollar_match(content, from, m, repl),
+                        None => repl,
+                    }
+                });
+                match replaced {
+                    Cow::Borrowed(_) => (Cow::Borrowed(content), 0),
+                    Cow::Owned(s) => (Cow::Owned(s), count),
                 }
-            });
-            match replaced {
-                Cow::Borrowed(_) => (Cow::Borrowed(content), 0),
-                Cow::Owned(s) => (Cow::Owned(s), count),
             }
-        }
-        (None, None) => {
-            // Single-pass using SIMD-accelerated memchr::memmem::Finder.
-            // All callers validate `from` is non-empty via validate_replace_args().
-            debug_assert!(!from.is_empty(), "replace_content called with empty `from`");
-            let finder = memchr::memmem::Finder::new(from.as_bytes());
-            let bytes = content.as_bytes();
-            let mut result = String::with_capacity(content.len());
-            let mut count = 0usize;
-            let mut last = 0;
-            while let Some(pos) = finder.find(&bytes[last..]) {
-                let abs = last + pos;
-                result.push_str(&content[last..abs]);
-                result.push_str(to);
-                last = abs + from.len();
-                count += 1;
+            (None, None) => {
+                // Single-pass using SIMD-accelerated memchr::memmem::Finder.
+                // All callers validate `from` is non-empty via validate_replace_args().
+                debug_assert!(!from.is_empty(), "replace_content called with empty `from`");
+                let finder = memchr::memmem::Finder::new(from.as_bytes());
+                let bytes = content.as_bytes();
+                let mut result = String::with_capacity(content.len());
+                let mut count = 0usize;
+                let mut last = 0;
+                while let Some(pos) = finder.find(&bytes[last..]) {
+                    let abs = last + pos;
+                    result.push_str(&content[last..abs]);
+                    result.push_str(to);
+                    last = abs + from.len();
+                    count += 1;
+                }
+                if count == 0 {
+                    return (Cow::Borrowed(content), 0);
+                }
+                result.push_str(&content[last..]);
+                (Cow::Owned(result), count)
             }
-            if count == 0 {
-                return (Cow::Borrowed(content), 0);
-            }
-            result.push_str(&content[last..]);
-            (Cow::Owned(result), count)
         }
     })
+}
+
+fn replace_line_anchor_content<'a>(
+    content: &'a str,
+    from: &str,
+    to: &str,
+    re: &Regex,
+    nth: Option<usize>,
+) -> (std::borrow::Cow<'a, str>, usize) {
+    use std::borrow::Cow;
+    let parts: Vec<_> = crate::ops::file::text_lines_with_endings(content).collect();
+    if parts.is_empty() {
+        return (Cow::Borrowed(content), 0);
+    }
+    let single = parts.len() == 1;
+    let mut out = String::with_capacity(content.len());
+    let mut total = 0usize;
+    let mut seen = 0usize;
+    for (line, ending) in &parts {
+        let line_len = line.len();
+        let mut line_out = String::with_capacity(line.len());
+        let mut last = 0usize;
+        let mut n_this = 0usize;
+        for caps in re.captures_iter(line) {
+            let Some(m) = caps.get(0) else {
+                continue;
+            };
+            if m.start() == line_len && m.end() == line_len {
+                continue;
+            }
+            seen += 1;
+            if let Some(want) = nth
+                && seen != want
+            {
+                continue;
+            }
+            n_this += 1;
+            line_out.push_str(&line[last..m.start()]);
+            line_out.push_str(&expand_regex_replacement(&caps, to));
+            last = m.end();
+            if nth.is_some() {
+                break;
+            }
+        }
+        if n_this == 0 {
+            out.push_str(line);
+        } else {
+            line_out.push_str(&line[last..]);
+            out.push_str(&line_out);
+        }
+        total += n_this;
+        let drop_eos_cr =
+            single && *ending == "\r" && n_this > 0 && pattern_has_unescaped_dollar(from);
+        if !drop_eos_cr {
+            out.push_str(ending);
+        }
+    }
+    if total == 0 {
+        (Cow::Borrowed(content), 0)
+    } else {
+        (Cow::Owned(out), total)
+    }
 }
 
 /// Start of horizontal whitespace before `start` when that whitespace is the

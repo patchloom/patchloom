@@ -457,6 +457,16 @@ mod replace_tests {
         }
 
         #[test]
+        fn replace_content_regex_dollar_mid_file_cr() {
+            let re = compile_replace_regex("end$", true, false, false, false)
+                .unwrap()
+                .expect("regex");
+            let (out, count) = replace_content("end\rnext\r", "end$", "END", Some(&re), None);
+            assert_eq!(out.as_ref(), "END\rnext\r");
+            assert_eq!(count, 1);
+        }
+
+        #[test]
         fn compile_regex_mode_returns_some() {
             let re = compile_replace_regex(r"\d+", true, false, false, false)
                 .unwrap()
