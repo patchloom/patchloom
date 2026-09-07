@@ -1114,3 +1114,55 @@ fn test_tidy_fix_respect_editorconfig_utf16le_is_invalid_input() {
     assert!(msg.contains("utf-16le"), "error should name charset: {v}");
     assert_eq!(fs::read(&file).unwrap(), b"hello\n");
 }
+
+#[test]
+fn test_tidy_fix_empty_utf8_bom_and_final_newline() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-8-bom\ninsert_final_newline = true\nend_of_line = lf\n",
+    )
+    .unwrap();
+    let file = dir.path().join("x.txt");
+    fs::write(&file, b"").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["tidy", "fix", "x.txt", "--respect-editorconfig", "--apply"])
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read(&file).unwrap(), [0xef, 0xbb, 0xbf, b'\n']);
+}
+
+#[test]
+fn test_tidy_check_utf16le_walk_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join(".editorconfig"),
+        "root = true\n\n[*.txt]\ncharset = utf-16le\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("x.txt"),
+        [0xff, 0xfe, 0x68, 0x00, 0x69, 0x00, 0x0a, 0x00],
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .current_dir(dir.path())
+        .args(["--json", "tidy", "check", ".", "--respect-editorconfig"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+}

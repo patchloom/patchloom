@@ -508,6 +508,17 @@ mod line_endings {
     }
 
     #[test]
+    fn apply_policy_empty_utf8_bom_then_final_newline() {
+        let policy = WritePolicy {
+            charset: CharsetMode::Utf8Bom,
+            ensure_final_newline: true,
+            normalize_eol: EolMode::Lf,
+            ..Default::default()
+        };
+        assert_eq!(apply_policy("", &policy), "\u{feff}\n");
+    }
+
+    #[test]
     #[cfg(feature = "cli")]
     fn policy_from_flags_editorconfig_utf8_bom() {
         let dir = tempfile::tempdir().unwrap();

@@ -572,13 +572,15 @@ pub fn apply_policy<'a>(content: &'a str, policy: &WritePolicy) -> std::borrow::
         s = Cow::Owned(new);
     }
 
-    if policy.ensure_final_newline
-        && let Cow::Owned(new) = ensure_final_newline(&s, policy.normalize_eol)
-    {
+    // Charset before final newline so an empty file with utf-8-bom
+    // becomes "\u{feff}" then gets the required trailing EOL in one pass.
+    if let Cow::Owned(new) = apply_charset(&s, policy.charset) {
         s = Cow::Owned(new);
     }
 
-    if let Cow::Owned(new) = apply_charset(&s, policy.charset) {
+    if policy.ensure_final_newline
+        && let Cow::Owned(new) = ensure_final_newline(&s, policy.normalize_eol)
+    {
         s = Cow::Owned(new);
     }
 

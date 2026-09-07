@@ -850,6 +850,69 @@ fn check_respect_editorconfig_utf16le_is_invalid_input() {
     );
 }
 
+#[test]
+fn check_respect_editorconfig_utf16le_walk_is_invalid_input() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".editorconfig"),
+        "root = true\n\n[*.txt]\ncharset = utf-16le\n",
+    )
+    .unwrap();
+    // Real UTF-16 LE "hi\n" (BOM + h i LF). Soft-load would skip as binary.
+    std::fs::write(
+        tmp.path().join("x.txt"),
+        [0xff, 0xfe, 0x68, 0x00, 0x69, 0x00, 0x0a, 0x00],
+    )
+    .unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.respect_editorconfig = true;
+    let args = TidyArgs {
+        action: TidyAction::Check {
+            paths: vec![".".to_string()],
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(
+        code,
+        exit::FAILURE,
+        "walk of a UTF-16 dest with charset=utf-16le must be invalid_input"
+    );
+}
+
+#[test]
+fn fix_empty_utf8_bom_adds_bom_and_final_newline() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(
+        tmp.path().join(".editorconfig"),
+        "root = true\n\n[*]\ncharset = utf-8-bom\ninsert_final_newline = true\nend_of_line = lf\n",
+    )
+    .unwrap();
+    std::fs::write(tmp.path().join("x.txt"), b"").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.respect_editorconfig = true;
+    global.apply = true;
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec!["x.txt".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS, "one-pass tidy fix must succeed");
+    let got = std::fs::read(tmp.path().join("x.txt")).unwrap();
+    assert_eq!(
+        got,
+        [0xef, 0xbb, 0xbf, b'\n'],
+        "empty + utf-8-bom + insert_final_newline must be BOM then LF, got {got:?}"
+    );
+}
+
 /// Empty-scan remask must reuse the first collect walk (search remask lock).
 #[test]
 fn collect_issues_with_list_returns_first_walk() {

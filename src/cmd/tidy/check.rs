@@ -145,9 +145,9 @@ struct EditorconfigCheck {
 
 fn unsupported_charset_issue(name: &'static str) -> &'static str {
     match name {
-        "utf-16le" => "unsupported editorconfig charset 'utf-16le'",
-        "utf-16be" => "unsupported editorconfig charset 'utf-16be'",
-        _ => "unsupported editorconfig charset",
+        "utf-16le" => "editorconfig charset 'utf-16le' is not supported; use utf-8 or utf-8-bom",
+        "utf-16be" => "editorconfig charset 'utf-16be' is not supported; use utf-8 or utf-8-bom",
+        _ => "editorconfig charset is not supported; use utf-8 or utf-8-bom",
     }
 }
 
@@ -179,6 +179,37 @@ fn editorconfig_check_props(path: &Path) -> EditorconfigCheck {
     };
     let charset = crate::write::charset_from_editorconfig_props(&props);
     EditorconfigCheck { eol, trim, charset }
+}
+
+/// First explicit file (not a directory) whose EditorConfig charset we
+/// cannot apply. Checked before the binary peel so a UTF-16 dest is
+/// `invalid_input`, not a silent skip or sole `binary`.
+pub(super) fn first_unsupported_editorconfig_charset(
+    paths: &[String],
+    global: &GlobalFlags,
+    cwd: &Path,
+) -> Option<&'static str> {
+    if !global.respect_editorconfig {
+        return None;
+    }
+    for p in paths {
+        let abs = {
+            let raw = Path::new(p);
+            if raw.is_absolute() {
+                raw.to_path_buf()
+            } else {
+                cwd.join(raw)
+            }
+        };
+        if abs.is_dir() {
+            continue;
+        }
+        if let crate::write::CharsetMode::Unsupported(name) = editorconfig_check_props(&abs).charset
+        {
+            return Some(name);
+        }
+    }
+    None
 }
 
 /// Stub for non-CLI builds.
@@ -253,6 +284,13 @@ pub(super) fn collect_issues_with_list(
                 (eol_target, true, crate::write::CharsetMode::Keep)
             };
 
+            if let crate::write::CharsetMode::Unsupported(name) = charset {
+                return Some(vec![TidyIssue {
+                    path: path.to_string_lossy().into_owned(),
+                    issue: unsupported_charset_issue(name),
+                    line: None,
+                }]);
+            }
             let issues = check_file(path, quiet, file_eol_target, check_trailing_ws, charset);
             if issues.is_empty() {
                 None
@@ -352,6 +390,12 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
     }
     // Read --files-from once (including stdin `-`); do not re-read empty stdin.
     let files_from_list = global.read_files_from()?;
+    let charset_paths = files_from_list.as_deref().unwrap_or(paths);
+    if let Some(name) = first_unsupported_editorconfig_charset(charset_paths, global, &cwd) {
+        let msg = format!("editorconfig charset '{name}' is not supported; use utf-8 or utf-8-bom");
+        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+        return Ok(exit::FAILURE);
+    }
     if let Some(err) =
         crate::ops::file::sole_explicit_non_text_for_scan(paths, files_from_list.as_deref(), &cwd)
     {
@@ -373,10 +417,9 @@ pub(super) fn run_check(paths: &[String], global: &GlobalFlags) -> anyhow::Resul
     let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
     let CollectedIssues { issues, scanned } =
         collect_issues_with_list(paths, global, files_from_list.as_deref())?;
-    if let Some(issue) = issues
-        .iter()
-        .find(|i| i.issue.starts_with("unsupported editorconfig charset"))
-    {
+    if let Some(issue) = issues.iter().find(|i| {
+        i.issue.starts_with("editorconfig charset") && i.issue.contains("is not supported")
+    }) {
         global.emit_error_json_kind(Some("invalid_input"), issue.issue)?;
         return Ok(exit::FAILURE);
     }
