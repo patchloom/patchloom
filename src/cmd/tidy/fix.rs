@@ -305,7 +305,7 @@ pub(super) fn run_fix(
         glob_matcher.as_ref(),
         &glob_roots,
         |file_path| {
-            let policy = policy_from_flags(&policy_global, Some(file_path));
+            let mut policy = policy_from_flags(&policy_global, Some(file_path));
             if let Some(name) = policy.unsupported_charset() {
                 *charset_err.lock().unwrap_or_else(|e| e.into_inner()) = Some(name);
                 return None;
@@ -314,6 +314,8 @@ pub(super) fn run_fix(
                 Some(text) => text,
                 None => return None,
             };
+            let charset = policy.charset;
+            policy.charset = crate::write::CharsetMode::Keep;
             let mut fixed = apply_policy(&original, &policy).into_owned();
             if let Some(spec) = dedent_ref {
                 fixed = crate::write::dedent_content(&fixed, spec, line_range);
@@ -321,6 +323,7 @@ pub(super) fn run_fix(
             if let Some(spec) = indent_ref {
                 fixed = crate::write::indent_content(&fixed, spec, line_range);
             }
+            fixed = crate::write::apply_charset(&fixed, charset).into_owned();
             if fixed == *original {
                 return None;
             }

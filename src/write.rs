@@ -414,6 +414,21 @@ pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
     Cow::Owned(result)
 }
 
+/// Peel at most one leading U+FEFF, map the remainder, then restore the mark.
+/// BOM is not whitespace, so indent/dedent must not treat it as line text.
+fn with_leading_bom_peeled(content: &str, f: impl FnOnce(&str) -> String) -> String {
+    const BOM: char = '\u{feff}';
+    match content.strip_prefix(BOM) {
+        Some(rest) => {
+            let mut out = String::with_capacity(BOM.len_utf8() + rest.len());
+            out.push(BOM);
+            out.push_str(&f(rest));
+            out
+        }
+        None => f(content),
+    }
+}
+
 /// Dedent content by removing leading whitespace.
 ///
 /// `spec` accepts:
@@ -423,66 +438,71 @@ pub fn collapse_blanks(content: &str) -> std::borrow::Cow<'_, str> {
 ///
 /// If `line_range` is `Some((start, end))`, only lines in that 1-based inclusive
 /// range are affected. Blank lines are never modified.
+///
+/// A single leading UTF-8 BOM (`U+FEFF`) is peeled, then restored at byte 0, so
+/// it is not treated as line text (`charset = utf-8-bom`).
 pub fn dedent_content(
     content: &str,
     spec: &str,
     line_range: Option<(usize, Option<usize>)>,
 ) -> String {
-    let lines: Vec<&str> = content.split('\n').collect();
+    with_leading_bom_peeled(content, |content| {
+        let lines: Vec<&str> = content.split('\n').collect();
 
-    let (start, end) = match line_range {
-        Some((s, e)) => (s.max(1), e.unwrap_or(lines.len())),
-        None => (1, lines.len()),
-    };
+        let (start, end) = match line_range {
+            Some((s, e)) => (s.max(1), e.unwrap_or(lines.len())),
+            None => (1, lines.len()),
+        };
 
-    let in_range = |i: usize| {
-        let line_num = i + 1; // 1-based
-        line_num >= start && line_num <= end
-    };
+        let in_range = |i: usize| {
+            let line_num = i + 1; // 1-based
+            line_num >= start && line_num <= end
+        };
 
-    match spec {
-        "auto" => {
-            // Find minimum non-zero indentation in the range.
-            let min_indent = lines
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| in_range(i))
-                .filter(|&(_, line)| !line.trim().is_empty())
-                .map(|(_, line)| line.len() - line.trim_start().len())
-                .filter(|&n| n > 0)
-                .min()
-                .unwrap_or(0);
+        match spec {
+            "auto" => {
+                // Find minimum non-zero indentation in the range.
+                let min_indent = lines
+                    .iter()
+                    .enumerate()
+                    .filter(|&(i, _)| in_range(i))
+                    .filter(|&(_, line)| !line.trim().is_empty())
+                    .map(|(_, line)| line.len() - line.trim_start().len())
+                    .filter(|&n| n > 0)
+                    .min()
+                    .unwrap_or(0);
 
-            if min_indent == 0 {
-                return content.to_string();
+                if min_indent == 0 {
+                    return content.to_string();
+                }
+
+                dedent_by_n(&lines, min_indent, &in_range)
             }
-
-            dedent_by_n(&lines, min_indent, &in_range)
-        }
-        "tab" => {
-            let result: Vec<String> = lines
-                .iter()
-                .enumerate()
-                .map(|(i, line)| {
-                    if !in_range(i) || line.trim().is_empty() {
-                        line.to_string()
-                    } else if let Some(rest) = line.strip_prefix('\t') {
-                        rest.to_string()
-                    } else {
-                        line.to_string()
-                    }
-                })
-                .collect();
-            result.join("\n")
-        }
-        n => {
-            let count: usize = n.parse().unwrap_or(0);
-            if count == 0 {
-                return content.to_string();
+            "tab" => {
+                let result: Vec<String> = lines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, line)| {
+                        if !in_range(i) || line.trim().is_empty() {
+                            line.to_string()
+                        } else if let Some(rest) = line.strip_prefix('\t') {
+                            rest.to_string()
+                        } else {
+                            line.to_string()
+                        }
+                    })
+                    .collect();
+                result.join("\n")
             }
-            dedent_by_n(&lines, count, &in_range)
+            n => {
+                let count: usize = n.parse().unwrap_or(0);
+                if count == 0 {
+                    return content.to_string();
+                }
+                dedent_by_n(&lines, count, &in_range)
+            }
         }
-    }
+    })
 }
 
 fn dedent_by_n(lines: &[&str], n: usize, in_range: &dyn Fn(usize) -> bool) -> String {
@@ -510,43 +530,48 @@ fn dedent_by_n(lines: &[&str], n: usize, in_range: &dyn Fn(usize) -> bool) -> St
 ///
 /// If `line_range` is `Some((start, end))`, only lines in that 1-based inclusive
 /// range are affected. Blank lines are never modified.
+///
+/// A single leading UTF-8 BOM (`U+FEFF`) is peeled, then restored at byte 0, so
+/// indent does not emit a mid-line mark.
 pub fn indent_content(
     content: &str,
     spec: &str,
     line_range: Option<(usize, Option<usize>)>,
 ) -> String {
-    let lines: Vec<&str> = content.split('\n').collect();
+    with_leading_bom_peeled(content, |content| {
+        let lines: Vec<&str> = content.split('\n').collect();
 
-    let (start, end) = match line_range {
-        Some((s, e)) => (s.max(1), e.unwrap_or(lines.len())),
-        None => (1, lines.len()),
-    };
+        let (start, end) = match line_range {
+            Some((s, e)) => (s.max(1), e.unwrap_or(lines.len())),
+            None => (1, lines.len()),
+        };
 
-    let prefix = match spec {
-        "tab" => "\t".to_string(),
-        n => {
-            let count: usize = n.parse().unwrap_or(0);
-            " ".repeat(count)
-        }
-    };
-
-    if prefix.is_empty() {
-        return content.to_string();
-    }
-
-    let result: Vec<String> = lines
-        .iter()
-        .enumerate()
-        .map(|(i, line)| {
-            let line_num = i + 1;
-            if line_num < start || line_num > end || line.trim().is_empty() {
-                line.to_string()
-            } else {
-                format!("{prefix}{line}")
+        let prefix = match spec {
+            "tab" => "\t".to_string(),
+            n => {
+                let count: usize = n.parse().unwrap_or(0);
+                " ".repeat(count)
             }
-        })
-        .collect();
-    result.join("\n")
+        };
+
+        if prefix.is_empty() {
+            return content.to_string();
+        }
+
+        let result: Vec<String> = lines
+            .iter()
+            .enumerate()
+            .map(|(i, line)| {
+                let line_num = i + 1;
+                if line_num < start || line_num > end || line.trim().is_empty() {
+                    line.to_string()
+                } else {
+                    format!("{prefix}{line}")
+                }
+            })
+            .collect();
+        result.join("\n")
+    })
 }
 
 /// Apply a [`WritePolicy`] to `content`: trim, then EOL normalise, then final newline.
