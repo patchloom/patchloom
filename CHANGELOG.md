@@ -11,6 +11,63 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.33.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.32.0...patchloom-v0.33.0) (2026-09-08)
+
+
+### Features
+
+* **api:** expose charset on WritePolicyOptions ([#2372](https://github.com/patchloom/patchloom/issues/2372)) ([7f3737f](https://github.com/patchloom/patchloom/commit/7f3737f895d62ffee40644983c79e6e3da4a3abe)), closes [#2300](https://github.com/patchloom/patchloom/issues/2300)
+
+
+### Bug Fixes
+
+* **api:** honest empty-hunk delete dest peels ([#2301](https://github.com/patchloom/patchloom/issues/2301)) ([09d2913](https://github.com/patchloom/patchloom/commit/09d2913b0d97e296cb229d28a96db43d95352599))
+* **api:** honor charset on tidy WritePolicyOptions ([#2373](https://github.com/patchloom/patchloom/issues/2373)) ([552a60b](https://github.com/patchloom/patchloom/commit/552a60b93733855bd9caaa382c6d09edebbd4782))
+* **api:** peel not_found on apply_patch_file missing delete ([#2299](https://github.com/patchloom/patchloom/issues/2299)) ([9b99cee](https://github.com/patchloom/patchloom/commit/9b99cee88c0ccd14f239f0e09a90755f6832da85))
+* **ast:** map symbol lines with CR-aware offsets ([#2336](https://github.com/patchloom/patchloom/issues/2336)) ([570df85](https://github.com/patchloom/patchloom/commit/570df85b7c1bd8920963be0031c35570494cd388))
+* **ast:** number validate errors with CR-aware lines ([#2347](https://github.com/patchloom/patchloom/issues/2347)) ([46a459a](https://github.com/patchloom/patchloom/commit/46a459a76914d2c19f55f50e15c09040c169ccac)), closes [#2344](https://github.com/patchloom/patchloom/issues/2344) [#2333](https://github.com/patchloom/patchloom/issues/2333) [#2342](https://github.com/patchloom/patchloom/issues/2342)
+* **ast:** slice symbol bodies with CR-aware line indexes ([#2343](https://github.com/patchloom/patchloom/issues/2343)) ([82977bc](https://github.com/patchloom/patchloom/commit/82977bca49bb6ec6b217fc9952ede1c64f299567))
+* **backup:** open //?/C:/ dests with a drive-letter path ([#2319](https://github.com/patchloom/patchloom/issues/2319)) ([8321abf](https://github.com/patchloom/patchloom/commit/8321abfcf5770bdd47febfbd1a91b3b9d7822bae))
+* **cli:** dest-glob miss names directory dests, not cwd ([#2371](https://github.com/patchloom/patchloom/issues/2371)) ([cc6e71b](https://github.com/patchloom/patchloom/commit/cc6e71babb01ab41e75a44723338292f0ac5bc5c))
+* **cli:** dest-glob recursive locks, walk cap, and miss/plan messages ([#2370](https://github.com/patchloom/patchloom/issues/2370)) ([444746b](https://github.com/patchloom/patchloom/commit/444746b6f68f329d451fc3f23583edb6d4c2f897))
+* **cli:** do not set applied true after fail-restore ([#2304](https://github.com/patchloom/patchloom/issues/2304)) ([cf06e8b](https://github.com/patchloom/patchloom/commit/cf06e8bd7036a168c90523364655610e43959299))
+* **cli:** peel UTF-16 --files-from as invalid_input ([#2355](https://github.com/patchloom/patchloom/issues/2355)) ([8aa6d00](https://github.com/patchloom/patchloom/commit/8aa6d00bef6a9b0d97bb3e438d71f212afd43c7c)), closes [#2340](https://github.com/patchloom/patchloom/issues/2340)
+* **cli:** peel Windows drive-relative --files-from dests ([#2362](https://github.com/patchloom/patchloom/issues/2362)) ([cccb774](https://github.com/patchloom/patchloom/commit/cccb774c74bd3ed716c6b71349d3a34f7f3bb762))
+* **cli:** refuse illegal Windows dests as invalid_input ([#2307](https://github.com/patchloom/patchloom/issues/2307)) ([32e9318](https://github.com/patchloom/patchloom/commit/32e9318fb2eb3d795a5ca60e57b036eace05a8f5))
+* **cli:** set rollback kind when rename persist hits a share lock ([#2308](https://github.com/patchloom/patchloom/issues/2308)) ([f1052a0](https://github.com/patchloom/patchloom/commit/f1052a0ed8772b2c6ba5bedf2331bc7317898e40))
+* **cli:** unlink Windows junctions and refuse ADS paths ([#2305](https://github.com/patchloom/patchloom/issues/2305)) ([9c7dd75](https://github.com/patchloom/patchloom/commit/9c7dd75dc3224602bbba673cb1c1c7cdd538d0e2))
+* **containment:** accept \\\\.\\C:\\ dests that name a drive file ([#2323](https://github.com/patchloom/patchloom/issues/2323)) ([000de4d](https://github.com/patchloom/patchloom/commit/000de4d90a5051ca1739ef85febab2bc7566e7a0))
+* **containment:** accept local Windows admin-share UNC under --contain ([#2314](https://github.com/patchloom/patchloom/issues/2314)) ([7c35a4c](https://github.com/patchloom/patchloom/commit/7c35a4cc82539a1c3281bcbc102b82a1dfa6f510))
+* **containment:** treat //?/C:/ dests as inside the workspace ([#2321](https://github.com/patchloom/patchloom/issues/2321)) ([92964be](https://github.com/patchloom/patchloom/commit/92964be03ac3b0e6c6a8d13449cd351abb4d6a45))
+* **containment:** treat IPv6 loopback UNC as local, not ADS ([#2315](https://github.com/patchloom/patchloom/issues/2315)) ([83eb6aa](https://github.com/patchloom/patchloom/commit/83eb6aa71231add092389486fe916177c461a3db)), closes [#2314](https://github.com/patchloom/patchloom/issues/2314)
+* **doc:** parse CR-only TOML the same way as YAML ([#2335](https://github.com/patchloom/patchloom/issues/2335)) ([e381e49](https://github.com/patchloom/patchloom/commit/e381e4955c35659976c424dae57030f1ee43eeda))
+* **doc:** strip UTF-8 BOM before YAML multi-doc parse ([#2317](https://github.com/patchloom/patchloom/issues/2317)) ([1cbdbf5](https://github.com/patchloom/patchloom/commit/1cbdbf5fdfb14421825cb133f615b8991d139098)), closes [#2311](https://github.com/patchloom/patchloom/issues/2311)
+* **file:** peel bare NUL dest as invalid_input on Windows ([#2354](https://github.com/patchloom/patchloom/issues/2354)) ([03ab094](https://github.com/patchloom/patchloom/commit/03ab0948b1db8dfda97ec63c499b4955a4179635)), closes [#2353](https://github.com/patchloom/patchloom/issues/2353)
+* **files:** expand positional glob dests on Windows ([#2368](https://github.com/patchloom/patchloom/issues/2368)) ([4650d59](https://github.com/patchloom/patchloom/commit/4650d595ad0ad1da060a273769fccbabe29825f0))
+* **files:** match --glob case-insensitively on Windows ([#2309](https://github.com/patchloom/patchloom/issues/2309)) ([632d406](https://github.com/patchloom/patchloom/commit/632d4061a2db9a3c6614721e26872330ec046f4a))
+* **files:** match .gitignore case-insensitively on Windows ([#2310](https://github.com/patchloom/patchloom/issues/2310)) ([781bbc9](https://github.com/patchloom/patchloom/commit/781bbc9cc7ba67ddc2492c89837e339e2cfc362a)), closes [#2309](https://github.com/patchloom/patchloom/issues/2309)
+* **files:** treat Windows trailing-slash scan dests as present ([#2366](https://github.com/patchloom/patchloom/issues/2366)) ([cd55cf4](https://github.com/patchloom/patchloom/commit/cd55cf4d00afad07f6b0ce899f9716c1a443d244)), closes [#2365](https://github.com/patchloom/patchloom/issues/2365)
+* **ops:** accept a leading UTF-8 BOM on JSON, md, and prepend ([#2311](https://github.com/patchloom/patchloom/issues/2311)) ([644d40f](https://github.com/patchloom/patchloom/commit/644d40f94937567b0cb207b9fc515b79401683c2)), closes [#2310](https://github.com/patchloom/patchloom/issues/2310)
+* **ops:** treat a leading UTF-8 BOM as outside regex ^ ([#2330](https://github.com/patchloom/patchloom/issues/2330)) ([b755b86](https://github.com/patchloom/patchloom/commit/b755b86f1c6b2b76433d64ee9a5b1782598044a6))
+* **ops:** treat a lone CR as a line end in search and md ([#2331](https://github.com/patchloom/patchloom/issues/2331)) ([2084e1f](https://github.com/patchloom/patchloom/commit/2084e1f955d67fd3b12a922d637f19cd5b058bc3))
+* **patch:** refuse mixed grammar when headers use a\\ ([#2351](https://github.com/patchloom/patchloom/issues/2351)) ([67c953c](https://github.com/patchloom/patchloom/commit/67c953c695117fed7df7a50fa3749ff4c5ca71e6)), closes [#2350](https://github.com/patchloom/patchloom/issues/2350)
+* **patch:** strip a\ and b\ git dest prefixes ([#2349](https://github.com/patchloom/patchloom/issues/2349)) ([1d96c61](https://github.com/patchloom/patchloom/commit/1d96c6155c17adecf1d0547d889870c9f6be3d2d)), closes [#2339](https://github.com/patchloom/patchloom/issues/2339)
+* **plan:** accept a leading UTF-8 BOM on tx JSON/YAML/TOML ([#2316](https://github.com/patchloom/patchloom/issues/2316)) ([a093495](https://github.com/patchloom/patchloom/commit/a093495bbb0824f0332dd501a2bbcd2596d5e97e))
+* **read:** use CR-aware line numbers for --lines ([#2337](https://github.com/patchloom/patchloom/issues/2337)) ([ca365f7](https://github.com/patchloom/patchloom/commit/ca365f72ce44c92550c58905b89a1651ce6ef8ba)), closes [#2334](https://github.com/patchloom/patchloom/issues/2334)
+* **replace:** match regex ^ and $ on mid-file CR ([#2348](https://github.com/patchloom/patchloom/issues/2348)) ([806f3c1](https://github.com/patchloom/patchloom/commit/806f3c1b1b5fac5eaeb429d64ec95f3ac08d034b))
+* **replace:** treat regex $ as a CRLF line end like search ([#2326](https://github.com/patchloom/patchloom/issues/2326)) ([cc75780](https://github.com/patchloom/patchloom/commit/cc75780bc8318b59f90a22e1661bd246f682daec))
+* **tx:** peel quoted YAML C:\Users paths as invalid_input ([#2357](https://github.com/patchloom/patchloom/issues/2357)) ([90021b8](https://github.com/patchloom/patchloom/commit/90021b8beb3847c3de4b21d531e1477f46af97d8))
+* **undo:** restore original casing after case-only rename ([#2346](https://github.com/patchloom/patchloom/issues/2346)) ([a6da15c](https://github.com/patchloom/patchloom/commit/a6da15c339e8e50157dac97af3ec292089182c3b))
+* **write:** collapse trailing slashes on Windows dests ([#2364](https://github.com/patchloom/patchloom/issues/2364)) ([f81d654](https://github.com/patchloom/patchloom/commit/f81d654fdf530ec31361bd95d1a6fd705060df90))
+* **write:** honor EditorConfig charset utf-8-bom ([#2358](https://github.com/patchloom/patchloom/issues/2358)) ([4c81082](https://github.com/patchloom/patchloom/commit/4c81082e85bf6f664d07aea8b9d5a3747376bdcb))
+* **write:** keep a leading BOM outside indent and dedent ([#2374](https://github.com/patchloom/patchloom/issues/2374)) ([55edd04](https://github.com/patchloom/patchloom/commit/55edd044c90244e4eb7fa9d4c1e4f7889fe5f822))
+* **write:** keep long name when Apply uses an 8.3 path ([#2306](https://github.com/patchloom/patchloom/issues/2306)) ([c3ac6b4](https://github.com/patchloom/patchloom/commit/c3ac6b447c9a5eeba7e8f9daf89ec1bef63dec11))
+* **write:** peel Windows drive-relative and root-relative dests ([#2360](https://github.com/patchloom/patchloom/issues/2360)) ([4d4a3ab](https://github.com/patchloom/patchloom/commit/4d4a3abcc9a5c1e3e59c583dbb61fd806a1dc38b))
+* **write:** persist custom NTFS named streams through atomic write ([#2356](https://github.com/patchloom/patchloom/issues/2356)) ([ec12a9f](https://github.com/patchloom/patchloom/commit/ec12a9f175e7d267ce917b40384814b0bd078fa5))
+* **write:** persist dests past Windows MAX_PATH ([#2313](https://github.com/patchloom/patchloom/issues/2313)) ([becafe4](https://github.com/patchloom/patchloom/commit/becafe436fc414f819ad164f1dd6cd2aff3deb57))
+* **write:** persist Zone.Identifier through atomic rename ([#2312](https://github.com/patchloom/patchloom/issues/2312)) ([7e45499](https://github.com/patchloom/patchloom/commit/7e454997eddf178d9d913f16c5384aa49b626cb2)), closes [#2305](https://github.com/patchloom/patchloom/issues/2305)
+* **write:** preserve Windows hardlink siblings on Apply ([#2303](https://github.com/patchloom/patchloom/issues/2303)) ([678f007](https://github.com/patchloom/patchloom/commit/678f00728f799f3912f618ccaa5ba74ec2b9b920)), closes [#1733](https://github.com/patchloom/patchloom/issues/1733)
+
 ## [0.32.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.31.0...patchloom-v0.32.0) (2026-09-02)
 
 
