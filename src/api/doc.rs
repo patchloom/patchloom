@@ -87,6 +87,13 @@ fn doc_write(
     let (_, mutation) = crate::plan::op_to_doc_mutation(&op)
         .ok_or_else(|| anyhow::anyhow!("doc_write called with non-doc operation"))?;
 
+    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = path_owned.as_path();
     let path_str = path.to_string_lossy().into_owned();
     let format = ops::doc::detect_format(&path_str)?;
     let if_exists_set = matches!(
