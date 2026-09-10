@@ -31,6 +31,8 @@ use std::path::Path;
 use std::path::PathBuf;
 #[cfg(any(feature = "cli", feature = "files"))]
 use std::sync::Mutex;
+#[cfg(any(feature = "cli", feature = "files"))]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Compute a display-friendly relative path by stripping a `base` prefix.
 ///
@@ -1347,9 +1349,13 @@ pub fn collect_file_paths_with_ignores(
 
 /// Process file paths using adaptive parallelism via `std::thread::scope`.
 ///
-/// Files are split into chunks (one per available core). The calling thread
-/// processes the first chunk immediately while spawned threads handle the
-/// rest. Thread creation cost is ~0.05ms per thread (vs ~2ms for rayon's
+/// Workers claim the next path from a shared atomic cursor instead of a
+/// static file-count slice, so a thread that finishes small files picks up
+/// remaining large ones. Each result is stored at its input index so output
+/// order matches walk order. The calling thread claims work immediately
+/// rather than only joining.
+///
+/// Thread creation cost is ~0.05ms per thread (vs ~2ms for rayon's
 /// global thread pool init), so overhead is near-zero even for small
 /// workloads. For large workloads, all cores run concurrently.
 #[cfg(any(feature = "cli", feature = "files"))]
@@ -1380,6 +1386,45 @@ where
             .collect()
     }
 
+    fn claim_one<T, F>(
+        paths: &[PathBuf],
+        glob_matcher: Option<&GlobSet>,
+        glob_roots: &[PathBuf],
+        f: &F,
+        next: &AtomicUsize,
+        out: &mut Vec<(usize, T)>,
+    ) -> bool
+    where
+        T: Send,
+        F: Fn(&Path) -> Option<T> + Sync,
+    {
+        let i = next.fetch_add(1, Ordering::Relaxed);
+        if i >= paths.len() {
+            return false;
+        }
+        let p = &paths[i];
+        if matches_glob_with_roots(p, glob_matcher, glob_roots)
+            && let Some(v) = f(p.as_path())
+        {
+            out.push((i, v));
+        }
+        true
+    }
+
+    fn claim_work<T, F>(
+        paths: &[PathBuf],
+        glob_matcher: Option<&GlobSet>,
+        glob_roots: &[PathBuf],
+        f: &F,
+        next: &AtomicUsize,
+        out: &mut Vec<(usize, T)>,
+    ) where
+        T: Send,
+        F: Fn(&Path) -> Option<T> + Sync,
+    {
+        while claim_one(paths, glob_matcher, glob_roots, f, next, out) {}
+    }
+
     let num_splits = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
@@ -1389,21 +1434,29 @@ where
         return process_slice(paths, glob_matcher, glob_roots, &f);
     }
 
-    let chunk_size = paths.len().div_ceil(num_splits);
-    let chunks: Vec<&[PathBuf]> = paths.chunks(chunk_size).collect();
+    let next = AtomicUsize::new(0);
+    let mut mine = Vec::new();
+    // First claim on this thread so it never only joins (same role as the
+    // old first-chunk path). Remaining work is shared with spawned workers.
+    claim_one(paths, glob_matcher, glob_roots, &f, &next, &mut mine);
 
     std::thread::scope(|s| {
-        // Spawn threads for all chunks except the first.
-        let handles: Vec<_> = chunks[1..]
-            .iter()
-            .map(|chunk| s.spawn(|| process_slice(chunk, glob_matcher, glob_roots, &f)))
+        let handles: Vec<_> = (1..num_splits)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut out = Vec::new();
+                    claim_work(paths, glob_matcher, glob_roots, &f, &next, &mut out);
+                    out
+                })
+            })
             .collect();
 
-        // Process the first chunk on the calling thread immediately.
-        let mut results = process_slice(chunks[0], glob_matcher, glob_roots, &f);
+        claim_work(paths, glob_matcher, glob_roots, &f, &next, &mut mine);
 
-        // Collect results from spawned threads.
-        //
+        let mut slots: Vec<Option<T>> = (0..paths.len()).map(|_| None).collect();
+        for (i, v) in mine {
+            slots[i] = Some(v);
+        }
         // This `expect` is not a recovery path: release builds set
         // `panic = "abort"` (`Cargo.toml`), so a panicking worker aborts the
         // process and never returns a `join` error here. It documents the
@@ -1411,10 +1464,11 @@ where
         // by `cargo test`. See #184 for why the signature is not `Result`, and
         // #2379 for the decision to keep `abort`.
         for handle in handles {
-            results.extend(handle.join().expect("worker thread panicked"));
+            for (i, v) in handle.join().expect("worker thread panicked") {
+                slots[i] = Some(v);
+            }
         }
-
-        results
+        slots.into_iter().flatten().collect()
     })
 }
 
@@ -2180,9 +2234,7 @@ mod tests {
         let results = par_process_files(&paths, Some(&matcher), &[], |p| {
             Some(p.to_string_lossy().into_owned())
         });
-        assert_eq!(results.len(), 2);
-        assert!(results.contains(&"a.rs".to_string()));
-        assert!(results.contains(&"c.rs".to_string()));
+        assert_eq!(results, vec!["a.rs".to_string(), "c.rs".to_string()]);
     }
 
     #[test]
@@ -2224,6 +2276,89 @@ mod tests {
             }
         });
         assert_eq!(results, vec![1]);
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn par_process_preserves_walk_order_with_skips() {
+        let paths: Vec<PathBuf> = (0..48).map(|i| PathBuf::from(format!("{i}.txt"))).collect();
+        let results = par_process_files(&paths, None, &[], |p| {
+            let n = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.parse::<usize>().ok())?;
+            if n % 3 == 0 { None } else { Some(n) }
+        });
+        let expected: Vec<usize> = (0..48).filter(|n| n % 3 != 0).collect();
+        assert_eq!(results, expected);
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn par_process_calling_thread_participates() {
+        let n = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .max(8);
+        let paths: Vec<PathBuf> = (0..n).map(|i| PathBuf::from(format!("p{i}"))).collect();
+        let caller = std::thread::current().id();
+        let seen = Mutex::new(Vec::new());
+        let results = par_process_files(&paths, None, &[], |p| {
+            seen.lock().unwrap().push(std::thread::current().id());
+            Some(p.to_string_lossy().into_owned())
+        });
+        assert_eq!(results.len(), n);
+        assert!(
+            seen.lock().unwrap().contains(&caller),
+            "calling thread must claim work, not only join"
+        );
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn par_process_claims_work_dynamically() {
+        let parallelism = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        if parallelism <= 1 {
+            return;
+        }
+        let paths: Vec<PathBuf> = (0..64).map(|i| PathBuf::from(format!("f{i}"))).collect();
+        let claimed = Mutex::new(Vec::new());
+        let results = par_process_files(&paths, None, &[], |p| {
+            let idx = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.strip_prefix('f'))
+                .and_then(|s| s.parse::<usize>().ok())?;
+            claimed
+                .lock()
+                .unwrap()
+                .push((std::thread::current().id(), idx));
+            if idx % 2 == 0 {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            Some(idx)
+        });
+        assert_eq!(results, (0..64).collect::<Vec<_>>());
+        let mut by_thread: std::collections::HashMap<std::thread::ThreadId, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (tid, idx) in claimed.into_inner().unwrap() {
+            by_thread.entry(tid).or_default().push(idx);
+        }
+        if by_thread.len() < 2 {
+            return;
+        }
+        let any_noncontiguous = by_thread.values().any(|idxs| {
+            let mut sorted = idxs.clone();
+            sorted.sort_unstable();
+            sorted.windows(2).any(|w| w[1] > w[0] + 1)
+        });
+        assert!(
+            any_noncontiguous,
+            "static file-count slices assign each thread a contiguous range; \
+             dynamic claims should interleave under uneven work: {by_thread:?}"
+        );
     }
 
     // ── read_text_file ────────────────────────────────────────────────
