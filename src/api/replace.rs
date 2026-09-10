@@ -87,12 +87,13 @@ pub fn replace_text(
             opts.post_write.as_ref(),
             opts.post_write_cwd.as_deref(),
             backup_session.as_deref(),
+            guard,
         )?;
         return Ok(result);
     }
 
     // Absolutize so parent-cwd + full path does not double-join relatives.
-    let abs = super::absolute_for_engine(path).map_err(|e| {
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
         crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::OperationFailed,
             format!("failed to resolve path {}: {e}", path.display()),
@@ -153,6 +154,7 @@ pub fn replace_text(
         opts.post_write.as_ref(),
         opts.post_write_cwd.as_deref(),
         result.backup_session.as_deref(),
+        guard,
     )?;
     Ok(result)
 }

@@ -8289,6 +8289,55 @@ fn post_write_revert_finds_guard_rooted_session() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "v1\n");
 }
 
+/// #2385: a relative dest plus an absolute guard root must not store
+/// `__external__/...` or restore to `/{relative}`. Revert without
+/// `post_write_cwd` still finds the guard-rooted session.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_relative_path_with_guard_reverts_workspace_file() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("pkg");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("x.txt"), "v1\n").unwrap();
+
+    let _cwd = CwdGuard::enter(dir.path());
+    let rel = std::path::Path::new("pkg/x.txt");
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let fail_opts = ReplaceOptions {
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("false".into()),
+            on_failure: PostWriteOnFailure::Revert,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let err =
+        replace_text(rel, "v1", "v2", &fail_opts, ApplyMode::Apply, Some(&guard)).unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::FormatFailed),
+        "{err}"
+    );
+    assert!(
+        !err.to_string().contains("also failed to revert"),
+        "revert must find the guard-rooted session: {err}"
+    );
+    assert_eq!(fs::read_to_string(nested.join("x.txt")).unwrap(), "v1\n");
+    assert!(
+        !std::path::Path::new("/pkg/x.txt").exists(),
+        "must not restore to /pkg/x.txt"
+    );
+    assert!(
+        !nested.join(".patchloom").exists(),
+        "session must not sit beside the file"
+    );
+    assert_eq!(crate::backup::list_sessions(dir.path()).unwrap().len(), 1);
+}
+
 /// #1694: fuzzy identifier typo keeps surrounding syntax (not whole-line replace).
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]

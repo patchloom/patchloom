@@ -68,6 +68,16 @@ fn test_undo_list_finds_library_guard_rooted_deep_edit() {
         .success()
         .stdout(predicates::str::contains("\"timestamp\""))
         .stdout(predicates::str::contains("\"entries\""));
+
+    assert_eq!(
+        patchloom::backup::list_sessions(dir.path()).unwrap().len(),
+        1,
+        "session must live at the workspace root"
+    );
+    assert!(
+        !nested.join(".patchloom").exists(),
+        "must not scatter .patchloom next to the edited file"
+    );
 }
 
 #[test]

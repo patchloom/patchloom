@@ -780,6 +780,24 @@ pub(crate) fn library_project_root<'a>(path: &'a Path, guard: Option<&'a PathGua
         .unwrap_or_else(|| Path::new("."))
 }
 
+/// Absolutize a library dest so backup `strip_prefix` matches the session root.
+///
+/// Relative dests join onto `guard.root()` when a guard is present. Using
+/// `current_dir()` can yield a different spelling (macOS `/var` vs
+/// `/private/var`) and store the file as `__external__/...`.
+pub(crate) fn library_abs_path(
+    path: &Path,
+    guard: Option<&PathGuard>,
+) -> std::io::Result<std::path::PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    if let Some(g) = guard {
+        return Ok(g.root().join(path));
+    }
+    absolute_for_engine(path)
+}
+
 /// Generalized helper for Apply-mode mutations that need backup + guard.
 ///
 /// Used by write_if_apply and special file ops (create/delete/rename cross-file).
@@ -796,19 +814,45 @@ pub(crate) fn apply_mutation(
     prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
     perform_mutation: impl FnOnce() -> anyhow::Result<()>,
 ) -> anyhow::Result<(bool, Option<String>)> {
+    apply_mutation_at(
+        path,
+        mode,
+        guard,
+        library_project_root(path, guard),
+        prepare_backup,
+        perform_mutation,
+    )
+}
+
+/// Like [`apply_mutation`], but uses an explicit backup root.
+///
+/// `file_delete` on the no-cli path checks entry containment itself, then
+/// passes `contain_guard: None` so follow-mode `ensure_contained` does not
+/// reject a workspace symlink whose target is outside. The backup root still
+/// comes from the real guard (#2385).
+pub(crate) fn apply_mutation_at(
+    path: &Path,
+    mode: ApplyMode,
+    contain_guard: Option<&PathGuard>,
+    backup_root: &Path,
+    prepare_backup: impl FnOnce(&mut BackupSession) -> anyhow::Result<()>,
+    perform_mutation: impl FnOnce() -> anyhow::Result<()>,
+) -> anyhow::Result<(bool, Option<String>)> {
     crate::backup::refuse_user_write_under_backup_dir(path)?;
     if mode != ApplyMode::Apply {
         return Ok((false, None));
     }
-    ensure_contained(guard, path)?;
-    // Guard root is the workspace; path.parent() is only a no-guard fallback.
-    let cwd = library_project_root(path, guard);
-    let mut backup = BackupSession::new(cwd)?;
+    ensure_contained(contain_guard, path)?;
+    let mut backup = BackupSession::new(backup_root)?;
     prepare_backup(&mut backup)?;
     // Finalize before mutation so undo can recover mid-write failure.
     let session = backup.finalize()?;
     if let Err(e) = perform_mutation() {
-        return Err(mutation_err_after_backup(cwd, session.as_deref(), e));
+        return Err(mutation_err_after_backup(
+            backup_root,
+            session.as_deref(),
+            e,
+        ));
     }
     Ok((true, session))
 }
@@ -891,6 +935,15 @@ pub(crate) fn write_if_apply(
     policy: &WritePolicy,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<(bool, Option<String>)> {
+    // Absolutize so a relative dest against an absolute guard root is stored
+    // as a workspace-relative entry, not `__external__/...` (#2385).
+    let abs = library_abs_path(path, guard).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = abs.as_path();
     apply_mutation(
         path,
         mode,
@@ -919,6 +972,24 @@ pub(crate) fn write_if_apply_many(
     if files.is_empty() {
         return Ok((false, None));
     }
+    let owned: Vec<(std::path::PathBuf, &str)> = files
+        .iter()
+        .map(|(path, content)| {
+            library_abs_path(path, guard)
+                .map(|abs| (abs, *content))
+                .map_err(|e| {
+                    crate::fallback::EditError::new(
+                        crate::fallback::EditErrorKind::OperationFailed,
+                        format!("failed to resolve path {}: {e}", path.display()),
+                    )
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let files: Vec<(&Path, &str)> = owned
+        .iter()
+        .map(|(path, content)| (path.as_path(), *content))
+        .collect();
+    let files = files.as_slice();
     for (path, _) in files {
         crate::backup::refuse_user_write_under_backup_dir(path)?;
     }
@@ -963,6 +1034,7 @@ pub(crate) fn maybe_post_write(
     hooks: Option<&PostWriteHooks>,
     hooks_cwd: Option<&Path>,
     backup_session: Option<&str>,
+    guard: Option<&PathGuard>,
 ) -> anyhow::Result<()> {
     if !applied {
         return Ok(());
@@ -971,11 +1043,15 @@ pub(crate) fn maybe_post_write(
         return Ok(());
     };
     let root = hooks_cwd.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
-    if let Some(ts) = backup_session {
-        run_post_write_validation_with_session(root, path, hooks, Some(ts))
-    } else {
-        run_post_write_validation(root, path, hooks)
-    }
+    let extra = guard.map(PathGuard::root);
+    let restore_path = library_abs_path(path, guard).unwrap_or_else(|_| path.to_path_buf());
+    self::post_write::run_post_write_validation_with_session_and_root(
+        root,
+        &restore_path,
+        hooks,
+        backup_session,
+        extra,
+    )
 }
 
 /// Private helper to centralize the guard check and eliminate duplicated

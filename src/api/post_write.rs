@@ -63,6 +63,18 @@ pub fn run_post_write_validation_with_session(
     hooks: &PostWriteHooks,
     backup_session: Option<&str>,
 ) -> anyhow::Result<()> {
+    run_post_write_validation_with_session_and_root(project_root, path, hooks, backup_session, None)
+}
+
+/// Like [`run_post_write_validation_with_session`], also searching `extra_root`
+/// (typically [`PathGuard::root`]) for the backup session.
+pub(crate) fn run_post_write_validation_with_session_and_root(
+    project_root: &Path,
+    path: &Path,
+    hooks: &PostWriteHooks,
+    backup_session: Option<&str>,
+    extra_root: Option<&Path>,
+) -> anyhow::Result<()> {
     let timeout = hooks.timeout_secs.unwrap_or(30);
     for (label, cmd) in [
         ("format", hooks.format_cmd.as_deref()),
@@ -75,7 +87,7 @@ pub fn run_post_write_validation_with_session(
             if hooks.on_failure == PostWriteOnFailure::Revert {
                 // Surface restore failure: silent Ok(false)/Err left the file
                 // mutated while the host only saw the format error.
-                match restore_written_path(path, project_root, backup_session) {
+                match restore_written_path(path, project_root, extra_root, backup_session) {
                     Ok(true) => {}
                     Ok(false) => {
                         return Err(FormatFailedError::new(format!(
@@ -113,14 +125,20 @@ pub fn run_post_write_validation_with_session(
 fn restore_written_path(
     path: &Path,
     project_root: &Path,
+    extra_root: Option<&Path>,
     backup_session: Option<&str>,
 ) -> anyhow::Result<bool> {
     let parent = path.parent().unwrap_or(project_root);
-    let roots: &[&Path] = if parent == project_root {
-        &[parent]
-    } else {
-        &[parent, project_root]
-    };
+    let mut roots: Vec<&Path> = vec![parent];
+    if project_root != parent {
+        roots.push(project_root);
+    }
+    if let Some(extra) = extra_root
+        && extra != parent
+        && extra != project_root
+    {
+        roots.push(extra);
+    }
     for root in roots {
         if let Some(ts) = backup_session {
             let session_dir = root.join(crate::backup::BACKUP_DIR).join(ts);

@@ -304,7 +304,14 @@ pub fn apply_content_edits_to_file_with_span_policy(
     result.matched_text = batch.matched_text;
     // Honor post_write from the last Replace edit that set hooks (#1690).
     let (hooks, hooks_cwd) = post_write_from_edits(edits);
-    maybe_post_write(applied, path, hooks, hooks_cwd, backup_session.as_deref())?;
+    maybe_post_write(
+        applied,
+        path,
+        hooks,
+        hooks_cwd,
+        backup_session.as_deref(),
+        guard,
+    )?;
     Ok(result)
 }
 

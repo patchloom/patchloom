@@ -51,7 +51,7 @@ pub fn tidy_with_indent(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = super::absolute_for_engine(path).map_err(|e| {
+    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
         crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::OperationFailed,
             format!("failed to resolve path {}: {e}", path.display()),
@@ -93,6 +93,7 @@ pub fn tidy_with_indent(
         policy_opts.post_write.as_ref(),
         policy_opts.post_write_cwd.as_deref(),
         result.backup_session.as_deref(),
+        guard,
     )?;
     Ok(result)
 }
