@@ -14,7 +14,9 @@
 //!   [`SoftTextSkip::Unreadable`]. Callers decide: directory walks may
 //!   continue but must not report pattern `no_matches` when unreadable
 //!   paths may have masked the scan; sole paths use Strict IO errors.
-//! - Byte rule: [`classify_text_bytes`] (NUL probe + UTF-8).
+//! - Byte rule: [`classify_text_bytes_owned`] / [`classify_text_bytes`]
+//!   (NUL probe + UTF-8). Owning loaders pass a `Vec<u8>` so UTF-8
+//!   validation does not copy the buffer.
 
 #[cfg(feature = "cli")]
 use crate::cli::global::GlobalFlags;
@@ -105,18 +107,28 @@ pub enum TextBytesKind {
     InvalidUtf8,
 }
 
-/// Classify bytes as text, binary, or invalid UTF-8.
+/// Classify an owned buffer as text, binary, or invalid UTF-8.
 ///
-/// Empty input is **Text** (empty string). This is the single byte-level rule
-/// for the text I/O honesty layer (#1894).
-pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
-    if is_binary(bytes) {
+/// Empty input is **Text** (empty string). This is the single byte-level
+/// rule for the text I/O honesty layer (#1894). Callers that already own
+/// a `Vec<u8>` should use this so `String::from_utf8` can take the
+/// buffer instead of copying it (#2382).
+pub fn classify_text_bytes_owned(bytes: Vec<u8>) -> TextBytesKind {
+    if is_binary(&bytes) {
         return TextBytesKind::Binary;
     }
-    match String::from_utf8(bytes.to_vec()) {
+    match String::from_utf8(bytes) {
         Ok(s) => TextBytesKind::Text(s),
         Err(_) => TextBytesKind::InvalidUtf8,
     }
+}
+
+/// Classify a borrowed slice as text, binary, or invalid UTF-8.
+///
+/// Same rule as [`classify_text_bytes_owned`]. Copies the slice when the
+/// caller does not already own a `Vec<u8>`.
+pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
+    classify_text_bytes_owned(bytes.to_vec())
 }
 
 /// Load a path as UTF-8 text under the **Strict** sole-path policy (#1894).
@@ -187,7 +199,7 @@ pub fn load_text_strict(path: &Path, display: &str) -> anyhow::Result<String> {
             .into());
         }
     };
-    match classify_text_bytes(&bytes) {
+    match classify_text_bytes_owned(bytes) {
         TextBytesKind::Text(s) => Ok(s),
         TextBytesKind::Binary => Err(crate::exit::BinaryError {
             msg: format!("target is a binary file: {display}"),
@@ -1031,6 +1043,14 @@ impl SoftTextSkip {
     }
 }
 
+fn soft_text_from_kind(kind: TextBytesKind) -> Result<String, SoftTextSkip> {
+    match kind {
+        TextBytesKind::Text(s) => Ok(s),
+        TextBytesKind::Binary => Err(SoftTextSkip::Binary),
+        TextBytesKind::InvalidUtf8 => Err(SoftTextSkip::InvalidUtf8),
+    }
+}
+
 /// Soft-path text load with typed skip reason (#1894).
 ///
 /// Empty files return `Ok("")`. For sole-path mutators use [`load_text_strict`].
@@ -1094,10 +1114,7 @@ pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
         if file.read_to_end(&mut bytes).is_err() {
             return Err(SoftTextSkip::Unreadable);
         }
-        return match String::from_utf8(bytes) {
-            Ok(s) => Ok(s),
-            Err(_) => Err(SoftTextSkip::InvalidUtf8),
-        };
+        return soft_text_from_kind(classify_text_bytes_owned(bytes));
     }
 
     // Small file: read all at once (single syscall).
@@ -1106,11 +1123,7 @@ pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
         return Err(SoftTextSkip::Unreadable);
     }
 
-    match classify_text_bytes(&bytes) {
-        TextBytesKind::Text(s) => Ok(s),
-        TextBytesKind::Binary => Err(SoftTextSkip::Binary),
-        TextBytesKind::InvalidUtf8 => Err(SoftTextSkip::InvalidUtf8),
-    }
+    soft_text_from_kind(classify_text_bytes_owned(bytes))
 }
 
 /// Soft-skip text load for walks; collapses all skip reasons to `None`.
@@ -1610,6 +1623,27 @@ mod tests {
             classify_text_bytes(b"hello \xff world"),
             TextBytesKind::InvalidUtf8
         );
+    }
+
+    #[test]
+    fn classify_text_bytes_owned_matches_borrowed() {
+        let cases: &[&[u8]] = &[b"", b"hello\n", b"hello\x00world", b"hello \xff world"];
+        for bytes in cases {
+            assert_eq!(
+                classify_text_bytes(bytes),
+                classify_text_bytes_owned(bytes.to_vec()),
+                "borrowed vs owned disagree on {bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn classify_text_bytes_owned_text_keeps_payload() {
+        let s = "a".repeat(10_000);
+        match classify_text_bytes_owned(s.clone().into_bytes()) {
+            TextBytesKind::Text(got) => assert_eq!(got, s),
+            other => panic!("expected Text, got {other:?}"),
+        }
     }
 
     #[test]

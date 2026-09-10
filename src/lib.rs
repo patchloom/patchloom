@@ -38,7 +38,7 @@
 //! - [`containment`] -- workspace path guard (flexible `AbsolutePathPolicy` via builder for temp dirs/extra roots in library use; strict `Reject` for MCP)
 //! - [`exec`] -- shell command execution with process-tree management
 //! - [`fallback`] -- multi-strategy edit recovery (exact, anchor, similarity)
-//! - [`files`] -- text I/O honesty (#1894): `classify_text_bytes`, `load_text_strict` (sole path),
+//! - [`files`] -- text I/O honesty (#1894): `classify_text_bytes` / `classify_text_bytes_owned`, `load_text_strict` (sole path),
 //!   `try_read_text_file` / `SoftTextSkip` / `read_text_file` (walk soft skip), `is_binary` /
 //!   `is_binary_file` (#1884), and (with "files") scan helpers
 //! - [`write`] -- atomic file writes with write-policy transformations
