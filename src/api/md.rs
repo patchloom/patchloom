@@ -72,6 +72,13 @@ fn md_write(
 
     // Re-extract the operation fields to call ops directly.
     // This is only used when building without cli/files features.
+    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = path_owned.as_path();
     let path_str = path.to_string_lossy();
     let original = crate::files::load_text_strict(path, &path_str)?;
 
@@ -299,6 +306,13 @@ pub fn md_dedupe_headings(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<(EditResult, Vec<String>)> {
+    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = path_owned.as_path();
     let path_str = path.to_string_lossy();
     let original = crate::files::load_text_strict(path, &path_str)?;
 

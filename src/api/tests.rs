@@ -2666,6 +2666,54 @@ fn md_dedupe_headings_removes_duplicates() {
     );
 }
 
+/// Relative dest is resolved against PathGuard::root, not process cwd.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn md_dedupe_headings_guard_root_not_process_cwd() {
+    let ws = TempDir::new().unwrap();
+    let other = TempDir::new().unwrap();
+    fs::create_dir_all(ws.path().join("pkg")).unwrap();
+    fs::write(
+        ws.path().join("pkg").join("doc.md"),
+        "# Title\n\nBody 1.\n\n# Title\n\nBody 2.\n",
+    )
+    .unwrap();
+    fs::create_dir_all(other.path().join("pkg")).unwrap();
+    fs::write(
+        other.path().join("pkg").join("doc.md"),
+        "# OTHER\n\n# OTHER\n",
+    )
+    .unwrap();
+
+    let _cwd = CwdGuard::enter(other.path());
+    let guard = PathGuard::new(
+        ws.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let (result, removed) = md_dedupe_headings(
+        std::path::Path::new("pkg/doc.md"),
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .unwrap();
+    assert!(result.applied);
+    assert!(
+        removed.iter().any(|r| r.contains("Title")),
+        "should report the workspace duplicate"
+    );
+    let ws_body = fs::read_to_string(ws.path().join("pkg").join("doc.md")).unwrap();
+    assert!(
+        ws_body.matches("# Title").count() == 1,
+        "workspace file must be deduped: {ws_body:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(other.path().join("pkg").join("doc.md")).unwrap(),
+        "# OTHER\n\n# OTHER\n",
+        "must not write the process-cwd file"
+    );
+}
+
 #[test]
 fn md_lint_agents_finds_issues() {
     let dir = TempDir::new().unwrap();
