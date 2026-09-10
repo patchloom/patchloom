@@ -239,6 +239,7 @@ fn collect_matches_with_list(
         after_context: args.after_context,
         context: args.context,
         quiet: global.quiet || global.json || global.jsonl,
+        max_results: (args.max_results > 0).then_some(args.max_results),
     };
     let file_results =
         crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
@@ -1019,6 +1020,17 @@ mod tests {
             results.matches.is_empty(),
             "count mode should not build SearchMatch objects"
         );
+        assert_eq!(results.file_match_counts.values().sum::<usize>(), 2);
+    }
+
+    #[test]
+    fn count_only_with_max_results_keeps_full_totals() {
+        let dir = make_test_dir();
+        let mut args = make_args("Hello", vec![dir.path().to_string_lossy().into_owned()]);
+        args.count = true;
+        args.max_results = 1;
+        let results = collect_matches(&args, &GlobalFlags::test_default()).unwrap();
+        assert!(results.matches.is_empty());
         assert_eq!(results.file_match_counts.values().sum::<usize>(), 2);
     }
 
