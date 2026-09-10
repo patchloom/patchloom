@@ -13,16 +13,10 @@ use crate::plan::Operation;
 
 use super::{ApplyMode, EditResult};
 
-/// Derive cwd from a file path (its parent directory).
-#[cfg(any(feature = "cli", feature = "files"))]
-fn cwd_from_path(path: &Path) -> &Path {
-    path.parent().unwrap_or_else(|| Path::new("."))
-}
-
 /// Absolutize for engine handoff; map IO errors to OperationFailed.
 #[cfg(any(feature = "cli", feature = "files"))]
-fn abs_path(path: &Path) -> anyhow::Result<std::path::PathBuf> {
-    super::absolute_for_engine(path).map_err(|e| {
+fn abs_path(path: &Path, guard: Option<&PathGuard>) -> anyhow::Result<std::path::PathBuf> {
+    super::library_abs_path(path, guard).map_err(|e| {
         crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::OperationFailed,
             format!("failed to resolve path {}: {e}", path.display()),
@@ -44,7 +38,7 @@ fn file_write(
     super::execute_as_edit_result_with_path(
         op,
         mode,
-        cwd_from_path(path),
+        super::library_project_root(path, guard),
         guard,
         action,
         None,
@@ -144,12 +138,20 @@ fn file_write(
             };
             // Entry containment: do not follow symlink targets (#2115).
             // Preview/Check: report would-delete without unlinking (#2087 DryRun).
+            let abs = super::library_abs_path(path, guard).map_err(|e| {
+                crate::fallback::EditError::new(
+                    crate::fallback::EditErrorKind::OperationFailed,
+                    format!("failed to resolve path {}: {e}", path.display()),
+                )
+            })?;
+            let path = abs.as_path();
             let (applied, backup_session) = if mode == ApplyMode::Apply {
                 super::ensure_contained_entry(guard, path)?;
-                super::apply_mutation(
+                super::apply_mutation_at(
                     path,
                     mode,
                     None, // already checked with entry semantics
+                    super::library_project_root(path, guard),
                     |backup| backup.save_before_delete(path),
                     || {
                         crate::ops::file::unlink_path_entry(path)
@@ -226,7 +228,7 @@ fn file_write_cross(
     super::execute_as_edit_result_with_path(
         op,
         mode,
-        cwd_from_path(src),
+        super::library_project_root(src, guard),
         guard,
         action,
         dest_path,
@@ -257,6 +259,20 @@ fn file_write_cross(
         }
         // Soft text load for EditResult body only; binary / unreadable still
         // renames the inode (this no-files fallback path).
+        let src_abs = super::library_abs_path(src, guard).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to resolve path {}: {e}", src.display()),
+            )
+        })?;
+        let dst_abs = super::library_abs_path(dst, guard).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to resolve path {}: {e}", dst.display()),
+            )
+        })?;
+        let src = src_abs.as_path();
+        let dst = dst_abs.as_path();
         let original = crate::files::try_read_text_file(src).unwrap_or_default();
         let (applied, backup_session) = super::apply_cross_file_mutation(
             src,
@@ -310,7 +326,7 @@ pub fn file_create(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path)?;
+    let path_owned = abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
     let path = path_owned.as_path();
     let op = Operation::FileCreate {
@@ -341,7 +357,7 @@ pub fn file_delete(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path)?;
+    let path_owned = abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
     let path = path_owned.as_path();
     let op = Operation::FileDelete {
@@ -372,9 +388,9 @@ pub fn file_rename(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let src_owned = abs_path(src)?;
+    let src_owned = abs_path(src, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let dst_owned = abs_path(dst)?;
+    let dst_owned = abs_path(dst, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
     let src = src_owned.as_path();
     #[cfg(any(feature = "cli", feature = "files"))]
@@ -399,7 +415,7 @@ pub fn file_append(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path)?;
+    let path_owned = abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
     let path = path_owned.as_path();
     let op = Operation::FileAppend {
@@ -419,7 +435,7 @@ pub fn file_prepend(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path)?;
+    let path_owned = abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
     let path = path_owned.as_path();
     let op = Operation::FilePrepend {

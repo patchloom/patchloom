@@ -49,7 +49,7 @@ pub fn apply_fragment_to_file(
     };
     // Absolutize so parent-cwd + full path does not double-join relatives
     // (doc example Path::new("src/lib.rs")).
-    let abs = super::absolute_for_engine(path).map_err(|e| {
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
         crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::OperationFailed,
             format!("failed to resolve path {}: {e}", path.display()),
@@ -65,7 +65,7 @@ pub fn apply_fragment_to_file(
         old,
         unique,
     )?;
-    let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
+    let cwd = super::library_project_root(&abs, guard);
     let display = path.to_string_lossy();
     super::execute_as_edit_result_with_path(
         op,

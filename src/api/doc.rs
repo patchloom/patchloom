@@ -15,12 +15,6 @@ use crate::plan::Operation;
 
 use super::{ApplyMode, EditResult};
 
-/// Derive cwd from a file path (its parent directory).
-#[cfg(any(feature = "cli", feature = "files"))]
-fn cwd_from_path(path: &Path) -> &Path {
-    path.parent().unwrap_or_else(|| Path::new("."))
-}
-
 /// Load and parse a JSON/YAML/TOML file for read-only queries.
 ///
 /// Load first (same order as CLI `load_file`) so a missing path peels as
@@ -39,7 +33,7 @@ fn doc_write(
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    let abs = super::absolute_for_engine(path).map_err(|e| {
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
         crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::OperationFailed,
             format!("failed to resolve path {}: {e}", path.display()),
@@ -51,7 +45,7 @@ fn doc_write(
     super::execute_as_edit_result_with_path(
         op,
         mode,
-        cwd_from_path(&abs),
+        super::library_project_root(&abs, guard),
         guard,
         action,
         None,

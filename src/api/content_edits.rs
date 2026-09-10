@@ -267,6 +267,13 @@ pub fn apply_content_edits_to_file_with_span_policy(
     guard: Option<&PathGuard>,
     fuzzy_span_policy: Option<&super::FuzzySpanPolicy>,
 ) -> anyhow::Result<EditResult> {
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
+        EditError::new(
+            EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = abs.as_path();
     if let Some(g) = guard {
         g.check_path(&path.to_string_lossy())
             .map_err(EditError::guard_rejected)?;
@@ -304,7 +311,14 @@ pub fn apply_content_edits_to_file_with_span_policy(
     result.matched_text = batch.matched_text;
     // Honor post_write from the last Replace edit that set hooks (#1690).
     let (hooks, hooks_cwd) = post_write_from_edits(edits);
-    maybe_post_write(applied, path, hooks, hooks_cwd, backup_session.as_deref())?;
+    maybe_post_write(
+        applied,
+        path,
+        hooks,
+        hooks_cwd,
+        backup_session.as_deref(),
+        guard,
+    )?;
     Ok(result)
 }
 

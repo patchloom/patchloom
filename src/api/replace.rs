@@ -38,6 +38,14 @@ pub fn replace_text(
         }));
     }
 
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = abs.as_path();
+
     let range_str = opts.range.map(|(start, end)| {
         if let Some(e) = end {
             format!("{start}:{e}")
@@ -87,12 +95,13 @@ pub fn replace_text(
             opts.post_write.as_ref(),
             opts.post_write_cwd.as_deref(),
             backup_session.as_deref(),
+            guard,
         )?;
         return Ok(result);
     }
 
     // Absolutize so parent-cwd + full path does not double-join relatives.
-    let abs = super::absolute_for_engine(path).map_err(|e| {
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
         crate::fallback::EditError::new(
             crate::fallback::EditErrorKind::OperationFailed,
             format!("failed to resolve path {}: {e}", path.display()),
@@ -153,6 +162,7 @@ pub fn replace_text(
         opts.post_write.as_ref(),
         opts.post_write_cwd.as_deref(),
         result.backup_session.as_deref(),
+        guard,
     )?;
     Ok(result)
 }
@@ -166,7 +176,7 @@ fn replace_write(
     guard: Option<&PathGuard>,
     _fuzzy: bool,
 ) -> anyhow::Result<EditResult> {
-    let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+    let cwd = super::library_project_root(path, guard);
     let display = path.to_string_lossy();
     super::execute_as_edit_result_with_path(
         op,
