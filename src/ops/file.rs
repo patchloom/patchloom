@@ -734,8 +734,6 @@ pub fn ensure_parent_components_are_directories(
 /// Returns [`crate::exit::BinaryError`] (`error_kind: binary`) so hosts can
 /// distinguish content SoftSkip from argument `invalid_input` (#1963).
 pub fn ensure_not_binary_file(path: &Path, display: &str) -> Result<(), crate::exit::BinaryError> {
-    use std::io::Read;
-
     if !path.exists() {
         return Ok(());
     }
@@ -749,12 +747,21 @@ pub fn ensure_not_binary_file(path: &Path, display: &str) -> Result<(), crate::e
         // Existence was checked by the caller; open errors surface on full read.
         Err(_) => return Ok(()),
     };
-    let mut buf = [0u8; 8192];
-    let n = match file.read(&mut buf) {
-        Ok(n) => n,
-        Err(_) => return Ok(()),
-    };
-    if crate::files::is_binary(&buf[..n]) {
+    ensure_not_binary_reader(&mut file, display)
+}
+
+/// Probe `reader` the same way as [`ensure_not_binary_file`].
+///
+/// Isolated so tests can wrap the source in [`crate::files::ShortRead`].
+fn ensure_not_binary_reader<R: std::io::Read>(
+    reader: &mut R,
+    display: &str,
+) -> Result<(), crate::exit::BinaryError> {
+    let mut buf = Vec::with_capacity(crate::files::BINARY_PROBE_LEN);
+    if crate::files::read_binary_probe_into(reader, &mut buf).is_err() {
+        return Ok(());
+    }
+    if crate::files::is_binary(&buf) {
         return Err(crate::exit::BinaryError {
             msg: format!("target is a binary file: {display}"),
         });
@@ -1699,6 +1706,19 @@ mod tests {
             crate::fallback::edit_error_kind(&ae),
             Some(crate::fallback::EditErrorKind::Binary)
         );
+    }
+
+    #[test]
+    fn ensure_not_binary_short_reads_still_see_nul_in_probe_window() {
+        let mut data = vec![b'a'; 10_000];
+        data[6000] = 0;
+        let mut reader = crate::files::ShortRead {
+            inner: std::io::Cursor::new(data),
+            max_chunk: 100,
+        };
+        let err = ensure_not_binary_reader(&mut reader, "late.bin").unwrap_err();
+        assert!(err.msg.contains("binary file"), "got: {}", err.msg);
+        assert!(err.msg.contains("late.bin"));
     }
 
     #[test]

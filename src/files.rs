@@ -57,7 +57,7 @@ pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
 }
 
 /// Bytes inspected for a NUL before treating a file as agent-editable text.
-const BINARY_PROBE_LEN: usize = 8192;
+pub(crate) const BINARY_PROBE_LEN: usize = 8192;
 
 pub fn is_binary(data: &[u8]) -> bool {
     let check_len = data.len().min(BINARY_PROBE_LEN);
@@ -67,13 +67,28 @@ pub fn is_binary(data: &[u8]) -> bool {
 /// Append up to [`BINARY_PROBE_LEN`] bytes, or until EOF.
 ///
 /// `Read::read` may return a short count before EOF.
-fn read_binary_probe_into<R: std::io::Read>(
+pub(crate) fn read_binary_probe_into<R: std::io::Read>(
     reader: &mut R,
     buf: &mut Vec<u8>,
 ) -> std::io::Result<()> {
     use std::io::Read;
     reader.take(BINARY_PROBE_LEN as u64).read_to_end(buf)?;
     Ok(())
+}
+
+/// Caps each `read` so a single syscall cannot fill the 8 KiB window.
+#[cfg(test)]
+pub(crate) struct ShortRead<R> {
+    pub inner: R,
+    pub max_chunk: usize,
+}
+
+#[cfg(test)]
+impl<R: std::io::Read> std::io::Read for ShortRead<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = buf.len().min(self.max_chunk);
+        self.inner.read(&mut buf[..n])
+    }
 }
 
 /// Result of classifying on-disk (or in-memory) bytes as agent-editable text.
@@ -1502,19 +1517,6 @@ mod tests {
         std::fs::write(&p, b"hello world\n").unwrap();
         assert!(!is_binary_file(&p));
         assert!(!is_binary_file(&dir.path().join("nope.bin"))); // open fails -> false
-    }
-
-    /// Caps each `read` so a single syscall cannot fill the 8 KiB window.
-    struct ShortRead<R> {
-        inner: R,
-        max_chunk: usize,
-    }
-
-    impl<R: std::io::Read> std::io::Read for ShortRead<R> {
-        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-            let n = buf.len().min(self.max_chunk);
-            self.inner.read(&mut buf[..n])
-        }
     }
 
     #[test]

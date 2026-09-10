@@ -142,11 +142,8 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         // Only read the first 8 KiB instead of the entire file to avoid
         // unnecessary memory allocation on large binaries.
         let is_binary = {
-            use std::io::Read;
             let mut file = fs::File::open(&src)?;
-            let mut buf = [0u8; 8192];
-            let n = file.read(&mut buf)?;
-            crate::files::is_binary(&buf[..n])
+            src_probe_is_binary(&mut file)?
         };
         if is_binary {
             return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Binary);
@@ -216,6 +213,14 @@ impl DirectRenameKind {
             DirectRenameKind::Plain => "plain",
         }
     }
+}
+
+/// First 8 KiB NUL probe for regular-file rename preflight.
+/// Isolated so tests can wrap the source in [`crate::files::ShortRead`].
+fn src_probe_is_binary<R: std::io::Read>(reader: &mut R) -> std::io::Result<bool> {
+    let mut buf = Vec::with_capacity(crate::files::BINARY_PROBE_LEN);
+    crate::files::read_binary_probe_into(reader, &mut buf)?;
+    Ok(crate::files::is_binary(&buf))
 }
 
 /// Handle renames that must use direct `fs::rename` (binary content,
@@ -644,6 +649,20 @@ mod tests {
         assert_eq!(code, exit::SUCCESS);
         assert!(file.exists(), "file must not be deleted");
         assert_eq!(fs::read_to_string(&file).unwrap(), "hello\n");
+    }
+
+    #[test]
+    fn src_probe_short_reads_still_see_nul_in_probe_window() {
+        let mut data = vec![b'a'; 10_000];
+        data[6000] = 0;
+        let mut reader = crate::files::ShortRead {
+            inner: std::io::Cursor::new(data),
+            max_chunk: 100,
+        };
+        assert!(
+            src_probe_is_binary(&mut reader).unwrap(),
+            "NUL at offset 6000 must stay binary under 100-byte reads"
+        );
     }
 
     #[test]
