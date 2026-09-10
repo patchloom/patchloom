@@ -98,7 +98,7 @@ enum DiffReadError {
 }
 
 fn classify_diff_bytes(bytes: Vec<u8>, display: &str) -> Result<String, DiffReadError> {
-    match crate::files::classify_text_bytes(&bytes) {
+    match crate::files::classify_text_bytes_owned(bytes) {
         crate::files::TextBytesKind::Text(s) => Ok(s),
         crate::files::TextBytesKind::Binary => Err(DiffReadError::Binary(format!(
             "patch input is a binary file: {display}"
