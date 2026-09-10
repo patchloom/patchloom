@@ -1,4 +1,4 @@
-.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny semver-check bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test force-release-version-test verify-homebrew-version-test server-json-test workflow-sanity workflow-sanity-test git-clean clean
+.PHONY: help fmt fmt-check build test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test clippy check check-fast update-readme check-readme sync-patchloom-md check-patchloom-md agent-test embedder-smoke windows-smoke audit-test-hygiene audit deny semver-check bench-cli bench-mcp bench-agent bench-agent-dry-run bench-agent-report fuzz scoop-manifest-test chocolatey-package-test pack-mcpb pack-mcpb-test force-release-version-test verify-homebrew-version-test server-json-test workflow-sanity workflow-sanity-test apply-release-notes-test git-clean clean
 
 .DEFAULT_GOAL := help
 
@@ -39,9 +39,9 @@ pty-test: ## Run PTY-based interactive terminal tests (serial)
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test ## Run all checks (full CI gate)
+check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test apply-release-notes-test ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test ## Fast check (skips PATCHLOOM.md sync check only; includes README count + release notes + packaging-script tests)
+check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test apply-release-notes-test ## Fast check (skips PATCHLOOM.md sync check only; includes README count + release notes + packaging-script tests)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
@@ -97,6 +97,10 @@ workflow-sanity: ## Run actionlint + zizmor if installed (CI always runs them; n
 
 workflow-sanity-test: ## Lock workflow-sanity job, path filter, and pinned linters (#2279)
 	python3 scripts/test_workflow_sanity.py
+
+apply-release-notes-test: ## Lock Recipe A triggers and notes-branch apply
+	python3 scripts/test_apply_release_notes.py
+	python3 scripts/test_workflow_triggers.py
 
 git-clean: ## Remove known temp files that pollute `git status` (e.g. .lycheecache). Addresses #736.
 	@rm -f .lycheecache
