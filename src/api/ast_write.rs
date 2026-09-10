@@ -44,7 +44,7 @@ pub fn ast_rewrite_signature(
         )
         .into());
     }
-    let abs = super::absolute_for_engine(path).map_err(|e| {
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
         EditError::new(
             EditErrorKind::OperationFailed,
             format!("failed to resolve path {}: {e}", path.display()),
@@ -59,7 +59,7 @@ pub fn ast_rewrite_signature(
         return_type: edit.return_type.clone(),
         lang: None,
     };
-    let cwd = abs.parent().unwrap_or_else(|| Path::new("."));
+    let cwd = super::library_project_root(&abs, guard);
     let display = path.to_string_lossy();
     super::execute_as_edit_result_with_path(
         op,
@@ -142,6 +142,13 @@ pub fn ast_rename(
         )
         .into());
     }
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
+        EditError::new(
+            EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = abs.as_path();
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
@@ -206,6 +213,13 @@ pub fn ast_replace_in_symbol(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
+        EditError::new(
+            EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = abs.as_path();
     ensure_contained(guard, path)?;
     let path_str = path.to_string_lossy().into_owned();
     let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
@@ -503,6 +517,7 @@ pub fn ast_rename_batch(
                     opts.post_write.as_ref(),
                     opts.post_write_cwd.as_deref(),
                     r.backup_session.as_deref(),
+                    guard,
                 ) {
                     let edit_err = e.downcast::<EditError>().unwrap_or_else(|e| {
                         EditError::new(EditErrorKind::FormatFailed, e.to_string())

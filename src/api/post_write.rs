@@ -53,19 +53,29 @@ pub fn run_post_write_validation(
 /// when `backup_session` is `Some` (#1686 / #1690). Falls back to latest-session
 /// restore when `None`.
 ///
-/// `project_root` is the shell cwd for format/lint commands. Backup restore uses
-/// the **file parent** (where library Apply stores sessions), not `project_root`,
-/// so hosts can set `post_write_cwd` to a workspace root without breaking Revert.
+/// `project_root` is the shell cwd for format/lint commands. Backup restore
+/// tries the file parent first (no-guard library Apply, #1690) then
+/// `project_root` (guard-rooted sessions when the host sets `post_write_cwd`
+/// to the workspace, #2385).
 pub fn run_post_write_validation_with_session(
     project_root: &Path,
     path: &Path,
     hooks: &PostWriteHooks,
     backup_session: Option<&str>,
 ) -> anyhow::Result<()> {
+    run_post_write_validation_with_session_and_root(project_root, path, hooks, backup_session, None)
+}
+
+/// Like [`run_post_write_validation_with_session`], also searching `extra_root`
+/// (typically [`PathGuard::root`]) for the backup session.
+pub(crate) fn run_post_write_validation_with_session_and_root(
+    project_root: &Path,
+    path: &Path,
+    hooks: &PostWriteHooks,
+    backup_session: Option<&str>,
+    extra_root: Option<&Path>,
+) -> anyhow::Result<()> {
     let timeout = hooks.timeout_secs.unwrap_or(30);
-    // Library Apply backs up under the file's parent (`write_if_apply`), which
-    // may differ from the host's hooks cwd (often the workspace root).
-    let backup_root = path.parent().unwrap_or(project_root);
     for (label, cmd) in [
         ("format", hooks.format_cmd.as_deref()),
         ("lint", hooks.lint_cmd.as_deref()),
@@ -77,12 +87,7 @@ pub fn run_post_write_validation_with_session(
             if hooks.on_failure == PostWriteOnFailure::Revert {
                 // Surface restore failure: silent Ok(false)/Err left the file
                 // mutated while the host only saw the format error.
-                let restore = if let Some(ts) = backup_session {
-                    crate::backup::restore_path_from_session(backup_root, ts, path)
-                } else {
-                    restore_path_from_latest_backup(backup_root, path)
-                };
-                match restore {
+                match restore_written_path(path, project_root, extra_root, backup_session) {
                     Ok(true) => {}
                     Ok(false) => {
                         return Err(FormatFailedError::new(format!(
@@ -113,6 +118,47 @@ pub fn run_post_write_validation_with_session(
         }
     }
     Ok(())
+}
+
+/// Restore `path` from a backup session. Try the file parent first (no-guard
+/// sessions live there) then `project_root` (guard-rooted / host workspace).
+fn restore_written_path(
+    path: &Path,
+    project_root: &Path,
+    extra_root: Option<&Path>,
+    backup_session: Option<&str>,
+) -> anyhow::Result<bool> {
+    let parent = path.parent().unwrap_or(project_root);
+    let mut roots: Vec<&Path> = vec![parent];
+    if project_root != parent {
+        roots.push(project_root);
+    }
+    if let Some(extra) = extra_root
+        && extra != parent
+        && extra != project_root
+    {
+        roots.push(extra);
+    }
+    for root in roots {
+        if let Some(ts) = backup_session {
+            let session_dir = root.join(crate::backup::BACKUP_DIR).join(ts);
+            if !session_dir.exists() {
+                continue;
+            }
+            match crate::backup::restore_path_from_session(root, ts, path) {
+                Ok(true) => return Ok(true),
+                Ok(false) => {}
+                Err(e) => return Err(e),
+            }
+        } else {
+            match restore_path_from_latest_backup(root, path) {
+                Ok(true) => return Ok(true),
+                Ok(false) => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    Ok(false)
 }
 
 fn run_hook_cmd(cmd: &str, timeout_secs: u64, cwd: &Path, label: &str) -> anyhow::Result<()> {
