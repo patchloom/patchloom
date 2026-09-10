@@ -1386,6 +1386,25 @@ where
             .collect()
     }
 
+    fn apply_at<T, F>(
+        paths: &[PathBuf],
+        i: usize,
+        glob_matcher: Option<&GlobSet>,
+        glob_roots: &[PathBuf],
+        f: &F,
+        out: &mut Vec<(usize, T)>,
+    ) where
+        T: Send,
+        F: Fn(&Path) -> Option<T> + Sync,
+    {
+        let p = &paths[i];
+        if matches_glob_with_roots(p, glob_matcher, glob_roots)
+            && let Some(v) = f(p.as_path())
+        {
+            out.push((i, v));
+        }
+    }
+
     fn claim_one<T, F>(
         paths: &[PathBuf],
         glob_matcher: Option<&GlobSet>,
@@ -1402,12 +1421,7 @@ where
         if i >= paths.len() {
             return false;
         }
-        let p = &paths[i];
-        if matches_glob_with_roots(p, glob_matcher, glob_roots)
-            && let Some(v) = f(p.as_path())
-        {
-            out.push((i, v));
-        }
+        apply_at(paths, i, glob_matcher, glob_roots, f, out);
         true
     }
 
@@ -1435,10 +1449,9 @@ where
     }
 
     let next = AtomicUsize::new(0);
-    let mut mine = Vec::new();
-    // First claim on this thread so it never only joins (same role as the
-    // old first-chunk path). Remaining work is shared with spawned workers.
-    claim_one(paths, glob_matcher, glob_roots, &f, &next, &mut mine);
+    // Reserve one index so this thread is never join-only. Do not run `f`
+    // until workers exist, or a large first file keeps every other core idle.
+    let reserved = next.fetch_add(1, Ordering::Relaxed);
 
     std::thread::scope(|s| {
         let handles: Vec<_> = (1..num_splits)
@@ -1451,6 +1464,8 @@ where
             })
             .collect();
 
+        let mut mine = Vec::new();
+        apply_at(paths, reserved, glob_matcher, glob_roots, &f, &mut mine);
         claim_work(paths, glob_matcher, glob_roots, &f, &next, &mut mine);
 
         let mut slots: Vec<Option<T>> = (0..paths.len()).map(|_| None).collect();
@@ -2323,7 +2338,8 @@ mod tests {
         if parallelism <= 1 {
             return;
         }
-        let paths: Vec<PathBuf> = (0..64).map(|i| PathBuf::from(format!("f{i}"))).collect();
+        let n = parallelism * 8;
+        let paths: Vec<PathBuf> = (0..n).map(|i| PathBuf::from(format!("f{i}"))).collect();
         let claimed = Mutex::new(Vec::new());
         let results = par_process_files(&paths, None, &[], |p| {
             let idx = p
@@ -2340,17 +2356,22 @@ mod tests {
             }
             Some(idx)
         });
-        assert_eq!(results, (0..64).collect::<Vec<_>>());
+        assert_eq!(results, (0..n).collect::<Vec<_>>());
         let mut by_thread: std::collections::HashMap<std::thread::ThreadId, Vec<usize>> =
             std::collections::HashMap::new();
         for (tid, idx) in claimed.into_inner().unwrap() {
             by_thread.entry(tid).or_default().push(idx);
         }
-        if by_thread.len() < 2 {
+        assert!(
+            by_thread.len() >= 2,
+            "expected at least two threads to claim work, got {by_thread:?}"
+        );
+        let multi: Vec<&Vec<usize>> = by_thread.values().filter(|idxs| idxs.len() >= 2).collect();
+        if multi.is_empty() {
             return;
         }
-        let any_noncontiguous = by_thread.values().any(|idxs| {
-            let mut sorted = idxs.clone();
+        let any_noncontiguous = multi.iter().any(|idxs| {
+            let mut sorted = (*idxs).clone();
             sorted.sort_unstable();
             sorted.windows(2).any(|w| w[1] > w[0] + 1)
         });
