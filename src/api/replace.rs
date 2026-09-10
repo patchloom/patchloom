@@ -38,6 +38,14 @@ pub fn replace_text(
         }));
     }
 
+    let abs = super::library_abs_path(path, guard).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let path = abs.as_path();
+
     let range_str = opts.range.map(|(start, end)| {
         if let Some(e) = end {
             format!("{start}:{e}")

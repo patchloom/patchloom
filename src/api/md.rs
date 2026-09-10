@@ -237,6 +237,23 @@ pub fn md_move_section(
     // Cross-file moves retain the direct implementation because the tx engine
     // only handles single-file operations. Same-file moves can route through
     // the engine but cross-file needs coordinated writes to two files.
+    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+    })?;
+    let dest_owned = match to {
+        Some(dest_path) => Some(super::library_abs_path(dest_path, guard).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to resolve path {}: {e}", dest_path.display()),
+            )
+        })?),
+        None => None,
+    };
+    let path = path_owned.as_path();
+    let to = dest_owned.as_deref();
     let path_str = path.to_string_lossy();
     let original = crate::files::load_text_strict(path, &path_str)?;
 

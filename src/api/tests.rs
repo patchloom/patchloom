@@ -8338,6 +8338,43 @@ fn replace_text_relative_path_with_guard_reverts_workspace_file() {
     assert_eq!(crate::backup::list_sessions(dir.path()).unwrap().len(), 1);
 }
 
+/// Relative dest is resolved against PathGuard::root, not process cwd.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_guard_root_not_process_cwd() {
+    let ws = TempDir::new().unwrap();
+    let other = TempDir::new().unwrap();
+    fs::create_dir_all(ws.path().join("pkg")).unwrap();
+    fs::write(ws.path().join("pkg").join("x.txt"), "v1\n").unwrap();
+    fs::create_dir_all(other.path().join("pkg")).unwrap();
+    fs::write(other.path().join("pkg").join("x.txt"), "OTHER\n").unwrap();
+
+    let _cwd = CwdGuard::enter(other.path());
+    let guard = PathGuard::new(
+        ws.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    replace_text(
+        std::path::Path::new("pkg/x.txt"),
+        "v1",
+        "v2",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read_to_string(ws.path().join("pkg").join("x.txt")).unwrap(),
+        "v2\n"
+    );
+    assert_eq!(
+        fs::read_to_string(other.path().join("pkg").join("x.txt")).unwrap(),
+        "OTHER\n",
+        "must not write the process-cwd file"
+    );
+}
+
 /// #1694: fuzzy identifier typo keeps surrounding syntax (not whole-line replace).
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]

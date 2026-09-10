@@ -138,6 +138,13 @@ fn file_write(
             };
             // Entry containment: do not follow symlink targets (#2115).
             // Preview/Check: report would-delete without unlinking (#2087 DryRun).
+            let abs = super::library_abs_path(path, guard).map_err(|e| {
+                crate::fallback::EditError::new(
+                    crate::fallback::EditErrorKind::OperationFailed,
+                    format!("failed to resolve path {}: {e}", path.display()),
+                )
+            })?;
+            let path = abs.as_path();
             let (applied, backup_session) = if mode == ApplyMode::Apply {
                 super::ensure_contained_entry(guard, path)?;
                 super::apply_mutation_at(
@@ -252,6 +259,20 @@ fn file_write_cross(
         }
         // Soft text load for EditResult body only; binary / unreadable still
         // renames the inode (this no-files fallback path).
+        let src_abs = super::library_abs_path(src, guard).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to resolve path {}: {e}", src.display()),
+            )
+        })?;
+        let dst_abs = super::library_abs_path(dst, guard).map_err(|e| {
+            crate::fallback::EditError::new(
+                crate::fallback::EditErrorKind::OperationFailed,
+                format!("failed to resolve path {}: {e}", dst.display()),
+            )
+        })?;
+        let src = src_abs.as_path();
+        let dst = dst_abs.as_path();
         let original = crate::files::try_read_text_file(src).unwrap_or_default();
         let (applied, backup_session) = super::apply_cross_file_mutation(
             src,
