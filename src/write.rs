@@ -176,6 +176,58 @@ pub fn parse_eol_mode(mode: &str) -> anyhow::Result<EolMode> {
     }
 }
 
+/// A validated `--dedent` / `--indent` specification.
+///
+/// Parsed by [`parse_dedent_spec`] and [`parse_indent_spec`] so that an
+/// unusable value is rejected once, up front, instead of silently degrading to
+/// a no-op (#2378).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndentSpec {
+    /// Dedent only: strip the smallest non-zero indent found in range.
+    Auto,
+    /// One leading tab.
+    Tab,
+    /// N whitespace characters (dedent) or N spaces (indent). Zero is a no-op.
+    Spaces(usize),
+}
+
+fn invalid_spec(flag: &str, spec: &str, accepted: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::InvalidInputError {
+        msg: format!("invalid {flag} value '{spec}': expected {accepted}"),
+    })
+}
+
+/// Parse a `--dedent` spec: `"auto"`, `"tab"`, or a non-negative integer.
+///
+/// `"0"` parses to `IndentSpec::Spaces(0)`, which is a deliberate no-op.
+pub fn parse_dedent_spec(spec: &str) -> anyhow::Result<IndentSpec> {
+    match spec {
+        "auto" => Ok(IndentSpec::Auto),
+        "tab" => Ok(IndentSpec::Tab),
+        n => n.parse::<usize>().map(IndentSpec::Spaces).map_err(|_| {
+            invalid_spec("--dedent", spec, "'auto', 'tab', or a non-negative integer")
+        }),
+    }
+}
+
+/// Parse an `--indent` spec: `"tab"` or a non-negative integer.
+///
+/// `"auto"` is rejected: there is nothing to infer when adding indentation.
+pub fn parse_indent_spec(spec: &str) -> anyhow::Result<IndentSpec> {
+    match spec {
+        "tab" => Ok(IndentSpec::Tab),
+        "auto" => Err(invalid_spec(
+            "--indent",
+            spec,
+            "'tab' or a non-negative integer ('auto' applies to --dedent only)",
+        )),
+        n => n
+            .parse::<usize>()
+            .map(IndentSpec::Spaces)
+            .map_err(|_| invalid_spec("--indent", spec, "'tab' or a non-negative integer")),
+    }
+}
+
 /// If `content` is non-empty and does not already end with the appropriate
 /// line terminator for `eol`, append one.  Empty content is returned unchanged.
 ///
@@ -477,6 +529,12 @@ pub fn dedent_content(
     spec: &str,
     line_range: Option<(usize, Option<usize>)>,
 ) -> String {
+    // Callers that can report an error validate with `parse_dedent_spec` first;
+    // an unparseable spec is a no-op here only to keep this signature
+    // infallible for existing library users (#2378).
+    let Ok(spec) = parse_dedent_spec(spec) else {
+        return content.to_string();
+    };
     with_leading_bom_peeled(content, |content| {
         let lines: Vec<&str> = content.split('\n').collect();
 
@@ -491,7 +549,7 @@ pub fn dedent_content(
         };
 
         match spec {
-            "auto" => {
+            IndentSpec::Auto => {
                 // Find minimum non-zero indentation in the range.
                 let min_indent = lines
                     .iter()
@@ -509,7 +567,7 @@ pub fn dedent_content(
 
                 dedent_by_n(&lines, min_indent, &in_range)
             }
-            "tab" => {
+            IndentSpec::Tab => {
                 let result: Vec<String> = lines
                     .iter()
                     .enumerate()
@@ -525,13 +583,8 @@ pub fn dedent_content(
                     .collect();
                 result.join("\n")
             }
-            n => {
-                let count: usize = n.parse().unwrap_or(0);
-                if count == 0 {
-                    return content.to_string();
-                }
-                dedent_by_n(&lines, count, &in_range)
-            }
+            IndentSpec::Spaces(0) => content.to_string(),
+            IndentSpec::Spaces(n) => dedent_by_n(&lines, n, &in_range),
         }
     })
 }
@@ -567,6 +620,10 @@ pub fn indent_content(
     spec: &str,
     line_range: Option<(usize, Option<usize>)>,
 ) -> String {
+    // See `dedent_content`: entry points validate with `parse_indent_spec`.
+    let Ok(spec) = parse_indent_spec(spec) else {
+        return content.to_string();
+    };
     with_leading_bom_peeled(content, |content| {
         let lines: Vec<&str> = content.split('\n').collect();
 
@@ -576,11 +633,11 @@ pub fn indent_content(
         };
 
         let prefix = match spec {
-            "tab" => "\t".to_string(),
-            n => {
-                let count: usize = n.parse().unwrap_or(0);
-                " ".repeat(count)
-            }
+            IndentSpec::Tab => "\t".to_string(),
+            // `parse_indent_spec` rejects Auto, so this arm is unreachable via
+            // the public entry points; treat it as a no-op rather than panic.
+            IndentSpec::Auto => String::new(),
+            IndentSpec::Spaces(n) => " ".repeat(n),
         };
 
         if prefix.is_empty() {

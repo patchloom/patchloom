@@ -795,6 +795,72 @@ mod edge_cases {
 mod dedent_indent {
     use super::*;
 
+    // #2378: an unusable spec must be a typed error, not a silent no-op.
+
+    #[test]
+    fn parse_dedent_spec_accepts_valid_forms() {
+        assert_eq!(parse_dedent_spec("auto").unwrap(), IndentSpec::Auto);
+        assert_eq!(parse_dedent_spec("tab").unwrap(), IndentSpec::Tab);
+        assert_eq!(parse_dedent_spec("4").unwrap(), IndentSpec::Spaces(4));
+        assert_eq!(
+            parse_dedent_spec("0").unwrap(),
+            IndentSpec::Spaces(0),
+            "0 is a deliberate no-op, not an error"
+        );
+    }
+
+    #[test]
+    fn parse_dedent_spec_rejects_garbage_as_invalid_input() {
+        for spec in ["abc", "2.5", "", "4x", "-2", " 4"] {
+            let err = parse_dedent_spec(spec).unwrap_err();
+            assert!(
+                err.to_string().contains("invalid --dedent value"),
+                "unexpected message for {spec:?}: {err}"
+            );
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "invalid --dedent must be typed InvalidInputError for JSON error_kind ({spec:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_indent_spec_accepts_valid_forms() {
+        assert_eq!(parse_indent_spec("tab").unwrap(), IndentSpec::Tab);
+        assert_eq!(parse_indent_spec("4").unwrap(), IndentSpec::Spaces(4));
+        assert_eq!(parse_indent_spec("0").unwrap(), IndentSpec::Spaces(0));
+    }
+
+    #[test]
+    fn parse_indent_spec_rejects_auto() {
+        let err = parse_indent_spec("auto").unwrap_err();
+        assert!(
+            err.to_string().contains("applies to --dedent only"),
+            "message should explain why auto is invalid here: {err}"
+        );
+        assert!(crate::exit::is_invalid_input(&err));
+    }
+
+    #[test]
+    fn parse_indent_spec_rejects_garbage_as_invalid_input() {
+        for spec in ["abc", "2.5", "", "4x"] {
+            let err = parse_indent_spec(spec).unwrap_err();
+            assert!(
+                err.to_string().contains("invalid --indent value"),
+                "unexpected message for {spec:?}: {err}"
+            );
+            assert!(crate::exit::is_invalid_input(&err));
+        }
+    }
+
+    #[test]
+    fn dedent_content_treats_invalid_spec_as_noop_for_library_callers() {
+        // The infallible signature is kept for compatibility; every patchloom
+        // entry point validates with parse_dedent_spec first.
+        assert_eq!(dedent_content("    x\n", "abc", None), "    x\n");
+        assert_eq!(indent_content("x\n", "abc", None), "x\n");
+    }
+
     #[test]
     fn dedent_auto_removes_minimum_indent() {
         let input = "    line1\n        line2\n    line3\n";

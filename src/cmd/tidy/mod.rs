@@ -36,10 +36,12 @@ pub enum TidyAction {
     /// Apply normalization fixes to text files.
     Fix {
         paths: Vec<String>,
-        /// Dedent: remove leading whitespace. Values: "auto", "tab", or a number (e.g. "4").
+        /// Dedent: remove leading whitespace. Values: "auto", "tab", or a
+        /// count of whitespace characters (e.g. "4"). Other values are rejected.
         #[arg(long)]
         dedent: Option<String>,
-        /// Indent: add leading whitespace. Values: "tab" or a number (e.g. "4").
+        /// Indent: add leading whitespace. Values: "tab" or a number of spaces
+        /// (e.g. "4"). "auto" and other values are rejected.
         #[arg(long)]
         indent: Option<String>,
         /// Restrict dedent/indent to a line range (1-based inclusive, e.g. "10:50" or "10-50").

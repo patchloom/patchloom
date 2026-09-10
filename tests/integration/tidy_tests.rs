@@ -745,6 +745,103 @@ fn test_tidy_fix_dedent_and_indent_rejects() {
     );
 }
 
+/// #2378: an unparseable spec used to exit 0 having changed nothing, so an
+/// agent would believe the edit was applied. It must be a typed rejection,
+/// and it must happen before any file is touched.
+#[test]
+fn test_tidy_fix_invalid_dedent_spec_rejects_without_touching_files() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    let original = "        line1\n";
+    fs::write(&file, original).unwrap();
+
+    for spec in ["abc", "2.5", "4x", ""] {
+        let output = Command::cargo_bin("patchloom")
+            .unwrap()
+            .args(["--json", "tidy", "fix", ".", "--dedent", spec, "--apply"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "--dedent {spec:?} should fail: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(parsed["ok"], false, "{parsed}");
+        assert_eq!(
+            parsed["error_kind"], "invalid_input",
+            "invalid --dedent {spec:?} needs a typed error_kind: {parsed}"
+        );
+        assert_eq!(
+            fs::read_to_string(&file).unwrap(),
+            original,
+            "--dedent {spec:?} must not modify the file"
+        );
+    }
+}
+
+/// `--indent auto` has nothing to infer from; it was silently a no-op (#2378).
+#[test]
+fn test_tidy_fix_indent_auto_rejects() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "line1\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tidy", "fix", ".", "--indent", "auto", "--apply"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(parsed["error_kind"], "invalid_input", "{parsed}");
+    assert_eq!(fs::read_to_string(&file).unwrap(), "line1\n");
+}
+
+/// `--dedent 0` remains a deliberate no-op, not an error (#2378).
+#[test]
+fn test_tidy_fix_dedent_zero_is_a_noop_not_an_error() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    let original = "    line1\n";
+    fs::write(&file, original).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--dedent", "0", "--apply"])
+        .current_dir(dir.path())
+        .assert()
+        .code(0);
+    assert_eq!(fs::read_to_string(&file).unwrap(), original);
+}
+
+/// #2377: multi-byte whitespace indentation used to abort the process.
+#[test]
+fn test_tidy_fix_dedent_wide_whitespace_does_not_abort() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("wide.txt");
+    // U+00A0 indent, then a mixed ASCII / U+3000 pair.
+    fs::write(&file, "\u{a0}foo\n  a\n\u{3000}b\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["tidy", "fix", ".", "--dedent", "auto", "--apply"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "should not panic: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "foo\n a\nb\n");
+}
+
 #[test]
 fn test_tidy_fix_dedent_dry_run_no_modify() {
     let dir = TempDir::new().unwrap();

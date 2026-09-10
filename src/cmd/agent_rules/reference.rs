@@ -101,6 +101,9 @@ pub(crate) fn append_reference(out: &mut String, show_cli: bool) {
              invalid search/replace regex patterns (unclosed groups, etc.), \
              and plan op option conflicts such as replace whole_line+multiline, tidy dedent+indent, \
              md.move_section before/after, search invert_match+multiline), \
+             invalid tidy `--dedent`/`--indent` spec values (`--dedent` takes `auto`, `tab`, or a \
+             non-negative integer; `--indent` takes `tab` or a non-negative integer; `0` is a no-op, \
+             not an error; rejected before any file is read; #2378), \
              `guard_rejected` (PathGuard / `--contain` path escape or plan cwd escape; #1935; not empty-path `invalid_input`), \
              `format_failed` (post-write `--format` command non-zero exit or format-timeout; write may already be on disk; JSON includes `backup_session` when a session was created so agents can `patchloom undo --session <id>`, plus `applied: true` (canonical; #1831), `write_applied: true` (deprecated alias), `files_changed`, and `files[].path` for every path already written so agents need not re-scan disk (#1795); re-run the formatter or undo). Empty `--files-from` is `invalid_input` (not `no_matches`; #1796). Doc type mismatches set \
              `type_error` (`doc keys`/`len` on wrong type, library doc mutation type errors). \
