@@ -64,11 +64,9 @@ pub fn is_binary(data: &[u8]) -> bool {
     memchr::memchr(0, &data[..check_len]).is_some()
 }
 
-/// Append up to [`BINARY_PROBE_LEN`] bytes (or until EOF) onto `buf`.
+/// Append up to [`BINARY_PROBE_LEN`] bytes, or until EOF.
 ///
-/// `Read::read` may return a short count well before EOF. `take` plus
-/// `read_to_end` fills the window (#2388). `Take` borrows `reader`, so
-/// the caller can keep reading the remainder.
+/// `Read::read` may return a short count before EOF.
 fn read_binary_probe_into<R: std::io::Read>(
     reader: &mut R,
     buf: &mut Vec<u8>,
@@ -1067,18 +1065,17 @@ pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
         return Ok(String::new());
     }
 
-    // For files larger than the binary-check window, fill the probe first.
-    // This avoids allocating megabytes for large binary files that the
-    // walker did not filter out. The same Vec holds the body when the
-    // probe is text (#2388).
+    // Probe 8 KiB first so a large binary does not get a body-sized Vec.
+    // After a text probe, reserve the known length and keep one body Vec.
     if file_len > BINARY_PROBE_LEN {
-        let mut bytes = Vec::with_capacity(file_len);
+        let mut bytes = Vec::with_capacity(BINARY_PROBE_LEN);
         if read_binary_probe_into(&mut file, &mut bytes).is_err() {
             return Err(SoftTextSkip::Unreadable);
         }
         if is_binary(&bytes) {
             return Err(SoftTextSkip::Binary);
         }
+        bytes.reserve(file_len.saturating_sub(bytes.len()));
         if file.read_to_end(&mut bytes).is_err() {
             return Err(SoftTextSkip::Unreadable);
         }
