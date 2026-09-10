@@ -275,7 +275,7 @@ These are the main entry points. If you are deciding between commands, start her
 
 - **What it does:** Checks or fixes trailing whitespace, line endings, and final newlines in text files. Binary and invalid UTF-8 files are skipped.
 - **Use when:** You need repo text normalization, or a CI guard for basic text tidiness.
-- **Failure behavior:** `tidy fix` with both `--dedent` and `--indent` exits `1` with `error_kind: "invalid_input"` under `--json`/`--jsonl`. When every explicit path root is missing, exit `1` with `error_kind: "not_found"` (not vacuous clean success). Pending tidy issues under `tidy check` exit `2` (`CHANGES_DETECTED`).
+- **Failure behavior:** `tidy fix` with both `--dedent` and `--indent` exits `1` with `error_kind: "invalid_input"` under `--json`/`--jsonl`. An unusable spec value is rejected the same way, before any file is read: `--dedent` accepts `auto`, `tab`, or a non-negative integer, and `--indent` accepts `tab` or a non-negative integer (`auto` is dedent-only). `0` is a deliberate no-op, not an error. Numeric dedent counts leading whitespace *characters*, so indents made of multi-byte whitespace (U+00A0, U+3000) are handled per character rather than per byte. When every explicit path root is missing, exit `1` with `error_kind: "not_found"` (not vacuous clean success). Pending tidy issues under `tidy check` exit `2` (`CHANGES_DETECTED`).
 - **Prefer instead:** Use write policy flags when the cleanup should only apply to files already being touched by another command.
 - **Related:** `tidy check`, `tidy fix`, `tx tidy.fix`
 

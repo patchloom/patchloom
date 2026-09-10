@@ -234,6 +234,21 @@ pub(super) fn run_fix(
         global.emit_error_json_kind(Some("invalid_input"), msg)?;
         return Ok(crate::exit::FAILURE);
     }
+    // Reject an unusable spec before reading any file: an unparseable value
+    // used to be silently ignored, reporting success on an unchanged file
+    // (#2378).
+    if let Some(ref spec) = dedent
+        && let Err(e) = crate::write::parse_dedent_spec(spec)
+    {
+        global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+        return Ok(crate::exit::FAILURE);
+    }
+    if let Some(ref spec) = indent
+        && let Err(e) = crate::write::parse_indent_spec(spec)
+    {
+        global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+        return Ok(crate::exit::FAILURE);
+    }
 
     let policy_flags = effective_tidy_fix_policy(global, dedent.as_deref(), indent.as_deref());
 

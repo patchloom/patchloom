@@ -1366,6 +1366,13 @@ where
         let mut results = process_slice(chunks[0], glob_matcher, glob_roots, &f);
 
         // Collect results from spawned threads.
+        //
+        // This `expect` is not a recovery path: release builds set
+        // `panic = "abort"` (`Cargo.toml`), so a panicking worker aborts the
+        // process and never returns a `join` error here. It documents the
+        // invariant and stays reachable under the unwinding dev profile used
+        // by `cargo test`. See #184 for why the signature is not `Result`, and
+        // #2379 for the decision to keep `abort`.
         for handle in handles {
             results.extend(handle.join().expect("worker thread panicked"));
         }

@@ -339,11 +339,12 @@ fn indent_content(content: &str, target_indent: &str, eol: &str) -> String {
         return String::new();
     }
 
-    // Find the minimum indentation of non-empty lines
+    // Find the minimum indentation of non-empty lines, counted in characters
+    // so that multi-byte whitespace indents stay comparable (#2377).
     let min_indent = lines
         .iter()
         .filter(|l| !l.trim().is_empty())
-        .map(|l| l.len() - l.trim_start().len())
+        .map(|l| crate::write::indent_char_count(l))
         .min()
         .unwrap_or(0);
 
@@ -353,7 +354,7 @@ fn indent_content(content: &str, target_indent: &str, eol: &str) -> String {
             if line.trim().is_empty() {
                 String::new()
             } else {
-                let stripped = &line[min_indent..];
+                let stripped = &line[crate::write::indent_strip_offset(line, min_indent)..];
                 format!("{target_indent}{stripped}")
             }
         })
@@ -364,6 +365,50 @@ fn indent_content(content: &str, target_indent: &str, eol: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2377: reindent measured the common indent in bytes and sliced each
+    /// line at that offset, splitting multi-byte whitespace.
+    #[test]
+    fn insert_content_with_wide_whitespace_indent_does_not_panic() {
+        let source = "fn existing_fn() {}\n";
+        // Mixed indent: 2 ASCII spaces on one line, one U+3000 on the next.
+        let content = "  fn a() {}\n\u{3000}fn b() {}";
+        let result = insert_code(
+            source,
+            content,
+            None,
+            Some("existing_fn"),
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .unwrap();
+        assert!(result.content.contains("fn a() {}"));
+        assert!(result.content.contains("fn b() {}"));
+        assert!(
+            !result.content.contains('\u{3000}'),
+            "the common indent character should have been stripped: {:?}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn insert_content_indented_only_with_wide_whitespace() {
+        let source = "fn existing_fn() {}\n";
+        let content = "\u{a0}fn a() {}\n\u{a0}fn b() {}";
+        let result = insert_code(
+            source,
+            content,
+            None,
+            Some("existing_fn"),
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .unwrap();
+        assert!(result.content.contains("fn a() {}"));
+        assert!(!result.content.contains('\u{a0}'));
+    }
 
     #[test]
     fn insert_inside_mod_end() {

@@ -145,11 +145,12 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol:
 
     let body_lines = &lines[body_start..body_end];
 
-    // Find common indentation
+    // Find common indentation, counted in characters so that multi-byte
+    // whitespace indents stay comparable (#2377).
     let min_indent = body_lines
         .iter()
         .filter(|l| !l.trim().is_empty())
-        .map(|l| l.len() - l.trim_start().len())
+        .map(|l| crate::write::indent_char_count(l))
         .min()
         .unwrap_or(0);
 
@@ -167,10 +168,10 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol:
     parts.extend(body_lines.iter().map(|line| {
         if line.trim().is_empty() {
             String::new()
-        } else if line.len() >= min_indent {
-            line[min_indent..].to_string()
         } else {
-            line.to_string()
+            // `indent_strip_offset` clamps to the line's own indent, so a line
+            // shorter than `min_indent` needs no separate guard.
+            line[crate::write::indent_strip_offset(line, min_indent)..].to_string()
         }
     }));
 
@@ -180,6 +181,25 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #2377: the un-indent step measured the common indent in bytes, so a
+    /// body mixing ASCII and multi-byte whitespace sliced mid-character.
+    #[test]
+    fn extract_body_with_wide_whitespace_indent_does_not_panic() {
+        let source = "mod tests {\n  fn a() {}\n\u{3000}fn b() {}\n}\n";
+        let result = extract_to_file(source, "tests", None, false, None, Language::Rust).unwrap();
+        assert!(result.target_content.contains("fn a() {}"));
+        assert!(result.target_content.contains("fn b() {}"));
+    }
+
+    #[test]
+    fn extract_body_shorter_than_common_indent_is_kept() {
+        // The blank-ish line must not be sliced past its own length.
+        let source = "mod tests {\n    fn a() {}\n\n    fn b() {}\n}\n";
+        let result = extract_to_file(source, "tests", None, false, None, Language::Rust).unwrap();
+        assert!(result.target_content.contains("fn a() {}"));
+        assert!(result.target_content.contains("fn b() {}"));
+    }
 
     #[test]
     fn extract_basic_function() {

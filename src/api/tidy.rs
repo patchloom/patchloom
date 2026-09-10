@@ -126,9 +126,11 @@ fn tidy_apply_policy_locally(
         .map(crate::ops::read::parse_line_range)
         .transpose()?;
     if let Some(ref spec) = indent_opts.dedent {
+        crate::write::parse_dedent_spec(spec)?;
         new_content = crate::write::dedent_content(&new_content, spec, line_range);
     }
     if let Some(ref spec) = indent_opts.indent {
+        crate::write::parse_indent_spec(spec)?;
         new_content = crate::write::indent_content(&new_content, spec, line_range);
     }
     new_content = crate::write::apply_charset(&new_content, charset).into_owned();
@@ -209,9 +211,11 @@ fn tidy_write(
             .map(crate::ops::read::parse_line_range)
             .transpose()?;
         if let Some(ref spec) = dedent {
+            crate::write::parse_dedent_spec(spec)?;
             new_content = crate::write::dedent_content(&new_content, spec, line_range);
         }
         if let Some(ref spec) = indent {
+            crate::write::parse_indent_spec(spec)?;
             new_content = crate::write::indent_content(&new_content, spec, line_range);
         }
 

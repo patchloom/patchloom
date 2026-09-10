@@ -262,6 +262,14 @@ impl PatchloomService {
     /// `spawn_blocking` prevents blocking the tokio async runtime, which
     /// matters for HTTP transport where concurrent requests would otherwise
     /// serialize on a single async task.
+    ///
+    /// Note: the `JoinError` arm below is **not** panic recovery. Release
+    /// builds set `panic = "abort"` (`Cargo.toml`), so a panicking handler
+    /// takes the whole server process down before it can become a `JoinError`.
+    /// Keeping `abort` is deliberate — the fix for a panicking tool is to fix
+    /// the panic, not to survive it (#2379). The arm remains because the
+    /// signature requires it and it is reachable under `cargo test`, which
+    /// builds with the unwinding dev profile.
     async fn blocking<F, R>(&self, f: F) -> Result<R, McpError>
     where
         F: FnOnce(&PatchloomService) -> Result<R, McpError> + Send + 'static,

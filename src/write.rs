@@ -176,6 +176,58 @@ pub fn parse_eol_mode(mode: &str) -> anyhow::Result<EolMode> {
     }
 }
 
+/// A validated `--dedent` / `--indent` specification.
+///
+/// Parsed by [`parse_dedent_spec`] and [`parse_indent_spec`] so that an
+/// unusable value is rejected once, up front, instead of silently degrading to
+/// a no-op (#2378).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndentSpec {
+    /// Dedent only: strip the smallest non-zero indent found in range.
+    Auto,
+    /// One leading tab.
+    Tab,
+    /// N whitespace characters (dedent) or N spaces (indent). Zero is a no-op.
+    Spaces(usize),
+}
+
+fn invalid_spec(flag: &str, spec: &str, accepted: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::InvalidInputError {
+        msg: format!("invalid {flag} value '{spec}': expected {accepted}"),
+    })
+}
+
+/// Parse a `--dedent` spec: `"auto"`, `"tab"`, or a non-negative integer.
+///
+/// `"0"` parses to `IndentSpec::Spaces(0)`, which is a deliberate no-op.
+pub fn parse_dedent_spec(spec: &str) -> anyhow::Result<IndentSpec> {
+    match spec {
+        "auto" => Ok(IndentSpec::Auto),
+        "tab" => Ok(IndentSpec::Tab),
+        n => n.parse::<usize>().map(IndentSpec::Spaces).map_err(|_| {
+            invalid_spec("--dedent", spec, "'auto', 'tab', or a non-negative integer")
+        }),
+    }
+}
+
+/// Parse an `--indent` spec: `"tab"` or a non-negative integer.
+///
+/// `"auto"` is rejected: there is nothing to infer when adding indentation.
+pub fn parse_indent_spec(spec: &str) -> anyhow::Result<IndentSpec> {
+    match spec {
+        "tab" => Ok(IndentSpec::Tab),
+        "auto" => Err(invalid_spec(
+            "--indent",
+            spec,
+            "'tab' or a non-negative integer ('auto' applies to --dedent only)",
+        )),
+        n => n
+            .parse::<usize>()
+            .map(IndentSpec::Spaces)
+            .map_err(|_| invalid_spec("--indent", spec, "'tab' or a non-negative integer")),
+    }
+}
+
 /// If `content` is non-empty and does not already end with the appropriate
 /// line terminator for `eol`, append one.  Empty content is returned unchanged.
 ///
@@ -429,10 +481,41 @@ fn with_leading_bom_peeled(content: &str, f: impl FnOnce(&str) -> String) -> Str
     }
 }
 
+/// Number of leading whitespace **characters** on `line`.
+///
+/// [`str::trim_start`] strips all Unicode whitespace, so the common idiom
+/// `line.len() - line.trim_start().len()` yields a *byte* count. Byte counts
+/// are not comparable between lines that indent with different characters, and
+/// slicing at one is not a char boundary. Indent widths are therefore measured
+/// in characters throughout (#2377).
+pub(crate) fn indent_char_count(line: &str) -> usize {
+    line.chars().take_while(|c| c.is_whitespace()).count()
+}
+
+/// Byte offset into `line` after skipping at most `n` leading whitespace
+/// characters.
+///
+/// The result is always a char boundary, so `&line[indent_strip_offset(l, n)..]`
+/// is safe for any input — including indents made of multi-byte whitespace such
+/// as U+00A0, U+3000, or U+202F. Skips fewer than `n` characters when the
+/// line's indent is shorter (#2377).
+pub(crate) fn indent_strip_offset(line: &str, n: usize) -> usize {
+    let mut offset = 0;
+    for (i, c) in line.char_indices().take(n) {
+        if !c.is_whitespace() {
+            break;
+        }
+        offset = i + c.len_utf8();
+    }
+    offset
+}
+
 /// Dedent content by removing leading whitespace.
 ///
 /// `spec` accepts:
-/// - A numeric string (e.g. `"4"`) — remove up to N leading spaces per line.
+/// - A numeric string (e.g. `"4"`) — remove up to N leading whitespace
+///   *characters* per line (#2377; for ASCII space/tab indents this is the
+///   same as N bytes).
 /// - `"tab"` — remove one leading tab per line.
 /// - `"auto"` — find the minimum non-zero indentation and remove that much.
 ///
@@ -446,6 +529,12 @@ pub fn dedent_content(
     spec: &str,
     line_range: Option<(usize, Option<usize>)>,
 ) -> String {
+    // Callers that can report an error validate with `parse_dedent_spec` first;
+    // an unparseable spec is a no-op here only to keep this signature
+    // infallible for existing library users (#2378).
+    let Ok(spec) = parse_dedent_spec(spec) else {
+        return content.to_string();
+    };
     with_leading_bom_peeled(content, |content| {
         let lines: Vec<&str> = content.split('\n').collect();
 
@@ -460,14 +549,14 @@ pub fn dedent_content(
         };
 
         match spec {
-            "auto" => {
+            IndentSpec::Auto => {
                 // Find minimum non-zero indentation in the range.
                 let min_indent = lines
                     .iter()
                     .enumerate()
                     .filter(|&(i, _)| in_range(i))
                     .filter(|&(_, line)| !line.trim().is_empty())
-                    .map(|(_, line)| line.len() - line.trim_start().len())
+                    .map(|(_, line)| indent_char_count(line))
                     .filter(|&n| n > 0)
                     .min()
                     .unwrap_or(0);
@@ -478,7 +567,7 @@ pub fn dedent_content(
 
                 dedent_by_n(&lines, min_indent, &in_range)
             }
-            "tab" => {
+            IndentSpec::Tab => {
                 let result: Vec<String> = lines
                     .iter()
                     .enumerate()
@@ -494,13 +583,8 @@ pub fn dedent_content(
                     .collect();
                 result.join("\n")
             }
-            n => {
-                let count: usize = n.parse().unwrap_or(0);
-                if count == 0 {
-                    return content.to_string();
-                }
-                dedent_by_n(&lines, count, &in_range)
-            }
+            IndentSpec::Spaces(0) => content.to_string(),
+            IndentSpec::Spaces(n) => dedent_by_n(&lines, n, &in_range),
         }
     })
 }
@@ -513,9 +597,7 @@ fn dedent_by_n(lines: &[&str], n: usize, in_range: &dyn Fn(usize) -> bool) -> St
             if !in_range(i) || line.trim().is_empty() {
                 line.to_string()
             } else {
-                let leading_spaces = line.len() - line.trim_start().len();
-                let strip = n.min(leading_spaces);
-                line[strip..].to_string()
+                line[indent_strip_offset(line, n)..].to_string()
             }
         })
         .collect();
@@ -538,6 +620,10 @@ pub fn indent_content(
     spec: &str,
     line_range: Option<(usize, Option<usize>)>,
 ) -> String {
+    // See `dedent_content`: entry points validate with `parse_indent_spec`.
+    let Ok(spec) = parse_indent_spec(spec) else {
+        return content.to_string();
+    };
     with_leading_bom_peeled(content, |content| {
         let lines: Vec<&str> = content.split('\n').collect();
 
@@ -547,11 +633,11 @@ pub fn indent_content(
         };
 
         let prefix = match spec {
-            "tab" => "\t".to_string(),
-            n => {
-                let count: usize = n.parse().unwrap_or(0);
-                " ".repeat(count)
-            }
+            IndentSpec::Tab => "\t".to_string(),
+            // `parse_indent_spec` rejects Auto, so this arm is unreachable via
+            // the public entry points; treat it as a no-op rather than panic.
+            IndentSpec::Auto => String::new(),
+            IndentSpec::Spaces(n) => " ".repeat(n),
         };
 
         if prefix.is_empty() {
@@ -794,8 +880,16 @@ pub(crate) fn atomic_create_new(
 /// Atomically write `content` to `path` after applying `policy`.
 ///
 /// Default path (single hard link or new file): a temporary file is created in
-/// the same directory as `path`, written to, then renamed over `path`. The
-/// target is never left half-written for normal files.
+/// the same directory as `path`, written to, then renamed over `path`.
+///
+/// The guarantee is **atomicity, not durability**: because the replacement is a
+/// single `rename`, no reader — this process, another process, or a crashed
+/// run of this one — ever observes a partially written `path`. It is not a
+/// promise about power loss. The temp file is not fsynced before the rename, so
+/// after a machine-level crash a filesystem may expose the new directory entry
+/// with unwritten data blocks. That trade is deliberate: a per-write fsync would
+/// dominate the cost of bulk operations that rewrite thousands of files
+/// (#2389).
 ///
 /// When the resolved target is a regular file with **more than one hard link**
 /// (`nlink > 1` / Windows `nNumberOfLinks > 1`), rename would

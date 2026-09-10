@@ -52,9 +52,11 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 .map(crate::ops::read::parse_line_range)
                 .transpose()?;
             if let Some(spec) = dedent {
+                crate::write::parse_dedent_spec(spec)?;
                 new = crate::write::dedent_content(&new, spec, line_range);
             }
             if let Some(spec) = indent {
+                crate::write::parse_indent_spec(spec)?;
                 new = crate::write::indent_content(&new, spec, line_range);
             }
 
