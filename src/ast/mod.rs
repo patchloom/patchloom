@@ -27,9 +27,30 @@ pub mod symbols;
 pub mod validate;
 pub mod wrap;
 
+#[cfg(test)]
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::ops::ControlFlow;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+
+thread_local! {
+    static PARSERS: RefCell<HashMap<Language, tree_sitter_lib::Parser>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Five seconds is well above a typical file (a 1 MB generated source
+/// is usually tens of milliseconds) and still bounds MCP
+/// `spawn_blocking` threads on pathological input (#2384).
+const PARSE_TIMEOUT: Duration = Duration::from_millis(5_000);
+
+#[cfg(test)]
+thread_local! {
+    static PARSE_TIMEOUT_OVERRIDE: Cell<Option<Duration>> = const { Cell::new(None) };
+}
 
 /// A programming, markup, or data language detected by file extension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -204,8 +225,9 @@ pub fn ts_language_for(lang: Language) -> Option<tree_sitter_lib::Language> {
 
 /// Parse source text for a given language, returning the tree-sitter tree.
 ///
-/// Handles language detection and parser setup. Returns `None` if the
-/// language has no grammar support or if parsing fails.
+/// Reuses a thread-local [`tree_sitter_lib::Parser`] per [`Language`].
+/// Returns `None` if the language has no grammar support, if parsing
+/// fails, or if the parse exceeds the 5 second deadline.
 ///
 /// # Example
 ///
@@ -221,10 +243,59 @@ pub fn parse_source(
     lang: Language,
 ) -> Option<(tree_sitter_lib::Tree, tree_sitter_lib::Language)> {
     let ts_lang = ts_language_for(lang)?;
-    let mut parser = tree_sitter_lib::Parser::new();
-    parser.set_language(&ts_lang).ok()?;
-    let tree = parser.parse(source, None)?;
+    let tree = PARSERS.with(|slot| {
+        let mut map = slot.borrow_mut();
+        let parser = match map.entry(lang) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(v) => {
+                let mut parser = tree_sitter_lib::Parser::new();
+                parser.set_language(&ts_lang).ok()?;
+                v.insert(parser)
+            }
+        };
+        // Resume after a cancelled parse would continue mid-document.
+        parser.reset();
+        let tree = parse_with_deadline(parser, source);
+        if tree.is_none() {
+            parser.reset();
+        }
+        tree
+    })?;
     Some((tree, ts_lang))
+}
+
+fn parse_deadline() -> Duration {
+    #[cfg(test)]
+    {
+        if let Some(d) = PARSE_TIMEOUT_OVERRIDE.with(Cell::get) {
+            return d;
+        }
+    }
+    PARSE_TIMEOUT
+}
+
+fn parse_with_deadline(
+    parser: &mut tree_sitter_lib::Parser,
+    source: &str,
+) -> Option<tree_sitter_lib::Tree> {
+    let deadline = Instant::now() + parse_deadline();
+    let mut progress = |_state: &tree_sitter_lib::ParseState| {
+        if Instant::now() >= deadline {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    };
+    let options = tree_sitter_lib::ParseOptions::new().progress_callback(&mut progress);
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    parser.parse_with_options(
+        &mut |i, _| {
+            if i < len { &bytes[i..] } else { &[] as &[u8] }
+        },
+        None,
+        Some(options),
+    )
 }
 
 /// Find the text of the first child with a given node kind.
@@ -353,6 +424,82 @@ mod tests {
     fn parse_source_unknown_returns_none() {
         let result = parse_source("anything", Language::Unknown);
         assert!(result.is_none());
+    }
+
+    struct ParseTimeoutGuard {
+        prev: Option<Duration>,
+    }
+
+    impl ParseTimeoutGuard {
+        fn set(timeout: Duration) -> Self {
+            let prev = PARSE_TIMEOUT_OVERRIDE.with(|c| c.replace(Some(timeout)));
+            Self { prev }
+        }
+    }
+
+    impl Drop for ParseTimeoutGuard {
+        fn drop(&mut self) {
+            PARSE_TIMEOUT_OVERRIDE.with(|c| c.set(self.prev));
+        }
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn parse_source_pathological_returns_none() {
+        let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
+        let source = nested_rust_source(80_000);
+        let start = Instant::now();
+        assert!(
+            parse_source(&source, Language::Rust).is_none(),
+            "deeply nested source must take the existing None path"
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "deadline must cancel instead of hanging"
+        );
+    }
+
+    #[test]
+    fn parse_source_still_parses_after_timeout() {
+        {
+            let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
+            let source = nested_rust_source(80_000);
+            assert!(parse_source(&source, Language::Rust).is_none());
+        }
+        let source = "fn main() { println!(\"hello\"); }";
+        let (tree, _) = parse_source(source, Language::Rust).expect("reset after timeout");
+        assert!(!tree.root_node().has_error());
+    }
+
+    #[test]
+    fn parse_source_reuses_parser_across_calls() {
+        let rust = "fn main() {}";
+        let python = "def hello():\n    pass\n";
+        let (a, _) = parse_source(rust, Language::Rust).expect("first rust");
+        let (b, _) = parse_source(python, Language::Python).expect("python");
+        PARSERS.with(|slot| {
+            let map = slot.borrow();
+            assert!(map.contains_key(&Language::Rust));
+            assert!(map.contains_key(&Language::Python));
+        });
+        let cached = PARSERS.with(|slot| slot.borrow().len());
+        let (c, _) = parse_source(rust, Language::Rust).expect("second rust");
+        let cached_again = PARSERS.with(|slot| slot.borrow().len());
+        assert_eq!(
+            cached_again, cached,
+            "second rust parse must reuse the cache"
+        );
+        assert!(!a.root_node().has_error());
+        assert!(!b.root_node().has_error());
+        assert!(!c.root_node().has_error());
     }
 
     #[test]
