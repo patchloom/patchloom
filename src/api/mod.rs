@@ -765,6 +765,21 @@ pub(crate) fn absolute_for_engine(path: &Path) -> std::io::Result<std::path::Pat
     }
 }
 
+/// Backup / engine root for a library write (#2385).
+///
+/// When a [`PathGuard`] is present, use [`PathGuard::root`] (the workspace the
+/// caller declared). `path.parent()` is only the file's directory, not the
+/// project root, and would scatter `.patchloom/` beside every edited file.
+///
+/// Without a guard, keep `path.parent()` as best-effort (do not require a
+/// guard to enable backups).
+pub(crate) fn library_project_root<'a>(path: &'a Path, guard: Option<&'a PathGuard>) -> &'a Path {
+    guard
+        .map(PathGuard::root)
+        .or_else(|| path.parent())
+        .unwrap_or_else(|| Path::new("."))
+}
+
 /// Generalized helper for Apply-mode mutations that need backup + guard.
 ///
 /// Used by write_if_apply and special file ops (create/delete/rename cross-file).
@@ -786,9 +801,8 @@ pub(crate) fn apply_mutation(
         return Ok((false, None));
     }
     ensure_contained(guard, path)?;
-    // Use the project root (parent of the file) as backup root.
-    // For library users, backup is best-effort.
-    let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+    // Guard root is the workspace; path.parent() is only a no-guard fallback.
+    let cwd = library_project_root(path, guard);
     let mut backup = BackupSession::new(cwd)?;
     prepare_backup(&mut backup)?;
     // Finalize before mutation so undo can recover mid-write failure.
@@ -859,7 +873,7 @@ fn apply_cross_file_mutation(
     if let Some(d) = dst {
         ensure_contained_entry(guard, d)?;
     }
-    let cwd = src.parent().unwrap_or_else(|| Path::new("."));
+    let cwd = library_project_root(src, guard);
     let mut backup = BackupSession::new(cwd)?;
     prepare_backup(&mut backup)?;
     let session = backup.finalize()?;

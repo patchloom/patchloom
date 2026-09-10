@@ -35,6 +35,41 @@ fn test_undo_restores_replaced_file() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "hello world\n");
 }
 
+/// #2385: `undo --list` from the workspace root must see a session created
+/// by a deep library edit under a PathGuard (not only CLI `--cwd` edits).
+#[test]
+fn test_undo_list_finds_library_guard_rooted_deep_edit() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("src").join("deep").join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("file.rs");
+    fs::write(&file, "old\n").unwrap();
+
+    let guard = patchloom::containment::PathGuard::new(
+        dir.path().to_path_buf(),
+        patchloom::containment::AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    patchloom::api::replace_text(
+        &file,
+        "old",
+        "new",
+        &patchloom::api::ReplaceOptions::default(),
+        patchloom::api::ApplyMode::Apply,
+        Some(&guard),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["undo", "--list", "--json", "--cwd"])
+        .arg(dir.path())
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"timestamp\""))
+        .stdout(predicates::str::contains("\"entries\""));
+}
+
 #[test]
 fn test_undo_list_shows_sessions() {
     let dir = TempDir::new().unwrap();

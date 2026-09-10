@@ -151,7 +151,7 @@ fn tidy_write(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let cwd = path.parent().unwrap_or_else(|| Path::new("."));
+    let cwd = super::library_project_root(path, guard);
     let display = path.to_string_lossy();
     super::execute_as_edit_result_with_path(
         op,

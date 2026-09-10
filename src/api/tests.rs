@@ -8168,6 +8168,127 @@ fn post_write_revert_uses_file_parent_backup_root() {
     );
 }
 
+/// #2385: a library edit under a PathGuard must create the backup session at
+/// `guard.root()`, not beside the edited file.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_deep_path_with_guard_backs_up_at_workspace() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("src").join("deep").join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("file.rs");
+    fs::write(&file, "old\n").unwrap();
+
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let result = replace_text(
+        &file,
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .unwrap();
+    assert!(result.applied);
+    assert!(result.backup_session.is_some());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "new\n");
+
+    let workspace_sessions = crate::backup::list_sessions(dir.path()).unwrap();
+    assert_eq!(
+        workspace_sessions.len(),
+        1,
+        "session must live at the guard root: {workspace_sessions:?}"
+    );
+    assert_eq!(
+        workspace_sessions[0].timestamp,
+        result.backup_session.as_deref().unwrap()
+    );
+    assert!(
+        !nested.join(".patchloom").exists(),
+        "must not scatter .patchloom next to the edited file"
+    );
+}
+
+/// #2385: without a guard, keep path.parent() as best-effort (do not require
+/// a guard to enable backups).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_without_guard_still_backs_up_beside_the_file() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("pkg");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("x.txt");
+    fs::write(&file, "old\n").unwrap();
+
+    let result = replace_text(
+        &file,
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(result.applied);
+    let beside = crate::backup::list_sessions(&nested).unwrap();
+    assert_eq!(
+        beside.len(),
+        1,
+        "no-guard session stays under the file parent: {beside:?}"
+    );
+    assert!(crate::backup::list_sessions(dir.path()).unwrap().is_empty());
+}
+
+/// #2385: Revert after a guarded deep edit must find the session at
+/// `guard.root()`, not only the file parent.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn post_write_revert_finds_guard_rooted_session() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("pkg");
+    fs::create_dir_all(&nested).unwrap();
+    let file = nested.join("x.txt");
+    fs::write(&file, "v1\n").unwrap();
+
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let fail_opts = ReplaceOptions {
+        post_write: Some(PostWriteHooks {
+            format_cmd: Some("false".into()),
+            on_failure: PostWriteOnFailure::Revert,
+            ..Default::default()
+        }),
+        post_write_cwd: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let err = replace_text(
+        &file,
+        "v1",
+        "v2",
+        &fail_opts,
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::FormatFailed),
+        "{err}"
+    );
+    assert!(
+        !err.to_string().contains("also failed to revert"),
+        "revert must find the guard-rooted session: {err}"
+    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), "v1\n");
+}
+
 /// #1694: fuzzy identifier typo keeps surrounding syntax (not whole-line replace).
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]

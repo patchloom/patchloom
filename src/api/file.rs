@@ -13,12 +13,6 @@ use crate::plan::Operation;
 
 use super::{ApplyMode, EditResult};
 
-/// Derive cwd from a file path (its parent directory).
-#[cfg(any(feature = "cli", feature = "files"))]
-fn cwd_from_path(path: &Path) -> &Path {
-    path.parent().unwrap_or_else(|| Path::new("."))
-}
-
 /// Absolutize for engine handoff; map IO errors to OperationFailed.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn abs_path(path: &Path) -> anyhow::Result<std::path::PathBuf> {
@@ -44,7 +38,7 @@ fn file_write(
     super::execute_as_edit_result_with_path(
         op,
         mode,
-        cwd_from_path(path),
+        super::library_project_root(path, guard),
         guard,
         action,
         None,
@@ -226,7 +220,7 @@ fn file_write_cross(
     super::execute_as_edit_result_with_path(
         op,
         mode,
-        cwd_from_path(src),
+        super::library_project_root(src, guard),
         guard,
         action,
         dest_path,

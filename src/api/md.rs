@@ -12,12 +12,6 @@ use crate::plan::Operation;
 
 use super::{ApplyMode, EditResult};
 
-/// Derive cwd from a file path (its parent directory).
-#[cfg(any(feature = "cli", feature = "files"))]
-fn cwd_from_path(path: &Path) -> &Path {
-    path.parent().unwrap_or_else(|| Path::new("."))
-}
-
 /// Unified write path for standard md operations.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn md_write(
@@ -38,7 +32,7 @@ fn md_write(
     super::execute_as_edit_result_with_path(
         op,
         mode,
-        cwd_from_path(&abs),
+        super::library_project_root(&abs, guard),
         guard,
         action,
         None,
@@ -264,7 +258,7 @@ pub fn md_move_section(
     // Cross-file: one backup session covering source + dest (all-or-nothing).
     // Same-file: single write path.
     let (applied, backup_session) = if let Some(dest_path) = to {
-        let backup_root = path.parent().unwrap_or_else(|| Path::new("."));
+        let backup_root = super::library_project_root(path, guard);
         let files: [(&Path, &str); 2] =
             [(dest_path, new_dest.as_str()), (path, new_source.as_str())];
         super::write_if_apply_many(&files, mode, &policy, guard, backup_root)?
