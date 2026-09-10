@@ -6,8 +6,6 @@ on:
     # ready_for_review re-runs CI when a draft is marked ready (drafts skip
     # expensive jobs below; synchronize alone does not re-fire undraft).
     types: [opened, synchronize, reopened, ready_for_review]
-  push:
-    branches: [main]
   merge_group: {}
   schedule:
     - cron: "0 6 * * 1"  # Monday 6am UTC
@@ -453,7 +451,7 @@ jobs:
           path: coverage.xml
 
       - name: Upload coverage
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: actions/upload-code-coverage@d8e329117199404bba6fc81efe8093dc7c015e34 # v1.4.2
         with:
           file: coverage.xml
@@ -510,7 +508,7 @@ jobs:
           echo "count=$count" >> "$GITHUB_OUTPUT"
 
       - name: Update coverage badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
         with:
@@ -522,7 +520,7 @@ jobs:
           color: ${{ steps.color.outputs.color }}
 
       - name: Update release badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
         with:
@@ -534,7 +532,7 @@ jobs:
           color: blue
 
       - name: Update crates.io version badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
         with:
@@ -546,7 +544,7 @@ jobs:
           color: orange
 
       - name: Update crates.io downloads badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: schneegans/dynamic-badges-action@28b0fa8bdeb46170ac397105ece0c1fe58f68910 # v1.9.0
         with:
