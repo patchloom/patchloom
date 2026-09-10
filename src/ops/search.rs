@@ -151,6 +151,18 @@ pub struct SearchFileParams {
     pub after_context: Option<usize>,
     pub context: Option<usize>,
     pub quiet: bool,
+    /// Cap detailed `matches` for this file. `count` stays exact.
+    /// `None` or `Some(0)` means no per-file cap.
+    pub max_results: Option<usize>,
+}
+
+/// Stop allocating detailed match objects once this file already has
+/// `max_results` of them. `count` still increments so merge/assert stay exact.
+fn skip_match_detail(params: &SearchFileParams, collected: usize) -> bool {
+    match params.max_results {
+        Some(cap) if cap > 0 => collected >= cap,
+        _ => false,
+    }
 }
 
 /// Path-only modes can stop after the first hit (membership is enough).
@@ -203,6 +215,9 @@ pub fn search_one_file(
         } else {
             for (start, end) in matcher.find_iter_positions(content) {
                 count += 1;
+                if skip_match_detail(params, file_matches.len()) {
+                    continue;
+                }
                 let (line, column) = crate::ops::file::text_line_column(content, start);
                 file_matches.push(SearchMatch {
                     path: path_str.clone(),
@@ -248,6 +263,9 @@ pub fn search_one_file(
                     continue;
                 }
                 count += 1;
+                if skip_match_detail(params, file_matches.len()) {
+                    continue;
+                }
                 let start = i.saturating_sub(ctx_before);
                 let end = (i + 1 + ctx_after).min(lines.len());
                 file_matches.push(SearchMatch {
@@ -272,6 +290,9 @@ pub fn search_one_file(
             // All non-overlapping occurrences on the line (parity with replace).
             for (start_b, _end_b) in matcher.find_iter_positions(line) {
                 count += 1;
+                if skip_match_detail(params, file_matches.len()) {
+                    continue;
+                }
                 let column = start_b + 1;
                 let ctx_start = i.saturating_sub(ctx_before);
                 let ctx_end = (i + 1 + ctx_after).min(lines.len());
@@ -532,6 +553,7 @@ mod tests {
             after_context: None,
             context: None,
             quiet: true,
+            max_results: None,
         };
         let result = search_one_file(&file, &matcher, &params, dir.path()).unwrap();
         assert_eq!(result.count, 2);
@@ -557,6 +579,7 @@ mod tests {
             after_context: None,
             context: None,
             quiet: true,
+            max_results: None,
         };
         let result = search_one_file(&file, &matcher, &params, dir.path())
             .expect("^end must match the first line after a UTF-8 BOM");
@@ -583,6 +606,7 @@ mod tests {
             after_context: None,
             context: None,
             quiet: true,
+            max_results: None,
         };
         let result = search_one_file(&file, &matcher, &params, dir.path())
             .expect("end$ must match a CR-only line the same way replace does");
@@ -609,6 +633,7 @@ mod tests {
             after_context: None,
             context: None,
             quiet: true,
+            max_results: None,
         };
         let result = search_one_file(&file, &matcher, &params, dir.path()).unwrap();
         assert_eq!(result.count, 3);
@@ -643,6 +668,7 @@ mod tests {
             after_context: None,
             context: None,
             quiet: true,
+            max_results: None,
         };
         let result = search_one_file(&file, &matcher, &params, dir.path()).unwrap();
         assert_eq!(result.count, 2);
@@ -650,5 +676,101 @@ mod tests {
             result.matches.is_empty(),
             "count_only should skip match objects"
         );
+    }
+
+    fn params_with_cap(max_results: Option<usize>) -> SearchFileParams {
+        SearchFileParams {
+            multiline: false,
+            invert_match: false,
+            count_only: false,
+            files_with_matches: false,
+            files_without_match: false,
+            assert_count: None,
+            before_context: None,
+            after_context: None,
+            context: None,
+            quiet: true,
+            max_results,
+        }
+    }
+
+    #[test]
+    fn search_one_file_max_results_caps_matches_not_count() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("hits.txt");
+        std::fs::write(&file, "hit\nhit\nhit\nhit\nhit\n").unwrap();
+        let matcher = build_matcher("hit", true, false, false).unwrap();
+        let result =
+            search_one_file(&file, &matcher, &params_with_cap(Some(2)), dir.path()).unwrap();
+        assert_eq!(result.count, 5);
+        assert_eq!(result.matches.len(), 2);
+        assert_eq!(result.matches[0].line, 1);
+        assert_eq!(result.matches[1].line, 2);
+    }
+
+    #[test]
+    fn per_file_max_results_does_not_change_multi_file_merge() {
+        // Global top-4 spans both files (a has 2, b has 5). Per-file cap of 4
+        // must keep the same sorted prefix as an uncapped scan.
+        let dir = tempfile::TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        std::fs::write(&a, "hit\nhit\n").unwrap();
+        std::fs::write(&b, "hit\nhit\nhit\nhit\nhit\n").unwrap();
+        let matcher = build_matcher("hit", true, false, false).unwrap();
+
+        let uncapped = merge_file_results(
+            vec![
+                search_one_file(&a, &matcher, &params_with_cap(None), dir.path()).unwrap(),
+                search_one_file(&b, &matcher, &params_with_cap(None), dir.path()).unwrap(),
+            ],
+            false,
+            4,
+        );
+        let capped = merge_file_results(
+            vec![
+                search_one_file(&a, &matcher, &params_with_cap(Some(4)), dir.path()).unwrap(),
+                search_one_file(&b, &matcher, &params_with_cap(Some(4)), dir.path()).unwrap(),
+            ],
+            false,
+            4,
+        );
+        let keys = |r: &SearchResults| {
+            r.matches
+                .iter()
+                .map(|m| (m.path.as_ref().to_string(), m.line, m.column))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(keys(&uncapped), keys(&capped));
+        assert_eq!(uncapped.matches.len(), 4);
+        assert_eq!(
+            *capped.file_match_counts.get("a.txt").unwrap()
+                + *capped.file_match_counts.get("b.txt").unwrap(),
+            7
+        );
+        assert_eq!(capped.matches[0].path.as_ref(), "a.txt");
+        assert_eq!(capped.matches[1].path.as_ref(), "a.txt");
+        assert_eq!(capped.matches[2].path.as_ref(), "b.txt");
+        assert_eq!(capped.matches[3].path.as_ref(), "b.txt");
+    }
+
+    #[test]
+    fn search_one_file_count_only_and_assert_count_ignore_match_cap() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("hits.txt");
+        std::fs::write(&file, "hit\nhit\nhit\n").unwrap();
+        let matcher = build_matcher("hit", true, false, false).unwrap();
+
+        let mut count_params = params_with_cap(Some(1));
+        count_params.count_only = true;
+        let counted = search_one_file(&file, &matcher, &count_params, dir.path()).unwrap();
+        assert_eq!(counted.count, 3);
+        assert!(counted.matches.is_empty());
+
+        let mut assert_params = params_with_cap(Some(1));
+        assert_params.assert_count = Some(3);
+        let detailed = search_one_file(&file, &matcher, &assert_params, dir.path()).unwrap();
+        assert_eq!(detailed.count, 3);
+        assert_eq!(detailed.matches.len(), 1);
     }
 }

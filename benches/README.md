@@ -46,6 +46,7 @@ statistical rigor.
 **Single-operation:**
 - Search (literal): `patchloom search` vs `grep -r`
 - Search (regex): `patchloom search --regex` vs `grep -rE`
+- Search (high-hit cap): `patchloom search 'the' benches/cli/corpus/large --max-results 20` vs the same query without `--max-results`. Per-file matching stops allocating detailed hits after the cap (#2381); `match_count` stays exact. Use this when measuring peak memory on a common-word query.
 - Doc set (JSON): `patchloom doc set` vs `jq + mv`
 - Doc set (YAML): `patchloom doc set` (comment-preserving) vs `yq eval`
 - Replace (multi-file): `patchloom replace` vs `find + sed`
