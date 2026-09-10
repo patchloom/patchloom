@@ -880,8 +880,16 @@ pub(crate) fn atomic_create_new(
 /// Atomically write `content` to `path` after applying `policy`.
 ///
 /// Default path (single hard link or new file): a temporary file is created in
-/// the same directory as `path`, written to, then renamed over `path`. The
-/// target is never left half-written for normal files.
+/// the same directory as `path`, written to, then renamed over `path`.
+///
+/// The guarantee is **atomicity, not durability**: because the replacement is a
+/// single `rename`, no reader — this process, another process, or a crashed
+/// run of this one — ever observes a partially written `path`. It is not a
+/// promise about power loss. The temp file is not fsynced before the rename, so
+/// after a machine-level crash a filesystem may expose the new directory entry
+/// with unwritten data blocks. That trade is deliberate: a per-write fsync would
+/// dominate the cost of bulk operations that rewrite thousands of files
+/// (#2389).
 ///
 /// When the resolved target is a regular file with **more than one hard link**
 /// (`nlink > 1` / Windows `nNumberOfLinks > 1`), rename would
