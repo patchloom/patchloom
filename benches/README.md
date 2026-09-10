@@ -49,6 +49,7 @@ statistical rigor.
 - Search (high-hit cap): `patchloom search 'the' benches/cli/corpus/large --max-results 20` vs the same query without `--max-results`. Per-file matching stops allocating detailed hits after the cap (#2381); `match_count` stays exact. Use this when measuring peak memory on a common-word query.
 - Text load (no extra copy): `classify_text_bytes_owned` moves the `Vec<u8>` from `fs::read` / `read_to_end` into `String::from_utf8` (#2382). A 10 MB text file keeps one buffer, not two. The borrowed `classify_text_bytes` still copies when the caller only has a slice.
 - AST parse cache: `parse_source` reuses a thread-local `Parser` per language and cancels via `ParseOptions` after 5s (#2384). Directory-wide `ast refs` / `ast map` skip `Parser::new` plus `set_language` on every file. Pathological source returns `None` instead of hanging.
+- File scan cursor: `par_process_files` claims the next path from a shared atomic index instead of a static file-count slice (#2390). A few large files no longer pin one chunk while other threads sit idle. Output order stays walk order. The calling thread still processes work.
 - Doc set (JSON): `patchloom doc set` vs `jq + mv`
 - Doc set (YAML): `patchloom doc set` (comment-preserving) vs `yq eval`
 - Replace (multi-file): `patchloom replace` vs `find + sed`
