@@ -429,10 +429,41 @@ fn with_leading_bom_peeled(content: &str, f: impl FnOnce(&str) -> String) -> Str
     }
 }
 
+/// Number of leading whitespace **characters** on `line`.
+///
+/// [`str::trim_start`] strips all Unicode whitespace, so the common idiom
+/// `line.len() - line.trim_start().len()` yields a *byte* count. Byte counts
+/// are not comparable between lines that indent with different characters, and
+/// slicing at one is not a char boundary. Indent widths are therefore measured
+/// in characters throughout (#2377).
+pub(crate) fn indent_char_count(line: &str) -> usize {
+    line.chars().take_while(|c| c.is_whitespace()).count()
+}
+
+/// Byte offset into `line` after skipping at most `n` leading whitespace
+/// characters.
+///
+/// The result is always a char boundary, so `&line[indent_strip_offset(l, n)..]`
+/// is safe for any input — including indents made of multi-byte whitespace such
+/// as U+00A0, U+3000, or U+202F. Skips fewer than `n` characters when the
+/// line's indent is shorter (#2377).
+pub(crate) fn indent_strip_offset(line: &str, n: usize) -> usize {
+    let mut offset = 0;
+    for (i, c) in line.char_indices().take(n) {
+        if !c.is_whitespace() {
+            break;
+        }
+        offset = i + c.len_utf8();
+    }
+    offset
+}
+
 /// Dedent content by removing leading whitespace.
 ///
 /// `spec` accepts:
-/// - A numeric string (e.g. `"4"`) — remove up to N leading spaces per line.
+/// - A numeric string (e.g. `"4"`) — remove up to N leading whitespace
+///   *characters* per line (#2377; for ASCII space/tab indents this is the
+///   same as N bytes).
 /// - `"tab"` — remove one leading tab per line.
 /// - `"auto"` — find the minimum non-zero indentation and remove that much.
 ///
@@ -467,7 +498,7 @@ pub fn dedent_content(
                     .enumerate()
                     .filter(|&(i, _)| in_range(i))
                     .filter(|&(_, line)| !line.trim().is_empty())
-                    .map(|(_, line)| line.len() - line.trim_start().len())
+                    .map(|(_, line)| indent_char_count(line))
                     .filter(|&n| n > 0)
                     .min()
                     .unwrap_or(0);
@@ -513,9 +544,7 @@ fn dedent_by_n(lines: &[&str], n: usize, in_range: &dyn Fn(usize) -> bool) -> St
             if !in_range(i) || line.trim().is_empty() {
                 line.to_string()
             } else {
-                let leading_spaces = line.len() - line.trim_start().len();
-                let strip = n.min(leading_spaces);
-                line[strip..].to_string()
+                line[indent_strip_offset(line, n)..].to_string()
             }
         })
         .collect();

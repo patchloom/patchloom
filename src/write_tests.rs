@@ -920,6 +920,107 @@ mod dedent_indent {
         let result = indent_content("hello\n", "4", None);
         assert_eq!(result, "    hello\n");
     }
+
+    // #2377: indent width is measured in whitespace *characters*, not bytes.
+    // `trim_start` strips all Unicode whitespace, so a byte-measured indent
+    // used as a slice index splits multi-byte whitespace and panics.
+
+    #[test]
+    fn indent_char_count_counts_characters_not_bytes() {
+        assert_eq!(indent_char_count("    x"), 4);
+        assert_eq!(indent_char_count("\u{a0}x"), 1, "U+00A0 is 2 bytes, 1 char");
+        assert_eq!(
+            indent_char_count("\u{3000}x"),
+            1,
+            "U+3000 is 3 bytes, 1 char"
+        );
+        assert_eq!(indent_char_count("\t \u{202f}x"), 3);
+        assert_eq!(indent_char_count("x  "), 0, "trailing space is not indent");
+        assert_eq!(indent_char_count(""), 0);
+    }
+
+    #[test]
+    fn indent_strip_offset_always_lands_on_char_boundary() {
+        for line in [
+            "\u{a0}foo",
+            "\u{3000}foo",
+            "  \u{3000}foo",
+            "\u{202f}\u{a0}foo",
+            "\tfoo",
+            "foo",
+            "",
+        ] {
+            for n in 0..8 {
+                let off = indent_strip_offset(line, n);
+                assert!(
+                    line.is_char_boundary(off),
+                    "offset {off} not a char boundary in {line:?} for n={n}"
+                );
+                // Must not panic.
+                let _ = &line[off..];
+            }
+        }
+    }
+
+    #[test]
+    fn indent_strip_offset_clamps_to_available_indent() {
+        assert_eq!(indent_strip_offset("  x", 8), 2, "clamps to the 2 it has");
+        assert_eq!(indent_strip_offset("x", 4), 0, "no indent to strip");
+        assert_eq!(indent_strip_offset("\u{3000}x", 1), 3, "one char, 3 bytes");
+    }
+
+    #[test]
+    fn dedent_numeric_nbsp_indent_does_not_panic() {
+        // Was: "byte index 1 is not a char boundary; it is inside '\u{a0}'".
+        assert_eq!(dedent_content("\u{a0}foo\n", "1", None), "foo\n");
+    }
+
+    #[test]
+    fn dedent_auto_mixed_ascii_and_wide_whitespace_does_not_panic() {
+        // min indent is 1 *character* (the U+3000 line), so each line loses one.
+        assert_eq!(dedent_content("  a\n\u{3000}b\n", "auto", None), " a\nb\n");
+    }
+
+    #[test]
+    fn dedent_numeric_strips_whole_wide_whitespace_chars() {
+        assert_eq!(
+            dedent_content("\u{3000}\u{3000}x\n", "1", None),
+            "\u{3000}x\n"
+        );
+        assert_eq!(dedent_content("\u{3000}\u{3000}x\n", "2", None), "x\n");
+        assert_eq!(
+            dedent_content("\u{3000}\u{3000}x\n", "9", None),
+            "x\n",
+            "over-large N clamps rather than panicking"
+        );
+    }
+
+    #[test]
+    fn dedent_stops_at_first_non_whitespace() {
+        assert_eq!(
+            dedent_content("  a b\n", "4", None),
+            "a b\n",
+            "interior space is not indent"
+        );
+    }
+
+    #[test]
+    fn dedent_ascii_behavior_is_unchanged_by_char_counting() {
+        // For ASCII space/tab indents, N characters == N bytes.
+        assert_eq!(dedent_content("        x\n", "4", None), "    x\n");
+        assert_eq!(dedent_content("\tx\n", "4", None), "x\n");
+        assert_eq!(dedent_content("  x\n", "4", None), "x\n");
+    }
+
+    #[test]
+    fn dedent_wide_whitespace_preserves_line_count_and_content() {
+        let input = "\u{a0}a\n\n\u{3000} b\n   c\n";
+        let out = dedent_content(input, "auto", None);
+        assert_eq!(out.lines().count(), input.lines().count());
+        for (got, want) in out.lines().zip(input.lines()) {
+            assert_eq!(got.trim(), want.trim(), "content changed: {got:?}");
+        }
+    }
 }
 
 #[cfg(unix)]
