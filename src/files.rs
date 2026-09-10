@@ -56,9 +56,24 @@ pub(crate) fn has_regex_metacharacters(s: &str) -> bool {
         || s.contains('$')
 }
 
+/// Bytes inspected for a NUL before treating a file as agent-editable text.
+const BINARY_PROBE_LEN: usize = 8192;
+
 pub fn is_binary(data: &[u8]) -> bool {
-    let check_len = data.len().min(8192);
+    let check_len = data.len().min(BINARY_PROBE_LEN);
     memchr::memchr(0, &data[..check_len]).is_some()
+}
+
+/// Append up to [`BINARY_PROBE_LEN`] bytes, or until EOF.
+///
+/// `Read::read` may return a short count before EOF.
+fn read_binary_probe_into<R: std::io::Read>(
+    reader: &mut R,
+    buf: &mut Vec<u8>,
+) -> std::io::Result<()> {
+    use std::io::Read;
+    reader.take(BINARY_PROBE_LEN as u64).read_to_end(buf)?;
+    Ok(())
 }
 
 /// Result of classifying on-disk (or in-memory) bytes as agent-editable text.
@@ -205,12 +220,11 @@ pub fn is_binary_file(path: &Path) -> bool {
         Ok(f) => f,
         Err(_) => return false,
     };
-    let mut buf = [0u8; 8192];
-    let n = match std::io::Read::read(&mut file, &mut buf) {
-        Ok(n) => n,
-        Err(_) => return false,
-    };
-    is_binary(&buf[..n])
+    let mut buf = Vec::with_capacity(BINARY_PROBE_LEN);
+    if read_binary_probe_into(&mut file, &mut buf).is_err() {
+        return false;
+    }
+    is_binary(&buf)
 }
 
 /// Length of a Windows extended/device prefix whose `?` is not a glob.
@@ -1051,22 +1065,17 @@ pub fn try_read_text_file(path: &Path) -> Result<String, SoftTextSkip> {
         return Ok(String::new());
     }
 
-    // For files larger than the binary-check window, read just the header
-    // first. This avoids allocating megabytes for large binary files that
-    // the walker did not filter out.
-    const BINARY_CHECK_LEN: usize = 8192;
-    if file_len > BINARY_CHECK_LEN {
-        let mut header = [0u8; BINARY_CHECK_LEN];
-        let n = match file.read(&mut header) {
-            Ok(n) => n,
-            Err(_) => return Err(SoftTextSkip::Unreadable),
-        };
-        if is_binary(&header[..n]) {
+    // Probe 8 KiB first so a large binary does not get a body-sized Vec.
+    // After a text probe, reserve the known length and keep one body Vec.
+    if file_len > BINARY_PROBE_LEN {
+        let mut bytes = Vec::with_capacity(BINARY_PROBE_LEN);
+        if read_binary_probe_into(&mut file, &mut bytes).is_err() {
+            return Err(SoftTextSkip::Unreadable);
+        }
+        if is_binary(&bytes) {
             return Err(SoftTextSkip::Binary);
         }
-        // Header is text; now read the remainder into a single allocation.
-        let mut bytes = Vec::with_capacity(file_len);
-        bytes.extend_from_slice(&header[..n]);
+        bytes.reserve(file_len.saturating_sub(bytes.len()));
         if file.read_to_end(&mut bytes).is_err() {
             return Err(SoftTextSkip::Unreadable);
         }
@@ -1493,6 +1502,61 @@ mod tests {
         std::fs::write(&p, b"hello world\n").unwrap();
         assert!(!is_binary_file(&p));
         assert!(!is_binary_file(&dir.path().join("nope.bin"))); // open fails -> false
+    }
+
+    /// Caps each `read` so a single syscall cannot fill the 8 KiB window.
+    struct ShortRead<R> {
+        inner: R,
+        max_chunk: usize,
+    }
+
+    impl<R: std::io::Read> std::io::Read for ShortRead<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = buf.len().min(self.max_chunk);
+            self.inner.read(&mut buf[..n])
+        }
+    }
+
+    #[test]
+    fn short_reads_still_classify_nul_in_probe_window_as_binary() {
+        let mut data = vec![b'a'; 10_000];
+        data[6000] = 0;
+        let mut reader = ShortRead {
+            inner: std::io::Cursor::new(data),
+            max_chunk: 100,
+        };
+        let mut buf = Vec::new();
+        read_binary_probe_into(&mut reader, &mut buf).unwrap();
+        assert_eq!(buf.len(), BINARY_PROBE_LEN);
+        assert!(is_binary(&buf));
+    }
+
+    #[test]
+    fn short_read_probe_stops_at_eof_before_window() {
+        let data = vec![b'a'; 200];
+        let mut reader = ShortRead {
+            inner: std::io::Cursor::new(data),
+            max_chunk: 50,
+        };
+        let mut buf = Vec::new();
+        read_binary_probe_into(&mut reader, &mut buf).unwrap();
+        assert_eq!(buf.len(), 200);
+        assert!(!is_binary(&buf));
+    }
+
+    #[test]
+    fn short_read_probe_leaves_remainder_on_same_vec() {
+        let mut data = vec![b'x'; 10_000];
+        data[6000] = b'y';
+        let mut reader = ShortRead {
+            inner: std::io::Cursor::new(data.clone()),
+            max_chunk: 100,
+        };
+        let mut buf = Vec::with_capacity(10_000);
+        read_binary_probe_into(&mut reader, &mut buf).unwrap();
+        assert_eq!(buf.len(), BINARY_PROBE_LEN);
+        std::io::Read::read_to_end(&mut reader, &mut buf).unwrap();
+        assert_eq!(buf, data);
     }
 
     /// Public binary probe must not open FIFOs (blocks forever).
