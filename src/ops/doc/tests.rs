@@ -387,6 +387,84 @@ mod basic {
     }
 
     #[test]
+    fn mutation_merge_blank_overlay_is_invalid_input() {
+        for overlay in [json!(""), json!("   "), json!([])] {
+            let mut root = json!({"a": 1});
+            let err = apply_doc_mutation(
+                &mut root,
+                DocMutation::Merge {
+                    selector: None,
+                    value: overlay.clone(),
+                },
+            )
+            .expect_err("blank merge overlay");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "overlay {overlay} got {err}"
+            );
+            assert_eq!(root, json!({"a": 1}), "must not wipe on {overlay}");
+        }
+        let mut root = json!({"a": 1});
+        let result = apply_doc_mutation(
+            &mut root,
+            DocMutation::Merge {
+                selector: None,
+                value: json!({}),
+            },
+        )
+        .unwrap();
+        assert!(matches!(result, MutationResult::Applied));
+        assert_eq!(root, json!({"a": 1}));
+    }
+
+    #[test]
+    fn mutation_blank_object_key_is_invalid_input() {
+        let mut root = json!({"a": 1});
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Set {
+                selector: "   ".into(),
+                value: json!(1),
+            },
+        )
+        .expect_err("blank set key");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(root, json!({"a": 1}));
+
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Ensure {
+                selector: "   ".into(),
+                value: json!(1),
+            },
+        )
+        .expect_err("blank ensure key");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Move {
+                from: "a".into(),
+                to: "   ".into(),
+            },
+        )
+        .expect_err("blank move dest");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(root, json!({"a": 1}));
+
+        let err = apply_doc_mutation(
+            &mut root,
+            DocMutation::Merge {
+                selector: None,
+                value: json!({"": 1}),
+            },
+        )
+        .expect_err("blank merge key");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert_eq!(root, json!({"a": 1}));
+    }
+
+    #[test]
     fn mutation_update_array_root_bare_key_is_type_error() {
         let mut root = json!([{"tags": ["a"]}, {"tags": ["b"]}]);
         let original = root.clone();

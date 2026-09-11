@@ -650,6 +650,7 @@ fn rewrite_rust_sig(
     let ret = edit
         .return_type
         .as_deref()
+        .map(str::trim)
         .unwrap_or_else(|| extract_return_type(fn_node, source).unwrap_or(""));
 
     let qualifiers = extract_fn_qualifiers(fn_node, source);
@@ -752,15 +753,16 @@ fn rewrite_sig_generic(
 
     // -- Return type --
     if let Some(new_ret) = &edit.return_type {
+        let ret_empty = new_ret.trim().is_empty();
         if let Some(range) = find_return_type_range(fn_node, lang, sig_end) {
-            if new_ret.is_empty() {
+            if ret_empty {
                 // Remove return type and preceding whitespace
                 let trimmed_start = source[..range.start].trim_end().len();
                 edits.push((trimmed_start..range.end, String::new()));
             } else {
                 edits.push((range, new_ret.clone()));
             }
-        } else if !new_ret.is_empty() {
+        } else if !ret_empty {
             // No existing return type; insert after parameters
             let insert_pos = if fn_node.kind() == "method_declaration" {
                 fn_node
@@ -1487,6 +1489,50 @@ mod tests {
         assert!(
             !out.contains("-> i32"),
             "empty return_type must remove the return: {out}"
+        );
+    }
+
+    #[test]
+    fn rewrite_whitespace_return_type_is_remove_return() {
+        let rust_src = "fn foo() -> i32 { 1 }\n";
+        let rust_edit = FunctionSigEdit {
+            return_type: Some("   ".into()),
+            ..Default::default()
+        };
+        let rust_out = rewrite_function_signature(rust_src, "foo", &rust_edit, Language::Rust)
+            .expect("rust whitespace return_type");
+        assert_eq!(
+            rust_out, "fn foo() { 1 }\n",
+            "whitespace return_type must remove return, not leave padded spaces"
+        );
+
+        let rust_bare =
+            rewrite_function_signature("fn foo() { 1 }\n", "foo", &rust_edit, Language::Rust)
+                .expect("rust whitespace return_type on bare fn");
+        assert_eq!(
+            rust_bare, "fn foo() { 1 }\n",
+            "whitespace return_type must not insert spaces before the brace"
+        );
+
+        let py_src = "def foo() -> int:\n    return 1\n";
+        let py_edit = FunctionSigEdit {
+            return_type: Some("   ".into()),
+            ..Default::default()
+        };
+        let py_out = rewrite_function_signature(py_src, "foo", &py_edit, Language::Python)
+            .expect("python whitespace return_type");
+        assert!(
+            py_out.contains("def foo():"),
+            "whitespace return_type must remove return: {py_out}"
+        );
+        assert!(!py_out.contains("->"), "got: {py_out}");
+
+        let py_add_src = "def foo():\n    return 1\n";
+        let py_add = rewrite_function_signature(py_add_src, "foo", &py_edit, Language::Python)
+            .expect("python whitespace return_type on bare def");
+        assert_eq!(
+            py_add, py_add_src,
+            "whitespace return_type must not insert spaces before ':'"
         );
     }
 
