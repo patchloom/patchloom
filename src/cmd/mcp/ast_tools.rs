@@ -1334,6 +1334,38 @@ impl Point {
     }
 
     #[test]
+    fn ast_validate_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstValidateParams {
+            path: "deep.rs".into(),
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_validate(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path validate timeout must not become a valid:false row"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, not a walk-soft valid:false row only: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        let walk_soft = (text.contains("\"valid\": false") || text.contains("\"valid\":false"))
+            && !text.contains("parse_timeout");
+        assert!(
+            !walk_soft,
+            "must not be a walk-soft valid:false row only: {text}"
+        );
+    }
+
+    #[test]
     fn ast_rename_replaces_symbol() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("rename.rs"), RUST_SAMPLE).unwrap();

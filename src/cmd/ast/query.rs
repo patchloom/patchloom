@@ -310,9 +310,7 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
                 result,
             }],
             Err(e) if crate::exit::is_parse_timeout(&e) => {
-                let msg = crate::exit::agent_error_message(&e);
-                global.emit_error_json_kind(Some("parse_timeout"), &msg)?;
-                return Ok(exit::PARSE_ERROR);
+                return Err(e);
             }
             Err(e) => return Err(e),
         }
@@ -467,9 +465,7 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         };
         if let Err(e) = crate::ast::search::search_file(sample, &query_str, Some(lang), Some(1)) {
             if crate::exit::is_parse_timeout(&e) {
-                let msg = crate::exit::agent_error_message(&e);
-                global.emit_error_json_kind(Some("parse_timeout"), &msg)?;
-                return Ok(exit::PARSE_ERROR);
+                return Err(e);
             }
             if crate::exit::is_parse_error(&e) {
                 let msg = crate::exit::agent_error_message(&e);
@@ -995,11 +991,9 @@ mod tests {
 
     fn assert_search_timeout(result: anyhow::Result<u8>) {
         match result {
-            Ok(code) => assert_eq!(
-                code,
-                exit::PARSE_ERROR,
-                "sole-file timeout must not become no_matches ({code})"
-            ),
+            Ok(code) => {
+                panic!("sole-file timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, got {e}"
@@ -1059,10 +1053,8 @@ mod tests {
             &global,
         );
         match result {
-            Ok(code) => assert_eq!(
-                code,
-                exit::PARSE_ERROR,
-                "sole-path validate timeout must be parse_timeout ({code})"
+            Ok(code) => panic!(
+                "sole-path validate timeout must return Err(ParseTimeoutError), got Ok({code})"
             ),
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
