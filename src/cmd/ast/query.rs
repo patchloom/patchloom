@@ -306,7 +306,7 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
             if !lang.has_grammar() {
                 return None;
             }
-            let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
+            let result = crate::ast::validate::validate_file_for_walk(path, Some(lang))?;
             let display = display_path(path, &cwd);
             Some(ValidateFileResult { display, result })
         });

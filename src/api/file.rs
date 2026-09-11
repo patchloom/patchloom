@@ -16,13 +16,7 @@ use super::{ApplyMode, EditResult};
 /// Absolutize for engine handoff; map IO errors to OperationFailed.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn abs_path(path: &Path, guard: Option<&PathGuard>) -> anyhow::Result<std::path::PathBuf> {
-    super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-        .into()
-    })
+    super::library_abs_path(path, guard)
 }
 
 /// Unified write path for standard file operations.
@@ -55,16 +49,15 @@ fn file_write(
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
     // Fallback for no-cli/files builds: delegate to the ops layer directly.
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy();
+    let abs = match &op {
+        Operation::FileDelete { .. } => super::library_abs_path_entry(path, guard)?,
+        _ => super::library_abs_path(path, guard)?,
+    };
     let path = abs.as_path();
     match op {
         Operation::FileCreate { content, force, .. } => {
-            let path_str = path.to_string_lossy();
+            let path_str = display.as_ref();
             use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
             // Match engine: entry presence (dangling is present) + real dirs refuse.
             match classify_path_entry(path) {
@@ -114,7 +107,7 @@ fn file_write(
             }
         }
         Operation::FileDelete { if_exists, .. } => {
-            let path_str = path.to_string_lossy();
+            let path_str = display.clone();
             // path_entry_exists includes dangling symlinks (#2087).
             if !crate::ops::file::path_entry_exists(path) {
                 if if_exists {
@@ -135,7 +128,7 @@ fn file_write(
             }
             // Regular files, symlinks (unlink only), FIFO/socket/device ok;
             // real directories refuse (#2087).
-            crate::ops::file::ensure_unlinkable_not_directory(path, path_str.as_ref())?;
+            crate::ops::file::ensure_unlinkable_not_directory(path, display.as_ref())?;
             // Delete may remove non-UTF-8 / special nodes; soft snapshot only
             // for regular text files.
             let original = if crate::ops::file::is_regular_file_for_backup(path) {
@@ -178,7 +171,7 @@ fn file_write(
         Operation::FileAppend { ref content, .. } | Operation::FilePrepend { ref content, .. } => {
             let is_append = matches!(op, Operation::FileAppend { .. });
             let content = content.clone();
-            let path_str = path.to_string_lossy();
+            let path_str = display.clone();
             // Match CLI/tx: entry presence (dangling symlink is present) and
             // require a regular file for content inject (#2087 dual-path).
             use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
@@ -247,18 +240,8 @@ fn file_write_cross(
 ) -> anyhow::Result<EditResult> {
     // Fallback: rename directly.
     if let Operation::FileRename { to, force, .. } = _op {
-        let src_abs = super::library_abs_path(src, guard).map_err(|e| {
-            crate::fallback::EditError::new(
-                crate::fallback::EditErrorKind::OperationFailed,
-                format!("failed to resolve path {}: {e}", src.display()),
-            )
-        })?;
-        let dst_abs = super::library_abs_path(Path::new(&to), guard).map_err(|e| {
-            crate::fallback::EditError::new(
-                crate::fallback::EditErrorKind::OperationFailed,
-                format!("failed to resolve path {to}: {e}"),
-            )
-        })?;
+        let src_abs = super::library_abs_path_entry(src, guard)?;
+        let dst_abs = super::library_abs_path_entry(Path::new(&to), guard)?;
         let src = src_abs.as_path();
         let dst = dst_abs.as_path();
         crate::ops::file::refuse_non_regular_destination(dst, &to)?;
@@ -325,11 +308,13 @@ pub fn file_create(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path, guard)?;
+    let abs = abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path = path_owned.as_path();
+    let op_path = super::library_op_path(path, &abs, guard);
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileCreate {
-        path: path.to_string_lossy().into(),
+        path: op_path,
         content: content.into(),
         force: Some(force),
     };
@@ -356,11 +341,13 @@ pub fn file_delete(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path, guard)?;
+    let abs = super::library_abs_path_entry(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path = path_owned.as_path();
+    let op_path = super::library_op_path(path, &abs, guard);
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileDelete {
-        path: path.to_string_lossy().into(),
+        path: op_path,
         if_exists: false,
     };
     file_write(op, path, mode, guard, "delete")
@@ -387,19 +374,19 @@ pub fn file_rename(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let src_owned = abs_path(src, guard)?;
+    let src_abs = super::library_abs_path_entry(src, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let dst_owned = abs_path(dst, guard)?;
+    let dst_abs = super::library_abs_path_entry(dst, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let src = src_owned.as_path();
+    let from = super::library_op_path(src, &src_abs, guard);
     #[cfg(any(feature = "cli", feature = "files"))]
-    let dst = dst_owned.as_path();
-    let op = Operation::FileRename {
-        from: src.to_string_lossy().into(),
-        to: dst.to_string_lossy().into(),
-        force,
-    };
-    let dest_str = Some(dst.to_string_lossy().to_string());
+    let to = super::library_op_path(dst, &dst_abs, guard);
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let from = src.to_string_lossy().into_owned();
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let to = dst.to_string_lossy().into_owned();
+    let dest_str = Some(dst.to_string_lossy().into_owned());
+    let op = Operation::FileRename { from, to, force };
     file_write_cross(op, src, mode, guard, "rename", dest_str)
 }
 
@@ -414,11 +401,13 @@ pub fn file_append(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path, guard)?;
+    let abs = abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path = path_owned.as_path();
+    let op_path = super::library_op_path(path, &abs, guard);
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileAppend {
-        path: path.to_string_lossy().into(),
+        path: op_path,
         content: content.into(),
     };
     file_write(op, path, mode, guard, "append")
@@ -434,11 +423,13 @@ pub fn file_prepend(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = abs_path(path, guard)?;
+    let abs = abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path = path_owned.as_path();
+    let op_path = super::library_op_path(path, &abs, guard);
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FilePrepend {
-        path: path.to_string_lossy().into(),
+        path: op_path,
         content: content.into(),
     };
     file_write(op, path, mode, guard, "prepend")

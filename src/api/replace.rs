@@ -38,12 +38,8 @@ pub fn replace_text(
         }));
     }
 
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let caller_path = path;
+    let abs = super::library_abs_path(path, guard)?;
     let path = abs.as_path();
 
     let range_str = opts.range.map(|(start, end)| {
@@ -63,7 +59,7 @@ pub fn replace_text(
         || opts.before_context.is_some()
         || opts.after_context.is_some()
     {
-        let display = path.to_string_lossy();
+        let display = caller_path.to_string_lossy();
         // Strict sole-path load (#1894); InvalidInputError peels via edit_error_kind.
         let original = crate::files::load_text_strict(path, &display)?;
         let content_result = replace_in_content(&original, from, to, opts)?;
@@ -75,7 +71,7 @@ pub fn replace_text(
         } else {
             (false, None)
         };
-        let path_str = path.to_string_lossy();
+        let path_str = caller_path.to_string_lossy();
         let mut result = super::build_edit_result(
             &path_str,
             content_result.original,
@@ -102,7 +98,7 @@ pub fn replace_text(
 
     let op = Operation::Replace {
         glob: None,
-        path: Some(path.to_string_lossy().into()),
+        path: Some(super::library_op_path(caller_path, path, guard)),
         regex: opts.regex,
         old: from.into(),
         new_text: Some(to.into()),
@@ -125,7 +121,7 @@ pub fn replace_text(
         min_fuzzy_score: opts.min_fuzzy_score,
         allow_absent_old: opts.allow_absent_old,
     };
-    let mut result = replace_write(op, path, mode, guard, opts.fuzzy)?;
+    let mut result = replace_write(op, caller_path, mode, guard, opts.fuzzy)?;
     // if_exists intentionally softens zero-match (Ok unchanged). require_change
     // must not override that: both true means if_exists wins (#1492 docs).
     if opts.require_change && !opts.if_exists && !result.changed && result.match_count == 0 {
@@ -215,7 +211,10 @@ fn replace_write(
         ..
     } = op
     {
-        let path_str = path.to_string_lossy();
+        let display = path.to_string_lossy();
+        let abs = super::library_abs_path(path, guard)?;
+        let path = abs.as_path();
+        let path_str = display;
         let original = crate::files::load_text_strict(path, &path_str)?;
 
         let is_regex = regex_mode;

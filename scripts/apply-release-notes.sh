@@ -65,8 +65,12 @@ elif [ -n "${GH_TOKEN:-}" ]; then
   echo "PLAN: fetch RELEASE_NOTES.md from ${branch}"
   if gh api "repos/${REPO}/contents/RELEASE_NOTES.md?ref=${branch}" \
     -H "Accept: application/vnd.github.raw" >"${tmp}"; then
-    loaded_from_branch=1
-    source_label="branch:${branch}"
+    if [ -s "${tmp}" ]; then
+      loaded_from_branch=1
+      source_label="branch:${branch}"
+    else
+      echo "PLAN: empty notes on ${branch}"
+    fi
   else
     : >"${tmp}"
     echo "PLAN: no notes branch ${branch}"

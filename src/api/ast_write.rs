@@ -13,8 +13,8 @@ use crate::plan::Operation;
 use crate::write::WritePolicy;
 
 use super::{
-    ApplyMode, ContentEditResult, EditResult, PostWriteHooks, ensure_contained, make_diff,
-    maybe_post_write, write_if_apply,
+    ApplyMode, ContentEditResult, EditResult, PostWriteHooks, make_diff, maybe_post_write,
+    write_if_apply,
 };
 
 /// Rewrite a function signature on disk (PathGuard + ApplyMode like other writers).
@@ -44,14 +44,9 @@ pub fn ast_rewrite_signature(
         )
         .into());
     }
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        EditError::new(
-            EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let abs = super::library_abs_path(path, guard)?;
     let op = Operation::AstRewriteSignature {
-        path: abs.to_string_lossy().into(),
+        path: super::library_op_path(path, &abs, guard),
         old: name.into(),
         new_signature: new_signature.map(str::to_string),
         visibility: edit.visibility.clone(),
@@ -142,16 +137,10 @@ pub fn ast_rename(
         )
         .into());
     }
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        EditError::new(
-            EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy().into_owned();
+    let abs = super::library_abs_path(path, guard)?;
     let path = abs.as_path();
-    ensure_contained(guard, path)?;
-    let path_str = path.to_string_lossy().into_owned();
-    let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
+    let original = crate::files::load_text_strict(path, &display).map_err(|e| {
         // Preserve Binary / InvalidEncoding / InvalidInput (#1963) and
         // NotFound so hosts can peel is_not_found (parity with content_edits).
         if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
@@ -163,21 +152,21 @@ pub fn ast_rename(
     let Some(renamed) = rename::rename_in_source(&original, old, new, lang) else {
         return Err(EditError::new(
             EditErrorKind::ParseError,
-            format!("failed to parse {} as {:?}", path_str, lang),
+            format!("failed to parse {} as {:?}", display, lang),
         )
         .into());
     };
     if renamed.replacements == 0 {
         return Err(EditError::new(
             EditErrorKind::NoMatch,
-            format!("no identifier matches for `{old}` in {path_str}"),
+            format!("no identifier matches for `{old}` in {display}"),
         )
         .into());
     }
     let policy = WritePolicy::default();
     let (applied, backup_session) = write_if_apply(path, &renamed.content, mode, &policy, guard)?;
     let mut result = super::build_edit_result(
-        &path_str,
+        &display,
         original,
         renamed.content,
         applied,
@@ -213,16 +202,10 @@ pub fn ast_replace_in_symbol(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        EditError::new(
-            EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy().into_owned();
+    let abs = super::library_abs_path(path, guard)?;
     let path = abs.as_path();
-    ensure_contained(guard, path)?;
-    let path_str = path.to_string_lossy().into_owned();
-    let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
+    let original = crate::files::load_text_strict(path, &display).map_err(|e| {
         // Preserve Binary / InvalidEncoding / InvalidInput (#1963) and NotFound.
         if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
             return e;
@@ -236,7 +219,7 @@ pub fn ast_replace_in_symbol(
             Ok(None) => {
                 return Err(EditError::new(
                     EditErrorKind::NoMatch,
-                    format!("symbol `{symbol}` not found in {path_str}"),
+                    format!("symbol `{symbol}` not found in {display}"),
                 )
                 .into());
             }
@@ -247,14 +230,14 @@ pub fn ast_replace_in_symbol(
     if replaced.replacements == 0 {
         return Err(EditError::new(
             EditErrorKind::NoMatch,
-            format!("no matches for `{old}` in symbol `{symbol}` in {path_str}"),
+            format!("no matches for `{old}` in symbol `{symbol}` in {display}"),
         )
         .into());
     }
     let policy = WritePolicy::default();
     let (applied, backup_session) = write_if_apply(path, &replaced.content, mode, &policy, guard)?;
     let mut result = super::build_edit_result(
-        &path_str,
+        &display,
         original,
         replaced.content,
         applied,

@@ -340,7 +340,7 @@ pub(super) fn handle_ast_validate(
         if !lang.has_grammar() {
             return None;
         }
-        let result = crate::ast::validate::validate_file(path, Some(lang)).ok()?;
+        let result = crate::ast::validate::validate_file_for_walk(path, Some(lang))?;
         let display = crate::cmd::ast::display_path(path, &cwd);
         Some(serde_json::json!({
             "file": display,

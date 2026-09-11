@@ -27,20 +27,15 @@ fn load_doc_value(path: &Path) -> anyhow::Result<serde_json::Value> {
 /// falls back to direct mutation when the tx module is not compiled in.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn doc_write(
-    mut op: Operation,
+    op: Operation,
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
-    rewrite_op_path(&mut op, abs.to_string_lossy().as_ref());
-    // Keep caller path spelling on EditResult (not basename from parent cwd).
+    let abs = super::library_abs_path(path, guard)?;
+    let mut op = op;
+    rewrite_op_path(&mut op, &super::library_op_path(path, &abs, guard));
     let display = path.to_string_lossy();
     super::execute_as_edit_result_with_path(
         op,
@@ -53,9 +48,9 @@ fn doc_write(
     )
 }
 
-/// Put absolutized path into doc/md plan ops so engine join is correct.
+/// Put the engine dest on doc ops: caller spelling under a guard, abs otherwise.
 #[cfg(any(feature = "cli", feature = "files"))]
-fn rewrite_op_path(op: &mut Operation, abs: &str) {
+fn rewrite_op_path(op: &mut Operation, dest: &str) {
     match op {
         Operation::DocSet { path, .. }
         | Operation::DocDelete { path, .. }
@@ -66,7 +61,7 @@ fn rewrite_op_path(op: &mut Operation, abs: &str) {
         | Operation::DocMove { path, .. }
         | Operation::DocEnsure { path, .. }
         | Operation::DocDeleteWhere { path, .. } => {
-            *path = abs.into();
+            *path = dest.into();
         }
         _ => {}
     }
@@ -87,14 +82,10 @@ fn doc_write(
     let (_, mutation) = crate::plan::op_to_doc_mutation(&op)
         .ok_or_else(|| anyhow::anyhow!("doc_write called with non-doc operation"))?;
 
-    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy().into_owned();
+    let path_owned = super::library_abs_path(path, guard)?;
     let path = path_owned.as_path();
-    let path_str = path.to_string_lossy().into_owned();
+    let path_str = display;
     let format = ops::doc::detect_format(&path_str)?;
     let if_exists_set = matches!(
         op,

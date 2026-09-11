@@ -163,6 +163,11 @@ pub enum EditErrorKind {
     /// Appended after [`Self::InvalidEncoding`] so 0.20/0.21 discriminants stay
     /// stable.
     FuzzySpanSuspicious,
+    /// Tree-sitter parse hit the per-file deadline (`error_kind: "parse_timeout"`).
+    /// Distinct from [`Self::ParseError`] so hosts can retry or skip without
+    /// treating a timeout as a missing grammar (#2406). Append-only after
+    /// [`Self::FuzzySpanSuspicious`].
+    ParseTimeout,
 }
 
 impl std::fmt::Display for EditErrorKind {
@@ -185,6 +190,7 @@ impl std::fmt::Display for EditErrorKind {
             EditErrorKind::Binary => write!(f, "binary"),
             EditErrorKind::InvalidEncoding => write!(f, "invalid_encoding"),
             EditErrorKind::FuzzySpanSuspicious => write!(f, "fuzzy_span_suspicious"),
+            EditErrorKind::ParseTimeout => write!(f, "parse_timeout"),
         }
     }
 }
@@ -296,6 +302,9 @@ pub fn classify_error(err: &(dyn std::error::Error + 'static)) -> Option<EditErr
         }
         if e.downcast_ref::<crate::exit::ParseErrorError>().is_some() {
             return Some(EditErrorKind::ParseError);
+        }
+        if e.downcast_ref::<crate::exit::ParseTimeoutError>().is_some() {
+            return Some(EditErrorKind::ParseTimeout);
         }
         if e.downcast_ref::<crate::exit::FormatFailedError>().is_some() {
             return Some(EditErrorKind::FormatFailed);
@@ -1209,6 +1218,7 @@ mod tests {
             "conflicting_edit"
         );
         assert_eq!(EditErrorKind::ParseError.to_string(), "parse_error");
+        assert_eq!(EditErrorKind::ParseTimeout.to_string(), "parse_timeout");
         assert_eq!(EditErrorKind::TypeError.to_string(), "type_error");
         assert_eq!(EditErrorKind::InvalidInput.to_string(), "invalid_input");
         assert_eq!(EditErrorKind::AlreadyExists.to_string(), "already_exists");
@@ -1250,6 +1260,7 @@ mod tests {
         assert_eq!(EditErrorKind::InvalidEncoding as u8, 15);
         // #2005 append after InvalidEncoding (never insert above).
         assert_eq!(EditErrorKind::FuzzySpanSuspicious as u8, 16);
+        assert_eq!(EditErrorKind::ParseTimeout as u8, 17);
     }
 
     #[test]
@@ -1341,6 +1352,13 @@ mod tests {
         }
         .into();
         assert_eq!(edit_error_kind(&parse), Some(EditErrorKind::ParseError));
+
+        let timeout: anyhow::Error = crate::exit::ParseTimeoutError {
+            msg: "deadline".into(),
+        }
+        .into();
+        assert_eq!(edit_error_kind(&timeout), Some(EditErrorKind::ParseTimeout));
+        assert_eq!(error_kind_str(&timeout), Some("parse_timeout"));
 
         let exists: anyhow::Error = crate::exit::AlreadyExistsError {
             msg: "file already exists".into(),

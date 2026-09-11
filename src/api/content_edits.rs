@@ -267,19 +267,10 @@ pub fn apply_content_edits_to_file_with_span_policy(
     guard: Option<&PathGuard>,
     fuzzy_span_policy: Option<&super::FuzzySpanPolicy>,
 ) -> anyhow::Result<EditResult> {
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        EditError::new(
-            EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy().into_owned();
+    let abs = super::library_abs_path(path, guard)?;
     let path = abs.as_path();
-    if let Some(g) = guard {
-        g.check_path(&path.to_string_lossy())
-            .map_err(EditError::guard_rejected)?;
-    }
-    let path_str = path.to_string_lossy().into_owned();
-    let original = crate::files::load_text_strict(path, &path_str).map_err(|e| {
+    let original = crate::files::load_text_strict(path, &display).map_err(|e| {
         // Preserve content SoftSkip peels (#1963) and NotFound for hosts that
         // branch on is_not_found (create/retry). Do not collapse either to
         // OperationFailed.
@@ -289,7 +280,7 @@ pub fn apply_content_edits_to_file_with_span_policy(
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
     })?;
     // Prefer real path labels in multi-op preview (#1665 / #1500).
-    let batch = apply_content_edits_with_label(&original, edits, Some(path_str.as_str()))?;
+    let batch = apply_content_edits_with_label(&original, edits, Some(display.as_str()))?;
     if let Some(policy) = fuzzy_span_policy {
         refuse_batch_if_suspicious_fuzzy(&batch, policy)?;
     }
@@ -297,7 +288,7 @@ pub fn apply_content_edits_to_file_with_span_policy(
     let (applied, backup_session) = write_if_apply(path, &batch.modified, mode, &policy, guard)?;
     // build_edit_result uses path for headers (#1500) and stays field-complete.
     let mut result = build_edit_result(
-        &path_str,
+        &display,
         batch.original,
         batch.modified,
         applied,

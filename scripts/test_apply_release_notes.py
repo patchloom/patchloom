@@ -280,6 +280,69 @@ class ApplyReleaseNotesTests(unittest.TestCase):
             logged = log.read_text(encoding="utf-8") if log.exists() else ""
             self.assertIn("release edit", logged)
 
+    def test_empty_branch_fetch_uses_variable_without_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            fake_bin = Path(td) / "bin"
+            fake_bin.mkdir()
+            gh = fake_bin / "gh"
+            gh.write_text(
+                "#!/bin/bash\n"
+                "if [ \"$1\" = api ] && [ \"$2\" != -X ]; then\n"
+                "  exit 0\n"
+                "fi\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+            env_path = f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"
+            r = run_script(
+                {
+                    "TAG": "v0.1.2",
+                    "GH_REPO": "canact/canact",
+                    "DRY_RUN": "1",
+                    "GH_TOKEN": "test",
+                    "RELEASE_NOTES": "from var after empty fetch",
+                    "RELEASE_NOTES_TAG": "v0.1.2",
+                    "PATH": env_path,
+                }
+            )
+            self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+            self.assertIn("empty notes", r.stdout)
+            self.assertIn("would apply variable", r.stdout)
+            self.assertNotIn("would delete branch", r.stdout)
+
+    def test_empty_branch_fetch_uses_legacy_without_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            (td_path / "RELEASE_NOTES.md").write_text("legacy notes\n", encoding="utf-8")
+            fake_bin = td_path / "bin"
+            fake_bin.mkdir()
+            gh = fake_bin / "gh"
+            gh.write_text(
+                "#!/bin/bash\n"
+                "if [ \"$1\" = api ] && [ \"$2\" != -X ]; then\n"
+                "  exit 0\n"
+                "fi\n"
+                "exit 1\n",
+                encoding="utf-8",
+            )
+            gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+            env_path = f"{fake_bin}{os.pathsep}{os.environ.get('PATH', '')}"
+            r = run_script(
+                {
+                    "TAG": "v0.1.2",
+                    "GH_REPO": "canact/canact",
+                    "DRY_RUN": "1",
+                    "GH_TOKEN": "test",
+                    "PATH": env_path,
+                },
+                cwd=td_path,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+            self.assertIn("empty notes", r.stdout)
+            self.assertIn("legacy RELEASE_NOTES.md", r.stdout)
+            self.assertNotIn("would delete branch", r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
