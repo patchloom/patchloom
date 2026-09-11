@@ -812,12 +812,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
             // any segment exactly equals the target file stem.
             let matching: Vec<_> = imports
                 .into_iter()
-                .filter(|i| {
-                    i.path
-                        .split(['/', '.'])
-                        .flat_map(|seg| seg.split("::"))
-                        .any(|seg| seg == target_name)
-                })
+                .filter(|i| crate::ast::deps::import_path_refers_to_stem(&i.path, &target_name))
                 .collect();
             if matching.is_empty() {
                 return None;

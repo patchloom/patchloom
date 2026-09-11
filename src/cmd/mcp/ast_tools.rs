@@ -872,12 +872,7 @@ pub(super) fn handle_ast_deps(
             .and_then(|s| s.to_str())
             .unwrap_or_default()
             .to_string();
-        let scan_dir = if target.is_file() {
-            target.parent().unwrap_or(&cwd).to_path_buf()
-        } else {
-            target.clone()
-        };
-        let all_files = crate::cmd::ast::collect_source_files(&scan_dir, &global)
+        let all_files = crate::cmd::ast::collect_source_files(&cwd, &global)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         // Reverse walk scans `all_files`; empty-mask must use that set, not `paths`.
 
@@ -901,18 +896,7 @@ pub(super) fn handle_ast_deps(
                 };
                 let matching: Vec<_> = imports
                     .iter()
-                    .filter(|i| {
-                        // Match as a complete path segment to avoid false positives
-                        // (e.g., "lib" should not match "stdlib" or "calibration").
-                        let p = &i.path;
-                        let t = target_name.as_str();
-                        p == t
-                            || p.ends_with(&format!("/{t}"))
-                            || p.ends_with(&format!("::{t}"))
-                            || p.ends_with(&format!("/{t}."))
-                            || p.contains(&format!("/{t}/"))
-                            || p.contains(&format!("::{t}::"))
-                    })
+                    .filter(|i| crate::ast::deps::import_path_refers_to_stem(&i.path, &target_name))
                     .collect();
                 if matching.is_empty() {
                     return None;
@@ -1917,6 +1901,63 @@ impl Point {
         {
             let _ = locked;
         }
+    }
+
+    #[test]
+    fn ast_deps_reverse_finds_importer_outside_target_parent() {
+        let dir = TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::write(dir.path().join("src/foo.rs"), "pub fn foo() {}\n").unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "use crate::foo;\n").unwrap();
+        std::fs::write(dir.path().join("tests/import.rs"), "use crate::foo;\n").unwrap();
+        let svc = make_service(&dir);
+        let params = AstDepsParams {
+            path: "src/foo.rs".into(),
+            reverse: true,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_deps(&svc, params).expect("reverse deps is a tool result");
+        let text = extract_text(&result);
+        // Parse JSON so Windows `tests\import.rs` is one dest, not JSON `\\`.
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("expected JSON rows, got {e}: {text}"));
+        let files: Vec<String> = rows
+            .iter()
+            .filter_map(|r| r.get("file").and_then(|v| v.as_str()))
+            .map(|s| s.replace('\\', "/"))
+            .collect();
+        assert!(
+            files.iter().any(|f| f == "tests/import.rs"),
+            "reverse deps must scan cwd and include importers outside dest parent, got: {text}"
+        );
+        assert!(
+            files.iter().any(|f| f == "src/lib.rs"),
+            "reverse deps must still report the in-parent importer, got: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_deps_reverse_matches_dotted_import_stem() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("foo.py"), "def foo():\n    pass\n").unwrap();
+        std::fs::write(dir.path().join("importer.py"), "from pkg.foo import x\n").unwrap();
+        let svc = make_service(&dir);
+        let params = AstDepsParams {
+            path: "foo.py".into(),
+            reverse: true,
+            lang: Some("py".into()),
+        };
+        let result = handle_ast_deps(&svc, params).expect("reverse deps is a tool result");
+        let text = extract_text(&result);
+        assert!(
+            text.contains("importer.py"),
+            "dotted import pkg.foo must match stem foo, got: {text}"
+        );
+        assert!(
+            text.contains("pkg.foo"),
+            "result must include the dotted import path, got: {text}"
+        );
     }
 
     #[test]
