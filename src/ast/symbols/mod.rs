@@ -85,7 +85,10 @@ pub struct SymbolDef {
 ///
 /// Distinguishes a parse deadline from a missing grammar so sole-file
 /// callers can fail closed instead of reporting an empty symbol list.
-pub fn try_extract_symbols(source: &str, lang: Language) -> Result<Vec<SymbolDef>, ParseFailure> {
+pub(crate) fn try_extract_symbols(
+    source: &str,
+    lang: Language,
+) -> Result<Vec<SymbolDef>, ParseFailure> {
     let (tree, _) = try_parse_source(source, lang)?;
 
     let mut symbols = Vec::new();

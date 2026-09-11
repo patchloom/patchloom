@@ -53,7 +53,7 @@ pub struct RenameResult {
 /// Distinguishes a parse deadline from a missing grammar: timeout is
 /// [`crate::exit::ParseTimeoutError`]; unknown languages return `Ok(None)`
 /// so callers may still word-boundary-fallback.
-pub fn try_rename_in_source(
+pub(crate) fn try_rename_in_source(
     source: &str,
     old_name: &str,
     new_name: &str,
