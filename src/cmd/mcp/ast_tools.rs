@@ -443,23 +443,93 @@ pub(super) fn handle_ast_search(
             })?,
         )
     } else {
-        if let Some(sample) = paths.iter().find(|path| {
-            lang_hint
-                .unwrap_or_else(|| crate::ast::Language::from_path(path))
-                .has_grammar()
-        }) {
-            let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sample));
-            if let Err(e) = crate::ast::search::search_file(sample, &p.query, Some(lang), Some(1))
-                && crate::exit::is_parse_error(&e)
-            {
+        None
+    };
+
+    let search_query_for = |path: &std::path::Path| -> String {
+        if p.pattern {
+            let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
+            crate::ast::search::compile_pattern_query(&p.query, lang)
+                .unwrap_or_else(|_| precompiled_query.clone().unwrap_or_default())
+        } else {
+            p.query.clone()
+        }
+    };
+
+    let search_timeout_result = |e: &anyhow::Error| -> Result<CallToolResult, McpError> {
+        let msg = crate::exit::agent_error_message(e);
+        let body = serde_json::json!({
+            "ok": false,
+            "error_kind": "parse_timeout",
+            "error": msg,
+        });
+        exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg)
+    };
+
+    // Sole explicit path: surface parse_timeout instead of walk-soft no matches.
+    if paths.len() == 1 {
+        let path = &paths[0];
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
+        let query_str = search_query_for(path);
+        match crate::ast::search::search_file(path, &query_str, Some(lang), p.max_results) {
+            Ok(results) => {
+                if results.is_empty() {
+                    if let Some(err) =
+                        crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd)
+                    {
+                        return Err(McpError::invalid_params(err.msg, None));
+                    }
+                    return no_results("No matches found.");
+                }
+                let display = crate::cmd::ast::display_path(path, &cwd);
+                let all_matches: Vec<serde_json::Value> = results
+                    .iter()
+                    .map(|m| {
+                        serde_json::json!({
+                            "file": display,
+                            "line": m.line,
+                            "column": m.column,
+                            "text": m.text,
+                            "captures": m.captures,
+                        })
+                    })
+                    .collect();
+                let json = serde_json::to_string_pretty(&all_matches)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+                return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
+            }
+            Err(e) if crate::exit::is_parse_timeout(&e) => {
+                return search_timeout_result(&e);
+            }
+            Err(e) if crate::exit::is_parse_error(&e) => {
+                return Err(McpError::invalid_params(
+                    crate::exit::agent_error_message(&e),
+                    None,
+                ));
+            }
+            Err(e) => return Err(McpError::invalid_params(e.to_string(), None)),
+        }
+    }
+
+    if let Some(sample) = paths.iter().find(|path| {
+        lang_hint
+            .unwrap_or_else(|| crate::ast::Language::from_path(path))
+            .has_grammar()
+    }) {
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sample));
+        let query_str = search_query_for(sample);
+        if let Err(e) = crate::ast::search::search_file(sample, &query_str, Some(lang), Some(1)) {
+            if crate::exit::is_parse_timeout(&e) {
+                return search_timeout_result(&e);
+            }
+            if crate::exit::is_parse_error(&e) {
                 return Err(McpError::invalid_params(
                     crate::exit::agent_error_message(&e),
                     None,
                 ));
             }
         }
-        None
-    };
+    }
 
     let par_results: Vec<SearchFileResult> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
@@ -1217,6 +1287,44 @@ impl Point {
         let result = handle_ast_search(&svc, params).unwrap();
         let text = extract_text(&result);
         assert!(text.contains("greet"));
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn ast_search_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstSearchParams {
+            path: "deep.rs".into(),
+            query: "(function_item) @fn".into(),
+            pattern: false,
+            lang: Some("rs".into()),
+            max_results: None,
+        };
+        let result = handle_ast_search(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path search timeout must not become no matches"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            !text.contains("No matches found"),
+            "search_file timeout must not be .ok()?-swallowed: {text}"
+        );
     }
 
     #[test]

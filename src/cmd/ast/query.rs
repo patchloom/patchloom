@@ -450,15 +450,20 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         .find(|p| resolve_lang(lang_hint, p).has_grammar())
     {
         let lang = resolve_lang(lang_hint, sample);
-        if args.pattern {
-            if let Err(e) = crate::ast::search::compile_pattern_query(&args.query, lang) {
-                let msg = crate::exit::agent_error_message(&e);
-                global.emit_error_json_kind(Some("parse_error"), &msg)?;
-                return Ok(exit::PARSE_ERROR);
+        let query_str = if args.pattern {
+            match crate::ast::search::compile_pattern_query(&args.query, lang) {
+                Ok(q) => q,
+                Err(e) => {
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("parse_error");
+                    let msg = crate::exit::agent_error_message(&e);
+                    global.emit_error_json_kind(Some(kind), &msg)?;
+                    return Ok(exit::PARSE_ERROR);
+                }
             }
-        } else if let Err(e) =
-            crate::ast::search::search_file(sample, &args.query, Some(lang), Some(1))
-        {
+        } else {
+            args.query.clone()
+        };
+        if let Err(e) = crate::ast::search::search_file(sample, &query_str, Some(lang), Some(1)) {
             if crate::exit::is_parse_timeout(&e) {
                 let msg = crate::exit::agent_error_message(&e);
                 global.emit_error_json_kind(Some("parse_timeout"), &msg)?;
@@ -986,6 +991,20 @@ mod tests {
         source
     }
 
+    fn assert_search_timeout(result: anyhow::Result<u8>) {
+        match result {
+            Ok(code) => assert_eq!(
+                code,
+                exit::PARSE_ERROR,
+                "sole-file timeout must not become no_matches ({code})"
+            ),
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, got {e}"
+            ),
+        }
+    }
+
     #[test]
     fn run_search_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
@@ -1002,17 +1021,26 @@ mod tests {
             },
             &global,
         );
-        match result {
-            Ok(code) => assert_eq!(
-                code,
-                exit::PARSE_ERROR,
-                "sole-file timeout must not become no_matches ({code})"
-            ),
-            Err(e) => assert!(
-                crate::exit::is_parse_timeout(&e),
-                "expected parse_timeout, got {e}"
-            ),
-        }
+        assert_search_timeout(result);
+    }
+
+    #[test]
+    fn run_search_sole_file_pattern_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_search(
+            SearchArgs {
+                query: "fn $NAME() {}".into(),
+                path: "deep.rs".into(),
+                pattern: true,
+                lang: Some("rs".into()),
+                max_results: None,
+            },
+            &global,
+        );
+        assert_search_timeout(result);
     }
 
     #[test]
