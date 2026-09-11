@@ -28,14 +28,44 @@ pub struct ImpactNode {
 
 /// Compute the transitive impact of changing a symbol.
 ///
-/// A parse deadline is treated as no references. Prefer [`try_compute_impact`]
-/// when timeout must fail closed instead of looking like `no_matches`.
+/// A parse deadline is treated as no references. Prefer
+/// [`compute_impact_or_timeout`] when timeout must not look like
+/// "no dependents".
 pub fn compute_impact(
     symbol_name: &str,
     files: &[(impl AsRef<Path>, String)],
     max_depth: usize,
 ) -> Vec<ImpactNode> {
     try_compute_impact(symbol_name, files, max_depth).unwrap_or_default()
+}
+
+/// Compute impact, mapping a parse deadline to [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar, binary, and invalid UTF-8 stay an empty list (same
+/// as [`compute_impact`]). Library hosts that must distinguish a 5s
+/// parse deadline from "no dependents" should call this instead (#2445).
+///
+/// ```
+/// use patchloom::ast::impact::compute_impact_or_timeout;
+/// use std::path::Path;
+///
+/// let files: [(&Path, String); 0] = [];
+/// let nodes = compute_impact_or_timeout("foo", &files, 2).unwrap();
+/// assert!(nodes.is_empty());
+/// ```
+pub fn compute_impact_or_timeout(
+    symbol_name: &str,
+    files: &[(impl AsRef<Path>, String)],
+    max_depth: usize,
+) -> anyhow::Result<Vec<ImpactNode>> {
+    match try_compute_impact(symbol_name, files, max_depth) {
+        Ok(nodes) => Ok(nodes),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded while computing impact of {symbol_name}"),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
 }
 
 /// Like [`compute_impact`], but a parse deadline is [`ParseFailure::DeadlineExceeded`].
@@ -270,5 +300,74 @@ mod tests {
         let files: Vec<&str> = results.iter().map(|n| n.file.as_str()).collect();
         assert!(files.contains(&"handler.rs"));
         assert!(files.contains(&"worker.rs"));
+    }
+
+    // Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2445).
+    #[test]
+    fn compute_impact_or_timeout_deadline_is_parse_timeout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+        let files = [(path.as_path(), "deep.rs".to_string())];
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = compute_impact_or_timeout("foo", &files, 2).unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn compute_impact_deadline_stays_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+        let files = [(path.as_path(), "deep.rs".to_string())];
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let nodes = compute_impact("foo", &files, 2);
+        assert!(
+            nodes.is_empty(),
+            "empty-vec compute_impact must stay empty on deadline"
+        );
+    }
+
+    #[test]
+    fn compute_impact_or_timeout_unknown_lang_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("notes.txt");
+        std::fs::write(&path, "hello").unwrap();
+        let files = [(path.as_path(), "notes.txt".to_string())];
+        let nodes = compute_impact_or_timeout("foo", &files, 2).unwrap();
+        assert!(
+            nodes.is_empty(),
+            "missing grammar must stay empty, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn compute_impact_or_timeout_binary_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bin.rs");
+        std::fs::write(&path, b"fn main() {}\0").unwrap();
+        let files = [(path.as_path(), "bin.rs".to_string())];
+        let nodes = compute_impact_or_timeout("foo", &files, 2).unwrap();
+        assert!(
+            nodes.is_empty(),
+            "binary must stay empty, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn compute_impact_or_timeout_invalid_utf8_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bad.rs");
+        std::fs::write(&path, [0xff, 0xfe, b'f', b'n']).unwrap();
+        let files = [(path.as_path(), "bad.rs".to_string())];
+        let nodes = compute_impact_or_timeout("foo", &files, 2).unwrap();
+        assert!(
+            nodes.is_empty(),
+            "invalid UTF-8 must stay empty, not parse_timeout"
+        );
     }
 }

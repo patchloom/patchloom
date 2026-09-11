@@ -231,7 +231,7 @@
 //! | Sole-path load failed as binary/encoding/invalid_input | [`api::is_load_text_strict_fail`] (#1963) |
 //! | Ordered host onboarding (primary + fallback + peels + multi-op) | [Embedder host checklist](docs/getting-started/embedder-host.md) (#2009) |
 //! | 0.32 `ast` pin / `tree-sitter` 0.27 `links` | Bump host `tree-sitter-highlight` (and any other `links = "tree-sitter"` crate) to 0.27 in the same lock update. See [embedder-host.md](docs/getting-started/embedder-host.md) (#2297). |
-//! | AST list/read/refs/map parse deadline | `extract_symbols_or_timeout` / `extract_symbols_from_file_or_timeout` / `find_refs_in_source_or_timeout` / `find_refs_in_file_or_timeout` / `generate_map_or_timeout` (`ast` feature). Empty-vec `extract_symbols` / `find_refs_in_source` / `generate_map` still return `[]` on a 5s deadline. Missing grammar, binary, and invalid UTF-8 stay empty. Peel `error_kind_str` `parse_timeout` (#2444). |
+//! | AST list/read/refs/map/impact/deps/diff/rewrite parse deadline | `extract_symbols_or_timeout` / `extract_symbols_from_file_or_timeout` / `find_refs_in_source_or_timeout` / `find_refs_in_file_or_timeout` / `generate_map_or_timeout` / `compute_impact_or_timeout` / `extract_imports_or_timeout` / `extract_imports_from_file_or_timeout` / `structural_diff_or_timeout` / `find_function_span_or_timeout` / `replace_function_signature_or_timeout` / `rewrite_function_signature_or_timeout` (`ast` feature). Empty-vec and Option APIs still look empty on a 5s deadline. Missing grammar, binary, and invalid UTF-8 stay empty (rewrite: `None`). Peel `error_kind_str` `parse_timeout` (#2444 / #2445 / #2446 / #2449). |
 //!
 //! `EditErrorKind` is `#[non_exhaustive]`: always include a wildcard arm when matching.
 //!

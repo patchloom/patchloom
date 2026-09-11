@@ -834,11 +834,18 @@ fn test_smoke_embedder_host_names_ast_query_or_timeout() {
         "find_refs_in_source_or_timeout",
         "find_refs_in_file_or_timeout",
         "generate_map_or_timeout",
+        "compute_impact_or_timeout",
+        "extract_imports_or_timeout",
+        "extract_imports_from_file_or_timeout",
+        "structural_diff_or_timeout",
+        "find_function_span_or_timeout",
+        "replace_function_signature_or_timeout",
+        "rewrite_function_signature_or_timeout",
         "parse_timeout",
     ] {
         assert!(
             embedder.contains(needle),
-            "embedder-host.md must name the fail-closed AST query entry {needle} (#2444)"
+            "embedder-host.md must name the fail-closed AST query entry {needle} (#2444/#2445/#2446/#2449)"
         );
     }
 }

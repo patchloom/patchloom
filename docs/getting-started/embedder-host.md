@@ -110,14 +110,23 @@ Do not expose only `doc_set` if agents need list updates by name. See
     `replacen(..., 1)` or raw `fs::write`, and do not flip
     `ReplaceOptions.unique` on generic `replace_text` (#2220 / #2221).
 14. **AST query parse deadline:** `extract_symbols` / `extract_symbols_from_file`
-    / `find_refs_in_source` / `find_refs_in_file` / `generate_map` return an
-    empty list when the 5s parse deadline fires. That looks like "no symbols"
-    / "no references". Call the `*_or_timeout` twins instead:
+    / `find_refs_in_source` / `find_refs_in_file` / `generate_map` /
+    `compute_impact` / `extract_imports` / `extract_imports_from_file` /
+    `structural_diff` return an empty list when the 5s parse deadline fires.
+    `find_function_span` / `replace_function_signature` /
+    `rewrite_function_signature` return `None`. That looks like "no symbols"
+    / "no dependents" / "no structural changes" / "function not found".
+    Call the `*_or_timeout` twins instead:
     `extract_symbols_or_timeout`, `extract_symbols_from_file_or_timeout`,
     `find_refs_in_source_or_timeout`, `find_refs_in_file_or_timeout`,
-    `generate_map_or_timeout`. A deadline is `error_kind_str` `parse_timeout`.
-    Missing grammar, binary, and invalid UTF-8 stay an empty list (#2444).
-    `search_query` and `validate_file` already return that kind.
+    `generate_map_or_timeout`, `compute_impact_or_timeout`,
+    `extract_imports_or_timeout`, `extract_imports_from_file_or_timeout`,
+    `structural_diff_or_timeout`, `find_function_span_or_timeout`,
+    `replace_function_signature_or_timeout`,
+    `rewrite_function_signature_or_timeout`. A deadline is
+    `error_kind_str` `parse_timeout`. Missing grammar, binary, and
+    invalid UTF-8 stay empty (rewrite: `None`) (#2444 / #2445 / #2446 /
+    #2449). `search_query` and `validate_file` already return that kind.
 
 ## Minimal sketch
 

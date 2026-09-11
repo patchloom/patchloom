@@ -46,14 +46,42 @@ impl std::fmt::Display for ChangeKind {
 /// Compare two versions of source code and return structural changes.
 ///
 /// Returns an empty list if either side has no grammar or the parse
-/// deadline fires. Prefer [`try_structural_diff`] when timeout must
-/// fail closed instead of looking like "no structural changes".
+/// deadline fires. Prefer [`structural_diff_or_timeout`] when timeout
+/// must not look like "no structural changes".
 pub fn structural_diff(
     old_source: &str,
     new_source: &str,
     lang: Language,
 ) -> Vec<StructuralChange> {
     try_structural_diff(old_source, new_source, lang).unwrap_or_default()
+}
+
+/// Compare two versions, mapping a parse deadline to [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar is an empty list (same as [`structural_diff`]). Library
+/// hosts that must distinguish a 5s parse deadline from "no structural
+/// changes" should call this instead (#2446).
+///
+/// ```
+/// use patchloom::ast::diff::structural_diff_or_timeout;
+/// use patchloom::ast::Language;
+///
+/// let changes = structural_diff_or_timeout("fn a() {}", "fn a() {}", Language::Rust).unwrap();
+/// assert!(changes.is_empty());
+/// ```
+pub fn structural_diff_or_timeout(
+    old_source: &str,
+    new_source: &str,
+    lang: Language,
+) -> anyhow::Result<Vec<StructuralChange>> {
+    match try_structural_diff(old_source, new_source, lang) {
+        Ok(changes) => Ok(changes),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {lang}"),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
 }
 
 /// Like [`structural_diff`], but a parse deadline on either side is
@@ -333,6 +361,39 @@ mod tests {
                 .iter()
                 .any(|c| c.name == "run" && c.change == ChangeKind::Added),
             "third run should be detected as added: {changes:?}"
+        );
+    }
+
+    // Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2446).
+    #[test]
+    fn structural_diff_or_timeout_deadline_is_parse_timeout() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = structural_diff_or_timeout(&source, &source, Language::Rust).unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn structural_diff_deadline_stays_empty() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let changes = structural_diff(&source, &source, Language::Rust);
+        assert!(
+            changes.is_empty(),
+            "empty-vec structural_diff must stay empty on deadline"
+        );
+    }
+
+    #[test]
+    fn structural_diff_or_timeout_unknown_lang_is_empty() {
+        let changes = structural_diff_or_timeout("old", "new", Language::Unknown).unwrap();
+        assert!(
+            changes.is_empty(),
+            "missing grammar must stay empty, not parse_timeout"
         );
     }
 }
