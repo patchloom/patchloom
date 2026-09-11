@@ -338,7 +338,10 @@ pub enum MatchMode {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct EditResult {
-    /// Path to the affected file (as provided by the caller).
+    /// Path to the affected file, in the caller's spelling.
+    ///
+    /// Relative dests stay relative; the engine may join a workspace root
+    /// for I/O. Diff headers use this same string (#2407).
     pub path: String,
     /// The original file content before the edit.
     pub original_content: String,
@@ -767,46 +770,100 @@ pub(crate) fn absolute_for_engine(path: &Path) -> std::io::Result<std::path::Pat
 
 /// Backup / engine root for a library write (#2385).
 ///
-/// When a [`PathGuard`] is present, use [`PathGuard::root`] (the workspace the
-/// caller declared). `path.parent()` is only the file's directory, not the
-/// project root, and would scatter `.patchloom/` beside every edited file.
+/// When a [`PathGuard`] is present, use [`PathGuard::canon_root`] so a
+/// relative workspace root is not joined twice (#2404). `path.parent()` is
+/// only the file's directory, not the project root, and would scatter
+/// `.patchloom/` beside every edited file.
 ///
 /// Without a guard, keep `path.parent()` as best-effort (do not require a
 /// guard to enable backups).
 pub(crate) fn library_project_root<'a>(path: &'a Path, guard: Option<&'a PathGuard>) -> &'a Path {
     guard
-        .map(PathGuard::root)
+        .map(PathGuard::canon_root)
         .or_else(|| path.parent())
         .unwrap_or_else(|| Path::new("."))
 }
 
 /// Absolutize a library dest so backup `strip_prefix` matches the session root.
 ///
-/// Relative dests join onto `guard.root()` when a guard is present. Using
-/// `current_dir()` can yield a different spelling (macOS `/var` vs
-/// `/private/var`) and store the file as `__external__/...`.
+/// Checks the **caller spelling** first (#2405). Relative dests then join
+/// onto `guard.canon_root()` (#2404). Using `current_dir()` can yield a
+/// different spelling (macOS `/var` vs `/private/var`) and store the file
+/// as `__external__/...`. After this returns, do not run `ensure_contained`
+/// again on the joined path under `AbsolutePathPolicy::Reject`.
 pub(crate) fn library_abs_path(
     path: &Path,
     guard: Option<&PathGuard>,
-) -> std::io::Result<std::path::PathBuf> {
+) -> anyhow::Result<std::path::PathBuf> {
+    if let Some(g) = guard {
+        ensure_contained(Some(g), path)?;
+        if path.is_absolute() {
+            return Ok(path.to_path_buf());
+        }
+        return Ok(g.canon_root().join(path));
+    }
     if path.is_absolute() {
         return Ok(path.to_path_buf());
     }
+    absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+        .into()
+    })
+}
+
+/// Path string to put on an engine `Operation`.
+///
+/// With a guard, keep a relative caller spelling so `Reject` does not see
+/// an internally joined absolute dest (#2405). Without a guard, use `abs`
+/// so `cwd.join(dest)` does not double a nested relative dest (#2385).
+/// Like [`library_abs_path`], but uses entry containment (no-follow last
+/// component) so a workspace symlink whose target is outside can still be
+/// deleted or renamed (#2115, #2405).
+pub(crate) fn library_abs_path_entry(
+    path: &Path,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<std::path::PathBuf> {
     if let Some(g) = guard {
-        return Ok(g.root().join(path));
+        ensure_contained_entry(Some(g), path)?;
+        if path.is_absolute() {
+            return Ok(path.to_path_buf());
+        }
+        return Ok(g.canon_root().join(path));
     }
-    absolute_for_engine(path)
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    absolute_for_engine(path).map_err(|e| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::OperationFailed,
+            format!("failed to resolve path {}: {e}", path.display()),
+        )
+        .into()
+    })
+}
+
+pub(crate) fn library_op_path(path: &Path, abs: &Path, guard: Option<&PathGuard>) -> String {
+    if guard.is_some() && !path.is_absolute() {
+        path.to_string_lossy().into_owned()
+    } else {
+        abs.to_string_lossy().into_owned()
+    }
 }
 
 /// Generalized helper for Apply-mode mutations that need backup + guard.
 ///
-/// Used by write_if_apply and special file ops (create/delete/rename cross-file).
-/// Returns `(applied, backup_session)`.
+/// Used by the no-cli/files patch fallback and unit tests. Library writers
+/// that already ran [`library_abs_path`] should call [`apply_mutation_at`]
+/// with `contain_guard: None` so Reject does not see the joined path (#2405).
 ///
 /// Order matches tx `commit_changes` and [`crate::backup::backup_write_files`]:
 /// save → finalize (manifest) → mutate. On mutation failure, restore from the
 /// finalized session so hosts never see "Err but disk already changed with no
 /// undo handle."
+#[cfg(any(test, not(any(feature = "cli", feature = "files"))))]
 pub(crate) fn apply_mutation(
     path: &Path,
     mode: ApplyMode,
@@ -935,21 +992,22 @@ pub(crate) fn write_if_apply(
     policy: &WritePolicy,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<(bool, Option<String>)> {
-    // Absolutize so a relative dest against an absolute guard root is stored
-    // as a workspace-relative entry, not `__external__/...` (#2385).
-    let abs = library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
-    let path = abs.as_path();
-    apply_mutation(
-        path,
+    // Relative dests are checked then joined. An already-absolute dest is
+    // the result of `library_abs_path` (already checked). Do not run
+    // `ensure_contained` on the joined string under Reject (#2405).
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        library_abs_path(path, guard)?
+    };
+    let write_path = abs.as_path();
+    apply_mutation_at(
+        write_path,
         mode,
-        guard,
-        |backup| backup.save_before_write(path),
-        || atomic_write(path, new_content, policy),
+        None,
+        library_project_root(&abs, guard),
+        |backup| backup.save_before_write(write_path),
+        || atomic_write(write_path, new_content, policy),
     )
 }
 
@@ -975,16 +1033,14 @@ pub(crate) fn write_if_apply_many(
     let owned: Vec<(std::path::PathBuf, &str)> = files
         .iter()
         .map(|(path, content)| {
-            library_abs_path(path, guard)
-                .map(|abs| (abs, *content))
-                .map_err(|e| {
-                    crate::fallback::EditError::new(
-                        crate::fallback::EditErrorKind::OperationFailed,
-                        format!("failed to resolve path {}: {e}", path.display()),
-                    )
-                })
+            let abs = if path.is_absolute() {
+                (*path).to_path_buf()
+            } else {
+                library_abs_path(path, guard)?
+            };
+            Ok((abs, *content))
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let files: Vec<(&Path, &str)> = owned
         .iter()
         .map(|(path, content)| (path.as_path(), *content))
@@ -997,7 +1053,6 @@ pub(crate) fn write_if_apply_many(
         return Ok((false, None));
     }
     for (path, _) in files {
-        ensure_contained(guard, path)?;
         if crate::ops::file::is_real_directory(path) {
             return Err(crate::exit::InvalidInputError {
                 msg: format!("target is a directory: {}", path.display()),
@@ -1043,7 +1098,7 @@ pub(crate) fn maybe_post_write(
         return Ok(());
     };
     let root = hooks_cwd.unwrap_or_else(|| path.parent().unwrap_or_else(|| Path::new(".")));
-    let extra = guard.map(PathGuard::root);
+    let extra = guard.map(PathGuard::canon_root);
     let restore_path = library_abs_path(path, guard).unwrap_or_else(|_| path.to_path_buf());
     self::post_write::run_post_write_validation_with_session_and_root(
         root,

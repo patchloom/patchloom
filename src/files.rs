@@ -115,22 +115,31 @@ pub enum TextBytesKind {
 /// rule for the text I/O honesty layer (#1894). Callers that already own
 /// a `Vec<u8>` should use this so `String::from_utf8` can take the
 /// buffer instead of copying it (#2382).
-pub fn classify_text_bytes_owned(bytes: Vec<u8>) -> TextBytesKind {
-    if is_binary(&bytes) {
-        return TextBytesKind::Binary;
-    }
+fn classify_utf8_owned(bytes: Vec<u8>) -> TextBytesKind {
     match String::from_utf8(bytes) {
         Ok(s) => TextBytesKind::Text(s),
         Err(_) => TextBytesKind::InvalidUtf8,
     }
 }
 
+pub fn classify_text_bytes_owned(bytes: Vec<u8>) -> TextBytesKind {
+    if is_binary(&bytes) {
+        return TextBytesKind::Binary;
+    }
+    classify_utf8_owned(bytes)
+}
+
 /// Classify a borrowed slice as text, binary, or invalid UTF-8.
 ///
-/// Same rule as [`classify_text_bytes_owned`]. Copies the slice when the
-/// caller does not already own a `Vec<u8>`.
+/// Same rule as [`classify_text_bytes_owned`]. Probes the borrowed slice
+/// first so a binary buffer is not copied (#2408). Copies only when the
+/// NUL probe says the bytes are not binary. Each entry point runs
+/// [`is_binary`] once.
 pub fn classify_text_bytes(bytes: &[u8]) -> TextBytesKind {
-    classify_text_bytes_owned(bytes.to_vec())
+    if is_binary(bytes) {
+        return TextBytesKind::Binary;
+    }
+    classify_utf8_owned(bytes.to_vec())
 }
 
 /// Load a path as UTF-8 text under the **Strict** sole-path policy (#1894).
@@ -1468,10 +1477,9 @@ where
         apply_at(paths, reserved, glob_matcher, glob_roots, &f, &mut mine);
         claim_work(paths, glob_matcher, glob_roots, &f, &next, &mut mine);
 
-        let mut slots: Vec<Option<T>> = (0..paths.len()).map(|_| None).collect();
-        for (i, v) in mine {
-            slots[i] = Some(v);
-        }
+        // Merge by original index. Indices are unique (`fetch_add`).
+        // Sort the hit list, not a `paths.len()` slot vec (#2409).
+        let mut merged = mine;
         // This `expect` is not a recovery path: release builds set
         // `panic = "abort"` (`Cargo.toml`), so a panicking worker aborts the
         // process and never returns a `join` error here. It documents the
@@ -1479,11 +1487,10 @@ where
         // by `cargo test`. See #184 for why the signature is not `Result`, and
         // #2379 for the decision to keep `abort`.
         for handle in handles {
-            for (i, v) in handle.join().expect("worker thread panicked") {
-                slots[i] = Some(v);
-            }
+            merged.extend(handle.join().expect("worker thread panicked"));
         }
-        slots.into_iter().flatten().collect()
+        merged.sort_unstable_by_key(|(i, _)| *i);
+        merged.into_iter().map(|(_, v)| v).collect()
     })
 }
 
@@ -2305,6 +2312,23 @@ mod tests {
             if n % 3 == 0 { None } else { Some(n) }
         });
         let expected: Vec<usize> = (0..48).filter(|n| n % 3 != 0).collect();
+        assert_eq!(results, expected);
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn par_process_preserves_walk_order_skip_heavy() {
+        let paths: Vec<PathBuf> = (0..4000)
+            .map(|i| PathBuf::from(format!("{i}.txt")))
+            .collect();
+        let results = par_process_files(&paths, None, &[], |p| {
+            let n = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.parse::<usize>().ok())?;
+            if n % 17 == 0 { None } else { Some(n) }
+        });
+        let expected: Vec<usize> = (0..4000).filter(|n| n % 17 != 0).collect();
         assert_eq!(results, expected);
     }
 

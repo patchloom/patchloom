@@ -15,19 +15,15 @@ use super::{ApplyMode, EditResult};
 /// Unified write path for standard md operations.
 #[cfg(any(feature = "cli", feature = "files"))]
 fn md_write(
-    mut op: Operation,
+    op: Operation,
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
     action: &'static str,
 ) -> anyhow::Result<EditResult> {
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
-    rewrite_md_op_path(&mut op, abs.to_string_lossy().as_ref());
+    let abs = super::library_abs_path(path, guard)?;
+    let mut op = op;
+    rewrite_md_op_path(&mut op, &super::library_op_path(path, &abs, guard));
     let display = path.to_string_lossy();
     super::execute_as_edit_result_with_path(
         op,
@@ -41,7 +37,7 @@ fn md_write(
 }
 
 #[cfg(any(feature = "cli", feature = "files"))]
-fn rewrite_md_op_path(op: &mut Operation, abs: &str) {
+fn rewrite_md_op_path(op: &mut Operation, dest: &str) {
     match op {
         Operation::MdReplaceSection { path, .. }
         | Operation::MdInsertAfterHeading { path, .. }
@@ -52,7 +48,7 @@ fn rewrite_md_op_path(op: &mut Operation, abs: &str) {
         | Operation::MdMoveSection { path, .. }
         | Operation::MdDedupeHeadings { path, .. }
         | Operation::MdLintAgents { path, .. } => {
-            *path = abs.into();
+            *path = dest.into();
         }
         _ => {}
     }
@@ -72,14 +68,10 @@ fn md_write(
 
     // Re-extract the operation fields to call ops directly.
     // This is only used when building without cli/files features.
-    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy();
+    let path_owned = super::library_abs_path(path, guard)?;
     let path = path_owned.as_path();
-    let path_str = path.to_string_lossy();
+    let path_str = display;
     let original = crate::files::load_text_strict(path, &path_str)?;
 
     let new_content = match _op {
@@ -244,24 +236,15 @@ pub fn md_move_section(
     // Cross-file moves retain the direct implementation because the tx engine
     // only handles single-file operations. Same-file moves can route through
     // the engine but cross-file needs coordinated writes to two files.
-    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy().into_owned();
+    let path_owned = super::library_abs_path(path, guard)?;
     let dest_owned = match to {
-        Some(dest_path) => Some(super::library_abs_path(dest_path, guard).map_err(|e| {
-            crate::fallback::EditError::new(
-                crate::fallback::EditErrorKind::OperationFailed,
-                format!("failed to resolve path {}: {e}", dest_path.display()),
-            )
-        })?),
+        Some(dest_path) => Some(super::library_abs_path(dest_path, guard)?),
         None => None,
     };
     let path = path_owned.as_path();
     let to = dest_owned.as_deref();
-    let path_str = path.to_string_lossy();
+    let path_str = display;
     let original = crate::files::load_text_strict(path, &path_str)?;
 
     let dest_content = match to {
@@ -306,14 +289,10 @@ pub fn md_dedupe_headings(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<(EditResult, Vec<String>)> {
-    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let display = path.to_string_lossy();
+    let path_owned = super::library_abs_path(path, guard)?;
     let path = path_owned.as_path();
-    let path_str = path.to_string_lossy();
+    let path_str = display;
     let original = crate::files::load_text_strict(path, &path_str)?;
 
     let (new_content, removed) = ops::md::dedupe_headings_in(&original);

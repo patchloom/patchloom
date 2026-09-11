@@ -50,19 +50,15 @@ pub fn tidy_with_indent(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    let caller_path = path;
     #[cfg(any(feature = "cli", feature = "files"))]
-    let path_owned = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
+    let path_owned = super::library_abs_path(path, guard)?;
     #[cfg(any(feature = "cli", feature = "files"))]
     let path = path_owned.as_path();
 
     // TidyFix has no charset field; non-Keep is applied locally.
     let result = if !matches!(policy_opts.charset, crate::write::CharsetMode::Keep) {
-        tidy_apply_policy_locally(path, policy_opts, indent_opts, mode, guard)?
+        tidy_apply_policy_locally(path, caller_path, policy_opts, indent_opts, mode, guard)?
     } else {
         let eol_str = policy_opts.normalize_eol.map(|eol| match eol {
             EolMode::Lf => "lf".to_string(),
@@ -71,7 +67,7 @@ pub fn tidy_with_indent(
             EolMode::Keep => "keep".to_string(),
         });
         let op = Operation::TidyFix {
-            path: path.to_string_lossy().into(),
+            path: super::library_op_path(caller_path, path, guard),
             ensure_final_newline: Some(policy_opts.ensure_final_newline),
             trim_trailing_whitespace: Some(policy_opts.trim_trailing_whitespace),
             normalize_eol: eol_str,
@@ -84,7 +80,7 @@ pub fn tidy_with_indent(
             indent: indent_opts.indent.clone(),
             lines: indent_opts.lines.clone(),
         };
-        tidy_write(op, path, mode, guard)?
+        tidy_write(op, caller_path, mode, guard)?
     };
     // Optional post-Apply format/lint hooks from WritePolicyOptions (#1690).
     super::maybe_post_write(
@@ -100,6 +96,7 @@ pub fn tidy_with_indent(
 
 fn tidy_apply_policy_locally(
     path: &Path,
+    display_path: &Path,
     policy_opts: &WritePolicyOptions,
     indent_opts: &TidyIndentOptions,
     mode: ApplyMode,
@@ -117,7 +114,7 @@ fn tidy_apply_policy_locally(
     // Indent after whitespace policy but before charset so Utf8Bom stays
     // a leading U+FEFF (`    \u{feff}` would be a mid-line BOM).
     policy.charset = crate::write::CharsetMode::Keep;
-    let path_str = path.to_string_lossy();
+    let path_str = display_path.to_string_lossy();
     let original = crate::files::load_text_strict(path, &path_str)?;
     let mut new_content = crate::write::apply_policy(&original, &policy).into_owned();
 
@@ -184,14 +181,10 @@ fn tidy_write(
         ..
     } = _op
     {
-        let path_owned = super::library_abs_path(path, guard).map_err(|e| {
-            crate::fallback::EditError::new(
-                crate::fallback::EditErrorKind::OperationFailed,
-                format!("failed to resolve path {}: {e}", path.display()),
-            )
-        })?;
+        let display = path.to_string_lossy();
+        let path_owned = super::library_abs_path(path, guard)?;
         let path = path_owned.as_path();
-        let path_str = path.to_string_lossy();
+        let path_str = display;
         let original = crate::files::load_text_strict(path, &path_str)?;
 
         let eol = normalize_eol

@@ -1,5 +1,6 @@
 use super::*;
 use std::fs;
+use std::path::Path;
 
 use crate::containment::{AbsolutePathPolicy, PathGuard};
 use tempfile::TempDir;
@@ -10875,4 +10876,175 @@ rename to assets/logo.png\n";
     let dest = dir.path().join("assets/logo.png");
     assert!(dest.exists(), "binary pure rename must move bytes");
     assert_eq!(fs::read(&dest).unwrap(), b"\x89PNG\r\n\x1a\n\x00\x00");
+}
+
+/// Reject policy must accept a relative dest (check caller spelling, then join).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_reject_guard_allows_relative_dest() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+    let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+    let result = replace_text(
+        Path::new("a.txt"),
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .expect("relative dest under Reject must apply");
+    assert_eq!(
+        result.path, "a.txt",
+        "EditResult.path keeps caller spelling"
+    );
+    assert!(
+        result.diff.contains("a.txt"),
+        "diff headers keep caller spelling: {}",
+        result.diff
+    );
+    assert!(!result.path.contains(dir.path().to_string_lossy().as_ref()));
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "new\n"
+    );
+}
+
+/// Relative PathGuard root joins canon_root, not root(), so dest is not doubled.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn library_abs_path_relative_guard_root_does_not_double() {
+    let dir = TempDir::new().unwrap();
+    fs::create_dir(dir.path().join("ws")).unwrap();
+    fs::write(dir.path().join("ws").join("a.txt"), "x\n").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let guard = PathGuard::new(std::path::PathBuf::from("ws"), AbsolutePathPolicy::Reject).unwrap();
+    let abs = super::library_abs_path(Path::new("a.txt"), Some(&guard)).unwrap();
+    assert!(
+        abs.is_absolute(),
+        "joined dest must be absolute: {}",
+        abs.display()
+    );
+    assert_eq!(abs, guard.canon_root().join("a.txt"));
+    assert!(
+        !abs.ends_with(std::path::Path::new("ws/ws/a.txt")),
+        "relative root must not double-join: {}",
+        abs.display()
+    );
+    let result = replace_text(
+        Path::new("a.txt"),
+        "x",
+        "y",
+        &ReplaceOptions::default(),
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .expect("relative dest under relative Reject root");
+    assert_eq!(result.path, "a.txt");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("ws").join("a.txt")).unwrap(),
+        "y\n"
+    );
+    let sessions = crate::backup::list_sessions(guard.canon_root()).unwrap();
+    assert_eq!(
+        sessions.len(),
+        1,
+        "backup session belongs under canon_root, not a doubled relative path"
+    );
+}
+
+/// `EditResult.path` keeps a relative dest with no guard (#2407).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_relative_path_keeps_caller_spelling() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+    let _cwd = CwdGuard::enter(dir.path());
+    let result = replace_text(
+        Path::new("a.txt"),
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Preview,
+        None,
+    )
+    .unwrap();
+    assert_eq!(result.path, "a.txt");
+    assert!(
+        result.diff.contains("a.txt"),
+        "diff headers keep caller spelling: {}",
+        result.diff
+    );
+    assert!(!result.path.starts_with('/'));
+}
+
+/// Caller-supplied absolute dest still rejects under Reject.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn replace_text_reject_guard_still_rejects_caller_absolute() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    fs::write(&file, "old\n").unwrap();
+    let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+    let err = replace_text(
+        &file,
+        "old",
+        "new",
+        &ReplaceOptions::default(),
+        ApplyMode::Preview,
+        Some(&guard),
+    )
+    .unwrap_err();
+    assert_eq!(
+        edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "{err}"
+    );
+}
+
+/// Reject + relative dest for create/delete (engine must not see the joined abs).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_create_delete_reject_guard_allows_relative_dest() {
+    let dir = TempDir::new().unwrap();
+    let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+    let created = file_create(
+        Path::new("n.txt"),
+        "hi\n",
+        false,
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .expect("relative create under Reject");
+    assert_eq!(created.path, "n.txt");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("n.txt")).unwrap(),
+        "hi\n"
+    );
+    let deleted = file_delete(Path::new("n.txt"), ApplyMode::Apply, Some(&guard))
+        .expect("relative delete under Reject");
+    assert_eq!(deleted.path, "n.txt");
+    assert!(!dir.path().join("n.txt").exists());
+}
+
+/// No-cli/files fallback must use entry containment for an outside-target link.
+#[cfg(all(unix, not(any(feature = "cli", feature = "files"))))]
+#[test]
+fn file_delete_symlink_to_outside_no_cli_entry_guard() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    fs::write(&secret, "SECRET=1\n").unwrap();
+    let link = dir.path().join("link-out");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .unwrap();
+    let r = file_delete(&link, ApplyMode::Apply, Some(&guard))
+        .expect("no-cli entry guard must allow unlink of outside-target link");
+    assert!(r.applied);
+    assert!(!crate::ops::file::path_entry_exists(&link));
+    assert!(secret.exists());
 }

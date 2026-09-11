@@ -217,6 +217,27 @@ pub fn is_parse_error(err: &anyhow::Error) -> bool {
         .any(|cause| cause.downcast_ref::<ParseErrorError>().is_some())
 }
 
+/// Typed error for a tree-sitter parse that hit the per-file deadline
+/// (`error_kind: "parse_timeout"`, exit [`PARSE_ERROR`]) (#2406).
+#[derive(Debug)]
+pub struct ParseTimeoutError {
+    pub msg: String,
+}
+
+impl std::fmt::Display for ParseTimeoutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for ParseTimeoutError {}
+
+/// Check whether an `anyhow::Error` chain contains a [`ParseTimeoutError`].
+pub fn is_parse_timeout(err: &anyhow::Error) -> bool {
+    err.chain()
+        .any(|cause| cause.downcast_ref::<ParseTimeoutError>().is_some())
+}
+
 /// Typed error for assert-count / soft mismatch that map to exit
 /// [`CHANGES_DETECTED`] (2) with JSON `error_kind: "changes_detected"`.
 /// Matches CLI `search --assert-count` when the actual count differs.
@@ -627,6 +648,8 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
         Some(("type_error", FAILURE))
     } else if is_conflicts(err) {
         Some(("conflicts", CONFLICTS))
+    } else if is_parse_timeout(err) {
+        Some(("parse_timeout", PARSE_ERROR))
     } else if is_parse_error(err) {
         Some(("parse_error", PARSE_ERROR))
     } else if is_changes_detected(err) {
@@ -668,6 +691,7 @@ pub fn classify_typed_error(err: &anyhow::Error) -> Option<(&'static str, u8)> {
             EditErrorKind::Conflicts => Some(("conflicts", CONFLICTS)),
             EditErrorKind::ChangesDetected => Some(("changes_detected", CHANGES_DETECTED)),
             EditErrorKind::ParseError => Some(("parse_error", PARSE_ERROR)),
+            EditErrorKind::ParseTimeout => Some(("parse_timeout", PARSE_ERROR)),
             EditErrorKind::FormatFailed => Some(("format_failed", FAILURE)),
             EditErrorKind::SyntaxInvalid
             | EditErrorKind::ConflictingEdit
@@ -1138,6 +1162,14 @@ mod tests {
                 }
                 .into(),
                 "parse_error",
+                PARSE_ERROR,
+            ),
+            (
+                ParseTimeoutError {
+                    msg: "deadline".into(),
+                }
+                .into(),
+                "parse_timeout",
                 PARSE_ERROR,
             ),
             (

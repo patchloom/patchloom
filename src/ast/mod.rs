@@ -223,6 +223,48 @@ pub fn ts_language_for(lang: Language) -> Option<tree_sitter_lib::Language> {
     }
 }
 
+/// Why [`try_parse_source`] did not return a tree (#2406).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseFailure {
+    /// Language has no tree-sitter grammar, or the parser could not be set up.
+    NoGrammar,
+    /// The 5 second parse deadline fired before a tree was produced.
+    DeadlineExceeded,
+}
+
+/// Parse source text, distinguishing no-grammar from a deadline (#2406).
+///
+/// [`parse_source`] stays an `Option` wrapper for existing callers.
+pub fn try_parse_source(
+    source: &str,
+    lang: Language,
+) -> Result<(tree_sitter_lib::Tree, tree_sitter_lib::Language), ParseFailure> {
+    let ts_lang = ts_language_for(lang).ok_or(ParseFailure::NoGrammar)?;
+    let tree = PARSERS.with(|slot| {
+        let mut map = slot.borrow_mut();
+        let parser = match map.entry(lang) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(v) => {
+                let mut parser = tree_sitter_lib::Parser::new();
+                parser
+                    .set_language(&ts_lang)
+                    .map_err(|_| ParseFailure::NoGrammar)?;
+                v.insert(parser)
+            }
+        };
+        // Resume after a cancelled parse would continue mid-document.
+        parser.reset();
+        match parse_with_deadline(parser, source) {
+            Ok(tree) => Ok(tree),
+            Err(e) => {
+                parser.reset();
+                Err(e)
+            }
+        }
+    })?;
+    Ok((tree, ts_lang))
+}
+
 /// Parse source text for a given language, returning the tree-sitter tree.
 ///
 /// Reuses a thread-local [`tree_sitter_lib::Parser`] per [`Language`].
@@ -242,26 +284,7 @@ pub fn parse_source(
     source: &str,
     lang: Language,
 ) -> Option<(tree_sitter_lib::Tree, tree_sitter_lib::Language)> {
-    let ts_lang = ts_language_for(lang)?;
-    let tree = PARSERS.with(|slot| {
-        let mut map = slot.borrow_mut();
-        let parser = match map.entry(lang) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(v) => {
-                let mut parser = tree_sitter_lib::Parser::new();
-                parser.set_language(&ts_lang).ok()?;
-                v.insert(parser)
-            }
-        };
-        // Resume after a cancelled parse would continue mid-document.
-        parser.reset();
-        let tree = parse_with_deadline(parser, source);
-        if tree.is_none() {
-            parser.reset();
-        }
-        tree
-    })?;
-    Some((tree, ts_lang))
+    try_parse_source(source, lang).ok()
 }
 
 fn parse_deadline() -> Duration {
@@ -277,10 +300,12 @@ fn parse_deadline() -> Duration {
 fn parse_with_deadline(
     parser: &mut tree_sitter_lib::Parser,
     source: &str,
-) -> Option<tree_sitter_lib::Tree> {
+) -> Result<tree_sitter_lib::Tree, ParseFailure> {
     let deadline = Instant::now() + parse_deadline();
+    let timed_out = std::cell::Cell::new(false);
     let mut progress = |_state: &tree_sitter_lib::ParseState| {
         if Instant::now() >= deadline {
+            timed_out.set(true);
             ControlFlow::Break(())
         } else {
             ControlFlow::Continue(())
@@ -289,13 +314,38 @@ fn parse_with_deadline(
     let options = tree_sitter_lib::ParseOptions::new().progress_callback(&mut progress);
     let bytes = source.as_bytes();
     let len = bytes.len();
-    parser.parse_with_options(
+    match parser.parse_with_options(
         &mut |i, _| {
             if i < len { &bytes[i..] } else { &[] as &[u8] }
         },
         None,
         Some(options),
-    )
+    ) {
+        Some(tree) => Ok(tree),
+        None if timed_out.get() => Err(ParseFailure::DeadlineExceeded),
+        None => Err(ParseFailure::NoGrammar),
+    }
+}
+
+/// Override the per-file parse deadline in tests (`cfg(test)` only).
+#[cfg(test)]
+pub(crate) struct ParseTimeoutGuard {
+    prev: Option<Duration>,
+}
+
+#[cfg(test)]
+impl ParseTimeoutGuard {
+    pub(crate) fn set(timeout: Duration) -> Self {
+        let prev = PARSE_TIMEOUT_OVERRIDE.with(|c| c.replace(Some(timeout)));
+        Self { prev }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ParseTimeoutGuard {
+    fn drop(&mut self) {
+        PARSE_TIMEOUT_OVERRIDE.with(|c| c.set(self.prev));
+    }
 }
 
 /// Find the text of the first child with a given node kind.
@@ -426,21 +476,22 @@ mod tests {
         assert!(result.is_none());
     }
 
-    struct ParseTimeoutGuard {
-        prev: Option<Duration>,
+    #[test]
+    fn try_parse_source_unknown_is_no_grammar() {
+        assert_eq!(
+            try_parse_source("anything", Language::Unknown).unwrap_err(),
+            ParseFailure::NoGrammar
+        );
     }
 
-    impl ParseTimeoutGuard {
-        fn set(timeout: Duration) -> Self {
-            let prev = PARSE_TIMEOUT_OVERRIDE.with(|c| c.replace(Some(timeout)));
-            Self { prev }
-        }
-    }
-
-    impl Drop for ParseTimeoutGuard {
-        fn drop(&mut self) {
-            PARSE_TIMEOUT_OVERRIDE.with(|c| c.set(self.prev));
-        }
+    #[test]
+    fn try_parse_source_deadline_is_distinct() {
+        let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
+        let source = nested_rust_source(80_000);
+        assert_eq!(
+            try_parse_source(&source, Language::Rust).unwrap_err(),
+            ParseFailure::DeadlineExceeded
+        );
     }
 
     fn nested_rust_source(depth: usize) -> String {

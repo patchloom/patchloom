@@ -47,24 +47,9 @@ pub fn apply_fragment_to_file(
         FragmentPlacement::Before(b) => (None, Some(b.as_str()), None),
         FragmentPlacement::Replace(o) => (None, None, Some(o.as_str())),
     };
-    // Absolutize so parent-cwd + full path does not double-join relatives
-    // (doc example Path::new("src/lib.rs")).
-    let abs = super::library_abs_path(path, guard).map_err(|e| {
-        crate::fallback::EditError::new(
-            crate::fallback::EditErrorKind::OperationFailed,
-            format!("failed to resolve path {}: {e}", path.display()),
-        )
-    })?;
-    let path_str = abs.to_string_lossy();
-    let op = plan_apply_fragment_to_replace(
-        path_str.as_ref(),
-        fragment,
-        None,
-        after,
-        before,
-        old,
-        unique,
-    )?;
+    let abs = super::library_abs_path(path, guard)?;
+    let path_str = super::library_op_path(path, &abs, guard);
+    let op = plan_apply_fragment_to_replace(&path_str, fragment, None, after, before, old, unique)?;
     let cwd = super::library_project_root(&abs, guard);
     let display = path.to_string_lossy();
     super::execute_as_edit_result_with_path(
