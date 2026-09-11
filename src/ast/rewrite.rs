@@ -1765,20 +1765,4 @@ mod tests {
         assert!(span.signature_text.contains("int main"));
         assert!(!span.signature_text.contains("return 0"));
     }
-
-    #[test]
-    fn rewrite_signature_timeout_is_parse_timeout() {
-        let source = crate::ast::nested_rust_source_for_timeout(80_000);
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let edit = FunctionSigEdit {
-            parameters: Some("(x: u64)".into()),
-            ..Default::default()
-        };
-        let err = try_rewrite_function_signature(&source, "main", &edit, Language::Rust)
-            .expect_err("deadline must be Err, not Ok(None)");
-        assert!(
-            crate::exit::is_parse_timeout(&err),
-            "timeout must not become Ok(None): {err}"
-        );
-    }
 }

@@ -1183,6 +1183,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "ast")]
+    // Unique: plan verify snapshot timeout is parse_timeout, not a 0==0 pass.
     fn execute_plan_verify_timeout_is_parse_timeout() {
         let dir = tempfile::TempDir::new().unwrap();
         std::fs::write(

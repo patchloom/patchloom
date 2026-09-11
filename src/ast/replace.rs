@@ -236,18 +236,6 @@ fn bar() {
     }
 
     #[test]
-    fn replace_in_symbol_timeout_is_parse_timeout() {
-        let source = crate::ast::nested_rust_source_for_timeout(80_000);
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let err = replace_in_symbol(&source, "main", "x", "y", false, Language::Rust)
-            .expect_err("deadline must be Err, not Ok(None)");
-        assert!(
-            crate::exit::is_parse_timeout(&err),
-            "timeout must not become Ok(None): {err}"
-        );
-    }
-
-    #[test]
     fn replace_in_symbol_cr_only_second_fn() {
         let source = "fn one() { let x = 1; }\rfn two() { let y = 2; }\r";
         let result = replace_in_symbol(

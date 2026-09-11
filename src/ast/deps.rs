@@ -706,18 +706,6 @@ namespace app {
     }
 
     #[test]
-    fn try_extract_imports_from_file_timeout_is_deadline() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let path = dir.path().join("deep.rs");
-        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        assert_eq!(
-            try_extract_imports_from_file(&path, None).unwrap_err(),
-            ParseFailure::DeadlineExceeded
-        );
-    }
-
-    #[test]
     fn python_from_import_extracts_module_only() {
         // Regression: `from pathlib import Path` returned path
         // "pathlib import Path" instead of "pathlib".

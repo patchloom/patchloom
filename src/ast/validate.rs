@@ -256,6 +256,7 @@ mod tests {
     }
 
     #[test]
+    // Unique: in-memory validate maps a deadline to Some(valid:false), not None.
     fn validate_source_timeout_is_invalid() {
         let source = crate::ast::nested_rust_source_for_timeout(80_000);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
@@ -269,6 +270,7 @@ mod tests {
     }
 
     #[test]
+    // Unique: sole-file validate_file is parse_timeout, not a valid:false row.
     fn validate_file_timeout_is_parse_timeout() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
@@ -283,6 +285,7 @@ mod tests {
     }
 
     #[test]
+    // Unique: walk validate maps a deadline to invalid, not parse_timeout.
     fn validate_file_for_walk_timeout_is_invalid() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");

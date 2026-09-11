@@ -470,6 +470,7 @@ fn main() {
     }
 
     #[test]
+    // Unique: Option wrapper must not turn a deadline into a word-boundary RenameResult.
     fn try_rename_in_source_timeout_is_parse_timeout() {
         let source = crate::ast::nested_rust_source_for_timeout(80_000);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));

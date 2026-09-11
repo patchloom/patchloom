@@ -643,6 +643,7 @@ mod tests {
     }
 
     #[test]
+    // Unique: parse boundary returns DeadlineExceeded, not NoGrammar.
     fn try_parse_source_deadline_is_distinct() {
         let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
         let source = nested_rust_source_for_timeout(80_000);
@@ -653,6 +654,7 @@ mod tests {
     }
 
     #[test]
+    // Unique: parse_source maps a deadline to None and cancels instead of hanging.
     fn parse_source_pathological_returns_none() {
         let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
         let source = nested_rust_source_for_timeout(80_000);
@@ -668,6 +670,7 @@ mod tests {
     }
 
     #[test]
+    // Unique: dropping the guard restores later parses.
     fn parse_source_still_parses_after_timeout() {
         {
             let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));

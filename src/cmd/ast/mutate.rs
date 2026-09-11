@@ -397,6 +397,7 @@ mod tests {
     }
 
     #[test]
+    // Unique: CLI mutate remapper; sole-file rename is parse_timeout, not a write.
     fn rename_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");

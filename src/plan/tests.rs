@@ -647,6 +647,7 @@ fn for_each_has_symbol_matches_nested_method() {
 
 #[cfg(all(feature = "files", feature = "ast"))]
 #[test]
+// Unique: for_each has_symbol timeout is parse_timeout, not no_matches.
 fn for_each_has_symbol_timeout_is_parse_timeout() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
