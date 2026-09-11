@@ -33,6 +33,12 @@ pub fn wrap_code(
         }));
     }
 
+    if wrapper.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast wrap wrapper must not be empty".into(),
+        }));
+    }
+
     let eol = crate::write::detect_eol(source);
     let source_lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
@@ -407,6 +413,72 @@ mod tests {
             result
                 .content
                 .contains("#[cfg(feature = \"experimental\")] {")
+        );
+    }
+
+    #[test]
+    fn wrap_empty_wrapper_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let err = wrap_code(
+            source,
+            Some(&["foo".into()]),
+            None,
+            "",
+            None,
+            Language::Rust,
+        )
+        .expect_err("empty wrap wrapper must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty wrapper must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn wrap_whitespace_only_wrapper_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let err = wrap_code(
+            source,
+            Some(&["foo".into()]),
+            None,
+            "   ",
+            None,
+            Language::Rust,
+        )
+        .expect_err("whitespace-only wrap wrapper must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace-only wrapper must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn wrap_newline_only_wrapper_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let err = wrap_code(
+            source,
+            Some(&["foo".into()]),
+            None,
+            "\n",
+            None,
+            Language::Rust,
+        )
+        .expect_err("newline-only wrap wrapper must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "newline-only wrapper must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
         );
     }
 }
