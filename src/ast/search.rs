@@ -135,6 +135,14 @@ pub fn search_file(
 /// After parsing, placeholder identifiers are detected and converted back to
 /// query captures.
 pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<String> {
+    // Empty / whitespace parses as an empty source_file and the compiled
+    // query matches the whole file (CLI `--pattern ''` exit 0). Same class
+    // as `search` / `replace` empty pattern → invalid_input.
+    if pattern.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast search pattern must not be empty".into(),
+        }));
+    }
     // Collect meta-variable names and replace with valid placeholder identifiers.
     let mut placeholders: Vec<String> = Vec::new();
     let mut sanitized = pattern.to_string();
@@ -385,6 +393,21 @@ fn main() {
             "expected >=2 struct matches, got {}",
             results.len()
         );
+    }
+
+    #[test]
+    fn compile_pattern_empty_or_whitespace_is_invalid_input() {
+        for pat in ["", "   ", "\n\t"] {
+            let err = compile_pattern_query(pat, Language::Rust).expect_err("empty must fail");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "empty pattern {pat:?} must be invalid_input, got {err}"
+            );
+            assert_eq!(crate::fallback::error_kind_str(&err), Some("invalid_input"));
+            assert!(err.to_string().contains("must not be empty"), "msg={err}");
+        }
+        compile_pattern_query("fn foo() {}", Language::Rust)
+            .expect("non-empty pattern must still compile");
     }
 
     #[test]
