@@ -80,7 +80,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml_ng = "0.10"
 yaml-edit = "0.3"
-toml_edit = { version = "0.25", features = ["serde"] }
+toml_edit = { version = "0.25.15", features = ["serde"] }
 ignore = { version = "0.4", optional = true }
 globset = { version = "0.4", optional = true }
 memchr = "2"
@@ -94,7 +94,7 @@ dunce = "1"
 anstream = { version = "1", optional = true }
 ec4rs = { version = "1", optional = true }
 clap_complete = { version = "4", optional = true }
-rmcp = { version = "3", features = ["server", "transport-io", "macros"], optional = true }
+rmcp = { version = "3.3", features = ["server", "transport-io", "macros"], optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "io-std", "macros"], optional = true }
 axum = { version = "0.8", features = ["http1", "tokio"], default-features = false, optional = true }
 axum-server = { version = "0.8", features = ["tls-rustls"], default-features = false, optional = true }
@@ -137,8 +137,8 @@ expectrl = "0.9"
 predicates = "3"
 proptest = "1"
 rcgen = "0.14"
-reqwest = { version = "0.13", features = ["rustls"], default-features = false }
-rmcp = { version = "3", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest"] }
+reqwest = { version = "0.13.5", features = ["rustls"], default-features = false }
+rmcp = { version = "3.3", features = ["client", "transport-io", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 tokio = { version = "1", features = ["full"] }
 
 [[bin]]
