@@ -39,6 +39,16 @@ pub fn wrap_code(
         }));
     }
 
+    if let Some(pre) = preamble
+        && pre.trim().is_empty()
+        && !pre.contains('\n')
+        && !pre.contains('\r')
+    {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast wrap preamble must not be empty".into(),
+        }));
+    }
+
     let eol = crate::write::detect_eol(source);
     let source_lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
@@ -479,6 +489,74 @@ mod tests {
         assert!(
             err.to_string().contains("must not be empty"),
             "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn wrap_empty_preamble_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let err = wrap_code(
+            source,
+            Some(&["foo".into()]),
+            None,
+            "mod tests",
+            Some(""),
+            Language::Rust,
+        )
+        .expect_err("empty wrap preamble must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty preamble must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn wrap_empty_whitespace_preamble_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let err = wrap_code(
+            source,
+            Some(&["foo".into()]),
+            None,
+            "mod tests",
+            Some("   "),
+            Language::Rust,
+        )
+        .expect_err("whitespace-only wrap preamble must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace-only preamble must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn wrap_newline_preamble_still_ok() {
+        let source = "fn foo() { let x = 1; }\n";
+        let result = wrap_code(
+            source,
+            Some(&["foo".into()]),
+            None,
+            "mod tests",
+            Some("\n"),
+            Language::Rust,
+        )
+        .expect("newline-only wrap preamble is insert-a-blank-line");
+        assert!(
+            result.content.contains("mod tests {"),
+            "wrapper must still apply: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("fn foo()"),
+            "wrapped symbol must remain: {}",
+            result.content
         );
     }
 }

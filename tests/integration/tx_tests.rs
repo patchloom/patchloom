@@ -8268,6 +8268,109 @@ fn test_tx_ast_rewrite_empty_new_signature_invalid_input() {
     );
 }
 
+/// Empty ast.rewrite_signature parameters is invalid_input (exit 1); dest unchanged.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rewrite_empty_parameters_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo(x: i32) { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rewrite_signature",
+            "path": "t.rs",
+            "old": "foo",
+            "parameters": ""
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say parameters must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "file must be unchanged on empty rewrite parameters"
+    );
+}
+
+/// Empty ast.split symbol is invalid_input (exit 1); dest must not exist.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_split_empty_symbol_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.split",
+            "source": "t.rs",
+            "targets": [{
+                "path": "a.rs",
+                "symbols": [""]
+            }],
+            "require_exhaustive": false
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say split symbol must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "source must be unchanged on empty split symbol"
+    );
+    assert!(
+        !dir.path().join("a.rs").exists(),
+        "empty split must not create dest"
+    );
+}
+
 /// Empty ast.group module is invalid_input (exit 1); dest unchanged.
 #[test]
 #[cfg(feature = "ast")]
