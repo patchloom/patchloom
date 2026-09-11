@@ -9055,7 +9055,7 @@ fn file_create_dangling_symlink_is_already_exists() {
 }
 
 /// `file.create` force must not follow a dest symlink and overwrite the target.
-#[cfg(all(unix, any(feature = "cli", feature = "files")))]
+#[cfg(unix)]
 #[test]
 fn file_create_force_refuses_dest_symlink() {
     let dir = TempDir::new().unwrap();
@@ -10488,6 +10488,62 @@ fn apply_patch_hunked_delete_leftover_symlink_outside_fails_closed() {
         "apply_patch_file leftover must peel guard_rejected: {file_err}"
     );
     assert_eq!(fs::read_to_string(&secret).unwrap(), BODY);
+}
+
+/// Context hunk dest is a content write. PathGuard must fail closed when
+/// the workspace link points outside (same class as leftover rewrite).
+#[cfg(unix)]
+#[test]
+fn apply_patch_context_hunk_symlink_outside_fails_closed() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const BODY: &str = "alpha\nbeta\ngamma\n";
+    fs::write(&secret, BODY).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let patch = "\
+--- a/link.txt
++++ b/link.txt
+@@ -1,3 +1,3 @@
+-alpha
++ALPHA
+ beta
+ gamma
+";
+    let err = apply_patch(&link, patch, ApplyMode::Apply, Some(&guard))
+        .expect_err("context hunk through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "context hunk through outside symlink must peel guard_rejected: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        BODY,
+        "outside target must not be rewritten by context hunk"
+    );
+    assert!(
+        crate::ops::file::path_entry_exists(&link),
+        "workspace link must remain when context hunk is refused"
+    );
+
+    let preview = apply_patch(&link, patch, ApplyMode::Preview, Some(&guard))
+        .expect_err("preview context hunk through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&preview),
+        Some(EditErrorKind::GuardRejected),
+        "preview must not leak context-hunk payload: {preview}"
+    );
+    assert!(
+        !preview.to_string().contains("ALPHA"),
+        "preview error must not include replacement payload: {preview}"
+    );
 }
 
 /// Matching hunked delete via default apply_patch (tx) must not snapshot
