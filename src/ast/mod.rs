@@ -159,6 +159,96 @@ impl Language {
     }
 }
 
+/// Names and aliases accepted by [`Language::from_name_or_ext`].
+///
+/// Used for close-match hints when an explicit `lang` token is unknown.
+/// Known no-grammar variants (`markdown`, `md`, `dockerfile`) stay here so
+/// they resolve to a real language, not "unknown language".
+const LANGUAGE_HINT_NAMES: &[&str] = &[
+    "rust",
+    "rs",
+    "python",
+    "py",
+    "pyi",
+    "go",
+    "golang",
+    "typescript",
+    "ts",
+    "tsx",
+    "javascript",
+    "js",
+    "jsx",
+    "mjs",
+    "cjs",
+    "java",
+    "csharp",
+    "c#",
+    "cs",
+    "ruby",
+    "rb",
+    "php",
+    "swift",
+    "kotlin",
+    "kt",
+    "kts",
+    "c",
+    "h",
+    "c++",
+    "cpp",
+    "cxx",
+    "cc",
+    "hpp",
+    "hxx",
+    "hcl",
+    "terraform",
+    "tf",
+    "tfvars",
+    "xml",
+    "xsl",
+    "xslt",
+    "xsd",
+    "svg",
+    "plist",
+    "protobuf",
+    "proto",
+    "dockerfile",
+    "docker",
+    "markdown",
+    "md",
+    "mdx",
+    "toml",
+    "yaml",
+    "yml",
+    "json",
+    "shell",
+    "sh",
+    "bash",
+    "zsh",
+];
+
+/// Parse an explicit language hint.
+///
+/// Tokens that resolve to [`Language::Unknown`] are `invalid_input` naming
+/// the token (plus a close match). Known no-grammar names such as
+/// `markdown` / `dockerfile` stay those languages so callers can keep the
+/// existing "unsupported language" path.
+pub(crate) fn parse_lang_hint(s: &str) -> anyhow::Result<Language> {
+    let lang = Language::from_name_or_ext(s);
+    if lang != Language::Unknown {
+        return Ok(lang);
+    }
+    let similar = crate::fallback::find_similar_among(
+        LANGUAGE_HINT_NAMES.iter().copied(),
+        &s.to_lowercase(),
+        1,
+    );
+    let mut msg = format!("unknown language '{s}'");
+    if let Some(hint) = similar.first() {
+        msg.push_str(&format!(" (did you mean: {hint}?)"));
+    }
+    Err(crate::exit::InvalidInputError { msg }.into())
+}
+
 impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -454,6 +544,35 @@ mod tests {
         assert!(!Language::Markdown.has_grammar());
         assert!(!Language::Dockerfile.has_grammar());
         assert!(!Language::Unknown.has_grammar());
+    }
+
+    #[test]
+    fn parse_lang_hint_unknown_token_suggests_close_match() {
+        let err = parse_lang_hint("python3").unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "unknown token must be invalid_input, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("python3"), "must name the token: {msg}");
+        assert!(
+            !msg.to_lowercase().contains("detected from"),
+            "must not blame the file path: {msg}"
+        );
+        assert!(msg.contains("python"), "must suggest python: {msg}");
+    }
+
+    #[test]
+    fn parse_lang_hint_keeps_known_no_grammar_names() {
+        assert_eq!(parse_lang_hint("markdown").unwrap(), Language::Markdown);
+        assert_eq!(parse_lang_hint("md").unwrap(), Language::Markdown);
+        assert_eq!(parse_lang_hint("dockerfile").unwrap(), Language::Dockerfile);
+    }
+
+    #[test]
+    fn parse_lang_hint_accepts_extension_aliases() {
+        assert_eq!(parse_lang_hint("rs").unwrap(), Language::Rust);
+        assert_eq!(parse_lang_hint("py").unwrap(), Language::Python);
     }
 
     #[test]

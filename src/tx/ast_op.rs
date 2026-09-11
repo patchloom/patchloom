@@ -68,6 +68,13 @@ fn collect_ast_source_files_simple(dir: &Path, out: &mut Vec<PathBuf>) -> anyhow
     Ok(())
 }
 
+fn resolve_op_lang(lang: Option<&str>, path: &Path) -> anyhow::Result<crate::ast::Language> {
+    match lang {
+        Some(s) => crate::ast::parse_lang_hint(s),
+        None => Ok(crate::ast::Language::from_path(path)),
+    }
+}
+
 /// Rename identifiers in a single file using AST-aware renaming with
 /// word-boundary fallback. Used by the AstRename handler (both single-file
 /// and directory expansion paths).
@@ -79,9 +86,7 @@ fn ast_rename_single_file(
     lang_hint: Option<&str>,
 ) -> anyhow::Result<usize> {
     let content = read_file_content(tx.pending, tx.existed_before, abs)?;
-    let lang_val = lang_hint
-        .map(crate::ast::Language::from_name_or_ext)
-        .unwrap_or_else(|| crate::ast::Language::from_path(abs));
+    let lang_val = resolve_op_lang(lang_hint, abs)?;
     match crate::ast::rename::try_rename_in_source(content, old, new, lang_val) {
         Ok(Some(r)) if r.replacements > 0 => {
             tx.write_file(abs, r.content);
@@ -176,10 +181,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         } => {
             let abs = tx.cwd.join(path);
             let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let result = crate::ast::replace::replace_in_symbol(
                 content, symbol, old, new_text, *regex, lang_val,
             )?;
@@ -213,10 +215,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         } => {
             let abs = tx.cwd.join(path);
             let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let has_structured =
                 visibility.is_some() || parameters.is_some() || return_type.is_some();
             if new_signature.is_none() && !has_structured {
@@ -265,10 +264,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         } => {
             let abs = tx.cwd.join(path);
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let pos = match position.as_deref() {
                 None | Some("") | Some("end") => crate::ast::insert::InsertPosition::End,
                 Some("start") => crate::ast::insert::InsertPosition::Start,
@@ -302,10 +298,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         } => {
             let abs = tx.cwd.join(path);
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let result = crate::ast::wrap::wrap_code(
                 file_content,
                 sym_names.as_deref(),
@@ -328,10 +321,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             let abs = tx.cwd.join(path);
             let mut file_content =
                 read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let mut total_changes = 0usize;
 
             if let Some(add_list) = add {
@@ -364,10 +354,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         } => {
             let abs = tx.cwd.join(path);
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let strategy = crate::ast::reorder::parse_strategy(order)?;
             let result = crate::ast::reorder::reorder_symbols(
                 file_content,
@@ -391,10 +378,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         } => {
             let abs = tx.cwd.join(path);
             let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let pos = crate::ast::group::parse_group_position(position.as_deref())?;
             let spec = crate::ast::group::GroupSpec {
                 module: module.clone(),
@@ -440,10 +424,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     .map(|p| format!("{p}\n\n"))
                     .unwrap_or_default()
             };
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs_source)?;
             let pos = crate::ast::move_symbols::parse_position(position.as_deref())?;
             let result = crate::ast::move_symbols::move_symbols(
                 &source_content,
@@ -498,10 +479,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .into());
             }
             let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs_source)?;
             let do_unwrap = unwrap.unwrap_or(true);
             let result = crate::ast::extract_to_file::extract_to_file(
                 source_content,
@@ -536,10 +514,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
         } => {
             let abs_source = tx.cwd.join(source);
             let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
-            let lang_val = lang
-                .as_deref()
-                .map(crate::ast::Language::from_name_or_ext)
-                .unwrap_or_else(|| crate::ast::Language::from_path(&abs_source));
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs_source)?;
             let split_targets: Vec<crate::ast::split::SplitTarget> = targets
                 .iter()
                 .map(|t| crate::ast::split::SplitTarget {

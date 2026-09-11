@@ -1,6 +1,7 @@
 //! Mutating `patchloom ast` subcommands (rename, replace).
 
 use super::common::{resolve_lang, setup_multi_file};
+use crate::ast::parse_lang_hint;
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::{run_write_op, stage_for_write};
 use crate::cmd::write_mode::{RenderPolicy, WriteMessages, finalize_execution_result};
@@ -53,7 +54,7 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     // as a batch through the tx engine. This gives backup, rollback, and format.
     // SoftSkip content kinds (binary/utf8); track Unreadable so empty results
     // are not reported as no_matches when IO may have masked the scan (#1894).
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     let old = args.old.as_str();
     let new = args.new.as_str();
     let lang_cli = args.lang.clone();
@@ -251,6 +252,9 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
         }
         return Err(e);
     }
+    if let Some(s) = args.lang.as_deref() {
+        let _ = parse_lang_hint(s)?;
+    }
 
     let op = Operation::AstReplace {
         path: args.path.clone(),
@@ -322,6 +326,33 @@ mod tests {
             "expected rename, got: {content}"
         );
         assert!(!content.contains("fn alpha()"), "old name should be gone");
+    }
+
+    #[test]
+    fn rename_unknown_lang_hint_does_not_word_boundary_write() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mod.rs");
+        let original = "fn main() {\n    // x is mentioned\n}\n";
+        fs::write(&path, original).unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let err = run_rename(
+            RenameArgs {
+                path: "mod.rs".into(),
+                old: "x".into(),
+                new: "y".into(),
+                lang: Some("python3".into()),
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "explicit unknown lang must be invalid_input, got: {err}"
+        );
+        let after = fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "must not word-boundary-write on bad lang");
     }
 
     fn nested_rust_source(depth: usize) -> String {

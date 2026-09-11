@@ -149,12 +149,16 @@ pub fn ast_rename(
         EditError::new(EditErrorKind::OperationFailed, e.to_string()).into()
     })?;
     let lang = Language::from_path(path);
-    let Some(renamed) = rename::rename_in_source(&original, old, new, lang) else {
-        return Err(EditError::new(
-            EditErrorKind::ParseError,
-            format!("failed to parse {} as {:?}", display, lang),
-        )
-        .into());
+    let renamed = match rename::try_rename_in_source(&original, old, new, lang) {
+        Ok(Some(r)) => r,
+        Err(e) => return Err(e),
+        Ok(None) => {
+            return Err(EditError::new(
+                EditErrorKind::ParseError,
+                format!("failed to parse {} as {:?}", display, lang),
+            )
+            .into());
+        }
     };
     if renamed.replacements == 0 {
         return Err(EditError::new(
@@ -224,6 +228,9 @@ pub fn ast_replace_in_symbol(
                 .into());
             }
             Err(e) => {
+                if crate::exit::is_parse_timeout(&e) {
+                    return Err(e);
+                }
                 return Err(EditError::new(EditErrorKind::OperationFailed, e.to_string()).into());
             }
         };

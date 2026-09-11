@@ -17,6 +17,15 @@ use super::{
     PatchloomService, exit_code_to_result, no_results, validate_content_size, validate_param_size,
 };
 
+fn parse_optional_lang(lang: Option<&str>) -> Result<Option<crate::ast::Language>, McpError> {
+    match lang {
+        Some(s) => crate::ast::parse_lang_hint(s)
+            .map(Some)
+            .map_err(|e| McpError::invalid_params(crate::exit::agent_error_message(&e), None)),
+        None => Ok(None),
+    }
+}
+
 pub(super) fn handle_ast_list(
     svc: &PatchloomService,
     p: AstListParams,
@@ -24,7 +33,7 @@ pub(super) fn handle_ast_list(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
     let kind_filter = crate::cmd::ast::parse_kind_filter(&p.kind)
         .map_err(|e| McpError::invalid_params(crate::exit::agent_error_message(&e), None))?;
 
@@ -127,7 +136,7 @@ pub(super) fn handle_ast_read(
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
 
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
     // Strict sole-path text load (#1894): binary / invalid UTF-8 → invalid_params.
     let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
@@ -164,12 +173,16 @@ pub(super) fn handle_ast_read(
         }
         Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
     };
-    let sym = crate::ast::symbols::find_symbol(&all_symbols, &p.symbol).ok_or_else(|| {
-        McpError::invalid_params(
-            format!("symbol '{}' not found in {}", p.symbol, p.path),
-            None,
-        )
-    })?;
+    let Some(sym) = crate::ast::symbols::find_symbol(&all_symbols, &p.symbol) else {
+        let msg = format!("symbol '{}' not found in {}", p.symbol, p.path);
+        let body = serde_json::json!({
+            "ok": false,
+            "error_kind": "no_matches",
+            "error": msg,
+            "applied": false,
+        });
+        return exit_code_to_result(exit::NO_MATCHES, &body.to_string(), &msg);
+    };
 
     let lines: Vec<&str> = crate::ops::file::text_lines(&source).collect();
     let start = sym
@@ -204,7 +217,7 @@ pub(super) fn handle_ast_rename(
     }
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
 
     let global = GlobalFlags::with_cwd_and_json(&cwd);
 
@@ -343,7 +356,7 @@ pub(super) fn handle_ast_validate(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -455,7 +468,7 @@ pub(super) fn handle_ast_search(
     validate_param_size("query", &p.query)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -631,7 +644,7 @@ pub(super) fn handle_ast_refs(
     validate_param_size("symbol", &p.symbol)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -686,7 +699,7 @@ pub(super) fn handle_ast_deps(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -849,7 +862,7 @@ pub(super) fn handle_ast_diff(
     }
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
 
     let old_source = crate::cmd::ast::get_git_file_content(&cwd, &p.path, &p.from)
@@ -1026,7 +1039,7 @@ pub(super) fn handle_ast_imports(
     if p.add.is_none() && p.remove.is_none() && !p.dedupe {
         let cwd = svc.cwd().to_path_buf();
         let target = cwd.join(&p.path);
-        let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+        let lang_hint = parse_optional_lang(p.lang.as_deref())?;
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
         // Strict sole-path (#1894).
         let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
@@ -1278,8 +1291,20 @@ impl Point {
             lang: Some("rs".into()),
         };
 
-        let result = handle_ast_read(&svc, params);
-        result.expect_err("expected error");
+        let result = handle_ast_read(&svc, params).expect("miss is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "missing symbol must set isError so hosts do not retry as invalid_params"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("no_matches"),
+            "read miss must surface no_matches, got: {text}"
+        );
+        assert!(
+            text.contains("symbol 'nonexistent_fn' not found in sample.rs"),
+            "must keep the English miss, got: {text}"
+        );
     }
 
     #[test]

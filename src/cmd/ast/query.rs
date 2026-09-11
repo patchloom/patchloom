@@ -3,11 +3,11 @@
 //! parse-timeout fail-closed locks live in one command module.
 
 use super::common::{
-    collect_source_files, display_path, filter_symbols, get_git_file_content, lang_from_str,
-    parse_kind_filter, print_symbol_items_json, print_symbols_compact, print_symbols_human,
-    print_symbols_json, resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file,
-    symbol_to_json,
+    collect_source_files, display_path, filter_symbols, get_git_file_content, parse_kind_filter,
+    print_symbol_items_json, print_symbols_compact, print_symbols_human, print_symbols_json,
+    resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file, symbol_to_json,
 };
+use crate::ast::parse_lang_hint;
 use crate::ast::symbols::{self, SymbolDef};
 use crate::cli::global::GlobalFlags;
 use crate::exit;
@@ -39,7 +39,7 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
     let target = cwd.join(&args.path);
 
     let kind_filter = parse_kind_filter(&args.kind)?;
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!(
         "ast list: target={}, kind_filter={:?}",
         args.path,
@@ -257,7 +257,7 @@ pub struct ValidateArgs {
 
 pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast validate: target={}", args.path);
 
     // Empty directory / no grammar files: fail closed (not vacuous success).
@@ -445,7 +445,7 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!(
         "ast search: query={}, pattern={}, target={}",
         args.query,
@@ -599,7 +599,7 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
     crate::verbose!("ast refs: scanning {} files", paths.len());
 
@@ -608,8 +608,7 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
     let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
         crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let display = display_path(path, &cwd);
-            let lang = lang_hint.map(lang_from_str);
-            let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang, &display);
+            let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
             if refs.is_empty() { None } else { Some(refs) }
         });
 
@@ -665,7 +664,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast deps: target={}, reverse={}", args.path, args.reverse);
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
@@ -890,6 +889,7 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
+    let _lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);
     crate::verbose!("ast impact: scanning {} files", paths.len());
 
@@ -953,7 +953,10 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
-    let lang = resolve_lang(args.lang.as_deref(), &target);
+    let lang = resolve_lang(
+        args.lang.as_deref().map(parse_lang_hint).transpose()?,
+        &target,
+    );
     crate::verbose!(
         "ast diff: file={}, from={}, lang={lang}",
         args.path,
@@ -1079,6 +1082,34 @@ mod tests {
                 "expected parse_timeout, got {e}"
             ),
         }
+    }
+
+    #[test]
+    fn list_unknown_lang_hint_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("mod.py"), "def x():\n    pass\n").unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let err = run_list(
+            ListArgs {
+                path: "mod.py".into(),
+                kind: None,
+                compact: false,
+                lang: Some("python3".into()),
+            },
+            &global,
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "explicit unknown lang must be invalid_input, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("python3"), "must name the token: {msg}");
+        assert!(
+            !msg.to_lowercase().contains("detected from"),
+            "must not blame the file path: {msg}"
+        );
+        assert!(msg.contains("python"), "must suggest python: {msg}");
     }
 
     #[test]
