@@ -32,5 +32,6 @@ runs:
         shared-key: ${{ inputs.shared-key || '' }}
         cache-on-failure: ${{ inputs.cache-on-failure }}
         # schedule runs on main and is the unattended seed for PR restores
-        # (ci.yml has no push-on-main). Fork PRs still cannot save.
-        save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
+        # (ci.yml has no push-on-main). merge_group also compiles and should
+        # seed the cache. Fork PRs still cannot save.
+        save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'merge_group' }}

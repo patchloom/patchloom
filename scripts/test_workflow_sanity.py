@@ -82,6 +82,10 @@ def main() -> int:
     )
     if "github.event_name == 'schedule'" not in rust_cache:
         return fail("setup-rust save-if must include schedule so main seeds the cache (#2433)")
+    if "github.event_name == 'merge_group'" not in rust_cache:
+        return fail(
+            "setup-rust save-if must include merge_group so queue builds seed the cache (#2433)"
+        )
     print("ok: workflow-sanity job, path filter, pinned linters, and lock target")
     return 0
 
