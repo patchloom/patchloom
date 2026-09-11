@@ -745,13 +745,35 @@ pub(super) fn handle_ast_refs(
             Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
         }
     } else {
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
             crate::par_process_files(&paths, None, &[], |path| {
                 let display = crate::cmd::ast::display_path(path, &cwd);
-                let refs =
-                    crate::ast::refs::find_refs_in_file(path, &p.symbol, lang_hint, &display);
+                let refs = match crate::ast::refs::try_find_refs_in_file(
+                    path, &p.symbol, lang_hint, &display,
+                ) {
+                    Ok(refs) => refs,
+                    Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                        let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                        if slot.is_none() {
+                            *slot = Some(path.display().to_string());
+                        }
+                        return None;
+                    }
+                    Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+                };
                 if refs.is_empty() { None } else { Some(refs) }
             });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            let msg = format!("parse deadline exceeded for {file}");
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
         per_file.into_iter().flatten().collect()
     };
 
@@ -1037,6 +1059,16 @@ pub(super) fn handle_ast_map(
     };
 
     if entries.is_empty() {
+        if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
+            let msg = err.msg;
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "invalid_input",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::FAILURE, &body.to_string(), &msg);
+        }
         return no_results("No symbols found.");
     }
 
@@ -1786,6 +1818,61 @@ impl Point {
     }
 
     #[test]
+    fn ast_map_unreadable_sibling_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("empty.rs"), "// no symbols\n").unwrap();
+        let locked = dir.path().join("locked.rs");
+        std::fs::write(&locked, "fn bar() {}\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            if std::fs::read_to_string(&locked).is_ok() {
+                std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+                return;
+            }
+            let svc = make_service(&dir);
+            let params = AstMapParams {
+                path: ".".into(),
+                max_tokens: 1024,
+                focus: Vec::new(),
+                boost: Vec::new(),
+            };
+            let result = handle_ast_map(&svc, params).expect("unreadable sibling is a tool result");
+            assert!(
+                result.is_error.unwrap_or(false),
+                "empty map must not mask an unreadable sibling as no symbols"
+            );
+            let text = extract_text(&result);
+            assert!(
+                text.contains("invalid_input"),
+                "unreadable sibling must surface invalid_input, got: {text}"
+            );
+            assert!(
+                text.contains("\"ok\":false") || text.contains("\"ok\": false"),
+                "invalid_input JSON must set ok:false: {text}"
+            );
+            assert!(
+                text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+                "invalid_input JSON must set applied:false: {text}"
+            );
+            assert!(
+                !text.contains("No symbols found"),
+                "must not claim no symbols when a scanned sibling is unreadable: {text}"
+            );
+            assert!(
+                !text.contains("invalid_params"),
+                "must be tool envelope, not JSON-RPC invalid_params: {text}"
+            );
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = locked;
+        }
+    }
+
+    #[test]
     fn ast_deps_reverse_unreadable_sibling_is_invalid_input() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("target.rs"), "fn foo() {}\n").unwrap();
@@ -1893,6 +1980,39 @@ impl Point {
         assert!(
             !text.contains("No references found"),
             "refs timeout must not become walk-soft no references: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_refs_dir_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(dir.path().join("main.rs"), "fn helper() { main(); }\n").unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstRefsParams {
+            path: ".".into(),
+            symbol: "main".into(),
+            include_def: true,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_refs(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "dir refs timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No references found"),
+            "dir refs timeout must not become walk-soft no references: {text}"
         );
     }
 
