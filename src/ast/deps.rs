@@ -67,6 +67,9 @@ pub(crate) fn try_extract_imports_from_file(
 /// True when any `/`, `.`, or `::` segment of `path` equals `stem`.
 ///
 /// Empty `stem` is never a match (would otherwise hit every import).
+/// Callers are CLI `ast deps --reverse` and MCP `ast_deps` reverse
+/// (`cli` / `mcp`). Pure `ast,files` embedders do not call this.
+#[cfg_attr(not(any(feature = "cli", feature = "mcp")), allow(dead_code))]
 pub(crate) fn import_path_refers_to_stem(path: &str, stem: &str) -> bool {
     if stem.is_empty() {
         return false;
