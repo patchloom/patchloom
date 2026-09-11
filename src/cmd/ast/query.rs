@@ -1,4 +1,6 @@
 //! Read-only `patchloom ast` subcommands (list, read, validate, search, refs, deps, map, impact, diff).
+//! size-waiver: accepted single-domain bulk (policy #1408). Query CLI plus
+//! parse-timeout fail-closed locks live in one command module.
 
 use super::common::{
     collect_source_files, display_path, filter_symbols, get_git_file_content, lang_from_str,
@@ -298,9 +300,25 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
         result: crate::ast::validate::ValidationResult,
     }
 
-    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let glob_roots = vec![cwd.join(&args.path)];
-    let results: Vec<ValidateFileResult> =
+    let results: Vec<ValidateFileResult> = if paths.len() == 1 {
+        // Sole explicit path: surface parse_timeout instead of walk-soft invalid.
+        let path = &paths[0];
+        let lang = resolve_lang(lang_hint, path);
+        match crate::ast::validate::validate_file(path, Some(lang)) {
+            Ok(result) => vec![ValidateFileResult {
+                display: display_path(path, &cwd),
+                result,
+            }],
+            Err(e) if crate::exit::is_parse_timeout(&e) => {
+                let msg = crate::exit::agent_error_message(&e);
+                global.emit_error_json_kind(Some("parse_timeout"), &msg)?;
+                return Ok(exit::PARSE_ERROR);
+            }
+            Err(e) => return Err(e),
+        }
+    } else {
+        let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+        let glob_roots = vec![cwd.join(&args.path)];
         crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
             let lang = resolve_lang(lang_hint, path);
             if !lang.has_grammar() {
@@ -309,7 +327,8 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
             let result = crate::ast::validate::validate_file_for_walk(path, Some(lang))?;
             let display = display_path(path, &cwd);
             Some(ValidateFileResult { display, result })
-        });
+        })
+    };
 
     // Unreadable co-paths must not look like clean validate or empty grammar set.
     if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
@@ -433,19 +452,30 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         .find(|p| resolve_lang(lang_hint, p).has_grammar())
     {
         let lang = resolve_lang(lang_hint, sample);
-        if args.pattern {
-            if let Err(e) = crate::ast::search::compile_pattern_query(&args.query, lang) {
+        let query_str = if args.pattern {
+            match crate::ast::search::compile_pattern_query(&args.query, lang) {
+                Ok(q) => q,
+                Err(e) => {
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("parse_error");
+                    let msg = crate::exit::agent_error_message(&e);
+                    global.emit_error_json_kind(Some(kind), &msg)?;
+                    return Ok(exit::PARSE_ERROR);
+                }
+            }
+        } else {
+            args.query.clone()
+        };
+        if let Err(e) = crate::ast::search::search_file(sample, &query_str, Some(lang), Some(1)) {
+            if crate::exit::is_parse_timeout(&e) {
+                let msg = crate::exit::agent_error_message(&e);
+                global.emit_error_json_kind(Some("parse_timeout"), &msg)?;
+                return Ok(exit::PARSE_ERROR);
+            }
+            if crate::exit::is_parse_error(&e) {
                 let msg = crate::exit::agent_error_message(&e);
                 global.emit_error_json_kind(Some("parse_error"), &msg)?;
                 return Ok(exit::PARSE_ERROR);
             }
-        } else if let Err(e) =
-            crate::ast::search::search_file(sample, &args.query, Some(lang), Some(1))
-            && crate::exit::is_parse_error(&e)
-        {
-            let msg = crate::exit::agent_error_message(&e);
-            global.emit_error_json_kind(Some("parse_error"), &msg)?;
-            return Ok(exit::PARSE_ERROR);
         }
     }
 
@@ -945,4 +975,99 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
     }
 
     Ok(exit::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::global::GlobalFlags;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    fn assert_search_timeout(result: anyhow::Result<u8>) {
+        match result {
+            Ok(code) => assert_eq!(
+                code,
+                exit::PARSE_ERROR,
+                "sole-file timeout must not become no_matches ({code})"
+            ),
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, got {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn search_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_search(
+            SearchArgs {
+                query: "(function_item) @fn".into(),
+                path: "deep.rs".into(),
+                pattern: false,
+                lang: None,
+                max_results: None,
+            },
+            &global,
+        );
+        assert_search_timeout(result);
+    }
+
+    #[test]
+    fn search_sole_file_pattern_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_search(
+            SearchArgs {
+                query: "fn $NAME() {}".into(),
+                path: "deep.rs".into(),
+                pattern: true,
+                lang: Some("rs".into()),
+                max_results: None,
+            },
+            &global,
+        );
+        assert_search_timeout(result);
+    }
+
+    #[test]
+    fn validate_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_validate(
+            ValidateArgs {
+                path: "deep.rs".into(),
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => assert_eq!(
+                code,
+                exit::PARSE_ERROR,
+                "sole-path validate timeout must be parse_timeout ({code})"
+            ),
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, got {e}"
+            ),
+        }
+    }
 }

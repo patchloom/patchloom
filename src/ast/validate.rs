@@ -48,21 +48,37 @@ fn validation_from_tree(
 
 /// Validate syntax of source code for a given language.
 pub fn validate_source(source: &str, lang: Language) -> Option<ValidationResult> {
-    let (tree, _) = try_parse_source(source, lang).ok()?;
-    Some(validation_from_tree(&tree, source, lang))
+    match try_parse_source(source, lang) {
+        Ok((tree, _)) => Some(validation_from_tree(&tree, source, lang)),
+        Err(ParseFailure::NoGrammar) => None,
+        Err(ParseFailure::DeadlineExceeded) => Some(timeout_validation_source(lang)),
+    }
 }
 
-/// Timed-out parse recorded as an invalid file (walks must not drop it).
-fn timeout_validation(path: &Path, lang: Language) -> ValidationResult {
+/// Timed-out parse recorded as invalid (walks and in-memory callers must not drop it).
+fn timeout_result(detail: String, lang: Language) -> ValidationResult {
     ValidationResult {
         valid: false,
         errors: vec![SyntaxError {
             line: 1,
             column: 0,
-            text: format!("parse deadline exceeded for {}", path.display()),
+            text: detail,
         }],
         language: lang.to_string(),
     }
+}
+
+/// Timed-out parse recorded as an invalid file (walks must not drop it).
+fn timeout_validation(path: &Path, lang: Language) -> ValidationResult {
+    timeout_result(
+        format!("parse deadline exceeded for {}", path.display()),
+        lang,
+    )
+}
+
+/// In-memory timeout result (no path).
+fn timeout_validation_source(lang: Language) -> ValidationResult {
+    timeout_result(format!("parse deadline exceeded for {lang}"), lang)
 }
 
 /// Validate syntax of a file.
@@ -246,6 +262,19 @@ mod tests {
         source.push_str(&")".repeat(depth));
         source.push_str("; }\n");
         source
+    }
+
+    #[test]
+    fn validate_source_timeout_is_invalid() {
+        let source = nested_rust_source(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = validate_source(&source, Language::Rust).expect("timeout stays Some");
+        assert!(!result.valid);
+        assert!(
+            result.errors.iter().any(|e| e.text.contains("deadline")),
+            "{:?}",
+            result.errors
+        );
     }
 
     #[test]

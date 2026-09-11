@@ -961,19 +961,11 @@ fn apply_cross_file_mutation(
         crate::backup::refuse_user_write_under_backup_dir(d)?;
     }
     if mode != ApplyMode::Apply {
-        // Still enforce entry containment on preview/check so hosts see
-        // guard_rejected without mutating (#2115).
-        ensure_contained_entry(guard, src)?;
-        if let Some(d) = dst {
-            ensure_contained_entry(guard, d)?;
-        }
+        // Caller spelling was already checked by library_abs_path_entry.
+        // Do not re-check the joined abs under Reject (#2405).
         return Ok((false, None));
     }
-    // Path-only rename: entry semantics (no-follow final component) on both ends.
-    ensure_contained_entry(guard, src)?;
-    if let Some(d) = dst {
-        ensure_contained_entry(guard, d)?;
-    }
+    // Path-only rename: dests were already checked with entry semantics.
     let cwd = library_project_root(src, guard);
     let mut backup = BackupSession::new(cwd)?;
     prepare_backup(&mut backup)?;

@@ -613,6 +613,7 @@ pub fn error_kind_implies_not_applied(kind: &str) -> bool {
             | "type_error"
             | "conflicts"
             | "parse_error"
+            | "parse_timeout"
             | "changes_detected"
             | "fuzzy_span_suspicious"
             | "rollback"
@@ -984,6 +985,21 @@ mod tests {
     }
 
     #[test]
+    fn structured_error_payload_prewrite_parse_timeout_set_applied_false() {
+        let err: anyhow::Error = ParseTimeoutError {
+            msg: "parse deadline exceeded for deep.rs".into(),
+        }
+        .into();
+        let (p, code) = structured_error_payload(&err);
+        assert_eq!(code, PARSE_ERROR);
+        assert_eq!(p["error_kind"], "parse_timeout");
+        assert_eq!(
+            p["applied"], false,
+            "pre-write parse_timeout must set applied:false: {p}"
+        );
+    }
+
+    #[test]
     fn agent_error_message_avoids_double_os_when_context_embeds_cause() {
         // Mirrors load_text_strict NotFound: context already includes `{e}`.
         let io = std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory");
@@ -1041,6 +1057,7 @@ mod tests {
         assert!(error_kind_implies_not_applied("already_exists"));
         assert!(error_kind_implies_not_applied("not_found"));
         assert!(error_kind_implies_not_applied("parse_error"));
+        assert!(error_kind_implies_not_applied("parse_timeout"));
         assert!(error_kind_implies_not_applied("guard_rejected"));
         assert!(error_kind_implies_not_applied("binary"));
         assert!(error_kind_implies_not_applied("invalid_encoding"));

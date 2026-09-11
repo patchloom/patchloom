@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use tree_sitter_lib::StreamingIterator;
 
-use super::{Language, parse_source};
+use super::{Language, ParseFailure, try_parse_source};
 
 /// A single structural search match.
 #[derive(Debug, Clone, Serialize)]
@@ -42,11 +42,19 @@ pub fn search_query(
     lang: Language,
     max_results: Option<usize>,
 ) -> anyhow::Result<Vec<SearchMatch>> {
-    let (tree, ts_lang) = parse_source(source, lang).ok_or_else(|| {
-        anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: format!("no grammar for {lang}"),
-        })
-    })?;
+    let (tree, ts_lang) = match try_parse_source(source, lang) {
+        Ok(parsed) => parsed,
+        Err(ParseFailure::DeadlineExceeded) => {
+            return Err(anyhow::Error::new(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {lang}"),
+            }));
+        }
+        Err(ParseFailure::NoGrammar) => {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("no grammar for {lang}"),
+            }));
+        }
+    };
 
     let query = tree_sitter_lib::Query::new(&ts_lang, query_str).map_err(|e| {
         anyhow::Error::new(crate::exit::ParseErrorError {
@@ -156,11 +164,19 @@ pub fn compile_pattern_query(pattern: &str, lang: Language) -> anyhow::Result<St
         sanitized.replace_range(start..end, &placeholder);
     }
 
-    let (tree, _) = parse_source(&sanitized, lang).ok_or_else(|| {
-        anyhow::Error::new(crate::exit::ParseErrorError {
-            msg: format!("cannot parse pattern for {lang}"),
-        })
-    })?;
+    let (tree, _) = match try_parse_source(&sanitized, lang) {
+        Ok(parsed) => parsed,
+        Err(ParseFailure::DeadlineExceeded) => {
+            return Err(anyhow::Error::new(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {lang}"),
+            }));
+        }
+        Err(ParseFailure::NoGrammar) => {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("cannot parse pattern for {lang}"),
+            }));
+        }
+    };
 
     let root = tree.root_node();
     if root.has_error() {
@@ -316,6 +332,46 @@ fn main() {
     fn unknown_language_returns_error() {
         let result = search_query("anything", "(identifier)", Language::Unknown, None);
         result.expect_err("expected error");
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn search_query_deadline_is_parse_timeout() {
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let source = nested_rust_source(80_000);
+        let err = search_query(&source, "(function_item) @fn", Language::Rust, None).unwrap_err();
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "expected parse_timeout, got {err}"
+        );
+        assert_eq!(crate::fallback::error_kind_str(&err), Some("parse_timeout"));
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("no grammar"),
+            "timeout must not look like no grammar: {msg}"
+        );
+    }
+
+    #[test]
+    fn search_query_unknown_language_is_invalid_input() {
+        let err = search_query("anything", "(identifier)", Language::Unknown, None).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "expected invalid_input, got {err}"
+        );
+        assert_eq!(crate::fallback::error_kind_str(&err), Some("invalid_input"));
+        assert!(
+            err.to_string().contains("no grammar"),
+            "NoGrammar must stay invalid_input no-grammar: {err}"
+        );
     }
 
     #[test]
