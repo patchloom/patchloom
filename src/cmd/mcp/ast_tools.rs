@@ -2401,6 +2401,143 @@ impl Point {
     }
 
     #[test]
+    fn ast_insert_empty_content_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo() { let x = 1; }\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstInsertParams {
+            path: "t.rs".into(),
+            content: String::new(),
+            inside: None,
+            after: Some("foo".into()),
+            before: None,
+            position: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_insert(&svc, params).expect("empty content is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty insert content must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty insert must not mutate dest");
+    }
+
+    #[test]
+    fn ast_wrap_empty_wrapper_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo() { let x = 1; }\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstWrapParams {
+            path: "t.rs".into(),
+            symbols: Some(vec!["foo".into()]),
+            lines: None,
+            wrapper: String::new(),
+            preamble: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_wrap(&svc, params).expect("empty wrapper is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty wrap wrapper must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty wrap must not mutate dest");
+    }
+
+    #[test]
+    fn ast_rewrite_empty_new_signature_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo() { let x = 1; }\nfn bar() {}\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstRewriteSignatureParams {
+            path: "t.rs".into(),
+            old: "foo".into(),
+            new_signature: Some(String::new()),
+            visibility: None,
+            parameters: None,
+            return_type: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_rewrite_signature(&svc, params)
+            .expect("empty new_signature is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty new_signature must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty new_signature must not mutate dest");
+    }
+
+    #[test]
+    fn ast_group_empty_module_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo() { let x = 1; }\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstGroupParams {
+            path: "t.rs".into(),
+            module: String::new(),
+            symbols: vec!["foo".into()],
+            preamble: None,
+            position: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_group(&svc, params).expect("empty module is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty group module must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty group module must not mutate dest");
+    }
+
+    #[test]
+    fn ast_imports_empty_add_item_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo() { let x = 1; }\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstImportsParams {
+            path: "t.rs".into(),
+            add: Some(vec![String::new()]),
+            remove: None,
+            dedupe: false,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_imports(&svc, params).expect("empty add item is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty import add item must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty import add must not mutate dest");
+    }
+
+    #[test]
     fn ast_rename_replaces_symbol() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("rename.rs"), RUST_SAMPLE).unwrap();

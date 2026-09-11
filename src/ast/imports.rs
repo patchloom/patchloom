@@ -1,4 +1,8 @@
 //! Import/use statement manipulation: add, remove, deduplicate.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Multi-language
+//! import add/remove/dedupe plus empty-item peel; tests co-located; do not
+//! split for LOC alone.
 
 use super::Language;
 
@@ -69,6 +73,22 @@ pub fn list_imports(source: &str, lang: Language) -> Vec<ImportStatement> {
     imports
 }
 
+/// Refuse empty / whitespace-only import items before `add_imports`.
+/// Agents get `invalid_input` via the tx call site; library callers still
+/// skip those items inside [`add_imports`] so a lone `;` is never written.
+#[cfg_attr(
+    not(any(feature = "cli", feature = "files", feature = "mcp")),
+    allow(dead_code)
+)]
+pub(crate) fn reject_empty_import_items(items: &[String]) -> anyhow::Result<()> {
+    if items.iter().any(|item| item.trim().is_empty()) {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast imports item must not be empty".into(),
+        }));
+    }
+    Ok(())
+}
+
 /// Add import statements idempotently to source code.
 ///
 /// Skips imports that already exist. Inserts at the appropriate position
@@ -82,6 +102,9 @@ pub fn add_imports(source: &str, imports_to_add: &[String], lang: Language) -> I
 
     let mut new_imports = Vec::new();
     for imp in imports_to_add {
+        if imp.trim().is_empty() {
+            continue;
+        }
         let normalized = normalize_import(imp);
         if !existing_texts.contains(&normalized) {
             new_imports.push(format_import(imp, lang));
@@ -987,5 +1010,38 @@ mod tests {
             "function should not be part of import block: {}",
             imports[0].text
         );
+    }
+
+    #[test]
+    fn add_imports_empty_item_does_not_insert_semicolon() {
+        let source = "fn foo() { let x = 1; }\n";
+        let result = add_imports(source, &[String::new()], Language::Rust);
+        assert_eq!(result.added, 0, "empty item must not count as added");
+        assert_eq!(
+            result.content, source,
+            "empty item must not insert a lone semicolon: {}",
+            result.content
+        );
+    }
+
+    #[test]
+    fn reject_empty_import_items_is_invalid_input() {
+        let err = reject_empty_import_items(&[String::new()])
+            .expect_err("empty import item must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty import item must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+        let err = reject_empty_import_items(&["   ".into()])
+            .expect_err("whitespace-only import item must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace-only import item must classify as invalid_input: {err}"
+        );
+        reject_empty_import_items(&["use std::io;".into()]).expect("non-empty item");
     }
 }

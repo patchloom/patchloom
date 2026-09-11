@@ -53,6 +53,12 @@ pub fn insert_code(
         }));
     }
 
+    if content.trim().is_empty() && !content.contains('\n') && !content.contains('\r') {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast insert content must not be empty".into(),
+        }));
+    }
+
     let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
@@ -749,6 +755,77 @@ mod tests {
         assert!(
             crate::exit::is_parse_timeout(&err),
             "timeout must not become no_matches: {err}"
+        );
+    }
+
+    #[test]
+    fn insert_empty_content_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let err = insert_code(
+            source,
+            "",
+            None,
+            Some("foo"),
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .expect_err("empty insert content must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty content must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn insert_whitespace_only_content_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let err = insert_code(
+            source,
+            "   ",
+            None,
+            Some("foo"),
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .expect_err("whitespace-only insert content must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace-only content must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn insert_newline_only_content_still_inserts() {
+        let source = "fn foo() { let x = 1; }\n";
+        let result = insert_code(
+            source,
+            "\n",
+            None,
+            Some("foo"),
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .expect("newline-only content must insert a blank line");
+        assert!(
+            result.content.len() > source.len(),
+            "file must grow when inserting a blank line: {:?}",
+            result.content
+        );
+        assert!(
+            result.content.contains("fn foo()"),
+            "anchor must remain: {:?}",
+            result.content
         );
     }
 }

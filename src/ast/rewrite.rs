@@ -340,6 +340,17 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
         .flatten()
 }
 
+/// Refuse empty / whitespace-only `new_signature` before a splice that would
+/// delete `fn name(...)` and leave a dangling body (` { ... }`).
+pub(crate) fn reject_empty_new_signature(new_sig: &str) -> anyhow::Result<()> {
+    if new_sig.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast rewrite new_signature must not be empty".into(),
+        }));
+    }
+    Ok(())
+}
+
 /// Like [`replace_function_signature`], but a parse deadline is
 /// [`crate::exit::ParseTimeoutError`] instead of `None`.
 pub(crate) fn try_replace_function_signature(
@@ -347,6 +358,7 @@ pub(crate) fn try_replace_function_signature(
     old_name: &str,
     new_sig: &str,
 ) -> anyhow::Result<Option<String>> {
+    reject_empty_new_signature(new_sig)?;
     let Some((tree, _)) = parse_or_timeout(source, Language::Rust)? else {
         return Ok(None);
     };
@@ -1312,6 +1324,35 @@ mod tests {
             "body brace + body must remain intact: {out}"
         );
         assert!(!out.contains("i32{"), "must not invent brace glue: {out}");
+    }
+
+    #[test]
+    fn reject_empty_new_signature_is_invalid_input() {
+        for sig in ["", "   ", "\n", "\t"] {
+            let err = reject_empty_new_signature(sig).expect_err("empty new_signature must fail");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "empty new_signature must be invalid_input, got {err}"
+            );
+            assert!(
+                err.to_string().contains("must not be empty"),
+                "message must say must not be empty: {err}"
+            );
+        }
+        reject_empty_new_signature("fn foo()").expect("non-empty signature");
+    }
+
+    #[test]
+    fn try_replace_function_signature_empty_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\nfn bar() {}\n";
+        for sig in ["", "   "] {
+            let err = try_replace_function_signature(source, "foo", sig)
+                .expect_err("empty new_signature must be invalid_input");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "empty new_signature must classify as invalid_input: {err}"
+            );
+        }
     }
 
     // ── find_function_span tests ──────────────────────────────────

@@ -226,6 +226,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .into());
             }
             let new_content = if let Some(new_sig) = new_signature {
+                crate::ast::rewrite::reject_empty_new_signature(new_sig)?;
                 let span = match crate::ast::rewrite::try_find_function_span(content, old, lang_val)
                 {
                     Ok(Some(s)) => s,
@@ -341,6 +342,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             let mut total_changes = 0usize;
 
             if let Some(add_list) = add {
+                crate::ast::imports::reject_empty_import_items(add_list)?;
                 let result = crate::ast::imports::add_imports(&file_content, add_list, lang_val);
                 total_changes += result.added;
                 file_content = result.content;
