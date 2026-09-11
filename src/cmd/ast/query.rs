@@ -1,4 +1,6 @@
 //! Read-only `patchloom ast` subcommands (list, read, validate, search, refs, deps, map, impact, diff).
+//! size-waiver: accepted single-domain bulk (policy #1408). Query CLI plus
+//! parse-timeout fail-closed locks live in one command module.
 
 use super::common::{
     collect_source_files, display_path, filter_symbols, get_git_file_content, lang_from_str,
@@ -1006,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn run_search_sole_file_timeout_is_parse_timeout() {
+    fn search_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
@@ -1025,7 +1027,7 @@ mod tests {
     }
 
     #[test]
-    fn run_search_sole_file_pattern_timeout_is_parse_timeout() {
+    fn search_sole_file_pattern_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
@@ -1044,7 +1046,7 @@ mod tests {
     }
 
     #[test]
-    fn run_validate_sole_file_timeout_is_parse_timeout() {
+    fn validate_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());

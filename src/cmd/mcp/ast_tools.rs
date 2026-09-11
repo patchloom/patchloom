@@ -352,6 +352,7 @@ pub(super) fn handle_ast_validate(
                 let msg = crate::exit::agent_error_message(&e);
                 let body = serde_json::json!({
                     "ok": false,
+                    "applied": false,
                     "error_kind": "parse_timeout",
                     "error": msg,
                 });
@@ -460,6 +461,7 @@ pub(super) fn handle_ast_search(
         let msg = crate::exit::agent_error_message(e);
         let body = serde_json::json!({
             "ok": false,
+            "applied": false,
             "error_kind": "parse_timeout",
             "error": msg,
         });
@@ -1320,6 +1322,10 @@ impl Point {
         assert!(
             text.contains("parse_timeout"),
             "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
         );
         assert!(
             !text.contains("No matches found"),
