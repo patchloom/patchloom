@@ -67,6 +67,11 @@ pub fn group_symbols(
     spec: &GroupSpec,
     lang: Language,
 ) -> anyhow::Result<GroupResult> {
+    if spec.module.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast group module must not be empty".into(),
+        }));
+    }
     let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
@@ -518,5 +523,47 @@ mod tests {
         assert!(result.content.contains("mod helpers {"));
         assert!(result.content.contains("fn helpers()")); // function preserved
         assert_eq!(result.symbols_moved, 1);
+    }
+
+    #[test]
+    fn group_empty_module_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let spec = GroupSpec {
+            module: String::new(),
+            symbols: vec!["foo".into()],
+            preamble: None,
+            position: GroupPosition::FirstSymbol,
+        };
+        let err = group_symbols(source, &spec, Language::Rust)
+            .expect_err("empty group module must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty module must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn group_whitespace_only_module_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let spec = GroupSpec {
+            module: "   ".into(),
+            symbols: vec!["foo".into()],
+            preamble: None,
+            position: GroupPosition::FirstSymbol,
+        };
+        let err = group_symbols(source, &spec, Language::Rust)
+            .expect_err("whitespace-only group module must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace-only module must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
     }
 }
