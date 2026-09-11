@@ -11,6 +11,50 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.34.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.33.0...patchloom-v0.34.0) (2026-09-11)
+
+
+### Bug Fixes
+
+* **api:** fail closed on dest Reject re-check and parse timeouts ([#2412](https://github.com/patchloom/patchloom/issues/2412)) ([f3c074b](https://github.com/patchloom/patchloom/commit/f3c074b8cf68869542e952b391a6704df5323ffb))
+* **api:** peel no-files create symlink and patch dest guard ([#2418](https://github.com/patchloom/patchloom/issues/2418)) ([92b637f](https://github.com/patchloom/patchloom/commit/92b637fe34149b0a13c5a1d639a8cabb0f15abfb)), closes [#2417](https://github.com/patchloom/patchloom/issues/2417)
+* **api:** peel no-files tidy charset dest guard ([#2419](https://github.com/patchloom/patchloom/issues/2419)) ([c7b7504](https://github.com/patchloom/patchloom/commit/c7b75044e79eed8352ee660c89a12258e6186bbf)), closes [#2418](https://github.com/patchloom/patchloom/issues/2418)
+* **api:** resolve md dedupe dest against PathGuard root ([#2396](https://github.com/patchloom/patchloom/issues/2396)) ([8e75992](https://github.com/patchloom/patchloom/commit/8e75992743f6fd9d3d67a378d64a21229168cdef)), closes [#2385](https://github.com/patchloom/patchloom/issues/2385)
+* **api:** root library backups at PathGuard workspace ([#2394](https://github.com/patchloom/patchloom/issues/2394)) ([df928d8](https://github.com/patchloom/patchloom/commit/df928d82e9c14635168ad0af4cbc3e57c25aeb25))
+* **ast:** fail closed on parse timeout and unknown lang ([#2413](https://github.com/patchloom/patchloom/issues/2413)) ([7768979](https://github.com/patchloom/patchloom/commit/7768979b351470688591e4b3d40ef05f742f2594))
+* **ast:** fail closed on parse timeout for deps walk and impact ([#2415](https://github.com/patchloom/patchloom/issues/2415)) ([aad46c3](https://github.com/patchloom/patchloom/commit/aad46c3a5fd823745c413a412cd04fe7374b29c8))
+* **ast:** fail closed on parse timeout for dir list and map ([#2416](https://github.com/patchloom/patchloom/issues/2416)) ([19e04d8](https://github.com/patchloom/patchloom/commit/19e04d8519696e46464701d58b1f31150da19bd3)), closes [#2415](https://github.com/patchloom/patchloom/issues/2415)
+* **ast:** fail closed on parse timeout for dir refs ([#2417](https://github.com/patchloom/patchloom/issues/2417)) ([8423c6f](https://github.com/patchloom/patchloom/commit/8423c6fbb51b01b5f63aa03b08a999d26353d496))
+* **ast:** fail closed on parse timeout for rewrite and remaining ops ([#2414](https://github.com/patchloom/patchloom/issues/2414)) ([8e4d429](https://github.com/patchloom/patchloom/commit/8e4d429d02ad9578d141e098c3864d0911af58ef))
+* **ast:** peel empty AST mutate constructs ([#2424](https://github.com/patchloom/patchloom/issues/2424)) ([a0192e2](https://github.com/patchloom/patchloom/commit/a0192e2868557445cdf89dbd64d81bb4b035aa24))
+* **ast:** peel empty rename --new and replace --old ([#2423](https://github.com/patchloom/patchloom/issues/2423)) ([c9075c1](https://github.com/patchloom/patchloom/commit/c9075c144cd1423ca4b3ae5ff343008a7f716868)), closes [#2422](https://github.com/patchloom/patchloom/issues/2422)
+* **ast:** peel empty rewrite parameters and split symbols ([#2425](https://github.com/patchloom/patchloom/issues/2425)) ([078e7c0](https://github.com/patchloom/patchloom/commit/078e7c0ab51883d725ce9dab08de155cd7633ad3)), closes [#2424](https://github.com/patchloom/patchloom/issues/2424)
+* **ast:** peel empty search --pattern as invalid_input ([#2422](https://github.com/patchloom/patchloom/issues/2422)) ([df4c9da](https://github.com/patchloom/patchloom/commit/df4c9da83720deffb9406010e06aa9a7ca97ac9a)), closes [#2421](https://github.com/patchloom/patchloom/issues/2421)
+* **ast:** peel leftover empty move prepend and whitespace names ([#2426](https://github.com/patchloom/patchloom/issues/2426)) ([7991253](https://github.com/patchloom/patchloom/commit/79912532b4d16adeeb236742b73940995202e7d0))
+* **ast:** scan cwd and share stem match for reverse deps ([#2420](https://github.com/patchloom/patchloom/issues/2420)) ([a8da9f4](https://github.com/patchloom/patchloom/commit/a8da9f41719f07edcd315e646c25c98e88b4e5e6))
+* **file:** peel whitespace-only create content ([#2430](https://github.com/patchloom/patchloom/issues/2430)) ([b2e1df1](https://github.com/patchloom/patchloom/commit/b2e1df1715f16b22b137f869fbc56414c019ff06)), closes [#2429](https://github.com/patchloom/patchloom/issues/2429)
+* **files:** fill 8 KiB binary probe through short reads ([#2397](https://github.com/patchloom/patchloom/issues/2397)) ([8bade70](https://github.com/patchloom/patchloom/commit/8bade70960c971b0a79e4571bbcad28479ac1344))
+* **files:** peel invalid globs as invalid_input ([#2421](https://github.com/patchloom/patchloom/issues/2421)) ([2567ec2](https://github.com/patchloom/patchloom/commit/2567ec221aae190943abc56844959dcddb3d9744)), closes [#2182](https://github.com/patchloom/patchloom/issues/2182)
+* library dest guard, parse timeout, and notes-branch delete ([#2411](https://github.com/patchloom/patchloom/issues/2411)) ([a22a1ce](https://github.com/patchloom/patchloom/commit/a22a1ce2c48493300780a80435122191666ae310)), closes [#2404](https://github.com/patchloom/patchloom/issues/2404) [#2405](https://github.com/patchloom/patchloom/issues/2405) [#2406](https://github.com/patchloom/patchloom/issues/2406) [#2407](https://github.com/patchloom/patchloom/issues/2407) [#2408](https://github.com/patchloom/patchloom/issues/2408) [#2409](https://github.com/patchloom/patchloom/issues/2409) [#2410](https://github.com/patchloom/patchloom/issues/2410)
+* **md:** peel empty upsert bullets and whitespace inserts ([#2427](https://github.com/patchloom/patchloom/issues/2427)) ([78d42a9](https://github.com/patchloom/patchloom/commit/78d42a9f55896163dc41e41a78798b4e0ea63d25))
+* **md:** peel leftover null merge and whitespace injects ([#2429](https://github.com/patchloom/patchloom/issues/2429)) ([517de24](https://github.com/patchloom/patchloom/commit/517de241b89ac32284fc228ef1a2a14663682f30))
+* **ops:** fill leftover 8 KiB binary probes through short reads ([#2399](https://github.com/patchloom/patchloom/issues/2399)) ([675f3b3](https://github.com/patchloom/patchloom/commit/675f3b3ca1952ec38ccc0db212d224d6885c2f70)), closes [#2398](https://github.com/patchloom/patchloom/issues/2398) [#2388](https://github.com/patchloom/patchloom/issues/2388)
+* sole-path walk, rename parse reuse, and review leftovers ([#2439](https://github.com/patchloom/patchloom/issues/2439)) ([06ea333](https://github.com/patchloom/patchloom/commit/06ea333730480c0e95a51e196446e35040ace3f6))
+* **tidy:** character-safe indent handling and typed spec validation ([#2392](https://github.com/patchloom/patchloom/issues/2392)) ([1867713](https://github.com/patchloom/patchloom/commit/18677131cc4fe6f359d01ba4ba4d1d9beff756a9))
+
+
+### Performance Improvements
+
+* **ast:** cache parser per language and add a parse deadline ([#2402](https://github.com/patchloom/patchloom/issues/2402)) ([0543a91](https://github.com/patchloom/patchloom/commit/0543a916a3d570b7aa246ae3d6c596f651ae46b9)), closes [#2384](https://github.com/patchloom/patchloom/issues/2384)
+* **files:** claim par_process_files work from a shared cursor ([#2403](https://github.com/patchloom/patchloom/issues/2403)) ([5394bab](https://github.com/patchloom/patchloom/commit/5394babdd71e5e4d9c1d9a8841e3118f5b9a9a7d))
+* **files:** classify text bytes without an extra copy ([#2401](https://github.com/patchloom/patchloom/issues/2401)) ([c130fc1](https://github.com/patchloom/patchloom/commit/c130fc18aba8990a7e9cf4f88c7644b0dbd89f20)), closes [#2382](https://github.com/patchloom/patchloom/issues/2382)
+* **search:** cap per-file match materialization ([#2400](https://github.com/patchloom/patchloom/issues/2400)) ([88df081](https://github.com/patchloom/patchloom/commit/88df081a73eeb0be683d8d81dfe008d6f396a181)), closes [#2381](https://github.com/patchloom/patchloom/issues/2381)
+
+
+### Miscellaneous Chores
+
+* release 0.34.0 ([ac1d338](https://github.com/patchloom/patchloom/commit/ac1d338a66a5cb6891fc0d35d16374f5bbc80ff0))
+
 ## [0.33.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.32.0...patchloom-v0.33.0) (2026-09-08)
 
 
