@@ -362,6 +362,57 @@ fn file_prepend_to_deleted_file_errors() {
     );
 }
 
+#[test]
+fn file_append_rejects_whitespace_only() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+
+    let op = Operation::FileAppend {
+        path: "a.txt".into(),
+        content: "   ".into(),
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError, got: {err:#}"
+    );
+    assert!(
+        err.to_string().contains("whitespace-only"),
+        "message should name whitespace: {err}"
+    );
+    assert!(
+        f.pending.is_empty(),
+        "must not stage a write for whitespace-only append"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn file_prepend_rejects_whitespace_only() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+
+    let op = Operation::FilePrepend {
+        path: "a.txt".into(),
+        content: "\t".into(),
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(crate::exit::is_invalid_input(&err), "got: {err:#}");
+    assert!(
+        f.pending.is_empty(),
+        "must not stage a write for whitespace-only prepend"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
 /// append/prepend must not rewrite binary (NUL) files as text.
 #[test]
 fn file_append_rejects_binary_file() {

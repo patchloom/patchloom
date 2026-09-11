@@ -418,6 +418,21 @@ mod basic {
     }
 
     #[test]
+    fn mutation_merge_numeric_zero_still_applies() {
+        let mut root = json!({"a": 1});
+        let result = apply_doc_mutation(
+            &mut root,
+            DocMutation::Merge {
+                selector: None,
+                value: json!(0),
+            },
+        )
+        .unwrap();
+        assert!(matches!(result, MutationResult::Applied));
+        assert_eq!(root, json!(0), "numeric 0 is a real overlay write");
+    }
+
+    #[test]
     fn mutation_blank_object_key_is_invalid_input() {
         let mut root = json!({"a": 1});
         let err = apply_doc_mutation(
