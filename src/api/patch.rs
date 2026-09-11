@@ -240,6 +240,7 @@ fn patch_write(
             .map_err(|e| map_apply_hunks_err(&pf.path, e))?;
 
         let policy = crate::write::WritePolicy::default();
+        super::ensure_contained(guard, &write_path)?;
         let (applied, backup_session) =
             super::write_if_apply(&write_path, &new_content, mode, &policy, guard)?;
         if applied {

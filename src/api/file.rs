@@ -80,6 +80,8 @@ fn file_write(
                     ),
                 }));
             }
+            crate::ops::file::refuse_symlink_destination(path, path_str)
+                .map_err(anyhow::Error::new)?;
             // Force: soft-load prior (binary/encoding/unreadable → empty) (#1962).
             // Special nodes (dangling) → empty original; regular text strict load.
             let original = match classify_path_entry(path) {
