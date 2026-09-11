@@ -145,13 +145,26 @@ pub fn execute_plan_direct(
     let verify_before = if let Some(ref checks) = plan.verify {
         if !checks.is_empty() {
             let affected = verify::scan_paths_for_checks(&plan, &effective_cwd, checks);
-            checks
-                .iter()
-                .map(|check| {
-                    let snap = verify::snapshot_symbols(&affected, check);
-                    (check.clone(), snap)
-                })
-                .collect::<Vec<_>>()
+            let mut snaps = Vec::new();
+            for check in checks {
+                let snap = match verify::snapshot_symbols(&affected, check) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let suggested = crate::exit::suggested_op_from_error(&e);
+                        if let Some((kind, _)) = crate::exit::classify_typed_error(&e) {
+                            return Ok(build_error_output_with_suggested_op(
+                                kind,
+                                &e.to_string(),
+                                None,
+                                suggested,
+                            ));
+                        }
+                        return Err(e);
+                    }
+                };
+                snaps.push((check.clone(), snap));
+            }
+            snaps
         } else {
             Vec::new()
         }
@@ -203,7 +216,21 @@ pub fn execute_plan_direct(
         let mut any_failed = false;
         for (check, before_snap) in &verify_before {
             let after_snap =
-                verify::snapshot_symbols_from_pending(&affected, &result.pending, check);
+                match verify::snapshot_symbols_from_pending(&affected, &result.pending, check) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let suggested = crate::exit::suggested_op_from_error(&e);
+                        if let Some((kind, _)) = crate::exit::classify_typed_error(&e) {
+                            return Ok(build_error_output_with_suggested_op(
+                                kind,
+                                &e.to_string(),
+                                None,
+                                suggested,
+                            ));
+                        }
+                        return Err(e);
+                    }
+                };
             let vr = verify::compare_snapshots(before_snap, &after_snap, check, &effective_cwd);
             messages.push(vr.message.clone());
             if !vr.passed {
@@ -1152,5 +1179,70 @@ mod tests {
         assert_eq!(b.match_mode.as_deref(), Some("exact"));
         let json = serde_json::to_string(&report).unwrap();
         assert!(json.contains("\"match_mode\""), "{json}");
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn execute_plan_verify_timeout_is_parse_timeout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![crate::plan::Operation::Replace {
+                glob: None,
+                path: Some("deep.rs".into()),
+                regex: false,
+                old: "fn main".into(),
+                new_text: Some("fn entry".into()),
+                nth: None,
+                insert_before: None,
+                insert_after: None,
+                case_insensitive: false,
+                multiline: false,
+                if_exists: false,
+                whole_line: false,
+                range: None,
+                word_boundary: false,
+                before_context: None,
+                after_context: None,
+                unique: false,
+                require_change: false,
+                command_position: false,
+                fuzzy: false,
+                min_fuzzy_score: None,
+                allow_absent_old: false,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: Some(vec![crate::plan::VerifyCheck::SymbolCount {
+                kind: "function".into(),
+                attr: None,
+            }]),
+            for_each: None,
+        };
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let report =
+            execute_plan_direct(plan, dir.path(), None).expect("typed timeout is TxOutput");
+        assert!(
+            !report.ok,
+            "verify snapshot timeout must not pass 0==0: {report:?}"
+        );
+        assert_eq!(
+            report.error_kind.as_deref(),
+            Some("parse_timeout"),
+            "verify timeout must be parse_timeout, got {report:?}"
+        );
     }
 }

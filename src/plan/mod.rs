@@ -635,10 +635,22 @@ pub fn expand_for_each(plan: &mut Plan, cwd: &std::path::Path) -> anyhow::Result
         {
             // find_symbol walks nested children (impl methods, mod items).
             // Top-level-only matching dropped realistic method filters.
-            matched.retain(|p| {
-                let syms = crate::ast::symbols::extract_symbols_from_file(p, None);
-                crate::ast::symbols::find_symbol(&syms, sym_name).is_some()
-            });
+            let mut kept = Vec::new();
+            for p in matched {
+                let syms = match crate::ast::symbols::try_extract_symbols_from_file(&p, None) {
+                    Ok(s) => s,
+                    Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                        return Err(anyhow::Error::new(crate::exit::ParseTimeoutError {
+                            msg: format!("parse deadline exceeded for {}", p.display()),
+                        }));
+                    }
+                    Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+                };
+                if crate::ast::symbols::find_symbol(&syms, sym_name).is_some() {
+                    kept.push(p);
+                }
+            }
+            matched = kept;
         }
         #[cfg(not(feature = "ast"))]
         {

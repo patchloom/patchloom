@@ -133,16 +133,29 @@ pub(crate) fn extract_symbols_or_timeout(
 }
 
 /// Read a file and extract symbols.
+///
+/// Soft-skips missing grammar, binary, and invalid UTF-8 as an empty list.
+/// Prefer [`try_extract_symbols_from_file`] when a parse deadline must fail
+/// closed instead of looking like "no symbols".
 pub fn extract_symbols_from_file(path: &Path, lang_hint: Option<Language>) -> Vec<SymbolDef> {
+    try_extract_symbols_from_file(path, lang_hint).unwrap_or_default()
+}
+
+/// Like [`extract_symbols_from_file`], but a parse deadline is
+/// [`ParseFailure::DeadlineExceeded`] instead of an empty list.
+pub(crate) fn try_extract_symbols_from_file(
+    path: &Path,
+    lang_hint: Option<Language>,
+) -> Result<Vec<SymbolDef>, ParseFailure> {
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
     if !lang.has_grammar() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     // SoftSkip multi-path (#1894): binary / invalid UTF-8 → empty.
     let Some(source) = crate::files::read_text_file(path) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    extract_symbols(&source, lang)
+    try_extract_symbols(&source, lang)
 }
 
 /// Find a symbol by name, optionally qualified (e.g. "Impl::method").

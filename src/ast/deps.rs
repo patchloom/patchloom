@@ -39,16 +39,29 @@ pub(crate) fn try_extract_imports(
 }
 
 /// Extract imports from a file.
+///
+/// Soft-skips missing grammar, binary, and invalid UTF-8 as an empty list.
+/// Prefer [`try_extract_imports_from_file`] when a parse deadline must fail
+/// closed instead of looking like "no imports".
 pub fn extract_imports_from_file(path: &Path, lang_hint: Option<Language>) -> Vec<Import> {
+    try_extract_imports_from_file(path, lang_hint).unwrap_or_default()
+}
+
+/// Like [`extract_imports_from_file`], but a parse deadline is
+/// [`ParseFailure::DeadlineExceeded`] instead of an empty list.
+pub(crate) fn try_extract_imports_from_file(
+    path: &Path,
+    lang_hint: Option<Language>,
+) -> Result<Vec<Import>, ParseFailure> {
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
     if !lang.has_grammar() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     // SoftSkip multi-path (#1894): binary / invalid UTF-8 → empty.
     let Some(source) = crate::files::read_text_file(path) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    extract_imports(&source, lang)
+    try_extract_imports(&source, lang)
 }
 
 fn collect_imports(
@@ -674,6 +687,23 @@ namespace app {
         assert_eq!(
             imports[0].path, "org.junit.Assert.*",
             "static import path should not contain 'static '"
+        );
+    }
+
+    #[test]
+    fn try_extract_imports_from_file_timeout_is_deadline() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(80_000));
+        source.push('1');
+        source.push_str(&")".repeat(80_000));
+        source.push_str("; }\n");
+        std::fs::write(&path, source).unwrap();
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        assert_eq!(
+            try_extract_imports_from_file(&path, None).unwrap_err(),
+            ParseFailure::DeadlineExceeded
         );
     }
 
