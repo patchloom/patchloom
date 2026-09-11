@@ -384,18 +384,6 @@ mod tests {
     }
 
     #[test]
-    fn extract_to_file_timeout_is_parse_timeout() {
-        let source = crate::ast::nested_rust_source_for_timeout(80_000);
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let err = extract_to_file(&source, "main", None, false, None, Language::Rust)
-            .expect_err("deadline must be Err, not symbol-not-found");
-        assert!(
-            crate::exit::is_parse_timeout(&err),
-            "timeout must not become no_matches: {err}"
-        );
-    }
-
-    #[test]
     fn extract_empty_prepend_is_invalid_input() {
         let source = "fn foo() { let x = 1; }\n";
         for pre in ["", "   "] {

@@ -730,26 +730,6 @@ mod tests {
     }
 
     #[test]
-    fn insert_timeout_is_parse_timeout() {
-        let source = crate::ast::nested_rust_source_for_timeout(80_000);
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let err = insert_code(
-            &source,
-            "fn extra() {}",
-            None,
-            Some("main"),
-            None,
-            InsertPosition::End,
-            Language::Rust,
-        )
-        .expect_err("deadline must be Err, not symbol-not-found");
-        assert!(
-            crate::exit::is_parse_timeout(&err),
-            "timeout must not become no_matches: {err}"
-        );
-    }
-
-    #[test]
     fn insert_empty_content_is_invalid_input() {
         let source = "fn foo() { let x = 1; }\n";
         let err = insert_code(

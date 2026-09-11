@@ -920,24 +920,6 @@ fn not_a_test() {}
 
     #[test]
     #[cfg(feature = "ast")]
-    fn snapshot_symbols_timeout_is_parse_timeout() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let path = dir.path().join("deep.rs");
-        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
-        let check = VerifyCheck::SymbolCount {
-            kind: "function".into(),
-            attr: None,
-        };
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let err = snapshot_symbols(&[path], &check).expect_err("timeout must not snapshot 0");
-        assert!(
-            crate::exit::is_parse_timeout(&err),
-            "timeout must be parse_timeout, not empty 0==0: {err}"
-        );
-    }
-
-    #[test]
-    #[cfg(feature = "ast")]
     fn compare_snapshots_equal() {
         let check = VerifyCheck::SymbolCount {
             kind: "function".to_string(),

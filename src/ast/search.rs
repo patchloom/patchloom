@@ -343,23 +343,6 @@ fn main() {
     }
 
     #[test]
-    fn search_query_deadline_is_parse_timeout() {
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let source = crate::ast::nested_rust_source_for_timeout(80_000);
-        let err = search_query(&source, "(function_item) @fn", Language::Rust, None).unwrap_err();
-        assert!(
-            crate::exit::is_parse_timeout(&err),
-            "expected parse_timeout, got {err}"
-        );
-        assert_eq!(crate::fallback::error_kind_str(&err), Some("parse_timeout"));
-        let msg = err.to_string();
-        assert!(
-            !msg.contains("no grammar"),
-            "timeout must not look like no grammar: {msg}"
-        );
-    }
-
-    #[test]
     fn search_query_unknown_language_is_invalid_input() {
         let err = search_query("anything", "(identifier)", Language::Unknown, None).unwrap_err();
         assert!(

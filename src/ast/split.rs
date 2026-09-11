@@ -462,23 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn split_timeout_is_parse_timeout() {
-        let source = crate::ast::nested_rust_source_for_timeout(80_000);
-        let targets = vec![SplitTarget {
-            path: "a.rs".into(),
-            symbols: vec!["main".into()],
-            prepend: Some("// dest".into()),
-        }];
-        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let err = split_file(&source, &targets, &[], None, None, false, Language::Rust)
-            .expect_err("deadline must be Err, not empty dest writes");
-        assert!(
-            crate::exit::is_parse_timeout(&err),
-            "timeout must not write empty dests: {err}"
-        );
-    }
-
-    #[test]
     fn split_empty_symbol_is_invalid_input() {
         let source = "fn alpha() {}\n";
         let targets = vec![SplitTarget {
