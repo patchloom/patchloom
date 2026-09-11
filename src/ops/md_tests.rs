@@ -1830,4 +1830,44 @@ body
             insert_after_heading_in(content, "Head", "\n").expect("newline is a blank line");
         assert_eq!(blank, "# Head\n\nbody\n");
     }
+
+    #[test]
+    fn insert_empty_atx_heading_is_invalid_input() {
+        let content = "# Head\nbody\n";
+        for insertion in ["#", "# ", "##", "###", "######"] {
+            let err = insert_after_heading_in(content, "Head", insertion).expect_err(insertion);
+            assert_eq!(err, SectionError::EmptyConstruct, "insert {insertion:?}");
+            let err = insert_after_section_in(content, "Head", insertion).expect_err(insertion);
+            assert_eq!(err, SectionError::EmptyConstruct);
+        }
+        let ok = insert_after_heading_in(content, "Head", "## Title").expect("real heading");
+        assert!(ok.contains("## Title"), "got {ok}");
+    }
+
+    #[test]
+    fn replace_section_whitespace_only_is_invalid_input_empty_clears_body() {
+        let content = "# Head\nbody\n";
+        assert_eq!(
+            replace_section_in(content, "Head", "").expect("empty clears body"),
+            "# Head\n"
+        );
+        let err = replace_section_in(content, "Head", "   ").expect_err("whitespace body");
+        assert_eq!(err, SectionError::EmptyConstruct);
+        assert!(crate::exit::is_invalid_input(&err.into_anyhow("Head")));
+    }
+
+    #[test]
+    fn table_append_blank_row_is_empty_row() {
+        let content = "# T\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+        let (start, end) = find_section(content, "T").unwrap();
+        for row in ["| | |", "|||", " | | "] {
+            let err = table_append_in(content, start, end, row).expect_err(row);
+            assert!(
+                matches!(err, TableAppendError::EmptyRow),
+                "row {row:?} got {err:?}"
+            );
+        }
+        let ok = table_append_in(content, start, end, "| 3 | 4 |").expect("real row");
+        assert!(ok.contains("| 3 | 4 |"), "got {ok}");
+    }
 }
