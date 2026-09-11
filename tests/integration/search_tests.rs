@@ -16,6 +16,60 @@ fn test_search_finds_matches() {
 }
 
 #[test]
+fn test_search_invalid_glob_json_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["--glob", "*[", "search", "hello"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "CLI --glob parse must set error_kind: {parsed}"
+    );
+    assert_eq!(parsed["ok"], false, "{parsed}");
+}
+
+#[test]
+fn test_search_invalid_dest_glob_json_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["search", "hello", "*["])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        parsed["error_kind"], "invalid_input",
+        "dest-glob parse must set error_kind: {parsed}"
+    );
+    assert_eq!(parsed["ok"], false, "{parsed}");
+}
+
+#[test]
 fn test_search_no_matches_exit_3() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("test.txt"), "some content\n").unwrap();

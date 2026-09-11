@@ -735,12 +735,24 @@ fn strip_leading_dot_slash(pattern: &str) -> &str {
     p
 }
 
+/// Map a globset compile failure to [`crate::exit::InvalidInputError`].
+///
+/// Untyped `?` remaps to `operation_failed` / missing `error_kind` on CLI
+/// `--json` (tx search/replace glob, `--glob`, dest-glob). Same class as
+/// `for_each` (#2182).
+#[cfg(any(feature = "cli", feature = "files"))]
+fn invalid_glob_error(pattern: &str, err: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::InvalidInputError {
+        msg: format!("error parsing glob '{pattern}': {err}"),
+    })
+}
+
 /// Compile a user `--glob` / exclude / `for_each` pattern.
 ///
 /// Windows file names are case-insensitive. `*.txt` must match `Hit.TXT`
 /// the same way `dir *.txt` does. Linux stays case-sensitive.
 #[cfg(any(feature = "cli", feature = "files"))]
-pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
+pub(crate) fn compile_user_glob(pattern: &str) -> anyhow::Result<Glob> {
     let stripped = strip_leading_dot_slash(pattern);
     // Win32 `\` is a separator. globset otherwise treats it as a literal
     // (or escape), so `*.txt` matches `sub\a.txt` and `sub\*.txt` misses
@@ -748,6 +760,7 @@ pub(crate) fn compile_user_glob(pattern: &str) -> Result<Glob, globset::Error> {
     GlobBuilder::new(stripped)
         .case_insensitive(cfg!(windows))
         .build()
+        .map_err(|e| invalid_glob_error(pattern, e))
 }
 
 /// Walk depth for dest-glob retain. `None` is unbounded (`**` or no dest-glob).
@@ -835,7 +848,7 @@ pub(crate) fn dest_glob_skip_case_tip(paths: &[String], dest_glob_files_empty: b
 /// Dest-glob compile: `/` separators and `*` does not cross directories.
 /// Unix shells and `dir *.txt` stay in one directory; `**` is recursive.
 #[cfg(feature = "cli")]
-fn compile_dest_glob(pattern: &str) -> Result<Glob, globset::Error> {
+fn compile_dest_glob(pattern: &str) -> anyhow::Result<Glob> {
     let stripped = strip_leading_dot_slash(pattern);
     let normalized = if cfg!(windows) && stripped.contains('\\') {
         stripped.replace('\\', "/")
@@ -846,6 +859,7 @@ fn compile_dest_glob(pattern: &str) -> Result<Glob, globset::Error> {
         .case_insensitive(cfg!(windows))
         .literal_separator(true)
         .build()
+        .map_err(|e| invalid_glob_error(pattern, e))
 }
 
 /// Git on Windows defaults `core.ignorecase=true`. Honor that so
@@ -864,7 +878,10 @@ fn build_dest_glob_matcher(globs: &[String]) -> anyhow::Result<Option<GlobSet>> 
     for pattern in globs {
         builder.add(compile_dest_glob(pattern)?);
     }
-    Ok(Some(builder.build()?))
+    builder
+        .build()
+        .map(Some)
+        .map_err(|e| invalid_glob_error(globs.first().map_or("", String::as_str), e))
 }
 
 /// Build a compiled glob matcher from globs, or `None` if no globs given.
@@ -878,7 +895,10 @@ pub fn build_glob_matcher(globs: &[String]) -> anyhow::Result<Option<GlobSet>> {
     for pattern in globs {
         builder.add(compile_user_glob(pattern)?);
     }
-    Ok(Some(builder.build()?))
+    builder
+        .build()
+        .map(Some)
+        .map_err(|e| invalid_glob_error(globs.first().map_or("", String::as_str), e))
 }
 
 /// Build from GlobalFlags (cli only).
@@ -2014,6 +2034,11 @@ mod tests {
         assert!(!matches_dest_glob(&root.join("fileAB.txt"), &q, &roots));
 
         assert!(compile_dest_glob("*[").is_err());
+        let dest_err = compile_dest_glob("*[").unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&dest_err),
+            "dest-glob compile must be InvalidInputError, got: {dest_err:#}"
+        );
 
         #[cfg(windows)]
         {
@@ -3081,6 +3106,25 @@ mod gitignore_case_tests {
 #[cfg(all(test, any(feature = "cli", feature = "files")))]
 mod user_glob_case_tests {
     use super::*;
+
+    #[test]
+    fn unclosed_class_is_invalid_input() {
+        let err = compile_user_glob("*[").unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "user glob compile must be InvalidInputError, got: {err:#}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("error parsing glob") && msg.contains("*["),
+            "{msg}"
+        );
+        let built = build_glob_matcher(&["*[".into()]).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&built),
+            "build_glob_matcher must peel InvalidInputError, got: {built:#}"
+        );
+    }
 
     #[test]
     fn star_txt_matches_uppercase_ext_only_on_windows() {
