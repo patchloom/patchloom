@@ -339,16 +339,11 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
         // Sole explicit path: surface parse_timeout instead of walk-soft invalid.
         let path = &paths[0];
         let lang = resolve_lang(lang_hint, path);
-        match crate::ast::validate::validate_file(path, Some(lang)) {
-            Ok(result) => vec![ValidateFileResult {
-                display: display_path(path, &cwd),
-                result,
-            }],
-            Err(e) if crate::exit::is_parse_timeout(&e) => {
-                return Err(e);
-            }
-            Err(e) => return Err(e),
-        }
+        let result = crate::ast::validate::validate_file(path, Some(lang))?;
+        vec![ValidateFileResult {
+            display: display_path(path, &cwd),
+            result,
+        }]
     } else {
         let glob_matcher = crate::build_glob_matcher_from_global(global)?;
         let glob_roots = vec![cwd.join(&args.path)];
@@ -623,7 +618,7 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
     crate::verbose!("ast refs: scanning {} files", paths.len());
 
-    let mut all_refs = if paths.len() == 1 {
+    let mut all_refs = if super::common::is_sole_explicit_file(&paths, &args.path) {
         let path = &paths[0];
         let display = display_path(path, &cwd);
         let lang = resolve_lang(lang_hint, path);
@@ -741,7 +736,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
     // Reverse deps scan cwd; empty-mask must use that scan set, not only `paths`.
     let mut reverse_scan_files: Option<Vec<std::path::PathBuf>> = None;
 
-    if !args.reverse && paths.len() == 1 {
+    if !args.reverse && super::common::is_sole_explicit_file(&paths, &args.path) {
         let path = &paths[0];
         let lang = resolve_lang(lang_hint, path);
         let source = crate::files::load_text_strict(path, &args.path)?;
@@ -1014,7 +1009,8 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let _lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
+    // Validate the token even though impact analysis takes no language hint.
+    args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);
     crate::verbose!("ast impact: scanning {} files", paths.len());
 
@@ -1145,15 +1141,6 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     fn assert_search_timeout(result: anyhow::Result<u8>) {
         match result {
             Ok(code) => {
@@ -1210,7 +1197,11 @@ mod tests {
     #[test]
     fn search_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_search(
@@ -1229,7 +1220,11 @@ mod tests {
     #[test]
     fn search_sole_file_pattern_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_search(
@@ -1248,7 +1243,11 @@ mod tests {
     #[test]
     fn validate_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_validate(
@@ -1300,7 +1299,11 @@ mod tests {
     #[test]
     fn list_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_list(
@@ -1326,7 +1329,11 @@ mod tests {
     #[test]
     fn list_dir_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_list(
@@ -1352,7 +1359,11 @@ mod tests {
     #[test]
     fn map_dir_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_map(
@@ -1378,7 +1389,11 @@ mod tests {
     #[test]
     fn read_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_read(
@@ -1404,7 +1419,11 @@ mod tests {
     #[test]
     fn refs_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_refs(
@@ -1430,7 +1449,11 @@ mod tests {
     #[test]
     fn refs_dir_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         fs::write(dir.path().join("main.rs"), "fn helper() { main(); }\n").unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
@@ -1457,7 +1480,11 @@ mod tests {
     #[test]
     fn deps_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_deps(
@@ -1506,7 +1533,11 @@ mod tests {
     fn diff_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         init_git_repo_with_committed_file(dir.path(), "deep.rs", "fn main() {}\n");
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_diff(
@@ -1532,7 +1563,11 @@ mod tests {
     #[test]
     fn deps_reverse_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         fs::write(
             dir.path().join("main.rs"),
             "use crate::deep;\nfn main() {}\n",
@@ -1618,7 +1653,11 @@ mod tests {
     #[test]
     fn impact_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let global = GlobalFlags::test_with_cwd(dir.path());
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = run_impact(
@@ -1639,6 +1678,128 @@ mod tests {
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn deps_one_file_dir_binary_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let global = GlobalFlags {
+            json: true,
+            quiet: true,
+            ..GlobalFlags::test_with_cwd(dir.path())
+        };
+        let code = run_deps(
+            DepsArgs {
+                path: ".".into(),
+                reverse: false,
+                lang: None,
+            },
+            &global,
+        )
+        .expect("one-file dir must not hard-fail");
+        assert_eq!(
+            code,
+            exit::NO_MATCHES,
+            "binary in a dir walk is a soft skip"
+        );
+    }
+
+    #[test]
+    fn refs_one_file_dir_binary_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let global = GlobalFlags {
+            json: true,
+            quiet: true,
+            ..GlobalFlags::test_with_cwd(dir.path())
+        };
+        let code = run_refs(
+            RefsArgs {
+                symbol: "main".into(),
+                path: ".".into(),
+                include_def: true,
+                lang: None,
+            },
+            &global,
+        )
+        .expect("one-file dir must not hard-fail");
+        assert_eq!(
+            code,
+            exit::NO_MATCHES,
+            "binary in a dir walk is a soft skip"
+        );
+    }
+
+    #[test]
+    fn deps_one_file_dir_honors_glob() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("only.rs"), "use foo::Bar;\n").unwrap();
+        let mut global = GlobalFlags {
+            json: true,
+            quiet: true,
+            ..GlobalFlags::test_with_cwd(dir.path())
+        };
+        global.glob = vec!["*.py".into()];
+        let code = run_deps(
+            DepsArgs {
+                path: ".".into(),
+                reverse: false,
+                lang: None,
+            },
+            &global,
+        )
+        .expect("glob-filtered one-file dir is no_matches");
+        assert_eq!(code, exit::NO_MATCHES, "--glob must drop the only .rs file");
+    }
+
+    #[test]
+    fn refs_one_file_dir_honors_glob() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("only.rs"), "fn main() {}\n").unwrap();
+        let mut global = GlobalFlags {
+            json: true,
+            quiet: true,
+            ..GlobalFlags::test_with_cwd(dir.path())
+        };
+        global.glob = vec!["*.py".into()];
+        let code = run_refs(
+            RefsArgs {
+                symbol: "main".into(),
+                path: ".".into(),
+                include_def: true,
+                lang: None,
+            },
+            &global,
+        )
+        .expect("glob-filtered one-file dir is no_matches");
+        assert_eq!(code, exit::NO_MATCHES, "--glob must drop the only .rs file");
+    }
+
+    #[test]
+    fn deps_explicit_file_binary_still_fails_closed() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let global = GlobalFlags {
+            json: true,
+            quiet: true,
+            ..GlobalFlags::test_with_cwd(dir.path())
+        };
+        let result = run_deps(
+            DepsArgs {
+                path: "only.rs".into(),
+                reverse: false,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => assert_eq!(code, exit::FAILURE, "sole file binary is fail-closed"),
+            Err(e) => assert!(
+                crate::exit::is_load_text_strict_fail(&e),
+                "sole file binary must be Binary/InvalidEncoding, got {e}"
             ),
         }
     }

@@ -255,18 +255,9 @@ mod tests {
         );
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn validate_source_timeout_is_invalid() {
-        let source = nested_rust_source(80_000);
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = validate_source(&source, Language::Rust).expect("timeout stays Some");
         assert!(!result.valid);
@@ -281,7 +272,7 @@ mod tests {
     fn validate_file_timeout_is_parse_timeout() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        std::fs::write(&path, nested_rust_source(80_000)).unwrap();
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let err = validate_file(&path, Some(Language::Rust)).unwrap_err();
         assert!(
@@ -295,7 +286,7 @@ mod tests {
     fn validate_file_for_walk_timeout_is_invalid() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        std::fs::write(&path, nested_rust_source(80_000)).unwrap();
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let result = validate_file_for_walk(&path, Some(Language::Rust)).expect("timeout stays");
         assert!(!result.valid);

@@ -123,6 +123,31 @@ pub fn rename_in_source(
         .flatten()
 }
 
+/// One parse: AST rename match, else word-boundary. Timeout fails closed
+/// so the fallback cannot select the file (#2432).
+#[cfg_attr(not(any(feature = "cli", feature = "mcp")), allow(dead_code))]
+pub(crate) fn source_has_rename_match(
+    source: &str,
+    old_name: &str,
+    new_name: &str,
+    lang: Language,
+) -> anyhow::Result<bool> {
+    let has_ast = match try_rename_in_source(source, old_name, new_name, lang) {
+        Err(e) if crate::exit::is_parse_timeout(&e) => return Err(e),
+        Ok(Some(r)) => r.replacements > 0,
+        Ok(None) | Err(_) => false,
+    };
+    if has_ast {
+        return Ok(true);
+    }
+    Ok(
+        crate::ops::replace::compile_replace_regex(old_name, false, false, false, true)
+            .ok()
+            .flatten()
+            .is_some_and(|re| re.is_match(source)),
+    )
+}
+
 /// Rename identifiers in a file. Falls back to word-boundary replace if
 /// tree-sitter cannot parse the language.
 pub fn rename_in_file(
@@ -425,15 +450,6 @@ fn main() {
         assert_eq!(result.content, source);
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; let s = \"x\"; /* x */ }\n");
-        source
-    }
-
     #[test]
     fn reject_empty_rename_names_is_invalid_input() {
         for (old, new) in [
@@ -455,7 +471,7 @@ fn main() {
 
     #[test]
     fn try_rename_in_source_timeout_is_parse_timeout() {
-        let source = nested_rust_source(80_000);
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let err = try_rename_in_source(&source, "x", "y", Language::Rust)
             .expect_err("deadline must be Err, not a RenameResult");

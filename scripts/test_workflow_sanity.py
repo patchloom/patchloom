@@ -77,6 +77,11 @@ def main() -> int:
     )
     if "workflow-sanity-test" not in check_fast_line:
         return fail("make check-fast must include workflow-sanity-test")
+    rust_cache = (ROOT / ".github" / "actions" / "setup-rust" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+    if "github.event_name == 'schedule'" not in rust_cache:
+        return fail("setup-rust save-if must include schedule so main seeds the cache (#2433)")
     print("ok: workflow-sanity job, path filter, pinned linters, and lock target")
     return 0
 

@@ -1181,20 +1181,15 @@ mod tests {
         assert!(json.contains("\"match_mode\""), "{json}");
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     #[cfg(feature = "ast")]
     fn execute_plan_verify_timeout_is_parse_timeout() {
         let dir = tempfile::TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let plan = crate::plan::Plan {
             version: crate::plan::SCHEMA_VERSION,
             cwd: None,

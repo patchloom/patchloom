@@ -342,19 +342,10 @@ fn main() {
         result.expect_err("expected error");
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn search_query_deadline_is_parse_timeout() {
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
-        let source = nested_rust_source(80_000);
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
         let err = search_query(&source, "(function_item) @fn", Language::Rust, None).unwrap_err();
         assert!(
             crate::exit::is_parse_timeout(&err),

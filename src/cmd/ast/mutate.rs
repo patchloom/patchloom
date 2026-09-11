@@ -60,70 +60,84 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     let old = args.old.as_str();
     let new = args.new.as_str();
     let lang_cli = args.lang.clone();
-    // Sole explicit file: fail closed on parse timeout before the
-    // word-boundary prefilter can select the file as a match.
-    if paths.len() == 1 {
-        let path = &paths[0];
-        let lang = resolve_lang(lang_hint, path);
-        if lang.has_grammar()
-            && let Ok(source) = crate::files::try_read_text_file(path)
-            && let Err(e) = crate::ast::rename::try_rename_in_source(&source, old, new, lang)
-            && crate::exit::is_parse_timeout(&e)
-        {
-            return Err(e);
-        }
-    }
     let unreadable = std::sync::Mutex::new(Vec::<String>::new());
-    let operations: Vec<Operation> = crate::par_process_files(&paths, None, &[], |path| {
-        let source = match crate::files::try_read_text_file(path) {
-            Ok(s) => s,
+    let rename_op = |path: &std::path::Path| -> Operation {
+        let rel = path
+            .strip_prefix(&cwd)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
+        Operation::AstRename {
+            path: rel,
+            old: old.to_string(),
+            new: new.to_string(),
+            lang: lang_cli.clone(),
+        }
+    };
+    // Sole explicit file: one parse is the prefilter (timeout fail-closed).
+    // A one-file directory stays on the walk so glob / soft-skip apply (#2431).
+    let operations: Vec<Operation> = if super::common::is_sole_explicit_file(&paths, &args.path) {
+        let path = &paths[0];
+        match crate::files::try_read_text_file(path) {
+            Ok(source) => {
+                let lang = resolve_lang(lang_hint, path);
+                if crate::ast::rename::source_has_rename_match(&source, old, new, lang)? {
+                    vec![rename_op(path)]
+                } else {
+                    Vec::new()
+                }
+            }
             Err(
                 crate::files::SoftTextSkip::Binary
                 | crate::files::SoftTextSkip::InvalidUtf8
                 | crate::files::SoftTextSkip::NotRegularFile,
-            ) => {
-                return None;
-            }
+            ) => Vec::new(),
             Err(crate::files::SoftTextSkip::Unreadable) => {
                 if let Ok(mut g) = unreadable.lock()
                     && g.len() < 8
                 {
                     g.push(path.display().to_string());
                 }
+                Vec::new()
+            }
+        }
+    } else {
+        crate::par_process_files(&paths, None, &[], |path| {
+            let source = match crate::files::try_read_text_file(path) {
+                Ok(s) => s,
+                Err(
+                    crate::files::SoftTextSkip::Binary
+                    | crate::files::SoftTextSkip::InvalidUtf8
+                    | crate::files::SoftTextSkip::NotRegularFile,
+                ) => {
+                    return None;
+                }
+                Err(crate::files::SoftTextSkip::Unreadable) => {
+                    if let Ok(mut g) = unreadable.lock()
+                        && g.len() < 8
+                    {
+                        g.push(path.display().to_string());
+                    }
+                    return None;
+                }
+            };
+            let lang = resolve_lang(lang_hint, path);
+            let has_match =
+                if lang.has_grammar() {
+                    crate::ast::rename::rename_in_source(&source, old, new, lang)
+                        .is_some_and(|r| r.replacements > 0)
+                } else {
+                    false
+                } || crate::ops::replace::compile_replace_regex(old, false, false, false, true)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|re| re.is_match(&source));
+            if !has_match {
                 return None;
             }
-        };
-        let lang = resolve_lang(lang_hint, path);
-
-        // Check if this file has any matches (AST or word-boundary fallback).
-        let has_match = if lang.has_grammar() {
-            crate::ast::rename::rename_in_source(&source, old, new, lang)
-                .is_some_and(|r| r.replacements > 0)
-        } else {
-            false
-        } || {
-            // Word-boundary fallback
-            crate::ops::replace::compile_replace_regex(old, false, false, false, true)
-                .ok()
-                .flatten()
-                .is_some_and(|re| re.is_match(&source))
-        };
-
-        if !has_match {
-            return None;
-        }
-        let rel = path
-            .strip_prefix(&cwd)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .into_owned();
-        Some(Operation::AstRename {
-            path: rel,
-            old: old.to_string(),
-            new: new.to_string(),
-            lang: lang_cli.clone(),
+            Some(rename_op(path))
         })
-    });
+    };
 
     if operations.is_empty() {
         let unread = unreadable.into_inner().unwrap_or_default();
@@ -382,20 +396,11 @@ mod tests {
         assert_eq!(after, original, "must not word-boundary-write on bad lang");
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn rename_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        let original = nested_rust_source(80_000);
+        let original = crate::ast::nested_rust_source_for_timeout(80_000);
         fs::write(&path, &original).unwrap();
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -421,5 +426,34 @@ mod tests {
         }
         let after = fs::read_to_string(&path).unwrap();
         assert_eq!(after, original, "timeout must not word-boundary-write");
+    }
+
+    #[test]
+    fn rename_sole_file_parses_at_most_twice() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mod.rs");
+        fs::write(&path, "fn foo() {}\n").unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        crate::ast::reset_parse_count();
+        let code = run_rename(
+            RenameArgs {
+                path: "mod.rs".into(),
+                old: "foo".into(),
+                new: "bar".into(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        )
+        .expect("rename applies");
+        assert_eq!(code, exit::SUCCESS);
+        let n = crate::ast::take_parse_count();
+        assert!(
+            (1..=2).contains(&n),
+            "sole-file rename must parse at most twice (prefilter + execute), got {n}"
+        );
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(after.contains("fn bar()"), "rename must apply: {after}");
     }
 }

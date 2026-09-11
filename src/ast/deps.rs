@@ -709,12 +709,7 @@ namespace app {
     fn try_extract_imports_from_file_timeout_is_deadline() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(80_000));
-        source.push('1');
-        source.push_str(&")".repeat(80_000));
-        source.push_str("; }\n");
-        std::fs::write(&path, source).unwrap();
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         assert_eq!(
             try_extract_imports_from_file(&path, None).unwrap_err(),

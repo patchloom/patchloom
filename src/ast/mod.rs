@@ -50,6 +50,7 @@ const PARSE_TIMEOUT: Duration = Duration::from_millis(5_000);
 #[cfg(test)]
 thread_local! {
     static PARSE_TIMEOUT_OVERRIDE: Cell<Option<Duration>> = const { Cell::new(None) };
+    static PARSE_COUNT: Cell<usize> = const { Cell::new(0) };
 }
 
 /// A programming, markup, or data language detected by file extension.
@@ -81,58 +82,110 @@ pub enum Language {
     Unknown,
 }
 
+/// Language names accepted by [`Language::from_name_or_ext`] before
+/// falling through to [`LANGUAGE_EXT_ALIASES`].
+const LANGUAGE_NAME_ALIASES: &[(&str, Language)] = &[
+    ("rust", Language::Rust),
+    ("typescript", Language::TypeScript),
+    ("javascript", Language::JavaScript),
+    ("python", Language::Python),
+    ("golang", Language::Go),
+    ("java", Language::Java),
+    ("csharp", Language::CSharp),
+    ("c#", Language::CSharp),
+    ("ruby", Language::Ruby),
+    ("kotlin", Language::Kotlin),
+    ("hcl", Language::Hcl),
+    ("terraform", Language::Hcl),
+    ("protobuf", Language::Protobuf),
+    ("dockerfile", Language::Dockerfile),
+    ("docker", Language::Dockerfile),
+    ("markdown", Language::Markdown),
+    ("c++", Language::Cpp),
+    ("shell", Language::Shell),
+];
+
+/// File-extension aliases accepted by [`Language::from_extension`].
+const LANGUAGE_EXT_ALIASES: &[(&str, Language)] = &[
+    ("rs", Language::Rust),
+    ("ts", Language::TypeScript),
+    ("tsx", Language::TypeScript),
+    ("js", Language::JavaScript),
+    ("jsx", Language::JavaScript),
+    ("mjs", Language::JavaScript),
+    ("cjs", Language::JavaScript),
+    ("py", Language::Python),
+    ("pyi", Language::Python),
+    ("go", Language::Go),
+    ("java", Language::Java),
+    ("cs", Language::CSharp),
+    ("rb", Language::Ruby),
+    ("php", Language::Php),
+    ("swift", Language::Swift),
+    ("kt", Language::Kotlin),
+    ("kts", Language::Kotlin),
+    ("c", Language::C),
+    ("h", Language::C),
+    ("cpp", Language::Cpp),
+    ("cxx", Language::Cpp),
+    ("cc", Language::Cpp),
+    ("hpp", Language::Cpp),
+    ("hxx", Language::Cpp),
+    ("hcl", Language::Hcl),
+    ("tf", Language::Hcl),
+    ("tfvars", Language::Hcl),
+    ("xml", Language::Xml),
+    ("xsl", Language::Xml),
+    ("xslt", Language::Xml),
+    ("xsd", Language::Xml),
+    ("svg", Language::Xml),
+    ("plist", Language::Xml),
+    ("proto", Language::Protobuf),
+    ("dockerfile", Language::Dockerfile),
+    ("md", Language::Markdown),
+    ("mdx", Language::Markdown),
+    ("toml", Language::Toml),
+    ("yml", Language::Yaml),
+    ("yaml", Language::Yaml),
+    ("json", Language::Json),
+    ("sh", Language::Shell),
+    ("bash", Language::Shell),
+    ("zsh", Language::Shell),
+];
+
+fn lookup_alias(table: &[(&str, Language)], key: &str) -> Option<Language> {
+    table
+        .iter()
+        .find(|(name, _)| *name == key)
+        .map(|(_, lang)| *lang)
+}
+
+/// Names and aliases accepted by [`Language::from_name_or_ext`].
+///
+/// Used for close-match hints when an explicit `lang` token is unknown.
+/// Known no-grammar variants (`markdown`, `md`, `dockerfile`) stay here so
+/// they resolve to a real language, not "unknown language".
+fn language_hint_names() -> impl Iterator<Item = &'static str> {
+    LANGUAGE_NAME_ALIASES.iter().map(|(n, _)| *n).chain(
+        LANGUAGE_EXT_ALIASES
+            .iter()
+            .map(|(n, _)| *n)
+            .filter(|n| !LANGUAGE_NAME_ALIASES.iter().any(|(m, _)| m == n)),
+    )
+}
+
 impl Language {
     /// Detect language from a file extension string (without the leading dot).
     pub fn from_extension(ext: &str) -> Self {
-        match ext.to_lowercase().as_str() {
-            "rs" => Self::Rust,
-            "ts" | "tsx" => Self::TypeScript,
-            "js" | "jsx" | "mjs" | "cjs" => Self::JavaScript,
-            "py" | "pyi" => Self::Python,
-            "go" => Self::Go,
-            "java" => Self::Java,
-            "cs" => Self::CSharp,
-            "rb" => Self::Ruby,
-            "php" => Self::Php,
-            "swift" => Self::Swift,
-            "kt" | "kts" => Self::Kotlin,
-            "c" | "h" => Self::C,
-            "cpp" | "cxx" | "cc" | "hpp" | "hxx" => Self::Cpp,
-            "hcl" | "tf" | "tfvars" => Self::Hcl,
-            "xml" | "xsl" | "xslt" | "xsd" | "svg" | "plist" => Self::Xml,
-            "proto" => Self::Protobuf,
-            "dockerfile" => Self::Dockerfile,
-            "md" | "mdx" => Self::Markdown,
-            "toml" => Self::Toml,
-            "yml" | "yaml" => Self::Yaml,
-            "json" => Self::Json,
-            "sh" | "bash" | "zsh" => Self::Shell,
-            _ => Self::Unknown,
-        }
+        lookup_alias(LANGUAGE_EXT_ALIASES, &ext.to_lowercase()).unwrap_or(Self::Unknown)
     }
 
     /// Detect language from a language name or file extension string.
     /// Tries common language names first (e.g. "rust", "python",
     /// "typescript"), then falls back to extension matching.
     pub fn from_name_or_ext(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "rust" => Self::Rust,
-            "typescript" => Self::TypeScript,
-            "javascript" => Self::JavaScript,
-            "python" => Self::Python,
-            "golang" => Self::Go,
-            "java" => Self::Java,
-            "csharp" | "c#" => Self::CSharp,
-            "ruby" => Self::Ruby,
-            "kotlin" => Self::Kotlin,
-            "hcl" | "terraform" => Self::Hcl,
-            "protobuf" => Self::Protobuf,
-            "dockerfile" | "docker" => Self::Dockerfile,
-            "markdown" => Self::Markdown,
-            "c++" => Self::Cpp,
-            "shell" => Self::Shell,
-            _ => Self::from_extension(s),
-        }
+        let key = s.to_lowercase();
+        lookup_alias(LANGUAGE_NAME_ALIASES, &key).unwrap_or_else(|| Self::from_extension(&key))
     }
 
     /// Detect language from a file path by its extension.
@@ -159,73 +212,6 @@ impl Language {
     }
 }
 
-/// Names and aliases accepted by [`Language::from_name_or_ext`].
-///
-/// Used for close-match hints when an explicit `lang` token is unknown.
-/// Known no-grammar variants (`markdown`, `md`, `dockerfile`) stay here so
-/// they resolve to a real language, not "unknown language".
-const LANGUAGE_HINT_NAMES: &[&str] = &[
-    "rust",
-    "rs",
-    "python",
-    "py",
-    "pyi",
-    "go",
-    "golang",
-    "typescript",
-    "ts",
-    "tsx",
-    "javascript",
-    "js",
-    "jsx",
-    "mjs",
-    "cjs",
-    "java",
-    "csharp",
-    "c#",
-    "cs",
-    "ruby",
-    "rb",
-    "php",
-    "swift",
-    "kotlin",
-    "kt",
-    "kts",
-    "c",
-    "h",
-    "c++",
-    "cpp",
-    "cxx",
-    "cc",
-    "hpp",
-    "hxx",
-    "hcl",
-    "terraform",
-    "tf",
-    "tfvars",
-    "xml",
-    "xsl",
-    "xslt",
-    "xsd",
-    "svg",
-    "plist",
-    "protobuf",
-    "proto",
-    "dockerfile",
-    "docker",
-    "markdown",
-    "md",
-    "mdx",
-    "toml",
-    "yaml",
-    "yml",
-    "json",
-    "shell",
-    "sh",
-    "bash",
-    "zsh",
-];
-
 /// Parse an explicit language hint.
 ///
 /// Tokens that resolve to [`Language::Unknown`] are `invalid_input` naming
@@ -237,11 +223,7 @@ pub(crate) fn parse_lang_hint(s: &str) -> anyhow::Result<Language> {
     if lang != Language::Unknown {
         return Ok(lang);
     }
-    let similar = crate::fallback::find_similar_among(
-        LANGUAGE_HINT_NAMES.iter().copied(),
-        &s.to_lowercase(),
-        1,
-    );
+    let similar = crate::fallback::find_similar_among(language_hint_names(), &s.to_lowercase(), 1);
     let mut msg = format!("unknown language '{s}'");
     if let Some(hint) = similar.first() {
         msg.push_str(&format!(" (did you mean: {hint}?)"));
@@ -330,6 +312,8 @@ pub fn try_parse_source(
     lang: Language,
 ) -> Result<(tree_sitter_lib::Tree, tree_sitter_lib::Language), ParseFailure> {
     let ts_lang = ts_language_for(lang).ok_or(ParseFailure::NoGrammar)?;
+    #[cfg(test)]
+    PARSE_COUNT.with(|c| c.set(c.get().saturating_add(1)));
     let tree = PARSERS.with(|slot| {
         let mut map = slot.borrow_mut();
         let parser = match map.entry(lang) {
@@ -438,6 +422,32 @@ impl Drop for ParseTimeoutGuard {
     }
 }
 
+/// Count of [`try_parse_source`] calls on this thread (test only).
+#[cfg(test)]
+pub(crate) fn reset_parse_count() {
+    PARSE_COUNT.with(|c| c.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn take_parse_count() -> usize {
+    PARSE_COUNT.with(|c| {
+        let n = c.get();
+        c.set(0);
+        n
+    })
+}
+
+/// Deeply nested Rust source that trips a 1 ms parse deadline.
+#[cfg(test)]
+pub(crate) fn nested_rust_source_for_timeout(depth: usize) -> String {
+    let mut source = String::from("fn main() { let x = ");
+    source.push_str(&"(".repeat(depth));
+    source.push('1');
+    source.push_str(&")".repeat(depth));
+    source.push_str("; }\n");
+    source
+}
+
 /// Find the text of the first child with a given node kind.
 ///
 /// Walks the immediate children of `node` and returns the source text
@@ -511,6 +521,35 @@ mod tests {
     fn language_from_extension_case_insensitive() {
         assert_eq!(Language::from_extension("RS"), Language::Rust);
         assert_eq!(Language::from_extension("Py"), Language::Python);
+    }
+
+    #[test]
+    fn every_hint_name_resolves() {
+        for name in language_hint_names() {
+            assert_ne!(
+                Language::from_name_or_ext(name),
+                Language::Unknown,
+                "hint name {name:?} must be accepted by from_name_or_ext"
+            );
+        }
+    }
+
+    #[test]
+    fn every_alias_is_a_hint() {
+        let hints: Vec<&str> = language_hint_names().collect();
+        for (name, _) in LANGUAGE_NAME_ALIASES.iter().chain(LANGUAGE_EXT_ALIASES) {
+            assert!(
+                hints.contains(name),
+                "alias {name:?} must appear in language_hint_names"
+            );
+        }
+        for name in ["markdown", "md", "dockerfile"] {
+            assert_ne!(
+                Language::from_name_or_ext(name),
+                Language::Unknown,
+                "{name} must stay a real language"
+            );
+        }
     }
 
     #[test]
@@ -606,26 +645,17 @@ mod tests {
     #[test]
     fn try_parse_source_deadline_is_distinct() {
         let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
-        let source = nested_rust_source(80_000);
+        let source = nested_rust_source_for_timeout(80_000);
         assert_eq!(
             try_parse_source(&source, Language::Rust).unwrap_err(),
             ParseFailure::DeadlineExceeded
         );
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn parse_source_pathological_returns_none() {
         let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
-        let source = nested_rust_source(80_000);
+        let source = nested_rust_source_for_timeout(80_000);
         let start = Instant::now();
         assert!(
             parse_source(&source, Language::Rust).is_none(),
@@ -641,7 +671,7 @@ mod tests {
     fn parse_source_still_parses_after_timeout() {
         {
             let _guard = ParseTimeoutGuard::set(Duration::from_millis(1));
-            let source = nested_rust_source(80_000);
+            let source = nested_rust_source_for_timeout(80_000);
             assert!(parse_source(&source, Language::Rust).is_none());
         }
         let source = "fn main() { println!(\"hello\"); }";

@@ -771,20 +771,11 @@ mod tests {
         assert_eq!(names, vec!["root.rs".to_string()], "got {names:?}");
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn ast_rename_single_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        let original = nested_rust_source(80_000);
+        let original = crate::ast::nested_rust_source_for_timeout(80_000);
         fs::write(&path, &original).unwrap();
         let plan = crate::plan::Plan {
             version: crate::plan::SCHEMA_VERSION,
@@ -822,7 +813,7 @@ mod tests {
     fn ast_rewrite_signature_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        let original = nested_rust_source(80_000);
+        let original = crate::ast::nested_rust_source_for_timeout(80_000);
         fs::write(&path, &original).unwrap();
         let plan = crate::plan::Plan {
             version: crate::plan::SCHEMA_VERSION,

@@ -5,7 +5,8 @@ mod mutate;
 mod query;
 
 pub(crate) use common::{
-    collect_source_files, display_path, get_git_file_content, resolve_target_paths, symbol_to_json,
+    collect_source_files, display_path, get_git_file_content, is_sole_explicit_file,
+    resolve_target_paths, symbol_to_json,
 };
 pub use common::{filter_symbols, parse_kind_filter};
 
