@@ -164,6 +164,29 @@ pub fn find_function_span(
 
 /// Like [`find_function_span`], but a parse deadline is
 /// [`crate::exit::ParseTimeoutError`] instead of `None`.
+///
+/// Missing grammar, unknown language, and no matching name stay `None`
+/// (same as [`find_function_span`]). Library hosts that must distinguish
+/// a 5s parse deadline from "function not found" should call this
+/// instead (#2449).
+///
+/// ```
+/// use patchloom::ast::rewrite::find_function_span_or_timeout;
+/// use patchloom::ast::Language;
+///
+/// let span = find_function_span_or_timeout("fn main() {}", "main", Language::Rust).unwrap();
+/// assert!(span.is_some());
+/// ```
+pub fn find_function_span_or_timeout(
+    source: &str,
+    function_name: &str,
+    lang: Language,
+) -> anyhow::Result<Option<FunctionSpan>> {
+    try_find_function_span(source, function_name, lang)
+}
+
+/// Like [`find_function_span`], but a parse deadline is
+/// [`crate::exit::ParseTimeoutError`] instead of `None`.
 pub(crate) fn try_find_function_span(
     source: &str,
     function_name: &str,
@@ -338,6 +361,20 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
     try_replace_function_signature(source, old_name, new_sig)
         .ok()
         .flatten()
+}
+
+/// Like [`replace_function_signature`], but a parse deadline is
+/// [`crate::exit::ParseTimeoutError`] instead of `None`.
+///
+/// No matching name stays `None`. Empty `new_sig` is still
+/// `invalid_input`. Prefer this when a host must not treat a parse
+/// deadline as "function not found" (#2449).
+pub fn replace_function_signature_or_timeout(
+    source: &str,
+    old_name: &str,
+    new_sig: &str,
+) -> anyhow::Result<Option<String>> {
+    try_replace_function_signature(source, old_name, new_sig)
 }
 
 /// Refuse empty / whitespace-only `new_signature` before a splice that would
@@ -602,6 +639,40 @@ pub fn rewrite_function_signature(
     try_rewrite_function_signature(source, old_name, edit, lang)
         .ok()
         .flatten()
+}
+
+/// Like [`rewrite_function_signature`], but a parse deadline is
+/// [`crate::exit::ParseTimeoutError`] instead of `None`.
+///
+/// Missing grammar, unknown language, and no matching name stay `None`.
+/// Prefer this when a host must not treat a parse deadline as
+/// "function not found" (#2449).
+///
+/// ```
+/// use patchloom::ast::rewrite::{rewrite_function_signature_or_timeout, FunctionSigEdit};
+/// use patchloom::ast::Language;
+///
+/// let edit = FunctionSigEdit {
+///     parameters: Some("()".into()),
+///     ..Default::default()
+/// };
+/// let out = rewrite_function_signature_or_timeout(
+///     "fn foo(x: i32) { 1 }",
+///     "foo",
+///     &edit,
+///     Language::Rust,
+/// )
+/// .unwrap()
+/// .unwrap();
+/// assert!(out.contains("fn foo()"));
+/// ```
+pub fn rewrite_function_signature_or_timeout(
+    source: &str,
+    old_name: &str,
+    edit: &FunctionSigEdit,
+    lang: Language,
+) -> anyhow::Result<Option<String>> {
+    try_rewrite_function_signature(source, old_name, edit, lang)
 }
 
 /// Like [`rewrite_function_signature`], but a parse deadline is
@@ -1764,5 +1835,115 @@ mod tests {
         assert_eq!(span.name, "main");
         assert!(span.signature_text.contains("int main"));
         assert!(!span.signature_text.contains("return 0"));
+    }
+
+    // Unique: public or_timeout twins peel parse_timeout; Option APIs stay None (#2449).
+    #[test]
+    fn find_function_span_or_timeout_deadline_is_parse_timeout() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = find_function_span_or_timeout(&source, "main", Language::Rust).unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn find_function_span_deadline_stays_none() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        assert!(
+            find_function_span(&source, "main", Language::Rust).is_none(),
+            "Option find_function_span must stay None on deadline"
+        );
+    }
+
+    #[test]
+    fn find_function_span_or_timeout_unknown_lang_is_none() {
+        let span =
+            find_function_span_or_timeout("fn main() {}", "main", Language::Unknown).unwrap();
+        assert!(
+            span.is_none(),
+            "missing grammar must stay None, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn find_function_span_or_timeout_missing_name_is_none() {
+        let span = find_function_span_or_timeout("fn main() {}", "absent", Language::Rust).unwrap();
+        assert!(
+            span.is_none(),
+            "no matching name must stay None, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn replace_function_signature_or_timeout_deadline_is_parse_timeout() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = replace_function_signature_or_timeout(&source, "main", "fn main()").unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn replace_function_signature_deadline_stays_none() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        assert!(
+            replace_function_signature(&source, "main", "fn main()").is_none(),
+            "Option replace_function_signature must stay None on deadline"
+        );
+    }
+
+    #[test]
+    fn rewrite_function_signature_or_timeout_deadline_is_parse_timeout() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let edit = FunctionSigEdit {
+            parameters: Some("()".into()),
+            ..Default::default()
+        };
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = rewrite_function_signature_or_timeout(&source, "main", &edit, Language::Rust)
+            .unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn rewrite_function_signature_deadline_stays_none() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let edit = FunctionSigEdit {
+            parameters: Some("()".into()),
+            ..Default::default()
+        };
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        assert!(
+            rewrite_function_signature(&source, "main", &edit, Language::Rust).is_none(),
+            "Option rewrite_function_signature must stay None on deadline"
+        );
+    }
+
+    #[test]
+    fn rewrite_function_signature_or_timeout_missing_name_is_none() {
+        let edit = FunctionSigEdit {
+            parameters: Some("()".into()),
+            ..Default::default()
+        };
+        let out =
+            rewrite_function_signature_or_timeout("fn main() {}", "absent", &edit, Language::Rust)
+                .unwrap();
+        assert!(
+            out.is_none(),
+            "no matching name must stay None, not parse_timeout"
+        );
     }
 }

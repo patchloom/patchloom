@@ -20,10 +20,34 @@ pub struct Import {
 /// Extract imports from source code.
 ///
 /// Returns an empty list if the language has no grammar, parsing fails,
-/// or the parse deadline fires. Prefer [`try_extract_imports`] when
-/// timeout must fail closed instead of looking like "no imports".
+/// or the parse deadline fires. Prefer [`extract_imports_or_timeout`] when
+/// timeout must not look like "no imports".
 pub fn extract_imports(source: &str, lang: Language) -> Vec<Import> {
     try_extract_imports(source, lang).unwrap_or_default()
+}
+
+/// Extract imports, mapping a parse deadline to [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar is an empty list (same as [`extract_imports`]). Library
+/// hosts that must distinguish a 5s parse deadline from "no imports"
+/// should call this instead of [`extract_imports`] (#2445).
+///
+/// ```
+/// use patchloom::ast::deps::extract_imports_or_timeout;
+/// use patchloom::ast::Language;
+///
+/// let imports = extract_imports_or_timeout("use foo;", Language::Rust).unwrap();
+/// assert_eq!(imports[0].path, "foo");
+/// ```
+pub fn extract_imports_or_timeout(source: &str, lang: Language) -> anyhow::Result<Vec<Import>> {
+    match try_extract_imports(source, lang) {
+        Ok(imports) => Ok(imports),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {lang}"),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
 }
 
 /// Like [`extract_imports`], but distinguishes a parse deadline from
@@ -41,10 +65,31 @@ pub(crate) fn try_extract_imports(
 /// Extract imports from a file.
 ///
 /// Soft-skips missing grammar, binary, and invalid UTF-8 as an empty list.
-/// Prefer [`try_extract_imports_from_file`] when a parse deadline must fail
-/// closed instead of looking like "no imports".
+/// Prefer [`extract_imports_from_file_or_timeout`] when a parse deadline
+/// must not look like "no imports".
 pub fn extract_imports_from_file(path: &Path, lang_hint: Option<Language>) -> Vec<Import> {
     try_extract_imports_from_file(path, lang_hint).unwrap_or_default()
+}
+
+/// Extract imports from a file, mapping a parse deadline to
+/// [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar, binary, and invalid UTF-8 stay an empty list (same
+/// as [`extract_imports_from_file`]). Prefer this over
+/// [`extract_imports_from_file`] when a host must not treat a parse
+/// deadline as "no imports" (#2445).
+pub fn extract_imports_from_file_or_timeout(
+    path: &Path,
+    lang_hint: Option<Language>,
+) -> anyhow::Result<Vec<Import>> {
+    match try_extract_imports_from_file(path, lang_hint) {
+        Ok(imports) => Ok(imports),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {}", path.display()),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
 }
 
 /// Like [`extract_imports_from_file`], but a parse deadline is
@@ -744,5 +789,76 @@ namespace app {
         assert!(!import_path_refers_to_stem("pkg.foo", ""));
         assert!(!import_path_refers_to_stem("crate::foo", ""));
         assert!(!import_path_refers_to_stem("", ""));
+    }
+
+    // Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2445).
+    #[test]
+    fn extract_imports_or_timeout_deadline_is_parse_timeout() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = extract_imports_or_timeout(&source, Language::Rust).unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn extract_imports_deadline_stays_empty() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let imports = extract_imports(&source, Language::Rust);
+        assert!(
+            imports.is_empty(),
+            "empty-vec extract_imports must stay empty on deadline"
+        );
+    }
+
+    #[test]
+    fn extract_imports_or_timeout_unknown_lang_is_empty() {
+        let imports = extract_imports_or_timeout("anything", Language::Unknown).unwrap();
+        assert!(
+            imports.is_empty(),
+            "missing grammar must stay empty, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn extract_imports_from_file_or_timeout_binary_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bin.rs");
+        std::fs::write(&path, b"use foo;\0").unwrap();
+        let imports = extract_imports_from_file_or_timeout(&path, None).unwrap();
+        assert!(
+            imports.is_empty(),
+            "binary must stay empty, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn extract_imports_from_file_or_timeout_invalid_utf8_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bad.rs");
+        std::fs::write(&path, [0xff, 0xfe, b'u', b's', b'e']).unwrap();
+        let imports = extract_imports_from_file_or_timeout(&path, None).unwrap();
+        assert!(
+            imports.is_empty(),
+            "invalid UTF-8 must stay empty, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn extract_imports_from_file_or_timeout_deadline_is_parse_timeout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = extract_imports_from_file_or_timeout(&path, None).unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
     }
 }
