@@ -64,6 +64,18 @@ pub(crate) fn try_extract_imports_from_file(
     try_extract_imports(&source, lang)
 }
 
+/// True when any `/`, `.`, or `::` segment of `path` equals `stem`.
+///
+/// Empty `stem` is never a match (would otherwise hit every import).
+pub(crate) fn import_path_refers_to_stem(path: &str, stem: &str) -> bool {
+    if stem.is_empty() {
+        return false;
+    }
+    path.split(['/', '.'])
+        .flat_map(|seg| seg.split("::"))
+        .any(|seg| seg == stem)
+}
+
 fn collect_imports(
     node: tree_sitter_lib::Node,
     source: &str,
@@ -724,5 +736,27 @@ namespace app {
             "plain import should extract 'os', got {:?}",
             paths
         );
+    }
+
+    #[test]
+    fn import_path_refers_to_stem_dotted_pkg_foo() {
+        assert!(import_path_refers_to_stem("pkg.foo", "foo"));
+    }
+
+    #[test]
+    fn import_path_refers_to_stem_crate_foo() {
+        assert!(import_path_refers_to_stem("crate::foo", "foo"));
+    }
+
+    #[test]
+    fn import_path_refers_to_stem_stdlib_not_lib() {
+        assert!(!import_path_refers_to_stem("stdlib", "lib"));
+    }
+
+    #[test]
+    fn import_path_refers_to_stem_empty_stem_is_false() {
+        assert!(!import_path_refers_to_stem("pkg.foo", ""));
+        assert!(!import_path_refers_to_stem("crate::foo", ""));
+        assert!(!import_path_refers_to_stem("", ""));
     }
 }
