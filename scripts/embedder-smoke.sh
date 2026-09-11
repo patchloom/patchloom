@@ -140,11 +140,25 @@ run_lib_filter() {
   local out
   out=$(cd "$REPO_ROOT" && cargo test --lib --all-features "$filter" -- --test-threads=2 2>&1) || {
     echo "$out" >&2
-    fail "library test filter '$filter' failed (#1981)"
+    fail "library test filter '$filter' failed"
   }
   if ! echo "$out" | grep -qE 'test result: ok\. [1-9][0-9]* passed'; then
     echo "$out" >&2
-    fail "library test filter '$filter' ran 0 tests (#1981)"
+    fail "library test filter '$filter' ran 0 tests"
+  fi
+}
+# Host compile set (Bline and other crate embedders): no cli/mcp.
+run_lib_filter_ast_files() {
+  local filter="$1"
+  local out
+  out=$(cd "$REPO_ROOT" && cargo test --lib --no-default-features --features "ast,files" \
+    "$filter" -- --test-threads=2 2>&1) || {
+    echo "$out" >&2
+    fail "library ast,files filter '$filter' failed"
+  }
+  if ! echo "$out" | grep -qE 'test result: ok\. [1-9][0-9]* passed'; then
+    echo "$out" >&2
+    fail "library ast,files filter '$filter' ran 0 tests"
   fi
 }
 run_lib_filter fuzzy_span_suspicious_default_policy
@@ -194,5 +208,15 @@ run_lib_filter apply_search_replace_empty_search
 run_lib_filter apply_search_replace_missing_file
 run_lib_filter apply_search_replace_path_guard
 pass "library Begin Patch + SEARCH/REPLACE unique apply (#2219/#2220)"
+
+# --- #2444 / #2445 / #2446 / #2449: public *_or_timeout deadline peels ---
+# Substring filter: one cargo invocation must run every
+# `*_or_timeout_deadline_is_parse_timeout` test (N>=1). Hosts call
+# these, not crate-private try_*. Empty-vec / Option APIs stay empty.
+# Run the host compile set too (ast,files; no cli). Remapper tests
+# stayed green while public adapters hid a 5s deadline.
+run_lib_filter or_timeout_deadline_is_parse_timeout
+run_lib_filter_ast_files or_timeout_deadline_is_parse_timeout
+pass "library public *_or_timeout deadline peels parse_timeout (#2444/#2445/#2446/#2449)"
 
 echo "embedder-smoke: all checks passed"

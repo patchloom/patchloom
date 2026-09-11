@@ -39,7 +39,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make pack-mcpb` | Pack `mcpb/` into `target/mcpb/patchloom-<ver>.mcpb` (Smithery / desktop). Honors `$VERSION` over Cargo.toml |
 | `make pack-mcpb-test` | Unit tests for pack version override and stamped manifest (`scripts/test_pack_mcpb.py`; skips full pack when `mcpb` CLI missing; part of `check`) |
 | `make agent-test` | Run agent integration tests (requires LLM API key, not part of `check`). Default model is `grok-4.5`. Use `MODEL=X` to switch LLM (e.g. `make agent-test MODEL=sxs-claude-opus-4-6`) |
-| `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033, library `for_each` + lifecycle shell preflight #2168/#2169, patch dest helpers + git copy #2170-#2176, Codex Begin Patch + SEARCH/REPLACE unique apply #2219/#2220). Not part of `check`; run before tagging a release |
+| `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033, library `for_each` + lifecycle shell preflight #2168/#2169, patch dest helpers + git copy #2170-#2176, Codex Begin Patch + SEARCH/REPLACE unique apply #2219/#2220, public `*_or_timeout` deadline peels `parse_timeout` #2444/#2445/#2446/#2449). Not part of `check`; run before tagging a release |
 | `make semver-check` | `cargo-semver-checks` against the last crates.io release (public library API). Not part of `check`; CI runs it only on release-please PRs. Run before merging public API arity/signature changes, or when preparing a release |
 | `make windows-smoke` | PowerShell dogfood (`scripts/windows-smoke.ps1`: peels, tx, CRLF, rename force/binary path-only, hardlink sibling replace, readonly fail-restore `applied:false`; backslash paths on Windows, nested paths on macOS/Linux pwsh). Not part of `check`; CI `ci-windows`. Requires `pwsh` |
 | `make fuzz` | Run fuzz tests (11 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
@@ -305,6 +305,8 @@ Engine staging is always `tx::engine::stage(WriteRequest)` (`Operations` or `Pre
 
 7. **Multi-surface test matrix (unit alone is not enough for agent paths):**
    Agents call plan/`tx`, MCP, and the real binary more often than in-process `run()`.
+   Crate embedders (`default-features = false`, `ast,files`) call public
+   library functions that CLI/MCP remapper tests never reach.
    In the same PR (or an immediate follow-up, not "later"):
 
    | Surface | What to lock | Where |
@@ -313,12 +315,16 @@ Engine staging is always `tx::engine::stage(WriteRequest)` (`Operations` or `Pre
    | Plan / `tx` | JSON plan op apply + at least one fail-closed | `tests/integration/tx_tests.rs` |
    | MCP | Tool round-trip (and fail-closed if custom) | `tests/integration/mcp_tool_tests.rs` |
    | Binary | `Command::cargo_bin("patchloom")` subprocess | `tests/integration/*_tests.rs` |
+   | Library host (`ast,files`) | Public `pub fn` a crate embedder actually calls; one fail-closed peel under `ParseTimeoutGuard` (or the matching host `error_kind`) | `src/ast/` / `src/api/` plus a `scripts/embedder-smoke.sh` cargo-test filter |
 
-   Skip only surfaces that do not exist (read-only CLI with no plan op; no MCP tool).
+   Skip only surfaces that do not exist (read-only CLI with no plan op; no MCP tool;
+   no public library entry).
    Batch line ops are optional when freeform multi-line payloads do not fit the
    line format; document `tx`/MCP as the agent path instead.
    Learned #2018/#2026 (`apply-fragment`): unit coverage shipped; agents still
    hit untested plan/MCP/binary until the matrix landed.
+   Learned #2444/#2445/#2446/#2449: remapper and crate-private `try_*` tests
+   stayed green while public empty-vec / Option adapters hid a 5s parse deadline.
 
 8. Update ancillary files that integration tests auto-verify:
    - `tests/agent/drivers/base.py`: add the command name to `_PATCHLOOM_SUBCOMMANDS`.
