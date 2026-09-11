@@ -110,16 +110,33 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
             symbols: Vec<SymbolDef>,
         }
 
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let results: Vec<ListFileResult> =
             crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
                 let lang = resolve_lang(lang_hint, path);
-                let symbols = symbols::extract_symbols_from_file(path, Some(lang));
+                let symbols = match symbols::try_extract_symbols_from_file(path, Some(lang)) {
+                    Ok(s) => s,
+                    Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                        let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                        if slot.is_none() {
+                            *slot = Some(path.display().to_string());
+                        }
+                        return None;
+                    }
+                    Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+                };
                 if symbols.is_empty() {
                     return None;
                 }
                 let display = display_path(path, &cwd);
                 Some(ListFileResult { display, symbols })
             });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {file}"),
+            }
+            .into());
+        }
 
         for result in &results {
             let filtered = filter_symbols(&result.symbols, &kind_filter);
@@ -934,7 +951,7 @@ pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8>
         boost: &args.boost,
     };
 
-    let entries = crate::ast::map::generate_map(&file_pairs, &opts);
+    let entries = crate::ast::map::try_generate_map(&file_pairs, &opts)?;
 
     if entries.is_empty() {
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
@@ -1238,6 +1255,58 @@ mod tests {
         match result {
             Ok(code) => {
                 panic!("sole-file list timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn list_dir_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_list(
+            ListArgs {
+                path: ".".into(),
+                kind: None,
+                compact: false,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("dir list timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn map_dir_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_map(
+            MapArgs {
+                path: ".".into(),
+                max_tokens: 1024,
+                focus: Vec::new(),
+                boost: Vec::new(),
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("dir map timeout must return Err(ParseTimeoutError), got Ok({code})")
             }
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
