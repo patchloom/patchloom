@@ -11,6 +11,14 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.34.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.34.0...patchloom-v0.34.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **ast:** publish query parse_timeout helpers for library hosts ([#2447](https://github.com/patchloom/patchloom/issues/2447)) ([b0bab2a](https://github.com/patchloom/patchloom/commit/b0bab2a3a07cdc064fad53d17ea2ca5cbfcb28f8)), closes [#2444](https://github.com/patchloom/patchloom/issues/2444)
+* **ast:** publish remaining query parse_timeout helpers ([#2450](https://github.com/patchloom/patchloom/issues/2450)) ([76607f3](https://github.com/patchloom/patchloom/commit/76607f33d0fbad12432f2cf4e7a2d23b8686fdff)), closes [#2445](https://github.com/patchloom/patchloom/issues/2445) [#2446](https://github.com/patchloom/patchloom/issues/2446) [#2449](https://github.com/patchloom/patchloom/issues/2449)
+
 ## [0.34.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.33.0...patchloom-v0.34.0) (2026-09-11)
 
 
