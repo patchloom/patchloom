@@ -686,26 +686,52 @@ pub(super) fn handle_ast_refs(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
-    if paths.len() == 1 {
+    let mut all_refs = if paths.len() == 1 {
         let sole = &paths[0];
-        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
-            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
-        {
-            return Err(McpError::invalid_params(
-                crate::exit::agent_error_message(&e),
-                None,
-            ));
+        let source = match crate::files::load_text_strict(sole, &p.path) {
+            Ok(s) => s,
+            Err(e)
+                if crate::exit::is_load_text_strict_fail(&e)
+                    || crate::exit::is_io_not_found(&e) =>
+            {
+                return Err(McpError::invalid_params(
+                    crate::exit::agent_error_message(&e),
+                    None,
+                ));
+            }
+            Err(e) => {
+                return Err(McpError::internal_error(
+                    crate::exit::agent_error_message(&e),
+                    None,
+                ));
+            }
+        };
+        let display = crate::cmd::ast::display_path(sole, &cwd);
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sole));
+        match crate::ast::refs::try_find_refs_in_source(&source, &p.symbol, lang, &display) {
+            Ok(refs) => refs,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                let msg = format!("parse deadline exceeded for {}", p.path);
+                let body = serde_json::json!({
+                    "ok": false,
+                    "applied": false,
+                    "error_kind": "parse_timeout",
+                    "error": msg,
+                });
+                return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
         }
-    }
-
-    let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
-        crate::par_process_files(&paths, None, &[], |path| {
-            let display = crate::cmd::ast::display_path(path, &cwd);
-            let refs = crate::ast::refs::find_refs_in_file(path, &p.symbol, lang_hint, &display);
-            if refs.is_empty() { None } else { Some(refs) }
-        });
-    let mut all_refs: Vec<crate::ast::refs::SymbolRef> = per_file.into_iter().flatten().collect();
+    } else {
+        let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
+            crate::par_process_files(&paths, None, &[], |path| {
+                let display = crate::cmd::ast::display_path(path, &cwd);
+                let refs =
+                    crate::ast::refs::find_refs_in_file(path, &p.symbol, lang_hint, &display);
+                if refs.is_empty() { None } else { Some(refs) }
+            });
+        per_file.into_iter().flatten().collect()
+    };
 
     if !p.include_def {
         all_refs.retain(|r| r.kind != crate::ast::refs::RefKind::Definition);
@@ -1570,6 +1596,38 @@ impl Point {
         assert!(
             !text.contains("symbol not found") && !text.contains("not found"),
             "read timeout must not become symbol not found: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_refs_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstRefsParams {
+            path: "deep.rs".into(),
+            symbol: "main".into(),
+            include_def: true,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_refs(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path refs timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No references found"),
+            "refs timeout must not become walk-soft no references: {text}"
         );
     }
 

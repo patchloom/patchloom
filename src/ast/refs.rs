@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use super::{Language, parse_source};
+use super::{Language, ParseFailure, try_parse_source};
 
 /// Kind of reference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -85,16 +85,33 @@ const SKIP_KINDS: &[&str] = &[
 ];
 
 /// Find all references to `symbol_name` in the given source code.
+///
+/// Parse deadline and missing grammar both yield an empty vec. Sole-file
+/// callers that must fail closed should use `try_find_refs_in_source`.
 pub fn find_refs_in_source(
     source: &str,
     symbol_name: &str,
     lang: Language,
     file_path: &str,
 ) -> Vec<SymbolRef> {
-    let Some((tree, _)) = parse_source(source, lang) else {
-        return Vec::new();
-    };
-    find_refs_in_source_with_tree(source, symbol_name, &tree, file_path)
+    try_find_refs_in_source(source, symbol_name, lang, file_path).unwrap_or_default()
+}
+
+/// Like [`find_refs_in_source`], but distinguishes a parse deadline from
+/// a missing grammar so sole-file callers can fail closed.
+pub(crate) fn try_find_refs_in_source(
+    source: &str,
+    symbol_name: &str,
+    lang: Language,
+    file_path: &str,
+) -> Result<Vec<SymbolRef>, ParseFailure> {
+    let (tree, _) = try_parse_source(source, lang)?;
+    Ok(find_refs_in_source_with_tree(
+        source,
+        symbol_name,
+        &tree,
+        file_path,
+    ))
 }
 
 /// Find all references using a pre-parsed tree (avoids redundant parsing).

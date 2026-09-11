@@ -737,7 +737,7 @@ pub fn exit_code_from_tx_output(report: &TxOutput) -> u8 {
     } else {
         match report.error_kind.as_deref() {
             Some("no_matches") => exit::NO_MATCHES,
-            Some("parse_error") => exit::PARSE_ERROR,
+            Some("parse_error") | Some("parse_timeout") => exit::PARSE_ERROR,
             Some("ambiguous") => exit::AMBIGUOUS,
             Some("rollback") => exit::ROLLBACK,
             Some("rollback_failed") => exit::FAILURE,
@@ -982,6 +982,10 @@ mod tests {
             exit::PARSE_ERROR
         );
         assert_eq!(
+            exit_code_from_tx_output(&err_output("parse_timeout")),
+            exit::PARSE_ERROR
+        );
+        assert_eq!(
             exit_code_from_tx_output(&err_output("rollback")),
             exit::ROLLBACK
         );
@@ -1013,6 +1017,15 @@ mod tests {
             exit_code_from_tx_output(&err_output("unknown_kind")),
             exit::FAILURE
         );
+    }
+
+    #[test]
+    fn exit_code_from_tx_output_parse_timeout_is_parse_error() {
+        let out = err_output("parse_timeout");
+        assert!(!out.ok);
+        assert_eq!(out.error_kind.as_deref(), Some("parse_timeout"));
+        assert_eq!(exit_code_from_tx_output(&out), exit::PARSE_ERROR);
+        assert_ne!(exit_code_from_tx_output(&out), exit::FAILURE);
     }
 
     // ---- build_tx_output ----

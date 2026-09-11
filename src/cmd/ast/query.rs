@@ -603,16 +603,33 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
     crate::verbose!("ast refs: scanning {} files", paths.len());
 
-    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let glob_roots = vec![cwd.join(&args.path)];
-    let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
-        crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            let display = display_path(path, &cwd);
-            let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
-            if refs.is_empty() { None } else { Some(refs) }
-        });
-
-    let mut all_refs: Vec<_> = per_file_refs.into_iter().flatten().collect();
+    let mut all_refs = if paths.len() == 1 {
+        let path = &paths[0];
+        let display = display_path(path, &cwd);
+        let lang = resolve_lang(lang_hint, path);
+        let source = crate::files::load_text_strict(path, &args.path)?;
+        match crate::ast::refs::try_find_refs_in_source(&source, &args.symbol, lang, &display) {
+            Ok(refs) => refs,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", args.path),
+                }
+                .into());
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+        }
+    } else {
+        let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+        let glob_roots = vec![cwd.join(&args.path)];
+        let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
+            crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
+                let display = display_path(path, &cwd);
+                let refs =
+                    crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
+                if refs.is_empty() { None } else { Some(refs) }
+            });
+        per_file_refs.into_iter().flatten().collect()
+    };
 
     if !args.include_def {
         all_refs.retain(|r| r.kind != crate::ast::refs::RefKind::Definition);
@@ -1156,6 +1173,32 @@ mod tests {
         match result {
             Ok(code) => {
                 panic!("sole-file read timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn refs_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_refs(
+            RefsArgs {
+                symbol: "main".into(),
+                path: "deep.rs".into(),
+                include_def: true,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file refs timeout must return Err(ParseTimeoutError), got Ok({code})")
             }
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
