@@ -82,18 +82,19 @@ fn ast_rename_single_file(
     let lang_val = lang_hint
         .map(crate::ast::Language::from_name_or_ext)
         .unwrap_or_else(|| crate::ast::Language::from_path(abs));
-    let result = crate::ast::rename::rename_in_source(content, old, new, lang_val);
-    match result {
-        Some(r) if r.replacements > 0 => {
+    match crate::ast::rename::try_rename_in_source(content, old, new, lang_val) {
+        Ok(Some(r)) if r.replacements > 0 => {
             tx.write_file(abs, r.content);
             Ok(r.replacements)
         }
-        Some(_) => Err(crate::exit::NoMatchError {
+        Ok(Some(_)) => Err(crate::exit::NoMatchError {
             msg: format!("no matches for '{}' in {}", old, abs.display()),
         }
         .into()),
-        None => {
-            // Tree-sitter couldn't parse. Fallback to word-boundary replace.
+        Err(e) if crate::exit::is_parse_timeout(&e) => Err(e),
+        Ok(None) | Err(_) => {
+            // No grammar (or unexpected parse miss). Word-boundary fallback.
+            // Do not fall through here on DeadlineExceeded.
             let re = crate::ops::replace::compile_replace_regex(old, false, false, false, true)?;
             if let Some(re) = re {
                 let new_content = re.replace_all(content, new).to_string();
@@ -763,5 +764,52 @@ mod tests {
             .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .collect();
         assert_eq!(names, vec!["root.rs".to_string()], "got {names:?}");
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn ast_rename_single_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        let original = nested_rust_source(80_000);
+        fs::write(&path, &original).unwrap();
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![crate::plan::Operation::AstRename {
+                path: "deep.rs".into(),
+                old: "x".into(),
+                new: "y".into(),
+                lang: None,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+        assert!(
+            !report.ok,
+            "timeout must not apply a word-boundary rename: {report:?}"
+        );
+        assert_eq!(
+            report.error_kind.as_deref(),
+            Some("parse_timeout"),
+            "tx rename timeout must be parse_timeout, got {report:?}"
+        );
+        assert!(!report.applied, "timeout must not set applied");
+        let after = fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "timeout must not word-boundary-write");
     }
 }

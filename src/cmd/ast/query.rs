@@ -78,7 +78,16 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
             global.emit_error_json_kind(Some("invalid_input"), &msg)?;
             return Ok(exit::FAILURE);
         }
-        let symbols = symbols::extract_symbols(&source, lang);
+        let symbols = match symbols::try_extract_symbols(&source, lang) {
+            Ok(s) => s,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", args.path),
+                }
+                .into());
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+        };
         let filtered = filter_symbols(&symbols, &kind_filter);
         if !filtered.is_empty() {
             any_output = true;
@@ -191,7 +200,16 @@ pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let all_symbols = symbols::extract_symbols(&source, lang);
+    let all_symbols = match symbols::try_extract_symbols(&source, lang) {
+        Ok(s) => s,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {}", args.path),
+            }
+            .into());
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+    };
     let sym = match symbols::find_symbol(&all_symbols, &args.symbol) {
         Some(s) => s,
         None => {
@@ -1059,6 +1077,58 @@ mod tests {
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, got {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn list_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_list(
+            ListArgs {
+                path: "deep.rs".into(),
+                kind: None,
+                compact: false,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file list timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn read_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_read(
+            ReadArgs {
+                path: "deep.rs".into(),
+                symbol: "main".into(),
+                context: 0,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file read timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
             ),
         }
     }
