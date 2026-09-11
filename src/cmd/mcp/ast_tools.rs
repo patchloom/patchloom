@@ -839,9 +839,21 @@ pub(super) fn handle_ast_deps(
         struct RevDepsResult {
             entries: Vec<serde_json::Value>,
         }
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let par_results: Vec<RevDepsResult> =
             crate::par_process_files(&all_files, None, &[], |path| {
-                let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+                let imports = match crate::ast::deps::try_extract_imports_from_file(path, lang_hint)
+                {
+                    Ok(i) => i,
+                    Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                        let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                        if slot.is_none() {
+                            *slot = Some(path.display().to_string());
+                        }
+                        return None;
+                    }
+                    Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+                };
                 let matching: Vec<_> = imports
                     .iter()
                     .filter(|i| {
@@ -874,13 +886,35 @@ pub(super) fn handle_ast_deps(
                     .collect();
                 Some(RevDepsResult { entries })
             });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            let msg = format!("parse deadline exceeded for {file}");
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
         for r in par_results {
             results.extend(r.entries);
         }
     } else {
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let par_results: Vec<serde_json::Value> =
             crate::par_process_files(&paths, None, &[], |path| {
-                let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+                let imports = match crate::ast::deps::try_extract_imports_from_file(path, lang_hint)
+                {
+                    Ok(i) => i,
+                    Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                        let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                        if slot.is_none() {
+                            *slot = Some(path.display().to_string());
+                        }
+                        return None;
+                    }
+                    Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+                };
                 if imports.is_empty() {
                     return None;
                 }
@@ -890,6 +924,16 @@ pub(super) fn handle_ast_deps(
                     "imports": imports,
                 }))
             });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            let msg = format!("parse deadline exceeded for {file}");
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
         results.extend(par_results);
     }
 
@@ -1051,7 +1095,20 @@ pub(super) fn handle_ast_impact(
         })
         .collect();
 
-    let nodes = crate::ast::impact::compute_impact(&p.symbol, &file_pairs, p.depth);
+    let nodes = match crate::ast::impact::try_compute_impact(&p.symbol, &file_pairs, p.depth) {
+        Ok(n) => n,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            let msg = format!("parse deadline exceeded for {}", p.path);
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+    };
 
     if nodes.is_empty() {
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
@@ -1833,6 +1890,37 @@ impl Point {
         );
         let after = std::fs::read_to_string(&path).unwrap();
         assert_eq!(after, original, "timeout must not write dest");
+    }
+
+    #[test]
+    fn ast_impact_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstImpactParams {
+            symbol: "main".into(),
+            path: "deep.rs".into(),
+            depth: 3,
+        };
+        let result = handle_ast_impact(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path impact timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No references found"),
+            "impact timeout must not become walk-soft no references: {text}"
+        );
     }
 
     #[test]

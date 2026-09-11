@@ -542,13 +542,29 @@ pub(crate) fn run_parsed_plan(
     #[cfg(feature = "ast")]
     let verify_before = if !verify_checks.is_empty() {
         let affected = crate::tx::verify::scan_paths_for_checks(&plan, &cwd, &verify_checks);
-        verify_checks
-            .iter()
-            .map(|check| {
-                let snap = crate::tx::verify::snapshot_symbols(&affected, check);
-                (check.clone(), snap)
-            })
-            .collect::<Vec<_>>()
+        let mut snaps = Vec::new();
+        for check in &verify_checks {
+            let snap = match crate::tx::verify::snapshot_symbols(&affected, check) {
+                Ok(s) => s,
+                Err(e) => {
+                    let msg = e.to_string();
+                    let (kind, code) = match exit::classify_typed_error(&e) {
+                        Some((k, c)) => (k, c),
+                        None => ("operation_failed", exit::OPERATION_FAILED),
+                    };
+                    if structured {
+                        let suggested = exit::suggested_op_from_error(&e);
+                        let ok =
+                            emit_error_json_with_suggested_op(kind, &msg, None, suggested, compact);
+                        return Ok(exit_after_emit(ok, code));
+                    }
+                    eprintln!("tx: {msg}");
+                    return Ok(code);
+                }
+            };
+            snaps.push((check.clone(), snap));
+        }
+        snaps
     } else {
         Vec::new()
     };
@@ -606,8 +622,28 @@ pub(crate) fn run_parsed_plan(
         let mut any_failed = false;
         let mut messages = Vec::new();
         for (check, before_snap) in &verify_before {
-            let after_snap =
-                crate::tx::verify::snapshot_symbols_from_pending(&affected, &result.pending, check);
+            let after_snap = match crate::tx::verify::snapshot_symbols_from_pending(
+                &affected,
+                &result.pending,
+                check,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    let msg = e.to_string();
+                    let (kind, code) = match exit::classify_typed_error(&e) {
+                        Some((k, c)) => (k, c),
+                        None => ("operation_failed", exit::OPERATION_FAILED),
+                    };
+                    if structured {
+                        let suggested = exit::suggested_op_from_error(&e);
+                        let ok =
+                            emit_error_json_with_suggested_op(kind, &msg, None, suggested, compact);
+                        return Ok(exit_after_emit(ok, code));
+                    }
+                    eprintln!("tx: {msg}");
+                    return Ok(code);
+                }
+            };
             let vr = crate::tx::verify::compare_snapshots(before_snap, &after_snap, check, &cwd);
             messages.push(vr.message.clone());
             if !vr.passed {

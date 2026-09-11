@@ -756,8 +756,19 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
             matching: Vec<crate::ast::deps::Import>,
         }
 
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let hits: Vec<ReverseHit> = crate::par_process_files(&all_files, None, &[], |path| {
-            let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+            let imports = match crate::ast::deps::try_extract_imports_from_file(path, lang_hint) {
+                Ok(i) => i,
+                Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                    let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                    if slot.is_none() {
+                        *slot = Some(path.display().to_string());
+                    }
+                    return None;
+                }
+                Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+            };
             // Use segment-boundary matching to avoid substring false positives.
             // Split import paths on common separators (::, /, .) and check if
             // any segment exactly equals the target file stem.
@@ -778,6 +789,12 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
                 matching,
             })
         });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {file}"),
+            }
+            .into());
+        }
 
         for hit in &hits {
             any_output = true;
@@ -804,15 +821,33 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
 
         let glob_matcher = crate::build_glob_matcher_from_global(global)?;
         let glob_roots = vec![cwd.join(&args.path)];
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let results: Vec<DepsFileResult> =
             crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
-                let imports = crate::ast::deps::extract_imports_from_file(path, lang_hint);
+                let imports = match crate::ast::deps::try_extract_imports_from_file(path, lang_hint)
+                {
+                    Ok(i) => i,
+                    Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                        let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                        if slot.is_none() {
+                            *slot = Some(path.display().to_string());
+                        }
+                        return None;
+                    }
+                    Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+                };
                 if imports.is_empty() {
                     return None;
                 }
                 let display = display_path(path, &cwd);
                 Some(DepsFileResult { display, imports })
             });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {file}"),
+            }
+            .into());
+        }
 
         for result in &results {
             any_output = true;
@@ -955,7 +990,17 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
         })
         .collect();
 
-    let nodes = crate::ast::impact::compute_impact(&args.symbol, &file_pairs, args.depth);
+    let nodes = match crate::ast::impact::try_compute_impact(&args.symbol, &file_pairs, args.depth)
+    {
+        Ok(n) => n,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {}", args.path),
+            }
+            .into());
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+    };
 
     if nodes.is_empty() {
         if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {
@@ -1324,6 +1369,64 @@ mod tests {
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, not no structural changes: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn deps_reverse_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(
+            dir.path().join("main.rs"),
+            "use crate::deep;\nfn main() {}\n",
+        )
+        .unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_deps(
+            DepsArgs {
+                path: "deep.rs".into(),
+                reverse: true,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("reverse deps timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches/empty: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn impact_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_impact(
+            ImpactArgs {
+                symbol: "main".into(),
+                path: "deep.rs".into(),
+                depth: 3,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!(
+                    "sole-file impact timeout must return Err(ParseTimeoutError), got Ok({code})"
+                )
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
             ),
         }
     }

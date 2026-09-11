@@ -645,6 +645,33 @@ fn for_each_has_symbol_matches_nested_method() {
     );
 }
 
+#[cfg(all(feature = "files", feature = "ast"))]
+#[test]
+fn for_each_has_symbol_timeout_is_parse_timeout() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut source = String::from("fn main() { let x = ");
+    source.push_str(&"(".repeat(80_000));
+    source.push('1');
+    source.push_str(&")".repeat(80_000));
+    source.push_str("; }\n");
+    std::fs::write(dir.path().join("deep.rs"), source).unwrap();
+
+    let json = r#"{
+            "version": 1,
+            "for_each": { "glob": "*.rs", "filter": "has_symbol(main)" },
+            "operations": [
+                {"op": "replace", "path": "{path}", "old": "x", "new": "y"}
+            ]
+        }"#;
+    let mut plan = parse_plan(json).unwrap();
+    let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+    let err = expand_for_each(&mut plan, dir.path()).unwrap_err();
+    assert!(
+        crate::exit::is_parse_timeout(&err),
+        "has_symbol timeout must be parse_timeout, not no_matches: {err}"
+    );
+}
+
 #[cfg(feature = "files")]
 #[test]
 fn for_each_unknown_path_template_is_invalid_input() {

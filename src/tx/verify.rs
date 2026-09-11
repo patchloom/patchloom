@@ -140,7 +140,10 @@ fn flatten_symbols(symbols: &[symbols::SymbolDef]) -> Vec<&symbols::SymbolDef> {
 
 /// Take a symbol snapshot of the given files for a specific verify check.
 #[cfg(feature = "ast")]
-pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> SymbolSnapshot {
+pub(crate) fn snapshot_symbols(
+    files: &[PathBuf],
+    check: &VerifyCheck,
+) -> anyhow::Result<SymbolSnapshot> {
     use symbols::parse_kind_filter;
 
     let mut result = SymbolSnapshot {
@@ -154,14 +157,14 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
             // Fail closed: return empty snapshot (total 0) instead of fail-open.
             match parse_kind_filter(&Some(kind.clone())) {
                 Ok(f) => (f, attr.clone()),
-                Err(_) => return result,
+                Err(_) => return Ok(result),
             }
         }
         VerifyCheck::Named { check } if check == "unique_names" || check == "no_orphans" => {
             // For named checks, capture all symbols
             (Vec::new(), None)
         }
-        _ => return result,
+        _ => return Ok(result),
     };
 
     for path in files {
@@ -176,7 +179,16 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
         let Some(source) = crate::files::read_text_file(path) else {
             continue;
         };
-        let all_symbols = symbols::extract_symbols(&source, lang);
+        let all_symbols = match symbols::try_extract_symbols(&source, lang) {
+            Ok(s) => s,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", path.display()),
+                }
+                .into());
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => continue,
+        };
         let flat = flatten_symbols(&all_symbols);
         let filtered: Vec<&symbols::SymbolDef> = if kind_filter.is_empty() {
             flat
@@ -211,7 +223,7 @@ pub(crate) fn snapshot_symbols(files: &[PathBuf], check: &VerifyCheck) -> Symbol
         }
     }
 
-    result
+    Ok(result)
 }
 
 /// Take a snapshot from in-memory pending content (post-execution, before commit).
@@ -220,7 +232,7 @@ pub(crate) fn snapshot_symbols_from_pending(
     files: &[PathBuf],
     pending: &HashMap<PathBuf, (String, String)>,
     check: &VerifyCheck,
-) -> SymbolSnapshot {
+) -> anyhow::Result<SymbolSnapshot> {
     use symbols::parse_kind_filter;
 
     let mut result = SymbolSnapshot {
@@ -233,13 +245,13 @@ pub(crate) fn snapshot_symbols_from_pending(
             // Unknown kinds must not become an empty filter (empty = all symbols).
             match parse_kind_filter(&Some(kind.clone())) {
                 Ok(f) => (f, attr.clone()),
-                Err(_) => return result,
+                Err(_) => return Ok(result),
             }
         }
         VerifyCheck::Named { check } if check == "unique_names" || check == "no_orphans" => {
             (Vec::new(), None)
         }
-        _ => return result,
+        _ => return Ok(result),
     };
 
     for path in files {
@@ -257,7 +269,16 @@ pub(crate) fn snapshot_symbols_from_pending(
             continue;
         };
 
-        let all_symbols = symbols::extract_symbols(&source, lang);
+        let all_symbols = match symbols::try_extract_symbols(&source, lang) {
+            Ok(s) => s,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", path.display()),
+                }
+                .into());
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => continue,
+        };
         let flat = flatten_symbols(&all_symbols);
         let filtered: Vec<&symbols::SymbolDef> = if kind_filter.is_empty() {
             flat
@@ -292,7 +313,7 @@ pub(crate) fn snapshot_symbols_from_pending(
         }
     }
 
-    result
+    Ok(result)
 }
 
 /// Check if a symbol has a specific attribute (e.g., `#[test]` for Rust).
@@ -877,7 +898,7 @@ fn not_a_test() {}
             kind: "function".into(),
             attr: Some("test".into()),
         };
-        let snap = snapshot_symbols(&[path], &check);
+        let snap = snapshot_symbols(&[path], &check).expect("readable rust source");
         assert_eq!(
             snap.total, 1,
             "exactly one #[test] function expected, got {snap:?}"
@@ -892,9 +913,32 @@ fn not_a_test() {}
             kind: "function".into(),
             attr: Some("test".into()),
         };
-        let snap = snapshot_symbols(&[missing], &check);
+        let snap = snapshot_symbols(&[missing], &check).expect("missing path is skip");
         assert_eq!(snap.total, 0);
         assert!(snap.files.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "ast")]
+    fn snapshot_symbols_timeout_is_parse_timeout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(80_000));
+        source.push('1');
+        source.push_str(&")".repeat(80_000));
+        source.push_str("; }\n");
+        std::fs::write(&path, source).unwrap();
+        let check = VerifyCheck::SymbolCount {
+            kind: "function".into(),
+            attr: None,
+        };
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = snapshot_symbols(&[path], &check).expect_err("timeout must not snapshot 0");
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "timeout must be parse_timeout, not empty 0==0: {err}"
+        );
     }
 
     #[test]

@@ -6,8 +6,10 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Language;
+use super::ParseFailure;
 use super::refs::{RefKind, find_all_refs_in_source_with_tree};
-use super::symbols::extract_symbols;
+use super::symbols::try_extract_symbols;
+use super::try_parse_source;
 
 /// A node in the impact tree.
 #[derive(Debug, Clone, Serialize)]
@@ -25,11 +27,23 @@ pub struct ImpactNode {
 }
 
 /// Compute the transitive impact of changing a symbol.
+///
+/// A parse deadline is treated as no references. Prefer [`try_compute_impact`]
+/// when timeout must fail closed instead of looking like `no_matches`.
 pub fn compute_impact(
     symbol_name: &str,
     files: &[(impl AsRef<Path>, String)],
     max_depth: usize,
 ) -> Vec<ImpactNode> {
+    try_compute_impact(symbol_name, files, max_depth).unwrap_or_default()
+}
+
+/// Like [`compute_impact`], but a parse deadline is [`ParseFailure::DeadlineExceeded`].
+pub(crate) fn try_compute_impact(
+    symbol_name: &str,
+    files: &[(impl AsRef<Path>, String)],
+    max_depth: usize,
+) -> Result<Vec<ImpactNode>, ParseFailure> {
     // Collect all file sources
     let file_data: Vec<(&Path, &str, String, Language)> = files
         .iter()
@@ -55,15 +69,18 @@ pub fn compute_impact(
     let mut reverse_deps: HashMap<String, Vec<ReverseRef>> = HashMap::new();
 
     for (_, display, source, lang) in &file_data {
-        // Parse tree (needed for ref extraction).
-        let Some((tree, _)) = super::parse_source(source, *lang) else {
-            continue;
+        let (tree, _) = match try_parse_source(source, *lang) {
+            Ok(parsed) => parsed,
+            Err(ParseFailure::DeadlineExceeded) => return Err(ParseFailure::DeadlineExceeded),
+            Err(ParseFailure::NoGrammar) => continue,
         };
 
-        // Extract symbols for containment lookup.
-        let symbols = extract_symbols(source, *lang);
+        let symbols = match try_extract_symbols(source, *lang) {
+            Ok(s) => s,
+            Err(ParseFailure::DeadlineExceeded) => return Err(ParseFailure::DeadlineExceeded),
+            Err(ParseFailure::NoGrammar) => continue,
+        };
 
-        // Collect all identifier references in this file.
         let all_refs = find_all_refs_in_source_with_tree(source, &tree, display);
 
         for (ref_name, sym_ref) in all_refs {
@@ -81,7 +98,13 @@ pub fn compute_impact(
         }
     }
 
-    find_dependents(symbol_name, &reverse_deps, max_depth, 1, &mut visited)
+    Ok(find_dependents(
+        symbol_name,
+        &reverse_deps,
+        max_depth,
+        1,
+        &mut visited,
+    ))
 }
 
 /// A reference edge in the reverse dependency map.
@@ -181,6 +204,7 @@ pub fn render_impact_tree(symbol: &str, nodes: &[ImpactNode], indent: usize) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::symbols::extract_symbols;
 
     #[test]
     fn find_containing_symbol_works() {

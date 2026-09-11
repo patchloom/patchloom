@@ -1,6 +1,6 @@
 //! Symbol extraction from source files using tree-sitter AST parsing.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -133,16 +133,62 @@ pub(crate) fn extract_symbols_or_timeout(
 }
 
 /// Read a file and extract symbols.
+///
+/// Soft-skips missing grammar, binary, and invalid UTF-8 as an empty list.
+/// Prefer [`try_extract_symbols_from_file`] when a parse deadline must fail
+/// closed instead of looking like "no symbols".
 pub fn extract_symbols_from_file(path: &Path, lang_hint: Option<Language>) -> Vec<SymbolDef> {
+    try_extract_symbols_from_file(path, lang_hint).unwrap_or_default()
+}
+
+/// Like [`extract_symbols_from_file`], but a parse deadline is
+/// [`ParseFailure::DeadlineExceeded`] instead of an empty list.
+pub(crate) fn try_extract_symbols_from_file(
+    path: &Path,
+    lang_hint: Option<Language>,
+) -> Result<Vec<SymbolDef>, ParseFailure> {
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
     if !lang.has_grammar() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     // SoftSkip multi-path (#1894): binary / invalid UTF-8 → empty.
     let Some(source) = crate::files::read_text_file(path) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    extract_symbols(&source, lang)
+    try_extract_symbols(&source, lang)
+}
+
+/// Extract symbols from a file, mapping a parse deadline to
+/// [`crate::exit::ParseTimeoutError`]. Missing grammar, binary, and
+/// invalid UTF-8 stay an empty list (same as [`extract_symbols_from_file`]).
+pub(crate) fn extract_symbols_from_file_or_timeout(
+    path: &Path,
+    lang_hint: Option<Language>,
+) -> anyhow::Result<Vec<SymbolDef>> {
+    match try_extract_symbols_from_file(path, lang_hint) {
+        Ok(s) => Ok(s),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {}", path.display()),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
+}
+
+/// Keep files whose AST contains `name` (nested children included).
+/// A parse deadline is [`crate::exit::ParseTimeoutError`].
+pub(crate) fn keep_files_with_symbol(
+    files: Vec<PathBuf>,
+    name: &str,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let mut kept = Vec::new();
+    for p in files {
+        let syms = extract_symbols_from_file_or_timeout(&p, None)?;
+        if find_symbol(&syms, name).is_some() {
+            kept.push(p);
+        }
+    }
+    Ok(kept)
 }
 
 /// Find a symbol by name, optionally qualified (e.g. "Impl::method").
