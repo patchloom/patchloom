@@ -4368,6 +4368,37 @@ fn file_append_and_prepend_whitespace_only_is_invalid_input() {
 }
 
 #[test]
+fn file_create_whitespace_only_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+
+    for payload in ["   ", "\t"] {
+        let err = file_create(&file, payload, false, ApplyMode::Apply, None).expect_err(payload);
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "create {payload:?}: {err}"
+        );
+        assert!(
+            err.to_string().contains("whitespace-only"),
+            "create {payload:?}: {err}"
+        );
+        assert!(
+            !file.exists(),
+            "dest must not exist after failed create {payload:?}"
+        );
+    }
+
+    let res = file_create(&file, "", false, ApplyMode::Apply, None).expect("empty file");
+    assert!(res.applied);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "");
+
+    let file2 = dir.path().join("b.txt");
+    let res2 = file_create(&file2, "\n", false, ApplyMode::Apply, None).expect("blank-line file");
+    assert!(res2.applied);
+    assert_eq!(std::fs::read_to_string(&file2).unwrap(), "\n");
+}
+
+#[test]
 fn apply_content_edits_whitespace_only_append_prepend_is_invalid_input() {
     for (edit, kind) in [
         (

@@ -392,6 +392,38 @@ fn file_append_rejects_whitespace_only() {
 }
 
 #[test]
+fn file_create_rejects_whitespace_only() {
+    let dir = TempDir::new().unwrap();
+    let dest = dir.path().join("a.txt");
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+
+    let op = Operation::FileCreate {
+        path: "a.txt".into(),
+        content: "   ".into(),
+        force: None,
+    };
+    let err = execute_file_op(&op, &mut tx).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "expected InvalidInputError, got: {err:#}"
+    );
+    assert!(
+        err.to_string().contains("whitespace-only"),
+        "message should name whitespace: {err}"
+    );
+    assert!(
+        f.pending.is_empty(),
+        "must not stage a write for whitespace-only create"
+    );
+    assert!(
+        !dest.exists(),
+        "dest file must not exist after failed create"
+    );
+}
+
+#[test]
 fn file_prepend_rejects_whitespace_only() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("a.txt");

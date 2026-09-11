@@ -9,8 +9,9 @@ use crate::ops::replace::preferred_line_ending;
 ///
 /// When a separator is needed, uses the file's dominant EOL (CRLF / CR / LF)
 /// so Windows CRLF files without a final newline do not gain a bare LF.
-/// Whitespace-only inject (`"   "`) is invalid. Empty `""` is identity.
-/// `"\n"` / `"\r"` is insert-a-blank-line.
+/// Whitespace-only inject (`"   "`) is invalid for append, prepend, and create.
+/// Empty `""` is identity (append/prepend) or an empty file (create).
+/// `"\n"` / `"\r"` is a blank-line file.
 pub(crate) fn reject_whitespace_only_payload(payload: &str, kind: &str) -> anyhow::Result<()> {
     if !payload.is_empty()
         && payload.trim().is_empty()
