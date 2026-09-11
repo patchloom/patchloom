@@ -162,7 +162,7 @@ pub fn set_at_path(
                 return Ok(());
             }
             // Capture type before mut borrow for the error path (multi-doc array root).
-            reject_blank_object_key(&k, "doc.set")?;
+            reject_blank_object_key(k, "doc.set")?;
             let parent_kind = value_type_name(parent);
             parent
                 .as_object_mut()
@@ -544,7 +544,7 @@ pub fn move_at_path(
                         }));
                     }
                 } else {
-                    reject_blank_object_key(&k, "doc.move")?;
+                    reject_blank_object_key(k, "doc.move")?;
                     parent
                         .as_object_mut()
                         .ok_or_else(|| {
