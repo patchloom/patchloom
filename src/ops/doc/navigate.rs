@@ -162,6 +162,7 @@ pub fn set_at_path(
                 return Ok(());
             }
             // Capture type before mut borrow for the error path (multi-doc array root).
+            reject_blank_object_key(&k, "doc.set")?;
             let parent_kind = value_type_name(parent);
             parent
                 .as_object_mut()
@@ -543,6 +544,7 @@ pub fn move_at_path(
                         }));
                     }
                 } else {
+                    reject_blank_object_key(&k, "doc.move")?;
                     parent
                         .as_object_mut()
                         .ok_or_else(|| {
@@ -607,6 +609,37 @@ pub fn move_at_path(
     }
 
     Ok(())
+}
+
+pub(crate) fn reject_blank_object_key(k: &str, op: &str) -> anyhow::Result<()> {
+    if crate::containment::is_blank_text(k) {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("{op}: object key must not be empty or whitespace-only"),
+        }));
+    }
+    Ok(())
+}
+
+pub(crate) fn reject_blank_merge_overlay(value: &serde_json::Value) -> anyhow::Result<()> {
+    match value {
+        serde_json::Value::String(s) if crate::containment::is_blank_text(s) => {
+            Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "doc merge overlay must not be empty or whitespace-only".into(),
+            }))
+        }
+        serde_json::Value::Array(items) if items.is_empty() => {
+            Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "doc merge overlay must not be an empty array".into(),
+            }))
+        }
+        serde_json::Value::Object(map) => {
+            for k in map.keys() {
+                reject_blank_object_key(k, "doc.merge")?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 pub(crate) const MAX_MERGE_DEPTH: usize = 128;

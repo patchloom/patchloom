@@ -18,6 +18,7 @@ mod toml_preserve;
 mod yaml_cst;
 mod yaml_splice;
 
+use navigate::reject_blank_merge_overlay;
 pub use navigate::{
     deep_merge, delete_at_selector, delete_where, move_at_path, navigate_mut, set_at_path,
     update_matching,
@@ -1548,6 +1549,7 @@ pub fn apply_doc_mutation(
                 // deep_merge replaces non-object bases; still allow object overlay
                 // onto object or empty. Non-object target with object value is ok.
             }
+            reject_blank_merge_overlay(&value)?;
             deep_merge(target, &value);
             Ok(MutationResult::Applied)
         }
