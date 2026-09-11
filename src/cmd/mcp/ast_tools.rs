@@ -2046,6 +2046,57 @@ impl Point {
     }
 
     #[test]
+    fn ast_impact_one_file_dir_binary_is_no_refs() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_impact(
+            &svc,
+            AstImpactParams {
+                path: ".".into(),
+                symbol: "main".into(),
+                depth: 3,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_rename_one_file_dir_binary_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("only.rs");
+        let original = b"fn keep() {}\0";
+        std::fs::write(&dest, original).unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_rename(
+            &svc,
+            AstRenameParams {
+                path: ".".into(),
+                old: "absent".into(),
+                new: "other".into(),
+                lang: None,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.contains("invalid_params"),
+            "dir walk must not be invalid_params: {text}"
+        );
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
+        );
+        let after = std::fs::read(&dest).unwrap();
+        assert_eq!(after, original.as_slice());
+    }
+
+    #[test]
     fn ast_rename_unknown_lang() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("mod.py");
