@@ -861,6 +861,43 @@ fn test_create_apply_json_reports_applied_true() {
     );
 }
 
+#[test]
+fn test_create_whitespace_only_content_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("spaces.txt");
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args([
+            "--json",
+            "create",
+            "spaces.txt",
+            "--content",
+            "   ",
+            "--apply",
+            "--cwd",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false);
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "whitespace-only create must set error_kind: {json}"
+    );
+    assert_eq!(
+        json["applied"], false,
+        "whitespace-only create must not apply: {json}"
+    );
+    assert!(
+        !file.exists(),
+        "dest must not exist after whitespace-only create"
+    );
+}
+
 /// Windows ADS dest must not claim applied (R100 live red).
 #[cfg(windows)]
 #[test]

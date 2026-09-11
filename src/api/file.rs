@@ -58,6 +58,7 @@ fn file_write(
     match op {
         Operation::FileCreate { content, force, .. } => {
             let path_str = display.as_ref();
+            crate::ops::file::reject_whitespace_only_payload(&content, "create")?;
             use crate::ops::file::{PathEntryKind, classify_path_entry, path_entry_exists};
             // Match engine: entry presence (dangling is present) + real dirs refuse.
             match classify_path_entry(path) {
