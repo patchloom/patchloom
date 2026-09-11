@@ -565,7 +565,7 @@ pub(super) fn handle_ast_search(
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
     // Sole explicit non-text: fail closed (CLI search parity).
-    if paths.len() == 1 {
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let sole = &paths[0];
         if let Err(e) = crate::files::load_text_strict(sole, &p.path)
             && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
@@ -1183,7 +1183,7 @@ pub(super) fn handle_ast_impact(
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
     // Sole explicit non-text: fail closed (CLI parity; not soft empty).
-    if paths.len() == 1 {
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let sole = &paths[0];
         if let Err(e) = crate::files::load_text_strict(sole, &p.path)
             && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
@@ -2223,6 +2223,49 @@ impl Point {
         assert!(
             !text.contains("No imports found"),
             "deps timeout must not become walk-soft no imports: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_deps_one_file_dir_binary_is_no_imports() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("only.rs"), b"use foo::Bar;\0").unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_deps(
+            &svc,
+            AstDepsParams {
+                path: ".".into(),
+                reverse: false,
+                lang: None,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_refs_one_file_dir_binary_is_no_refs() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_refs(
+            &svc,
+            AstRefsParams {
+                path: ".".into(),
+                symbol: "main".into(),
+                include_def: true,
+                lang: None,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
         );
     }
 

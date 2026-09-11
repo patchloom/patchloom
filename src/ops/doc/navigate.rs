@@ -636,7 +636,7 @@ fn reject_blank_merge_overlay_inner(value: &serde_json::Value, depth: usize) -> 
         }));
     }
     match value {
-        serde_json::Value::String(s) if crate::containment::is_blank_text(s) => {
+        serde_json::Value::String(s) if crate::containment::is_blank_text(s) && depth == 0 => {
             Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: "doc merge overlay must not be empty or whitespace-only".into(),
             }))
@@ -1440,6 +1440,19 @@ mod tests {
     #[test]
     fn reject_blank_merge_overlay_top_level_blank_key() {
         let err = reject_blank_merge_overlay(&json!({"": 1})).expect_err("top-level blank");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_nested_empty_string_value_is_ok() {
+        reject_blank_merge_overlay(&json!({"a": ""})).expect("clear-field overlay");
+        reject_blank_merge_overlay(&json!({"a": "  "})).expect("nested whitespace value");
+        reject_blank_merge_overlay(&json!({"a": "ok"})).expect("nested string");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_top_level_blank_string_is_invalid() {
+        let err = reject_blank_merge_overlay(&json!("   ")).expect_err("top-level wipe");
         assert!(crate::exit::is_invalid_input(&err), "{err}");
     }
 }

@@ -13,8 +13,8 @@ use crate::ops::replace::preferred_line_ending;
 /// for append, prepend, and create.
 ///
 /// Empty `""` is identity (append/prepend) or an empty file (create).
-/// A payload that contains `\\n` or `\\r` is a blank-line or multi-line
-/// file (`"\\n"`, `"\\t\\n"`, `"\\n\\t"`) and is accepted.
+/// A payload that contains `\n` or `\r` is a blank-line or multi-line
+/// file (`"\n"`, `"\t\n"`, `"\n\t"`) and is accepted.
 pub(crate) fn reject_whitespace_only_payload(payload: &str, kind: &str) -> anyhow::Result<()> {
     if !payload.is_empty()
         && payload.trim().is_empty()
