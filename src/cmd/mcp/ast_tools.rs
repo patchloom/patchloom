@@ -1918,7 +1918,8 @@ impl Point {
             lang: Some("rs".into()),
         };
         let result = handle_ast_deps(&svc, params).expect("reverse deps is a tool result");
-        let text = extract_text(&result);
+        // Windows dest JSON uses `\`; product already listed both importers.
+        let text = extract_text(&result).replace('\\', "/");
         assert!(
             text.contains("tests/import.rs"),
             "reverse deps must scan cwd and include importers outside dest parent, got: {text}"
