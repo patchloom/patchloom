@@ -155,21 +155,36 @@ pub fn find_all_refs_in_source_with_tree(
 }
 
 /// Find refs across multiple files.
+///
+/// Soft-skips missing grammar, binary, and invalid UTF-8 as an empty list.
+/// Prefer [`try_find_refs_in_file`] when a parse deadline must fail closed
+/// instead of looking like "no references".
 pub fn find_refs_in_file(
     path: &Path,
     symbol_name: &str,
     lang_hint: Option<Language>,
     display_path: &str,
 ) -> Vec<SymbolRef> {
+    try_find_refs_in_file(path, symbol_name, lang_hint, display_path).unwrap_or_default()
+}
+
+/// Like [`find_refs_in_file`], but a parse deadline is
+/// [`ParseFailure::DeadlineExceeded`] instead of an empty list.
+pub(crate) fn try_find_refs_in_file(
+    path: &Path,
+    symbol_name: &str,
+    lang_hint: Option<Language>,
+    display_path: &str,
+) -> Result<Vec<SymbolRef>, ParseFailure> {
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));
     if !lang.has_grammar() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     // SoftSkip multi-path (#1894): binary / invalid UTF-8 → empty.
     let Some(source) = crate::files::read_text_file(path) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    find_refs_in_source(&source, symbol_name, lang, display_path)
+    try_find_refs_in_source(&source, symbol_name, lang, display_path)
 }
 
 fn collect_refs(

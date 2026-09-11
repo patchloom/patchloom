@@ -638,13 +638,34 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
     } else {
         let glob_matcher = crate::build_glob_matcher_from_global(global)?;
         let glob_roots = vec![cwd.join(&args.path)];
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
             crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
                 let display = display_path(path, &cwd);
-                let refs =
-                    crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
+                let refs = match crate::ast::refs::try_find_refs_in_file(
+                    path,
+                    &args.symbol,
+                    lang_hint,
+                    &display,
+                ) {
+                    Ok(refs) => refs,
+                    Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                        let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                        if slot.is_none() {
+                            *slot = Some(path.display().to_string());
+                        }
+                        return None;
+                    }
+                    Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+                };
                 if refs.is_empty() { None } else { Some(refs) }
             });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {file}"),
+            }
+            .into());
+        }
         per_file_refs.into_iter().flatten().collect()
     };
 
@@ -1368,6 +1389,33 @@ mod tests {
     }
 
     #[test]
+    fn refs_dir_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        fs::write(dir.path().join("main.rs"), "fn helper() { main(); }\n").unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_refs(
+            RefsArgs {
+                symbol: "main".into(),
+                path: ".".into(),
+                include_def: true,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("dir refs timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
     fn deps_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
@@ -1469,6 +1517,62 @@ mod tests {
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, not no_matches/empty: {e}"
             ),
+        }
+    }
+
+    #[test]
+    fn deps_reverse_unreadable_sibling_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("target.rs"), "fn foo() {}\n").unwrap();
+        let locked = dir.path().join("locked.rs");
+        fs::write(&locked, "fn bar() {}\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+            // Root (common in Docker) can still read mode-000 files. Skip when
+            // permissions do not actually block reading.
+            if fs::read_to_string(&locked).is_ok() {
+                fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+                return;
+            }
+            let global = GlobalFlags {
+                json: true,
+                quiet: true,
+                ..GlobalFlags::test_with_cwd(dir.path())
+            };
+            let result = run_deps(
+                DepsArgs {
+                    path: "target.rs".into(),
+                    reverse: true,
+                    lang: None,
+                },
+                &global,
+            );
+            match result {
+                Ok(code) => {
+                    assert_eq!(
+                        code,
+                        exit::FAILURE,
+                        "reverse scan must surface invalid_input (exit {}), not no_matches ({})",
+                        exit::FAILURE,
+                        exit::NO_MATCHES
+                    );
+                    assert_ne!(
+                        code,
+                        exit::NO_MATCHES,
+                        "must not report no_matches when a scanned sibling is unreadable"
+                    );
+                }
+                Err(e) => {
+                    panic!("unreadable sibling must be Ok(FAILURE) invalid_input, not Err({e})")
+                }
+            }
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = locked;
         }
     }
 
