@@ -5,7 +5,7 @@
 
 use super::Language;
 use super::symbols::{
-    SymbolKind, extract_symbol_text, extract_symbols, find_symbol, full_symbol_span,
+    SymbolKind, extract_symbol_text, find_symbol, full_symbol_span, try_extract_symbols,
 };
 
 /// Result of an extract-to-file operation.
@@ -32,7 +32,21 @@ pub fn extract_to_file(
     lang: Language,
 ) -> anyhow::Result<ExtractResult> {
     let eol = crate::write::detect_eol(source);
-    let symbols = extract_symbols(source, lang);
+    let symbols = match try_extract_symbols(source, lang) {
+        Ok(s) => s,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {lang}"),
+            }
+            .into());
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => {
+            return Err(crate::exit::NoMatchError {
+                msg: format!("symbol '{symbol}' not found"),
+            }
+            .into());
+        }
+    };
     let sym = find_symbol(&symbols, symbol).ok_or_else(|| {
         anyhow::Error::new(crate::exit::NoMatchError {
             msg: format!("symbol '{symbol}' not found"),

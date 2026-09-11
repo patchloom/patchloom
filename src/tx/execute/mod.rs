@@ -969,6 +969,9 @@ pub(crate) fn execute_and_collect(
                 if crate::exit::is_conflicts(&e) {
                     return Err(crate::exit::ConflictsError { msg }.into());
                 }
+                if crate::exit::is_parse_timeout(&e) {
+                    return Err(crate::exit::ParseTimeoutError { msg }.into());
+                }
                 if crate::exit::is_parse_error(&e) {
                     return Err(crate::exit::ParseErrorError { msg }.into());
                 }

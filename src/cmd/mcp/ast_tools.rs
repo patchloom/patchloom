@@ -17,6 +17,33 @@ use super::{
     PatchloomService, exit_code_to_result, no_results, validate_content_size, validate_param_size,
 };
 
+/// Parse an optional lang hint. Unknown tokens are a tool envelope
+/// (`invalid_input`), not JSON-RPC `invalid_params`.
+fn parse_optional_lang(
+    lang: Option<&str>,
+) -> Result<Option<crate::ast::Language>, Box<Result<CallToolResult, McpError>>> {
+    match lang {
+        Some(s) => match crate::ast::parse_lang_hint(s) {
+            Ok(parsed) => Ok(Some(parsed)),
+            Err(e) => {
+                let msg = crate::exit::agent_error_message(&e);
+                let body = serde_json::json!({
+                    "ok": false,
+                    "applied": false,
+                    "error_kind": "invalid_input",
+                    "error": msg,
+                });
+                Err(Box::new(exit_code_to_result(
+                    exit::FAILURE,
+                    &body.to_string(),
+                    &msg,
+                )))
+            }
+        },
+        None => Ok(None),
+    }
+}
+
 pub(super) fn handle_ast_list(
     svc: &PatchloomService,
     p: AstListParams,
@@ -24,7 +51,10 @@ pub(super) fn handle_ast_list(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
     let kind_filter = crate::cmd::ast::parse_kind_filter(&p.kind)
         .map_err(|e| McpError::invalid_params(crate::exit::agent_error_message(&e), None))?;
 
@@ -52,7 +82,20 @@ pub(super) fn handle_ast_list(
                 McpError::internal_error(e.to_string(), None)
             }
         })?;
-        let symbols = crate::ast::symbols::extract_symbols(&source, lang);
+        let symbols = match crate::ast::symbols::try_extract_symbols(&source, lang) {
+            Ok(s) => s,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                let msg = format!("parse deadline exceeded for {}", p.path);
+                let body = serde_json::json!({
+                    "ok": false,
+                    "applied": false,
+                    "error_kind": "parse_timeout",
+                    "error": msg,
+                });
+                return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+        };
         let filtered = crate::cmd::ast::filter_symbols(&symbols, &kind_filter);
         if !filtered.is_empty() {
             for sym in &filtered {
@@ -114,7 +157,10 @@ pub(super) fn handle_ast_read(
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
 
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
     // Strict sole-path text load (#1894): binary / invalid UTF-8 → invalid_params.
     let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
@@ -137,13 +183,30 @@ pub(super) fn handle_ast_read(
             None,
         ));
     }
-    let all_symbols = crate::ast::symbols::extract_symbols(&source, lang);
-    let sym = crate::ast::symbols::find_symbol(&all_symbols, &p.symbol).ok_or_else(|| {
-        McpError::invalid_params(
-            format!("symbol '{}' not found in {}", p.symbol, p.path),
-            None,
-        )
-    })?;
+    let all_symbols = match crate::ast::symbols::try_extract_symbols(&source, lang) {
+        Ok(s) => s,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            let msg = format!("parse deadline exceeded for {}", p.path);
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+    };
+    let Some(sym) = crate::ast::symbols::find_symbol(&all_symbols, &p.symbol) else {
+        let msg = format!("symbol '{}' not found in {}", p.symbol, p.path);
+        let body = serde_json::json!({
+            "ok": false,
+            "error_kind": "no_matches",
+            "error": msg,
+            "applied": false,
+        });
+        return exit_code_to_result(exit::NO_MATCHES, &body.to_string(), &msg);
+    };
 
     let lines: Vec<&str> = crate::ops::file::text_lines(&source).collect();
     let start = sym
@@ -178,7 +241,10 @@ pub(super) fn handle_ast_rename(
     }
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd_and_json(&cwd);
 
@@ -209,6 +275,26 @@ pub(super) fn handle_ast_rename(
     let old = p.old.as_str();
     let new = p.new.as_str();
     let lang_cli = p.lang.clone();
+    // Sole explicit file: fail closed on parse timeout before the
+    // word-boundary prefilter can select the file as a match.
+    if paths.len() == 1 {
+        let sole = &paths[0];
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sole));
+        if lang.has_grammar()
+            && let Ok(source) = crate::files::try_read_text_file(sole)
+            && let Err(e) = crate::ast::rename::try_rename_in_source(&source, old, new, lang)
+            && crate::exit::is_parse_timeout(&e)
+        {
+            let msg = crate::exit::agent_error_message(&e);
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
+    }
     let unreadable = std::sync::Mutex::new(Vec::<String>::new());
     let operations: Vec<crate::plan::Operation> =
         crate::par_process_files(&paths, None, &[], |path| {
@@ -297,7 +383,10 @@ pub(super) fn handle_ast_validate(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -409,7 +498,10 @@ pub(super) fn handle_ast_search(
     validate_param_size("query", &p.query)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -585,32 +677,61 @@ pub(super) fn handle_ast_refs(
     validate_param_size("symbol", &p.symbol)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    // Sole explicit non-text: fail closed (CLI parity; not soft empty).
-    if paths.len() == 1 {
+    let mut all_refs = if paths.len() == 1 {
         let sole = &paths[0];
-        if let Err(e) = crate::files::load_text_strict(sole, &p.path)
-            && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
-        {
-            return Err(McpError::invalid_params(
-                crate::exit::agent_error_message(&e),
-                None,
-            ));
+        let source = match crate::files::load_text_strict(sole, &p.path) {
+            Ok(s) => s,
+            Err(e)
+                if crate::exit::is_load_text_strict_fail(&e)
+                    || crate::exit::is_io_not_found(&e) =>
+            {
+                return Err(McpError::invalid_params(
+                    crate::exit::agent_error_message(&e),
+                    None,
+                ));
+            }
+            Err(e) => {
+                return Err(McpError::internal_error(
+                    crate::exit::agent_error_message(&e),
+                    None,
+                ));
+            }
+        };
+        let display = crate::cmd::ast::display_path(sole, &cwd);
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sole));
+        match crate::ast::refs::try_find_refs_in_source(&source, &p.symbol, lang, &display) {
+            Ok(refs) => refs,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                let msg = format!("parse deadline exceeded for {}", p.path);
+                let body = serde_json::json!({
+                    "ok": false,
+                    "applied": false,
+                    "error_kind": "parse_timeout",
+                    "error": msg,
+                });
+                return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
         }
-    }
-
-    let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
-        crate::par_process_files(&paths, None, &[], |path| {
-            let display = crate::cmd::ast::display_path(path, &cwd);
-            let refs = crate::ast::refs::find_refs_in_file(path, &p.symbol, lang_hint, &display);
-            if refs.is_empty() { None } else { Some(refs) }
-        });
-    let mut all_refs: Vec<crate::ast::refs::SymbolRef> = per_file.into_iter().flatten().collect();
+    } else {
+        let per_file: Vec<Vec<crate::ast::refs::SymbolRef>> =
+            crate::par_process_files(&paths, None, &[], |path| {
+                let display = crate::cmd::ast::display_path(path, &cwd);
+                let refs =
+                    crate::ast::refs::find_refs_in_file(path, &p.symbol, lang_hint, &display);
+                if refs.is_empty() { None } else { Some(refs) }
+            });
+        per_file.into_iter().flatten().collect()
+    };
 
     if !p.include_def {
         all_refs.retain(|r| r.kind != crate::ast::refs::RefKind::Definition);
@@ -640,7 +761,10 @@ pub(super) fn handle_ast_deps(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -803,7 +927,10 @@ pub(super) fn handle_ast_diff(
     }
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
 
     let old_source = crate::cmd::ast::get_git_file_content(&cwd, &p.path, &p.from)
@@ -980,7 +1107,10 @@ pub(super) fn handle_ast_imports(
     if p.add.is_none() && p.remove.is_none() && !p.dedupe {
         let cwd = svc.cwd().to_path_buf();
         let target = cwd.join(&p.path);
-        let lang_hint = p.lang.as_deref().map(crate::cmd::ast::lang_from_str);
+        let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+            Ok(lang) => lang,
+            Err(r) => return *r,
+        };
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
         // Strict sole-path (#1894).
         let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
@@ -1187,6 +1317,35 @@ impl Point {
     }
 
     #[test]
+    fn ast_list_unknown_lang() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("mod.py"), "def x():\n    pass\n").unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstListParams {
+            path: "mod.py".into(),
+            kind: None,
+            lang: Some("python3".into()),
+        };
+
+        let result = handle_ast_list(&svc, params).expect("unknown lang is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "unknown lang must set isError so hosts do not retry as invalid_params"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("invalid_input"),
+            "unknown lang must surface invalid_input, got: {text}"
+        );
+        assert!(text.contains("python3"), "must name the token: {text}");
+        assert!(
+            text.contains("\"error_kind\""),
+            "must not be protocol-only invalid_params without error_kind: {text}"
+        );
+    }
+
+    #[test]
     fn ast_list_path_not_found() {
         let dir = TempDir::new().unwrap();
         let svc = make_service(&dir);
@@ -1232,8 +1391,20 @@ impl Point {
             lang: Some("rs".into()),
         };
 
-        let result = handle_ast_read(&svc, params);
-        result.expect_err("expected error");
+        let result = handle_ast_read(&svc, params).expect("miss is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "missing symbol must set isError so hosts do not retry as invalid_params"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("no_matches"),
+            "read miss must surface no_matches, got: {text}"
+        );
+        assert!(
+            text.contains("symbol 'nonexistent_fn' not found in sample.rs"),
+            "must keep the English miss, got: {text}"
+        );
     }
 
     #[test]
@@ -1331,6 +1502,199 @@ impl Point {
             !text.contains("No matches found"),
             "search_file timeout must not be .ok()?-swallowed: {text}"
         );
+    }
+
+    #[test]
+    fn ast_validate_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstValidateParams {
+            path: "deep.rs".into(),
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_validate(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path validate timeout must not become a valid:false row"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, not a walk-soft valid:false row only: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        let walk_soft = (text.contains("\"valid\": false") || text.contains("\"valid\":false"))
+            && !text.contains("parse_timeout");
+        assert!(
+            !walk_soft,
+            "must not be a walk-soft valid:false row only: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_list_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstListParams {
+            path: "deep.rs".into(),
+            kind: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_list(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path list timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No symbols found"),
+            "list timeout must not become walk-soft no symbols: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_read_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstReadParams {
+            path: "deep.rs".into(),
+            symbol: "main".into(),
+            context: 0,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_read(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path read timeout must not become symbol-not-found"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("symbol not found") && !text.contains("not found"),
+            "read timeout must not become symbol not found: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_refs_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstRefsParams {
+            path: "deep.rs".into(),
+            symbol: "main".into(),
+            include_def: true,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_refs(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path refs timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No references found"),
+            "refs timeout must not become walk-soft no references: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_rename_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        let original = nested_rust_source(80_000);
+        std::fs::write(&path, &original).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstRenameParams {
+            path: "deep.rs".into(),
+            old: "x".into(),
+            new: "y".into(),
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_rename(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path rename timeout must not apply a word-boundary write"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "timeout must not word-boundary-write");
+    }
+
+    #[test]
+    fn ast_rename_unknown_lang() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mod.py");
+        let original = "def greet():\n    pass\n";
+        std::fs::write(&path, original).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstRenameParams {
+            path: "mod.py".into(),
+            old: "greet".into(),
+            new: "salute".into(),
+            lang: Some("python3".into()),
+        };
+
+        let result = handle_ast_rename(&svc, params).expect("unknown lang is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "unknown lang must set isError so hosts do not retry as invalid_params"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("invalid_input"),
+            "unknown lang must surface invalid_input, got: {text}"
+        );
+        assert!(text.contains("python3"), "must name the token: {text}");
+        assert!(
+            text.contains("\"error_kind\""),
+            "must not be protocol-only invalid_params without error_kind: {text}"
+        );
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "unknown lang must not mutate dest");
     }
 
     #[test]

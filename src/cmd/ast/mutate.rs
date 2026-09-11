@@ -1,6 +1,7 @@
 //! Mutating `patchloom ast` subcommands (rename, replace).
 
 use super::common::{resolve_lang, setup_multi_file};
+use crate::ast::parse_lang_hint;
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::{run_write_op, stage_for_write};
 use crate::cmd::write_mode::{RenderPolicy, WriteMessages, finalize_execution_result};
@@ -53,10 +54,23 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     // as a batch through the tx engine. This gives backup, rollback, and format.
     // SoftSkip content kinds (binary/utf8); track Unreadable so empty results
     // are not reported as no_matches when IO may have masked the scan (#1894).
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     let old = args.old.as_str();
     let new = args.new.as_str();
     let lang_cli = args.lang.clone();
+    // Sole explicit file: fail closed on parse timeout before the
+    // word-boundary prefilter can select the file as a match.
+    if paths.len() == 1 {
+        let path = &paths[0];
+        let lang = resolve_lang(lang_hint, path);
+        if lang.has_grammar()
+            && let Ok(source) = crate::files::try_read_text_file(path)
+            && let Err(e) = crate::ast::rename::try_rename_in_source(&source, old, new, lang)
+            && crate::exit::is_parse_timeout(&e)
+        {
+            return Err(e);
+        }
+    }
     let unreadable = std::sync::Mutex::new(Vec::<String>::new());
     let operations: Vec<Operation> = crate::par_process_files(&paths, None, &[], |path| {
         let source = match crate::files::try_read_text_file(path) {
@@ -238,6 +252,9 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
         }
         return Err(e);
     }
+    if let Some(s) = args.lang.as_deref() {
+        let _ = parse_lang_hint(s)?;
+    }
 
     let op = Operation::AstReplace {
         path: args.path.clone(),
@@ -309,5 +326,73 @@ mod tests {
             "expected rename, got: {content}"
         );
         assert!(!content.contains("fn alpha()"), "old name should be gone");
+    }
+
+    #[test]
+    fn rename_unknown_lang_hint_does_not_word_boundary_write() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mod.rs");
+        let original = "fn main() {\n    // x is mentioned\n}\n";
+        fs::write(&path, original).unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let err = run_rename(
+            RenameArgs {
+                path: "mod.rs".into(),
+                old: "x".into(),
+                new: "y".into(),
+                lang: Some("python3".into()),
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "explicit unknown lang must be invalid_input, got: {err}"
+        );
+        let after = fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "must not word-boundary-write on bad lang");
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn rename_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        let original = nested_rust_source(80_000);
+        fs::write(&path, &original).unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_rename(
+            RenameArgs {
+                path: "deep.rs".into(),
+                old: "x".into(),
+                new: "y".into(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => panic!(
+                "sole-file rename timeout must return Err(ParseTimeoutError), got Ok({code})"
+            ),
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, got {e}"
+            ),
+        }
+        let after = fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "timeout must not word-boundary-write");
     }
 }

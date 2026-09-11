@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use super::Language;
-use super::symbols::{extract_symbols, find_symbol};
+use super::symbols::{find_symbol, try_extract_symbols};
 
 /// Result of a symbol-scoped replacement.
 #[derive(Debug)]
@@ -27,7 +27,16 @@ pub fn replace_in_symbol(
     regex: bool,
     lang: Language,
 ) -> anyhow::Result<Option<ScopedReplaceResult>> {
-    let symbols = extract_symbols(source, lang);
+    let symbols = match try_extract_symbols(source, lang) {
+        Ok(s) => s,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {lang}"),
+            }
+            .into());
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => return Ok(None),
+    };
     let sym = match find_symbol(&symbols, symbol_name) {
         Some(s) => s,
         None => return Ok(None),
@@ -192,6 +201,27 @@ fn bar() {
         // Verify no bare LF where CRLF was expected
         let without_cr = result.content.replace("\r\n", "");
         assert!(!without_cr.contains('\n'), "no bare LF in CRLF content");
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn replace_in_symbol_timeout_is_parse_timeout() {
+        let source = nested_rust_source(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = replace_in_symbol(&source, "main", "x", "y", false, Language::Rust)
+            .expect_err("deadline must be Err, not Ok(None)");
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "timeout must not become Ok(None): {err}"
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use super::{Language, parse_source};
+use super::{Language, ParseFailure, try_parse_source};
 
 /// Node kinds that represent identifier tokens (rename targets).
 const IDENTIFIER_KINDS: &[&str] = &[
@@ -50,14 +50,25 @@ pub struct RenameResult {
 /// Rename all identifier occurrences of `old_name` to `new_name` in source code,
 /// skipping strings and comments.
 ///
-/// Returns `None` if the language has no grammar or parsing fails.
-pub fn rename_in_source(
+/// Distinguishes a parse deadline from a missing grammar: timeout is
+/// [`crate::exit::ParseTimeoutError`]; unknown languages return `Ok(None)`
+/// so callers may still word-boundary-fallback.
+pub(crate) fn try_rename_in_source(
     source: &str,
     old_name: &str,
     new_name: &str,
     lang: Language,
-) -> Option<RenameResult> {
-    let (tree, _) = parse_source(source, lang)?;
+) -> anyhow::Result<Option<RenameResult>> {
+    let (tree, _) = match try_parse_source(source, lang) {
+        Ok(parsed) => parsed,
+        Err(ParseFailure::DeadlineExceeded) => {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {lang}"),
+            }
+            .into());
+        }
+        Err(ParseFailure::NoGrammar) => return Ok(None),
+    };
 
     // Collect byte ranges to replace (in reverse order for offset stability)
     let mut replacements = Vec::new();
@@ -72,10 +83,27 @@ pub fn rename_in_source(
         result.replace_range(*start..*end, new_name);
     }
 
-    Some(RenameResult {
+    Ok(Some(RenameResult {
         content: result,
         replacements: replacements_count,
-    })
+    }))
+}
+
+/// Rename all identifier occurrences of `old_name` to `new_name` in source code,
+/// skipping strings and comments.
+///
+/// Returns `None` if the language has no grammar, parsing fails, or the
+/// parse deadline fires. Prefer [`try_rename_in_source`] when timeout must
+/// fail closed instead of looking like a missing grammar.
+pub fn rename_in_source(
+    source: &str,
+    old_name: &str,
+    new_name: &str,
+    lang: Language,
+) -> Option<RenameResult> {
+    try_rename_in_source(source, old_name, new_name, lang)
+        .ok()
+        .flatten()
 }
 
 /// Rename identifiers in a file. Falls back to word-boundary replace if
@@ -378,5 +406,31 @@ fn main() {
         );
         // Source should be unchanged
         assert_eq!(result.content, source);
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; let s = \"x\"; /* x */ }\n");
+        source
+    }
+
+    #[test]
+    fn try_rename_in_source_timeout_is_parse_timeout() {
+        let source = nested_rust_source(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = try_rename_in_source(&source, "x", "y", Language::Rust)
+            .expect_err("deadline must be Err, not a RenameResult");
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "expected parse_timeout, got {err}"
+        );
+        // Option wrapper must not return a write that replaced comments/strings.
+        assert!(
+            rename_in_source(&source, "x", "y", Language::Rust).is_none(),
+            "timeout must not become a word-boundary RenameResult"
+        );
     }
 }

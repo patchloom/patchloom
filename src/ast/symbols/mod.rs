@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use super::{Language, parse_source};
+use super::{Language, ParseFailure, try_parse_source};
 
 /// The kind of symbol extracted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -82,10 +82,14 @@ pub struct SymbolDef {
 }
 
 /// Extract all symbol definitions from source code.
-pub fn extract_symbols(source: &str, lang: Language) -> Vec<SymbolDef> {
-    let Some((tree, _)) = parse_source(source, lang) else {
-        return Vec::new();
-    };
+///
+/// Distinguishes a parse deadline from a missing grammar so sole-file
+/// callers can fail closed instead of reporting an empty symbol list.
+pub(crate) fn try_extract_symbols(
+    source: &str,
+    lang: Language,
+) -> Result<Vec<SymbolDef>, ParseFailure> {
+    let (tree, _) = try_parse_source(source, lang)?;
 
     let mut symbols = Vec::new();
     let mut cursor = tree.walk();
@@ -100,7 +104,16 @@ pub fn extract_symbols(source: &str, lang: Language) -> Vec<SymbolDef> {
         super::symbol_extract::group_go_receiver_methods(&mut symbols);
     }
 
-    symbols
+    Ok(symbols)
+}
+
+/// Extract all symbol definitions from source code.
+///
+/// Returns an empty list if the language has no grammar, parsing fails,
+/// or the parse deadline fires. Prefer [`try_extract_symbols`] when
+/// timeout must fail closed instead of looking like "no symbols".
+pub fn extract_symbols(source: &str, lang: Language) -> Vec<SymbolDef> {
+    try_extract_symbols(source, lang).unwrap_or_default()
 }
 
 /// Read a file and extract symbols.

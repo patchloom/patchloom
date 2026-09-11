@@ -3,11 +3,11 @@
 //! parse-timeout fail-closed locks live in one command module.
 
 use super::common::{
-    collect_source_files, display_path, filter_symbols, get_git_file_content, lang_from_str,
-    parse_kind_filter, print_symbol_items_json, print_symbols_compact, print_symbols_human,
-    print_symbols_json, resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file,
-    symbol_to_json,
+    collect_source_files, display_path, filter_symbols, get_git_file_content, parse_kind_filter,
+    print_symbol_items_json, print_symbols_compact, print_symbols_human, print_symbols_json,
+    resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file, symbol_to_json,
 };
+use crate::ast::parse_lang_hint;
 use crate::ast::symbols::{self, SymbolDef};
 use crate::cli::global::GlobalFlags;
 use crate::exit;
@@ -39,7 +39,7 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
     let target = cwd.join(&args.path);
 
     let kind_filter = parse_kind_filter(&args.kind)?;
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!(
         "ast list: target={}, kind_filter={:?}",
         args.path,
@@ -78,7 +78,16 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
             global.emit_error_json_kind(Some("invalid_input"), &msg)?;
             return Ok(exit::FAILURE);
         }
-        let symbols = symbols::extract_symbols(&source, lang);
+        let symbols = match symbols::try_extract_symbols(&source, lang) {
+            Ok(s) => s,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", args.path),
+                }
+                .into());
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+        };
         let filtered = filter_symbols(&symbols, &kind_filter);
         if !filtered.is_empty() {
             any_output = true;
@@ -191,7 +200,16 @@ pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let all_symbols = symbols::extract_symbols(&source, lang);
+    let all_symbols = match symbols::try_extract_symbols(&source, lang) {
+        Ok(s) => s,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {}", args.path),
+            }
+            .into());
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+    };
     let sym = match symbols::find_symbol(&all_symbols, &args.symbol) {
         Some(s) => s,
         None => {
@@ -239,7 +257,7 @@ pub struct ValidateArgs {
 
 pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let (cwd, paths) = setup_multi_file(&args.path, global)?;
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast validate: target={}", args.path);
 
     // Empty directory / no grammar files: fail closed (not vacuous success).
@@ -310,9 +328,7 @@ pub(super) fn run_validate(args: ValidateArgs, global: &GlobalFlags) -> anyhow::
                 result,
             }],
             Err(e) if crate::exit::is_parse_timeout(&e) => {
-                let msg = crate::exit::agent_error_message(&e);
-                global.emit_error_json_kind(Some("parse_timeout"), &msg)?;
-                return Ok(exit::PARSE_ERROR);
+                return Err(e);
             }
             Err(e) => return Err(e),
         }
@@ -429,7 +445,7 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!(
         "ast search: query={}, pattern={}, target={}",
         args.query,
@@ -467,9 +483,7 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
         };
         if let Err(e) = crate::ast::search::search_file(sample, &query_str, Some(lang), Some(1)) {
             if crate::exit::is_parse_timeout(&e) {
-                let msg = crate::exit::agent_error_message(&e);
-                global.emit_error_json_kind(Some("parse_timeout"), &msg)?;
-                return Ok(exit::PARSE_ERROR);
+                return Err(e);
             }
             if crate::exit::is_parse_error(&e) {
                 let msg = crate::exit::agent_error_message(&e);
@@ -585,21 +599,37 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
-    let lang_hint = args.lang.as_deref();
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast refs: symbol={}, target={}", args.symbol, args.path);
     crate::verbose!("ast refs: scanning {} files", paths.len());
 
-    let glob_matcher = crate::build_glob_matcher_from_global(global)?;
-    let glob_roots = vec![cwd.join(&args.path)];
-    let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
-        crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            let display = display_path(path, &cwd);
-            let lang = lang_hint.map(lang_from_str);
-            let refs = crate::ast::refs::find_refs_in_file(path, &args.symbol, lang, &display);
-            if refs.is_empty() { None } else { Some(refs) }
-        });
-
-    let mut all_refs: Vec<_> = per_file_refs.into_iter().flatten().collect();
+    let mut all_refs = if paths.len() == 1 {
+        let path = &paths[0];
+        let display = display_path(path, &cwd);
+        let lang = resolve_lang(lang_hint, path);
+        let source = crate::files::load_text_strict(path, &args.path)?;
+        match crate::ast::refs::try_find_refs_in_source(&source, &args.symbol, lang, &display) {
+            Ok(refs) => refs,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", args.path),
+                }
+                .into());
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+        }
+    } else {
+        let glob_matcher = crate::build_glob_matcher_from_global(global)?;
+        let glob_roots = vec![cwd.join(&args.path)];
+        let per_file_refs: Vec<Vec<crate::ast::refs::SymbolRef>> =
+            crate::par_process_files(&paths, glob_matcher.as_ref(), &glob_roots, |path| {
+                let display = display_path(path, &cwd);
+                let refs =
+                    crate::ast::refs::find_refs_in_file(path, &args.symbol, lang_hint, &display);
+                if refs.is_empty() { None } else { Some(refs) }
+            });
+        per_file_refs.into_iter().flatten().collect()
+    };
 
     if !args.include_def {
         all_refs.retain(|r| r.kind != crate::ast::refs::RefKind::Definition);
@@ -651,7 +681,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
-    let lang_hint = args.lang.as_deref().map(lang_from_str);
+    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast deps: target={}, reverse={}", args.path, args.reverse);
 
     let paths = resolve_target_paths(&target, &args.path, global)?;
@@ -876,6 +906,7 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
         global.emit_error_json_kind(Some(kind), &msg)?;
         return Ok(exit::FAILURE);
     }
+    let _lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     crate::verbose!("ast impact: symbol={}, depth={}", args.symbol, args.depth);
     crate::verbose!("ast impact: scanning {} files", paths.len());
 
@@ -939,7 +970,10 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
     let cwd = global.resolve_cwd()?;
     global.check_paths_contained(&cwd, [args.path.as_str()])?;
     let target = cwd.join(&args.path);
-    let lang = resolve_lang(args.lang.as_deref(), &target);
+    let lang = resolve_lang(
+        args.lang.as_deref().map(parse_lang_hint).transpose()?,
+        &target,
+    );
     crate::verbose!(
         "ast diff: file={}, from={}, lang={lang}",
         args.path,
@@ -995,11 +1029,9 @@ mod tests {
 
     fn assert_search_timeout(result: anyhow::Result<u8>) {
         match result {
-            Ok(code) => assert_eq!(
-                code,
-                exit::PARSE_ERROR,
-                "sole-file timeout must not become no_matches ({code})"
-            ),
+            Ok(code) => {
+                panic!("sole-file timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, got {e}"
@@ -1059,14 +1091,118 @@ mod tests {
             &global,
         );
         match result {
-            Ok(code) => assert_eq!(
-                code,
-                exit::PARSE_ERROR,
-                "sole-path validate timeout must be parse_timeout ({code})"
+            Ok(code) => panic!(
+                "sole-path validate timeout must return Err(ParseTimeoutError), got Ok({code})"
             ),
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, got {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn list_unknown_lang_hint_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("mod.py"), "def x():\n    pass\n").unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let err = run_list(
+            ListArgs {
+                path: "mod.py".into(),
+                kind: None,
+                compact: false,
+                lang: Some("python3".into()),
+            },
+            &global,
+        )
+        .unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "explicit unknown lang must be invalid_input, got: {err}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("python3"), "must name the token: {msg}");
+        assert!(
+            !msg.to_lowercase().contains("detected from"),
+            "must not blame the file path: {msg}"
+        );
+        assert!(msg.contains("python"), "must suggest python: {msg}");
+    }
+
+    #[test]
+    fn list_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_list(
+            ListArgs {
+                path: "deep.rs".into(),
+                kind: None,
+                compact: false,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file list timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn read_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_read(
+            ReadArgs {
+                path: "deep.rs".into(),
+                symbol: "main".into(),
+                context: 0,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file read timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn refs_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_refs(
+            RefsArgs {
+                symbol: "main".into(),
+                path: "deep.rs".into(),
+                include_def: true,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file refs timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
             ),
         }
     }

@@ -5,11 +5,9 @@ use crate::ast::symbols::SymbolDef;
 use crate::cli::global::GlobalFlags;
 use std::path::{Path, PathBuf};
 
-/// Resolve `--lang` hint to a `Language`, falling back to extension detection.
-pub(super) fn resolve_lang(lang_arg: Option<&str>, path: &Path) -> Language {
-    lang_arg
-        .map(lang_from_str)
-        .unwrap_or_else(|| Language::from_path(path))
+/// Resolve a parsed `--lang` hint, falling back to extension detection.
+pub(super) fn resolve_lang(lang: Option<Language>, path: &Path) -> Language {
+    lang.unwrap_or_else(|| Language::from_path(path))
 }
 
 /// Common preamble for single-file AST commands: resolve cwd, join path, detect
@@ -24,7 +22,10 @@ pub(super) fn setup_single_file(
     let target = cwd.join(path_arg);
     // Strict sole-path text load (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
     let source = crate::files::load_text_strict(&target, path_arg)?;
-    let lang = resolve_lang(lang_arg, &target);
+    let lang = match lang_arg {
+        Some(s) => crate::ast::parse_lang_hint(s)?,
+        None => Language::from_path(&target),
+    };
     Ok((cwd, target, lang, source))
 }
 
@@ -122,10 +123,6 @@ pub(crate) fn get_git_file_content(
     }
 
     Ok(String::from_utf8(output.stdout)?)
-}
-
-pub(crate) fn lang_from_str(s: &str) -> Language {
-    Language::from_name_or_ext(s)
 }
 
 pub use crate::ast::symbols::{filter_symbols, parse_kind_filter};
@@ -255,25 +252,31 @@ mod tests {
 
     #[test]
     fn lang_from_str_works() {
-        assert_eq!(lang_from_str("rs"), Language::Rust);
-        assert_eq!(lang_from_str("py"), Language::Python);
-        assert_eq!(lang_from_str("go"), Language::Go);
+        assert_eq!(Language::from_name_or_ext("rs"), Language::Rust);
+        assert_eq!(Language::from_name_or_ext("py"), Language::Python);
+        assert_eq!(Language::from_name_or_ext("go"), Language::Go);
     }
 
     /// Language names (not just extensions) should be accepted (#1165).
     #[test]
     fn lang_from_str_language_names() {
-        assert_eq!(lang_from_str("rust"), Language::Rust);
-        assert_eq!(lang_from_str("python"), Language::Python);
-        assert_eq!(lang_from_str("typescript"), Language::TypeScript);
-        assert_eq!(lang_from_str("javascript"), Language::JavaScript);
-        assert_eq!(lang_from_str("golang"), Language::Go);
-        assert_eq!(lang_from_str("csharp"), Language::CSharp);
-        assert_eq!(lang_from_str("ruby"), Language::Ruby);
-        assert_eq!(lang_from_str("kotlin"), Language::Kotlin);
-        assert_eq!(lang_from_str("terraform"), Language::Hcl);
-        assert_eq!(lang_from_str("markdown"), Language::Markdown);
-        assert_eq!(lang_from_str("Rust"), Language::Rust); // case-insensitive
+        assert_eq!(Language::from_name_or_ext("rust"), Language::Rust);
+        assert_eq!(Language::from_name_or_ext("python"), Language::Python);
+        assert_eq!(
+            Language::from_name_or_ext("typescript"),
+            Language::TypeScript
+        );
+        assert_eq!(
+            Language::from_name_or_ext("javascript"),
+            Language::JavaScript
+        );
+        assert_eq!(Language::from_name_or_ext("golang"), Language::Go);
+        assert_eq!(Language::from_name_or_ext("csharp"), Language::CSharp);
+        assert_eq!(Language::from_name_or_ext("ruby"), Language::Ruby);
+        assert_eq!(Language::from_name_or_ext("kotlin"), Language::Kotlin);
+        assert_eq!(Language::from_name_or_ext("terraform"), Language::Hcl);
+        assert_eq!(Language::from_name_or_ext("markdown"), Language::Markdown);
+        assert_eq!(Language::from_name_or_ext("Rust"), Language::Rust); // case-insensitive
     }
 
     #[test]
