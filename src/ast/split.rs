@@ -163,14 +163,15 @@ pub fn split_file(
         src_lines.drain(*start_0..remove_end.min(src_lines.len()));
     }
 
-    // Apply source_prefix and source_suffix
-    if let Some(prefix) = source_prefix {
+    // Apply source_prefix and source_suffix. Empty string is identity
+    // with omitted (do not insert a separator blank).
+    if let Some(prefix) = source_prefix.filter(|s| !s.is_empty()) {
         let prefix_lines: Vec<String> = prefix.lines().map(String::from).collect();
         for (i, line) in prefix_lines.iter().enumerate() {
             src_lines.insert(i, line.clone());
         }
     }
-    if let Some(suffix) = source_suffix {
+    if let Some(suffix) = source_suffix.filter(|s| !s.is_empty()) {
         if src_lines.last().is_some_and(|l| !l.trim().is_empty()) {
             src_lines.push(String::new());
         }
@@ -633,6 +634,45 @@ mod tests {
         assert_eq!(
             empty.source_content, omitted.source_content,
             "empty source_suffix must match omitted"
+        );
+    }
+
+    #[test]
+    fn split_empty_source_suffix_is_identity_without_trailing_newline() {
+        let source = "fn alpha() {}\n\nfn beta() {}";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let omitted = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            None,
+            None,
+            true,
+            Language::Rust,
+        )
+        .unwrap();
+        let empty = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            Some(""),
+            None,
+            true,
+            Language::Rust,
+        )
+        .unwrap();
+        assert_eq!(
+            empty.source_content, omitted.source_content,
+            "empty source_suffix must match omitted when source has no trailing newline"
+        );
+        assert!(
+            !empty.source_content.ends_with('\n'),
+            "empty suffix must not invent a trailing newline: {:?}",
+            empty.source_content
         );
     }
 
