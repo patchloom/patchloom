@@ -110,18 +110,26 @@ pub(crate) fn try_extract_symbols(
 /// Extract all symbol definitions from source code.
 ///
 /// Returns an empty list if the language has no grammar, parsing fails,
-/// or the parse deadline fires. Prefer [`try_extract_symbols`] when
-/// timeout must fail closed instead of looking like "no symbols".
+/// or the parse deadline fires. Prefer [`extract_symbols_or_timeout`] when
+/// timeout must not look like "no symbols".
 pub fn extract_symbols(source: &str, lang: Language) -> Vec<SymbolDef> {
     try_extract_symbols(source, lang).unwrap_or_default()
 }
 
 /// Extract symbols, mapping a parse deadline to [`crate::exit::ParseTimeoutError`].
-/// Missing grammar is an empty list (same as [`extract_symbols`]).
-pub(crate) fn extract_symbols_or_timeout(
-    source: &str,
-    lang: Language,
-) -> anyhow::Result<Vec<SymbolDef>> {
+///
+/// Missing grammar is an empty list (same as [`extract_symbols`]). Library
+/// hosts that must distinguish a 5s parse deadline from "no symbols"
+/// should call this instead of [`extract_symbols`] (#2444).
+///
+/// ```
+/// use patchloom::ast::symbols::extract_symbols_or_timeout;
+/// use patchloom::ast::Language;
+///
+/// let symbols = extract_symbols_or_timeout("fn main() {}", Language::Rust).unwrap();
+/// assert_eq!(symbols[0].name, "main");
+/// ```
+pub fn extract_symbols_or_timeout(source: &str, lang: Language) -> anyhow::Result<Vec<SymbolDef>> {
     match try_extract_symbols(source, lang) {
         Ok(s) => Ok(s),
         Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
@@ -135,8 +143,8 @@ pub(crate) fn extract_symbols_or_timeout(
 /// Read a file and extract symbols.
 ///
 /// Soft-skips missing grammar, binary, and invalid UTF-8 as an empty list.
-/// Prefer [`try_extract_symbols_from_file`] when a parse deadline must fail
-/// closed instead of looking like "no symbols".
+/// Prefer [`extract_symbols_from_file_or_timeout`] when a parse deadline
+/// must not look like "no symbols".
 pub fn extract_symbols_from_file(path: &Path, lang_hint: Option<Language>) -> Vec<SymbolDef> {
     try_extract_symbols_from_file(path, lang_hint).unwrap_or_default()
 }
@@ -159,9 +167,13 @@ pub(crate) fn try_extract_symbols_from_file(
 }
 
 /// Extract symbols from a file, mapping a parse deadline to
-/// [`crate::exit::ParseTimeoutError`]. Missing grammar, binary, and
-/// invalid UTF-8 stay an empty list (same as [`extract_symbols_from_file`]).
-pub(crate) fn extract_symbols_from_file_or_timeout(
+/// [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar, binary, and invalid UTF-8 stay an empty list (same
+/// as [`extract_symbols_from_file`]). Prefer this over
+/// [`extract_symbols_from_file`] when a host must not treat a parse
+/// deadline as "no symbols" (#2444).
+pub fn extract_symbols_from_file_or_timeout(
     path: &Path,
     lang_hint: Option<Language>,
 ) -> anyhow::Result<Vec<SymbolDef>> {

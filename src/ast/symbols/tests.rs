@@ -1007,3 +1007,74 @@ service Greeter { rpc SayHello (Ping) returns (Ping); }
     let say = find_symbol(&symbols, "SayHello").expect("SayHello");
     assert_eq!(say.kind, SymbolKind::Method);
 }
+
+// Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2444).
+#[test]
+fn extract_symbols_or_timeout_deadline_is_parse_timeout() {
+    let source = crate::ast::nested_rust_source_for_timeout(80_000);
+    let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+    let err = extract_symbols_or_timeout(&source, Language::Rust).unwrap_err();
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("parse_timeout"),
+        "expected parse_timeout, got {err}"
+    );
+}
+
+#[test]
+fn extract_symbols_deadline_stays_empty() {
+    let source = crate::ast::nested_rust_source_for_timeout(80_000);
+    let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+    let symbols = extract_symbols(&source, Language::Rust);
+    assert!(
+        symbols.is_empty(),
+        "empty-vec extract_symbols must stay empty on deadline"
+    );
+}
+
+#[test]
+fn extract_symbols_or_timeout_unknown_lang_is_empty() {
+    let symbols = extract_symbols_or_timeout("anything", Language::Unknown).unwrap();
+    assert!(
+        symbols.is_empty(),
+        "missing grammar must stay empty, not parse_timeout"
+    );
+}
+
+#[test]
+fn extract_symbols_from_file_or_timeout_binary_is_empty() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("bin.rs");
+    std::fs::write(&path, b"fn main() {}\0").unwrap();
+    let symbols = extract_symbols_from_file_or_timeout(&path, None).unwrap();
+    assert!(
+        symbols.is_empty(),
+        "binary must stay empty, not parse_timeout"
+    );
+}
+
+#[test]
+fn extract_symbols_from_file_or_timeout_invalid_utf8_is_empty() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("bad.rs");
+    std::fs::write(&path, [0xff, 0xfe, b'f', b'n']).unwrap();
+    let symbols = extract_symbols_from_file_or_timeout(&path, None).unwrap();
+    assert!(
+        symbols.is_empty(),
+        "invalid UTF-8 must stay empty, not parse_timeout"
+    );
+}
+
+#[test]
+fn extract_symbols_from_file_or_timeout_deadline_is_parse_timeout() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("deep.rs");
+    std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+    let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+    let err = extract_symbols_from_file_or_timeout(&path, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::error_kind_str(&err),
+        Some("parse_timeout"),
+        "expected parse_timeout, got {err}"
+    );
+}

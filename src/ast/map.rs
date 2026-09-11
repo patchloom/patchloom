@@ -57,10 +57,31 @@ struct FileData {
 
 /// Generate a ranked repository map from a directory of source files.
 ///
-/// A parse deadline yields an empty map. Prefer [`try_generate_map`] when
-/// timeout must fail closed instead of looking like "no symbols".
+/// A parse deadline yields an empty map. Prefer [`generate_map_or_timeout`]
+/// when timeout must not look like "no symbols".
 pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>) -> Vec<MapEntry> {
     try_generate_map(files, opts).unwrap_or_default()
+}
+
+/// Like [`generate_map`], but a parse deadline is [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar, binary, and invalid UTF-8 stay an empty list. Library
+/// hosts that must distinguish a 5s parse deadline from an empty map
+/// should call this instead of [`generate_map`] (#2444).
+///
+/// ```
+/// use patchloom::ast::map::{generate_map_or_timeout, MapOptions};
+/// use std::path::Path;
+///
+/// let files: [(&Path, String); 0] = [];
+/// let entries = generate_map_or_timeout(&files, &MapOptions::default()).unwrap();
+/// assert!(entries.is_empty());
+/// ```
+pub fn generate_map_or_timeout(
+    files: &[(impl AsRef<Path>, String)],
+    opts: &MapOptions<'_>,
+) -> anyhow::Result<Vec<MapEntry>> {
+    try_generate_map(files, opts)
 }
 
 /// Like [`generate_map`], but a parse deadline is [`crate::exit::ParseTimeoutError`].
@@ -637,5 +658,61 @@ mod tests {
         };
         let scores = pagerank(&edges, 2, &opts, &symbols);
         assert!(scores[0] > scores[1]);
+    }
+
+    // Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2444).
+    #[test]
+    fn generate_map_or_timeout_deadline_is_parse_timeout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+        let files = [(path.as_path(), "deep.rs".to_string())];
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = generate_map_or_timeout(&files, &MapOptions::default()).unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn generate_map_deadline_stays_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+        let files = [(path.as_path(), "deep.rs".to_string())];
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let entries = generate_map(&files, &MapOptions::default());
+        assert!(
+            entries.is_empty(),
+            "empty-vec generate_map must stay empty on deadline"
+        );
+    }
+
+    #[test]
+    fn generate_map_or_timeout_unknown_lang_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("notes.txt");
+        std::fs::write(&path, "hello").unwrap();
+        let files = [(path.as_path(), "notes.txt".to_string())];
+        let entries = generate_map_or_timeout(&files, &MapOptions::default()).unwrap();
+        assert!(
+            entries.is_empty(),
+            "missing grammar must stay empty, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn generate_map_or_timeout_binary_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bin.rs");
+        std::fs::write(&path, b"fn main() {}\0").unwrap();
+        let files = [(path.as_path(), "bin.rs".to_string())];
+        let entries = generate_map_or_timeout(&files, &MapOptions::default()).unwrap();
+        assert!(
+            entries.is_empty(),
+            "binary must stay empty, not parse_timeout"
+        );
     }
 }

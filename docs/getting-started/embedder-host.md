@@ -109,6 +109,15 @@ Do not expose only `doc_set` if agents need list updates by name. See
     to update every exact match. Empty SEARCH is invalid input. Do not
     `replacen(..., 1)` or raw `fs::write`, and do not flip
     `ReplaceOptions.unique` on generic `replace_text` (#2220 / #2221).
+14. **AST query parse deadline:** `extract_symbols` / `extract_symbols_from_file`
+    / `find_refs_in_source` / `find_refs_in_file` / `generate_map` return an
+    empty list when the 5s parse deadline fires. That looks like "no symbols"
+    / "no references". Call the `*_or_timeout` twins instead:
+    `extract_symbols_or_timeout`, `extract_symbols_from_file_or_timeout`,
+    `find_refs_in_source_or_timeout`, `find_refs_in_file_or_timeout`,
+    `generate_map_or_timeout`. A deadline is `error_kind_str` `parse_timeout`.
+    Missing grammar, binary, and invalid UTF-8 stay an empty list (#2444).
+    `search_query` and `validate_file` already return that kind.
 
 ## Minimal sketch
 
