@@ -1783,4 +1783,47 @@ body
         let msg = err.into_anyhow("Move", "Dest").to_string();
         assert!(msg.contains("Move"), "got {msg}");
     }
+
+    #[test]
+    fn upsert_bullet_empty_or_prefix_only_is_invalid_input() {
+        let content = "# List\n\n- existing\n";
+        for bullet in ["", "   ", "-", "- ", "*", "* ", "+", "+ "] {
+            let err = upsert_bullet_in(content, "List", bullet).expect_err(bullet);
+            assert_eq!(
+                err,
+                SectionError::EmptyConstruct,
+                "bullet {bullet:?} must peel"
+            );
+            let mapped = err.into_anyhow("List");
+            assert!(
+                crate::exit::is_invalid_input(&mapped),
+                "bullet {bullet:?} must be invalid_input: {mapped}"
+            );
+        }
+        assert_eq!(
+            upsert_bullet_in(content, "List", "- new").expect("real bullet"),
+            "# List\n\n- existing\n- new\n"
+        );
+    }
+
+    #[test]
+    fn insert_whitespace_only_is_invalid_input_empty_stays_identity() {
+        let content = "# Head\nbody\n";
+        assert_eq!(
+            insert_after_heading_in(content, "Head", "").expect("empty insert is identity"),
+            content
+        );
+        for insertion in ["   ", "\t"] {
+            let err = insert_after_heading_in(content, "Head", insertion).expect_err(insertion);
+            assert_eq!(err, SectionError::EmptyConstruct, "insert {insertion:?}");
+            assert!(crate::exit::is_invalid_input(&err.into_anyhow("Head")));
+            let err = insert_after_section_in(content, "Head", insertion).expect_err(insertion);
+            assert_eq!(err, SectionError::EmptyConstruct);
+            let err = insert_before_heading_in(content, "Head", insertion).expect_err(insertion);
+            assert_eq!(err, SectionError::EmptyConstruct);
+        }
+        let blank =
+            insert_after_heading_in(content, "Head", "\n").expect("newline is a blank line");
+        assert_eq!(blank, "# Head\n\nbody\n");
+    }
 }

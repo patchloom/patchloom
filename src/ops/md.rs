@@ -297,6 +297,8 @@ pub enum SectionError {
     NotFound,
     /// More than one heading matched (fail-closed for mutators).
     Ambiguous { count: usize },
+    /// Empty or whitespace-only insert/bullet (not a newline blank-line insert).
+    EmptyConstruct,
 }
 
 impl SectionError {
@@ -310,6 +312,12 @@ impl SectionError {
             SectionError::Ambiguous { count } => crate::exit::AmbiguousError {
                 msg: format!(
                     "ambiguous heading: {heading:?} matches {count} times; make the heading unique or use a level-qualified query (e.g. \"## Rules\")"
+                ),
+            }
+            .into(),
+            SectionError::EmptyConstruct => crate::exit::InvalidInputError {
+                msg: format!(
+                    "md insert or bullet content must not be empty or whitespace-only (heading {heading:?})"
                 ),
             }
             .into(),
@@ -343,6 +351,7 @@ impl MoveSectionError {
                     ),
                 }
                 .into(),
+                SectionError::EmptyConstruct => e.into_anyhow(dest_heading),
             },
             MoveSectionError::InvalidPosition => crate::exit::InvalidInputError {
                 msg: "md.move_section requires exactly one of 'before' or 'after'".into(),
@@ -572,6 +581,7 @@ pub fn insert_after_heading_in(
     heading: &str,
     insertion: &str,
 ) -> Result<String, SectionError> {
+    reject_whitespace_only_insert(insertion)?;
     let eol = crate::write::detect_eol(content);
     let (body_start, _) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len() + insertion.len());
@@ -593,6 +603,7 @@ pub fn insert_after_section_in(
     heading: &str,
     insertion: &str,
 ) -> Result<String, SectionError> {
+    reject_whitespace_only_insert(insertion)?;
     let eol = crate::write::detect_eol(content);
     let (_, body_end) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len() + insertion.len() + 4);
@@ -620,6 +631,7 @@ pub fn insert_before_heading_in(
     heading: &str,
     insertion: &str,
 ) -> Result<String, SectionError> {
+    reject_whitespace_only_insert(insertion)?;
     let eol = crate::write::detect_eol(content);
     // Reuse unique resolution via section_range (heading start = section start).
     let (heading_start, _) = section_range(content, heading)?;
@@ -636,6 +648,19 @@ pub fn insert_before_heading_in(
     }
     out.push_str(&content[heading_start..]);
     Ok(out)
+}
+
+/// Whitespace-only insert (`"   "`) is invalid. Empty `""` is identity.
+/// `"\n"` / `"\r"` is insert-a-blank-line.
+fn reject_whitespace_only_insert(insertion: &str) -> Result<(), SectionError> {
+    if !insertion.is_empty()
+        && insertion.trim().is_empty()
+        && !insertion.contains('\n')
+        && !insertion.contains('\r')
+    {
+        return Err(SectionError::EmptyConstruct);
+    }
+    Ok(())
 }
 
 /// Strip a bullet prefix (`- `, `* `, `+ `) from a trimmed line,
@@ -658,6 +683,13 @@ pub fn upsert_bullet_in(
     let body = &content[body_start..body_end];
 
     let trimmed = bullet.trim();
+    // "" / "   " and prefix-only ("- ", "-", "* ", "+") must not write "- " / "- -".
+    if trimmed.is_empty()
+        || matches!(trimmed, "-" | "*" | "+")
+        || strip_bullet_prefix(trimmed).trim().is_empty()
+    {
+        return Err(SectionError::EmptyConstruct);
+    }
     let normalized =
         if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ") {
             trimmed.to_string()
