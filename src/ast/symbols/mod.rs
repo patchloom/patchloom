@@ -1,6 +1,6 @@
 //! Symbol extraction from source files using tree-sitter AST parsing.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
@@ -156,6 +156,39 @@ pub(crate) fn try_extract_symbols_from_file(
         return Ok(Vec::new());
     };
     try_extract_symbols(&source, lang)
+}
+
+/// Extract symbols from a file, mapping a parse deadline to
+/// [`crate::exit::ParseTimeoutError`]. Missing grammar, binary, and
+/// invalid UTF-8 stay an empty list (same as [`extract_symbols_from_file`]).
+pub(crate) fn extract_symbols_from_file_or_timeout(
+    path: &Path,
+    lang_hint: Option<Language>,
+) -> anyhow::Result<Vec<SymbolDef>> {
+    match try_extract_symbols_from_file(path, lang_hint) {
+        Ok(s) => Ok(s),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {}", path.display()),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
+}
+
+/// Keep files whose AST contains `name` (nested children included).
+/// A parse deadline is [`crate::exit::ParseTimeoutError`].
+pub(crate) fn keep_files_with_symbol(
+    files: Vec<PathBuf>,
+    name: &str,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let mut kept = Vec::new();
+    for p in files {
+        let syms = extract_symbols_from_file_or_timeout(&p, None)?;
+        if find_symbol(&syms, name).is_some() {
+            kept.push(p);
+        }
+    }
+    Ok(kept)
 }
 
 /// Find a symbol by name, optionally qualified (e.g. "Impl::method").
