@@ -2401,6 +2401,34 @@ impl Point {
     }
 
     #[test]
+    fn ast_insert_empty_content_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo() { let x = 1; }\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstInsertParams {
+            path: "t.rs".into(),
+            content: String::new(),
+            inside: None,
+            after: Some("foo".into()),
+            before: None,
+            position: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_insert(&svc, params).expect("empty content is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty insert content must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty insert must not mutate dest");
+    }
+
+    #[test]
     fn ast_rename_replaces_symbol() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("rename.rs"), RUST_SAMPLE).unwrap();

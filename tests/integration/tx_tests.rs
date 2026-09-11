@@ -8033,6 +8033,54 @@ fn test_tx_ast_insert_bad_position_invalid_input() {
     );
 }
 
+/// Empty ast.insert content is invalid_input (exit 1); dest unchanged.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_insert_empty_content_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.insert",
+            "path": "t.rs",
+            "content": "",
+            "after": "foo"
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say content must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "file must be unchanged on empty insert"
+    );
+}
+
 /// Multi-surface (#2054): plan `ast.wrap` apply path.
 #[test]
 #[cfg(feature = "ast")]
