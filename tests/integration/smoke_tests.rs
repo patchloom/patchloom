@@ -826,6 +826,19 @@ fn test_smoke_embedder_host_notes_tree_sitter_027_links() {
 }
 
 #[test]
+fn test_smoke_embedder_smoke_runs_or_timeout_deadline() {
+    let script = fs::read_to_string(repo_root().join("scripts/embedder-smoke.sh")).unwrap();
+    assert!(
+        script.contains("or_timeout_deadline_is_parse_timeout"),
+        "embedder-smoke.sh must cargo-test public *_or_timeout deadline peels (#2444/#2445/#2446/#2449)"
+    );
+    assert!(
+        script.contains("--features \"ast,files\""),
+        "embedder-smoke.sh must run those deadline tests under the host ast,files feature set"
+    );
+}
+
+#[test]
 fn test_smoke_embedder_host_names_ast_query_or_timeout() {
     let embedder = fs::read_to_string(embedder_host_path()).unwrap();
     for needle in [

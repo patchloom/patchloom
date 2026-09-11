@@ -818,4 +818,18 @@ fn build(name: String) -> Config {
             "invalid UTF-8 must stay empty, not parse_timeout"
         );
     }
+
+    #[test]
+    fn find_refs_in_file_or_timeout_deadline_is_parse_timeout() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = find_refs_in_file_or_timeout(&path, "x", None, "deep.rs").unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
 }
