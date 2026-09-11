@@ -1,4 +1,8 @@
 //! Import/use statement manipulation: add, remove, deduplicate.
+//!
+//! size-waiver: accepted single-domain bulk (policy #1408). Multi-language
+//! import add/remove/dedupe plus empty-item peel; tests co-located; do not
+//! split for LOC alone.
 
 use super::Language;
 
