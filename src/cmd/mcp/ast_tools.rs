@@ -17,11 +17,29 @@ use super::{
     PatchloomService, exit_code_to_result, no_results, validate_content_size, validate_param_size,
 };
 
-fn parse_optional_lang(lang: Option<&str>) -> Result<Option<crate::ast::Language>, McpError> {
+/// Parse an optional lang hint. Unknown tokens are a tool envelope
+/// (`invalid_input`), not JSON-RPC `invalid_params`.
+fn parse_optional_lang(
+    lang: Option<&str>,
+) -> Result<Option<crate::ast::Language>, Box<Result<CallToolResult, McpError>>> {
     match lang {
-        Some(s) => crate::ast::parse_lang_hint(s)
-            .map(Some)
-            .map_err(|e| McpError::invalid_params(crate::exit::agent_error_message(&e), None)),
+        Some(s) => match crate::ast::parse_lang_hint(s) {
+            Ok(parsed) => Ok(Some(parsed)),
+            Err(e) => {
+                let msg = crate::exit::agent_error_message(&e);
+                let body = serde_json::json!({
+                    "ok": false,
+                    "applied": false,
+                    "error_kind": "invalid_input",
+                    "error": msg,
+                });
+                Err(Box::new(exit_code_to_result(
+                    exit::FAILURE,
+                    &body.to_string(),
+                    &msg,
+                )))
+            }
+        },
         None => Ok(None),
     }
 }
@@ -33,7 +51,10 @@ pub(super) fn handle_ast_list(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
     let kind_filter = crate::cmd::ast::parse_kind_filter(&p.kind)
         .map_err(|e| McpError::invalid_params(crate::exit::agent_error_message(&e), None))?;
 
@@ -136,7 +157,10 @@ pub(super) fn handle_ast_read(
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
 
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
     // Strict sole-path text load (#1894): binary / invalid UTF-8 → invalid_params.
     let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
@@ -217,7 +241,10 @@ pub(super) fn handle_ast_rename(
     }
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd_and_json(&cwd);
 
@@ -356,7 +383,10 @@ pub(super) fn handle_ast_validate(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -468,7 +498,10 @@ pub(super) fn handle_ast_search(
     validate_param_size("query", &p.query)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -644,7 +677,10 @@ pub(super) fn handle_ast_refs(
     validate_param_size("symbol", &p.symbol)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -699,7 +735,10 @@ pub(super) fn handle_ast_deps(
     svc.check_path(&p.path)?;
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
 
     let global = GlobalFlags::with_cwd(&cwd);
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
@@ -862,7 +901,10 @@ pub(super) fn handle_ast_diff(
     }
     let cwd = svc.cwd().to_path_buf();
     let target = cwd.join(&p.path);
-    let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+    let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+        Ok(lang) => lang,
+        Err(r) => return *r,
+    };
     let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
 
     let old_source = crate::cmd::ast::get_git_file_content(&cwd, &p.path, &p.from)
@@ -1039,7 +1081,10 @@ pub(super) fn handle_ast_imports(
     if p.add.is_none() && p.remove.is_none() && !p.dedupe {
         let cwd = svc.cwd().to_path_buf();
         let target = cwd.join(&p.path);
-        let lang_hint = parse_optional_lang(p.lang.as_deref())?;
+        let lang_hint = match parse_optional_lang(p.lang.as_deref()) {
+            Ok(lang) => lang,
+            Err(r) => return *r,
+        };
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(&target));
         // Strict sole-path (#1894).
         let source = crate::files::load_text_strict(&target, &p.path).map_err(|e| {
@@ -1243,6 +1288,35 @@ impl Point {
         let text = extract_text(&result);
         assert!(text.contains("Point"));
         assert!(!text.contains("\"greet\""));
+    }
+
+    #[test]
+    fn ast_list_unknown_lang() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("mod.py"), "def x():\n    pass\n").unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstListParams {
+            path: "mod.py".into(),
+            kind: None,
+            lang: Some("python3".into()),
+        };
+
+        let result = handle_ast_list(&svc, params).expect("unknown lang is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "unknown lang must set isError so hosts do not retry as invalid_params"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("invalid_input"),
+            "unknown lang must surface invalid_input, got: {text}"
+        );
+        assert!(text.contains("python3"), "must name the token: {text}");
+        assert!(
+            text.contains("\"error_kind\""),
+            "must not be protocol-only invalid_params without error_kind: {text}"
+        );
     }
 
     #[test]
@@ -1529,6 +1603,40 @@ impl Point {
         );
         let after = std::fs::read_to_string(&path).unwrap();
         assert_eq!(after, original, "timeout must not word-boundary-write");
+    }
+
+    #[test]
+    fn ast_rename_unknown_lang() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mod.py");
+        let original = "def greet():\n    pass\n";
+        std::fs::write(&path, original).unwrap();
+
+        let svc = make_service(&dir);
+        let params = AstRenameParams {
+            path: "mod.py".into(),
+            old: "greet".into(),
+            new: "salute".into(),
+            lang: Some("python3".into()),
+        };
+
+        let result = handle_ast_rename(&svc, params).expect("unknown lang is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "unknown lang must set isError so hosts do not retry as invalid_params"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("invalid_input"),
+            "unknown lang must surface invalid_input, got: {text}"
+        );
+        assert!(text.contains("python3"), "must name the token: {text}");
+        assert!(
+            text.contains("\"error_kind\""),
+            "must not be protocol-only invalid_params without error_kind: {text}"
+        );
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "unknown lang must not mutate dest");
     }
 
     #[test]
