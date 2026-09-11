@@ -37,6 +37,21 @@ pub fn split_file(
     require_exhaustive: bool,
     lang: Language,
 ) -> anyhow::Result<SplitResult> {
+    for target in targets {
+        if target.symbols.is_empty() {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "ast split target symbols must not be empty".into(),
+            }));
+        }
+        for name in &target.symbols {
+            if name.trim().is_empty() {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: "ast split symbol must not be empty".into(),
+                }));
+            }
+        }
+    }
+
     let eol = crate::write::detect_eol(source);
     let all_symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
@@ -439,6 +454,66 @@ mod tests {
         assert!(
             crate::exit::is_parse_timeout(&err),
             "timeout must not write empty dests: {err}"
+        );
+    }
+
+    #[test]
+    fn split_empty_symbol_is_invalid_input() {
+        let source = "fn alpha() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec![String::new()],
+            prepend: None,
+        }];
+        let err = split_file(source, &targets, &[], None, None, false, Language::Rust)
+            .expect_err("empty split symbol must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty symbol must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn split_whitespace_symbol_is_invalid_input() {
+        let source = "fn alpha() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["   ".into()],
+            prepend: None,
+        }];
+        let err = split_file(source, &targets, &[], None, None, false, Language::Rust)
+            .expect_err("whitespace-only split symbol must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace-only symbol must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn split_empty_symbols_vec_is_invalid_input() {
+        let source = "fn alpha() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec![],
+            prepend: None,
+        }];
+        let err = split_file(source, &targets, &[], None, None, false, Language::Rust)
+            .expect_err("empty split symbols vec must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty symbols vec must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
         );
     }
 }

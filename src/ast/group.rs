@@ -72,6 +72,15 @@ pub fn group_symbols(
             msg: "ast group module must not be empty".into(),
         }));
     }
+    if let Some(pre) = &spec.preamble
+        && pre.trim().is_empty()
+        && !pre.contains('\n')
+        && !pre.contains('\r')
+    {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast group preamble must not be empty".into(),
+        }));
+    }
     let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
@@ -564,6 +573,71 @@ mod tests {
         assert!(
             err.to_string().contains("must not be empty"),
             "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn group_empty_preamble_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let spec = GroupSpec {
+            module: "helpers".into(),
+            symbols: vec!["foo".into()],
+            preamble: Some(String::new()),
+            position: GroupPosition::FirstSymbol,
+        };
+        let err = group_symbols(source, &spec, Language::Rust)
+            .expect_err("empty group preamble must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty preamble must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn group_empty_whitespace_preamble_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let spec = GroupSpec {
+            module: "helpers".into(),
+            symbols: vec!["foo".into()],
+            preamble: Some("   ".into()),
+            position: GroupPosition::FirstSymbol,
+        };
+        let err = group_symbols(source, &spec, Language::Rust)
+            .expect_err("whitespace-only group preamble must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace-only preamble must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn group_newline_preamble_still_ok() {
+        let source = "fn foo() { let x = 1; }\n";
+        let spec = GroupSpec {
+            module: "helpers".into(),
+            symbols: vec!["foo".into()],
+            preamble: Some("\n".into()),
+            position: GroupPosition::FirstSymbol,
+        };
+        let result = group_symbols(source, &spec, Language::Rust)
+            .expect("newline-only group preamble is insert-a-blank-line");
+        assert!(
+            result.content.contains("mod helpers {"),
+            "module must still be created: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("fn foo()"),
+            "grouped symbol must remain: {}",
+            result.content
         );
     }
 }

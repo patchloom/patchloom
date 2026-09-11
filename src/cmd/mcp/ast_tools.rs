@@ -2485,6 +2485,71 @@ impl Point {
     }
 
     #[test]
+    fn ast_rewrite_empty_parameters_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo(x: i32) { let x = 1; }\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstRewriteSignatureParams {
+            path: "t.rs".into(),
+            old: "foo".into(),
+            new_signature: None,
+            visibility: None,
+            parameters: Some(String::new()),
+            return_type: None,
+            lang: Some("rs".into()),
+        };
+        let result =
+            handle_ast_rewrite_signature(&svc, params).expect("empty parameters is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty parameters must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty parameters must not mutate dest");
+    }
+
+    #[test]
+    fn ast_split_empty_symbols_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let original = "fn foo() { let x = 1; }\n";
+        std::fs::write(dir.path().join("t.rs"), original).unwrap();
+        let svc = make_service(&dir);
+        let params = AstSplitParams {
+            source: "t.rs".into(),
+            targets: vec![AstSplitTargetParam {
+                path: "a.rs".into(),
+                symbols: vec![String::new()],
+                prepend: None,
+            }],
+            keep_in_source: vec![],
+            source_suffix: None,
+            source_prefix: None,
+            require_exhaustive: Some(false),
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_split(&svc, params).expect("empty split symbol is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty split symbol must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("t.rs")).unwrap();
+        assert_eq!(after, original, "empty split must not mutate source");
+        assert!(
+            !dir.path().join("a.rs").exists(),
+            "empty split must not create dest"
+        );
+    }
+
+    #[test]
     fn ast_group_empty_module_is_invalid_input() {
         let dir = TempDir::new().unwrap();
         let original = "fn foo() { let x = 1; }\n";

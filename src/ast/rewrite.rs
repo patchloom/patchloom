@@ -351,6 +351,16 @@ pub(crate) fn reject_empty_new_signature(new_sig: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Refuse empty / whitespace-only `parameters`. Valid no-params is `"()"`.
+pub(crate) fn reject_empty_parameters(params: &str) -> anyhow::Result<()> {
+    if params.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast rewrite parameters must not be empty".into(),
+        }));
+    }
+    Ok(())
+}
+
 /// Like [`replace_function_signature`], but a parse deadline is
 /// [`crate::exit::ParseTimeoutError`] instead of `None`.
 pub(crate) fn try_replace_function_signature(
@@ -592,6 +602,9 @@ pub(crate) fn try_rewrite_function_signature(
     edit: &FunctionSigEdit,
     lang: Language,
 ) -> anyhow::Result<Option<String>> {
+    if let Some(params) = edit.parameters.as_deref() {
+        reject_empty_parameters(params)?;
+    }
     if lang == Language::Rust {
         return rewrite_rust_sig(source, old_name, edit);
     }
@@ -1353,6 +1366,77 @@ mod tests {
                 "empty new_signature must classify as invalid_input: {err}"
             );
         }
+    }
+
+    #[test]
+    fn reject_empty_parameters_is_invalid_input() {
+        for params in ["", "   ", "\t"] {
+            let err = reject_empty_parameters(params).expect_err("empty parameters must fail");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "empty parameters must be invalid_input, got {err}"
+            );
+            assert!(
+                err.to_string().contains("must not be empty"),
+                "message must say must not be empty: {err}"
+            );
+        }
+        reject_empty_parameters("()").expect("empty-parens is a valid no-params list");
+        reject_empty_parameters("(x: i32)").expect("non-empty parameter list");
+    }
+
+    #[test]
+    fn try_rewrite_function_signature_empty_parameters_is_invalid_input() {
+        let source = "fn foo(x: i32) { let x = 1; }\n";
+        for params in ["", "   "] {
+            let edit = FunctionSigEdit {
+                parameters: Some(params.into()),
+                ..Default::default()
+            };
+            let err = try_rewrite_function_signature(source, "foo", &edit, Language::Rust)
+                .expect_err("empty parameters must be invalid_input");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "empty parameters must classify as invalid_input: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn try_rewrite_function_signature_empty_parens_still_rewrites() {
+        let source = "fn foo(x: i32) { let x = 1; }\n";
+        let edit = FunctionSigEdit {
+            parameters: Some("()".into()),
+            ..Default::default()
+        };
+        let out = try_rewrite_function_signature(source, "foo", &edit, Language::Rust)
+            .expect("() is a valid no-params list")
+            .expect("function found");
+        assert!(
+            out.contains("fn foo()"),
+            "() must rewrite to no-params: {out}"
+        );
+        assert!(
+            !out.contains("fn foo(x: i32)"),
+            "old params must be gone: {out}"
+        );
+    }
+
+    #[test]
+    fn try_rewrite_function_signature_empty_return_type_still_applies() {
+        let source = "fn foo() -> i32 { 1 }\n";
+        let edit = FunctionSigEdit {
+            return_type: Some(String::new()),
+            ..Default::default()
+        };
+        let out = try_rewrite_function_signature(source, "foo", &edit, Language::Rust)
+            .expect("empty return_type is a valid remove-return edit")
+            .expect("function found");
+        assert!(out.contains("fn foo()"), "signature must remain: {out}");
+        assert!(
+            !out.contains("-> i32"),
+            "empty return_type must remove the return: {out}"
+        );
     }
 
     // ── find_function_span tests ──────────────────────────────────

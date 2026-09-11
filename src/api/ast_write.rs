@@ -44,6 +44,9 @@ pub fn ast_rewrite_signature(
         )
         .into());
     }
+    if let Some(params) = edit.parameters.as_deref() {
+        crate::ast::rewrite::reject_empty_parameters(params)?;
+    }
     let abs = super::library_abs_path(path, guard)?;
     let op = Operation::AstRewriteSignature {
         path: super::library_op_path(path, &abs, guard),
