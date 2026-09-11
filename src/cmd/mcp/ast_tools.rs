@@ -110,9 +110,21 @@ pub(super) fn handle_ast_list(
         struct ListResult {
             entries: Vec<serde_json::Value>,
         }
+        let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
         let par_results: Vec<ListResult> = crate::par_process_files(&paths, None, &[], |path| {
             let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
-            let symbols = crate::ast::symbols::extract_symbols_from_file(path, Some(lang));
+            let symbols = match crate::ast::symbols::try_extract_symbols_from_file(path, Some(lang))
+            {
+                Ok(s) => s,
+                Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                    let mut slot = timeout.lock().unwrap_or_else(|e| e.into_inner());
+                    if slot.is_none() {
+                        *slot = Some(path.display().to_string());
+                    }
+                    return None;
+                }
+                Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+            };
             let filtered = crate::cmd::ast::filter_symbols(&symbols, &kind_filter);
             if filtered.is_empty() {
                 return None;
@@ -124,6 +136,16 @@ pub(super) fn handle_ast_list(
                 .collect();
             Some(ListResult { entries })
         });
+        if let Some(file) = timeout.into_inner().unwrap_or_else(|e| e.into_inner()) {
+            let msg = format!("parse deadline exceeded for {file}");
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
         for r in par_results {
             results.extend(r.entries);
         }
@@ -835,6 +857,7 @@ pub(super) fn handle_ast_deps(
         };
         let all_files = crate::cmd::ast::collect_source_files(&scan_dir, &global)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        // Reverse walk scans `all_files`; empty-mask must use that set, not `paths`.
 
         struct RevDepsResult {
             entries: Vec<serde_json::Value>,
@@ -898,6 +921,18 @@ pub(super) fn handle_ast_deps(
         }
         for r in par_results {
             results.extend(r.entries);
+        }
+        if results.is_empty()
+            && let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&all_files, &cwd)
+        {
+            let msg = err.msg;
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "invalid_input",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::FAILURE, &body.to_string(), &msg);
         }
     } else {
         let timeout: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -986,7 +1021,20 @@ pub(super) fn handle_ast_map(
         boost: &p.boost,
     };
 
-    let entries = crate::ast::map::generate_map(&file_pairs, &opts);
+    let entries = match crate::ast::map::try_generate_map(&file_pairs, &opts) {
+        Ok(e) => e,
+        Err(e) if crate::exit::is_parse_timeout(&e) => {
+            let msg = crate::exit::agent_error_message(&e);
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
+        Err(e) => return Err(McpError::internal_error(format!("{e}"), None)),
+    };
 
     if entries.is_empty() {
         return no_results("No symbols found.");
@@ -1672,6 +1720,116 @@ impl Point {
             !text.contains("No symbols found"),
             "list timeout must not become walk-soft no symbols: {text}"
         );
+    }
+
+    #[test]
+    fn ast_list_dir_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstListParams {
+            path: ".".into(),
+            kind: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_list(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "dir list timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No symbols found"),
+            "dir list timeout must not become walk-soft no symbols: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_map_dir_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstMapParams {
+            path: ".".into(),
+            max_tokens: 1024,
+            focus: Vec::new(),
+            boost: Vec::new(),
+        };
+        let result = handle_ast_map(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "dir map timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No symbols found"),
+            "dir map timeout must not become walk-soft no symbols: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_deps_reverse_unreadable_sibling_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("target.rs"), "fn foo() {}\n").unwrap();
+        let locked = dir.path().join("locked.rs");
+        std::fs::write(&locked, "fn bar() {}\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+            if std::fs::read_to_string(&locked).is_ok() {
+                std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+                return;
+            }
+            let svc = make_service(&dir);
+            let params = AstDepsParams {
+                path: "target.rs".into(),
+                reverse: true,
+                lang: Some("rs".into()),
+            };
+            let result =
+                handle_ast_deps(&svc, params).expect("unreadable sibling is a tool result");
+            assert!(
+                result.is_error.unwrap_or(false),
+                "reverse scan must not mask an unreadable sibling as no imports"
+            );
+            let text = extract_text(&result);
+            assert!(
+                text.contains("invalid_input"),
+                "unreadable sibling must surface invalid_input, got: {text}"
+            );
+            assert!(
+                text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+                "invalid_input JSON must set applied:false: {text}"
+            );
+            assert!(
+                !text.contains("No imports found"),
+                "must not claim no imports when a scanned sibling is unreadable: {text}"
+            );
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = locked;
+        }
     }
 
     #[test]

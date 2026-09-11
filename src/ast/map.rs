@@ -6,8 +6,9 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::Language;
+use super::ParseFailure;
 use super::refs::{RefKind, find_all_refs_in_source_with_tree};
-use super::symbols::{SymbolDef, SymbolKind, extract_symbols};
+use super::symbols::{SymbolDef, SymbolKind, try_extract_symbols};
 
 /// A symbol entry in the repository map.
 #[derive(Debug, Clone, Serialize)]
@@ -55,30 +56,51 @@ struct FileData {
 }
 
 /// Generate a ranked repository map from a directory of source files.
+///
+/// A parse deadline yields an empty map. Prefer [`try_generate_map`] when
+/// timeout must fail closed instead of looking like "no symbols".
 pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>) -> Vec<MapEntry> {
+    try_generate_map(files, opts).unwrap_or_default()
+}
+
+/// Like [`generate_map`], but a parse deadline is [`crate::exit::ParseTimeoutError`].
+/// SoftSkip binary / invalid UTF-8 stays empty.
+pub(crate) fn try_generate_map(
+    files: &[(impl AsRef<Path>, String)],
+    opts: &MapOptions<'_>,
+) -> anyhow::Result<Vec<MapEntry>> {
     // Phase 1: Parse all files and extract symbols
-    let file_data: Vec<FileData> = files
-        .iter()
-        .filter_map(|(path, display)| {
-            let path = path.as_ref();
-            let lang = Language::from_path(path);
-            if !lang.has_grammar() {
-                return None;
+    let mut file_data = Vec::new();
+    for (path, display) in files {
+        let path = path.as_ref();
+        let lang = Language::from_path(path);
+        if !lang.has_grammar() {
+            continue;
+        }
+        // SoftSkip multi-path (#1894): binary / invalid UTF-8 → skip.
+        let Some(source) = crate::files::read_text_file(path) else {
+            continue;
+        };
+        let symbols = match try_extract_symbols(&source, lang) {
+            Ok(s) => s,
+            Err(ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", path.display()),
+                }
+                .into());
             }
-            // SoftSkip multi-path (#1894): binary / invalid UTF-8 → skip.
-            let source = crate::files::read_text_file(path)?;
-            let symbols = extract_symbols(&source, lang);
-            if symbols.is_empty() {
-                return None;
-            }
-            Some(FileData {
-                path: display.clone(),
-                source,
-                lang,
-                symbols,
-            })
-        })
-        .collect();
+            Err(ParseFailure::NoGrammar) => continue,
+        };
+        if symbols.is_empty() {
+            continue;
+        }
+        file_data.push(FileData {
+            path: display.clone(),
+            source,
+            lang,
+            symbols,
+        });
+    }
 
     // Phase 2: Build reference graph and compute PageRank
     let mut all_symbols: Vec<(String, String, SymbolKind, String, usize)> = Vec::new(); // (file, name, kind, sig, line)
@@ -90,7 +112,7 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
 
     let n = all_symbols.len();
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     // Build adjacency: edges[i] = set of j where symbol i references symbol j
@@ -178,7 +200,7 @@ pub fn generate_map(files: &[(impl AsRef<Path>, String)], opts: &MapOptions<'_>)
     // Phase 5: Token budget selection
     truncate_to_budget(&mut entries, opts.max_tokens);
 
-    entries
+    Ok(entries)
 }
 
 fn collect_flat_symbols(
