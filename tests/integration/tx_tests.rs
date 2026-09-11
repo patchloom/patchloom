@@ -9635,6 +9635,93 @@ fn test_tx_for_each_rejects_plan_cwd() {
 }
 
 #[test]
+fn test_tx_search_invalid_glob_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hit\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "search",
+            "path": ".",
+            "pattern": "hit",
+            "globs": ["*["]
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "bad search glob must be invalid_input exit 1; stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON: {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "tx search glob parse must not remap to operation_failed: {json}"
+    );
+    assert_eq!(json["applied"], false, "{json}");
+}
+
+#[test]
+fn test_tx_replace_invalid_glob_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.txt"), "hit\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "replace",
+            "glob": "[",
+            "old": "hit",
+            "new": "HIT"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = patchloom_in(dir.path())
+        .args(["--json", "tx"])
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "bad replace glob must be invalid_input exit 1; stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "stdout not JSON: {}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    });
+    assert_eq!(
+        json["error_kind"], "invalid_input",
+        "tx replace glob parse must not remap to operation_failed: {json}"
+    );
+    assert_eq!(json["applied"], false, "{json}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+        "hit\n"
+    );
+}
+
+#[test]
 fn test_tx_for_each_invalid_glob_is_invalid_input() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("a.txt"), "x\n").unwrap();

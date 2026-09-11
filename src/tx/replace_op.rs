@@ -1147,6 +1147,44 @@ mod tests {
     }
 
     #[test]
+    fn replace_glob_unclosed_class_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "old value").unwrap();
+        let op = Operation::Replace {
+            path: None,
+            glob: Some("*[".into()),
+            regex: false,
+            old: "old".into(),
+            new_text: Some("new".into()),
+            nth: None,
+            insert_before: None,
+            insert_after: None,
+            case_insensitive: false,
+            multiline: false,
+            whole_line: false,
+            word_boundary: false,
+            range: None,
+            before_context: None,
+            after_context: None,
+            if_exists: false,
+            unique: false,
+            require_change: false,
+            command_position: false,
+            fuzzy: false,
+            min_fuzzy_score: None,
+            allow_absent_old: false,
+        };
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_replace_op(&op, &mut tx).expect_err("bad replace glob");
+        drop(tx);
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "replace glob parse must be InvalidInputError, not operation_failed: {err:#}"
+        );
+    }
+
+    #[test]
     fn replace_glob_matches_files() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("a.txt"), "old value").unwrap();

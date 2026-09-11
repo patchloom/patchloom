@@ -412,6 +412,24 @@ mod tests {
     }
 
     #[test]
+    fn search_invalid_glob_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("test.txt"), "hello world\n").unwrap();
+        let mut op = search_op(".", "hello");
+        if let Operation::Search { globs, .. } = &mut op {
+            globs.push("*[".into());
+        }
+        let mut f = TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let err = execute_search_op(&op, &mut tx).expect_err("bad search glob");
+        drop(tx);
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "search glob parse must be InvalidInputError, not operation_failed: {err:#}"
+        );
+    }
+
+    #[test]
     fn search_regex_mode() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");
