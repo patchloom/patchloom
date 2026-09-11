@@ -2,7 +2,8 @@
 
 use super::Language;
 use super::symbols::{
-    check_no_overlapping_spans, extract_symbol_text, extract_symbols, find_symbol, full_symbol_span,
+    check_no_overlapping_spans, extract_symbol_text, extract_symbols_or_timeout, find_symbol,
+    full_symbol_span,
 };
 
 /// Position to insert symbols in the target file.
@@ -66,7 +67,7 @@ pub fn move_symbols(
     lang: Language,
 ) -> anyhow::Result<MoveResult> {
     let eol = crate::write::detect_eol(source);
-    let src_symbols = extract_symbols(source, lang);
+    let src_symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Collect symbols to move
@@ -194,7 +195,7 @@ fn insert_into_target(
             Ok(result)
         }
         MovePosition::After(sym_name) => {
-            let symbols = extract_symbols(target, lang);
+            let symbols = extract_symbols_or_timeout(target, lang)?;
             let sym = find_symbol(&symbols, sym_name).ok_or_else(|| {
                 anyhow::Error::new(crate::exit::NoMatchError {
                     msg: format!("symbol '{sym_name}' not found in target"),
@@ -218,7 +219,7 @@ fn insert_into_target(
             Ok(result)
         }
         MovePosition::Before(sym_name) => {
-            let symbols = extract_symbols(target, lang);
+            let symbols = extract_symbols_or_timeout(target, lang)?;
             let sym = find_symbol(&symbols, sym_name).ok_or_else(|| {
                 anyhow::Error::new(crate::exit::NoMatchError {
                     msg: format!("symbol '{sym_name}' not found in target"),

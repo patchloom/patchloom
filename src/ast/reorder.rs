@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 
 use super::Language;
-use super::symbols::{SymbolDef, SymbolKind, extract_symbols, find_symbol, full_symbol_span};
+use super::symbols::{
+    SymbolDef, SymbolKind, extract_symbols_or_timeout, find_symbol, full_symbol_span,
+};
 
 /// Strategy for reordering symbols.
 #[derive(Debug, Clone)]
@@ -38,7 +40,7 @@ pub fn reorder_symbols(
     lang: Language,
 ) -> anyhow::Result<ReorderResult> {
     let eol = crate::write::detect_eol(source);
-    let all_symbols = extract_symbols(source, lang);
+    let all_symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     let (scope_symbols, scope_start_0, scope_end_0) = if let Some(container) = inside {

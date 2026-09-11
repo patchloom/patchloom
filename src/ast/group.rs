@@ -2,7 +2,8 @@
 
 use super::Language;
 use super::symbols::{
-    check_no_overlapping_spans, extract_symbol_text, extract_symbols, find_symbol, full_symbol_span,
+    check_no_overlapping_spans, extract_symbol_text, extract_symbols_or_timeout, find_symbol,
+    full_symbol_span,
 };
 
 /// Where to place a newly created module.
@@ -67,7 +68,7 @@ pub fn group_symbols(
     lang: Language,
 ) -> anyhow::Result<GroupResult> {
     let eol = crate::write::detect_eol(source);
-    let symbols = extract_symbols(source, lang);
+    let symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Check if target module already exists
@@ -177,7 +178,7 @@ pub fn group_symbols(
         // Find the existing module's closing brace in modified_lines
         // Re-parse to find the module in modified source
         let modified_source = modified_lines.join(eol);
-        let mod_symbols = extract_symbols(&modified_source, lang);
+        let mod_symbols = extract_symbols_or_timeout(&modified_source, lang)?;
         if let Some(mod_sym) = find_symbol(&mod_symbols, &spec.module) {
             let close_line_0 = mod_sym.end_line.saturating_sub(1);
             // Insert before closing brace
@@ -238,7 +239,7 @@ pub fn group_symbols(
         GroupPosition::End => modified_lines.len(),
         GroupPosition::After(sym_name) => {
             let modified_source = modified_lines.join(eol);
-            let mod_symbols = extract_symbols(&modified_source, lang);
+            let mod_symbols = extract_symbols_or_timeout(&modified_source, lang)?;
             if let Some(sym) = find_symbol(&mod_symbols, sym_name) {
                 sym.end_line.min(modified_lines.len())
             } else {

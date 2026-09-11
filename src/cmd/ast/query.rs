@@ -700,6 +700,43 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
     // Reverse deps scan cwd; empty-mask must use that scan set, not only `paths`.
     let mut reverse_scan_files: Option<Vec<std::path::PathBuf>> = None;
 
+    if !args.reverse && paths.len() == 1 {
+        let path = &paths[0];
+        let lang = resolve_lang(lang_hint, path);
+        let source = crate::files::load_text_strict(path, &args.path)?;
+        let imports = match crate::ast::deps::try_extract_imports(&source, lang) {
+            Ok(i) => i,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                return Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {}", args.path),
+                }
+                .into());
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+        };
+        if imports.is_empty() {
+            let msg = format!("no imports found in {}", args.path);
+            global.emit_error_json_kind(Some("no_matches"), &msg)?;
+            return Ok(exit::NO_MATCHES);
+        }
+        let display = display_path(path, &cwd);
+        if structured {
+            structured_items.push(serde_json::json!({
+                "file": display,
+                "imports": imports,
+            }));
+            global.emit_json_items(&structured_items)?;
+        } else if !global.quiet {
+            println!("{display}");
+            println!("  imports:");
+            for imp in &imports {
+                println!("    {}", imp.path);
+            }
+            println!();
+        }
+        return Ok(exit::SUCCESS);
+    }
+
     if args.reverse {
         // For reverse deps, scan all files and find which ones import
         // anything matching the target file's module path
@@ -991,7 +1028,16 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
         crate::files::load_text_strict(&target, &args.path)?
     };
 
-    let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
+    let changes = match crate::ast::diff::try_structural_diff(&old_source, &new_source, lang) {
+        Ok(c) => c,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            return Err(crate::exit::ParseTimeoutError {
+                msg: format!("parse deadline exceeded for {}", args.path),
+            }
+            .into());
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+    };
 
     if changes.is_empty() {
         global.emit_error_json_kind(Some("no_matches"), "no structural changes")?;
@@ -1203,6 +1249,81 @@ mod tests {
             Err(e) => assert!(
                 crate::exit::is_parse_timeout(&e),
                 "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    #[test]
+    fn deps_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_deps(
+            DepsArgs {
+                path: "deep.rs".into(),
+                reverse: false,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file deps timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no_matches: {e}"
+            ),
+        }
+    }
+
+    fn git_ok(dir: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn init_git_repo_with_committed_file(dir: &std::path::Path, file: &str, content: &str) {
+        git_ok(dir, &["init"]);
+        git_ok(dir, &["config", "user.email", "test@test.com"]);
+        git_ok(dir, &["config", "user.name", "Test"]);
+        git_ok(dir, &["config", "commit.gpgsign", "false"]);
+        fs::write(dir.join(file), content).unwrap();
+        git_ok(dir, &["add", "--", file]);
+        git_ok(dir, &["commit", "-m", "init"]);
+    }
+
+    #[test]
+    fn diff_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        init_git_repo_with_committed_file(dir.path(), "deep.rs", "fn main() {}\n");
+        fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let global = GlobalFlags::test_with_cwd(dir.path());
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let result = run_diff(
+            DiffArgs {
+                path: "deep.rs".into(),
+                from: "HEAD".into(),
+                to: None,
+                lang: None,
+            },
+            &global,
+        );
+        match result {
+            Ok(code) => {
+                panic!("sole-file diff timeout must return Err(ParseTimeoutError), got Ok({code})")
+            }
+            Err(e) => assert!(
+                crate::exit::is_parse_timeout(&e),
+                "expected parse_timeout, not no structural changes: {e}"
             ),
         }
     }

@@ -3,7 +3,8 @@
 use serde::Serialize;
 
 use super::Language;
-use super::symbols::{SymbolDef, extract_symbols};
+use super::ParseFailure;
+use super::symbols::{SymbolDef, try_extract_symbols};
 
 /// A single structural change.
 #[derive(Debug, Clone, Serialize)]
@@ -43,13 +44,27 @@ impl std::fmt::Display for ChangeKind {
 }
 
 /// Compare two versions of source code and return structural changes.
+///
+/// Returns an empty list if either side has no grammar or the parse
+/// deadline fires. Prefer [`try_structural_diff`] when timeout must
+/// fail closed instead of looking like "no structural changes".
 pub fn structural_diff(
     old_source: &str,
     new_source: &str,
     lang: Language,
 ) -> Vec<StructuralChange> {
-    let old_symbols = extract_symbols(old_source, lang);
-    let new_symbols = extract_symbols(new_source, lang);
+    try_structural_diff(old_source, new_source, lang).unwrap_or_default()
+}
+
+/// Like [`structural_diff`], but a parse deadline on either side is
+/// [`ParseFailure::DeadlineExceeded`] instead of an empty change list.
+pub(crate) fn try_structural_diff(
+    old_source: &str,
+    new_source: &str,
+    lang: Language,
+) -> Result<Vec<StructuralChange>, ParseFailure> {
+    let old_symbols = try_extract_symbols(old_source, lang)?;
+    let new_symbols = try_extract_symbols(new_source, lang)?;
 
     let mut changes = Vec::new();
     diff_symbol_lists(
@@ -59,7 +74,7 @@ pub fn structural_diff(
         new_source,
         &mut changes,
     );
-    changes
+    Ok(changes)
 }
 
 fn diff_symbol_lists(

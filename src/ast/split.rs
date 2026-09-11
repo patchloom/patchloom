@@ -2,7 +2,7 @@
 
 use super::Language;
 use super::symbols::{
-    check_no_overlapping_spans, extract_symbol_text, extract_symbols, full_symbol_span,
+    check_no_overlapping_spans, extract_symbol_text, extract_symbols_or_timeout, full_symbol_span,
 };
 
 /// Target specification for a split operation.
@@ -38,7 +38,7 @@ pub fn split_file(
     lang: Language,
 ) -> anyhow::Result<SplitResult> {
     let eol = crate::write::detect_eol(source);
-    let all_symbols = extract_symbols(source, lang);
+    let all_symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Build a map of symbol name -> target index
@@ -414,5 +414,31 @@ mod tests {
         assert!(err.contains("alpha"));
         assert!(err.contains("a.rs"));
         assert!(err.contains("b.rs"));
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn split_timeout_is_parse_timeout() {
+        let source = nested_rust_source(80_000);
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["main".into()],
+            prepend: Some("// dest".into()),
+        }];
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = split_file(&source, &targets, &[], None, None, false, Language::Rust)
+            .expect_err("deadline must be Err, not empty dest writes");
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "timeout must not write empty dests: {err}"
+        );
     }
 }

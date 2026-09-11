@@ -7075,6 +7075,31 @@ fn ast_replace_in_symbol_parse_timeout_is_parse_timeout() {
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
 #[test]
+fn ast_rewrite_signature_parse_timeout_is_parse_timeout() {
+    use crate::ast::rewrite::FunctionSigEdit;
+
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("deep.rs");
+    let original = nested_rust_source_for_timeout(80_000);
+    fs::write(&file, &original).unwrap();
+    let edit = FunctionSigEdit {
+        parameters: Some("(x: u64)".into()),
+        ..Default::default()
+    };
+    let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+    let err =
+        ast_rewrite_signature(&file, "main", &edit, None, ApplyMode::Apply, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::ParseTimeout),
+        "library ast_rewrite_signature timeout must peel ParseTimeout, got: {err}"
+    );
+    let after = fs::read_to_string(&file).unwrap();
+    assert_eq!(after, original, "timeout must not write");
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
 fn ast_replace_in_symbol_api() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("lib.rs");

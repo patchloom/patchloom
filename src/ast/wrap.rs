@@ -1,7 +1,7 @@
 //! AST-aware code wrapping: wrap existing code in a block (module, impl, etc.).
 
 use super::Language;
-use super::symbols::{extract_symbols, find_symbol, full_symbol_span};
+use super::symbols::{extract_symbols_or_timeout, find_symbol, full_symbol_span};
 
 /// Result of a wrap operation.
 #[derive(Debug)]
@@ -145,7 +145,7 @@ fn find_symbol_range(
             msg: "symbols list must not be empty".into(),
         }));
     }
-    let symbols = extract_symbols(source, lang);
+    let symbols = extract_symbols_or_timeout(source, lang)?;
     let mut min_start = usize::MAX;
     let mut max_end = 0usize;
 

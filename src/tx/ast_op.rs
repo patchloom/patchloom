@@ -225,10 +225,17 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 .into());
             }
             let new_content = if let Some(new_sig) = new_signature {
-                let span = crate::ast::rewrite::find_function_span(content, old, lang_val)
-                    .ok_or_else(|| crate::exit::NoMatchError {
-                        msg: format!("function '{}' not found in {}", old, path),
-                    })?;
+                let span = match crate::ast::rewrite::try_find_function_span(content, old, lang_val)
+                {
+                    Ok(Some(s)) => s,
+                    Ok(None) => {
+                        return Err(crate::exit::NoMatchError {
+                            msg: format!("function '{old}' not found in {path}"),
+                        }
+                        .into());
+                    }
+                    Err(e) => return Err(e),
+                };
                 // Preserve original gap before `{` (or insert space if glued). #1503
                 crate::ast::rewrite::splice_function_signature(
                     content,
@@ -241,10 +248,18 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     parameters: parameters.clone(),
                     return_type: return_type.clone(),
                 };
-                crate::ast::rewrite::rewrite_function_signature(content, old, &edit, lang_val)
-                    .ok_or_else(|| crate::exit::NoMatchError {
-                        msg: format!("function '{}' not found in {}", old, path),
-                    })?
+                match crate::ast::rewrite::try_rewrite_function_signature(
+                    content, old, &edit, lang_val,
+                ) {
+                    Ok(Some(c)) => c,
+                    Ok(None) => {
+                        return Err(crate::exit::NoMatchError {
+                            msg: format!("function '{old}' not found in {path}"),
+                        }
+                        .into());
+                    }
+                    Err(e) => return Err(e),
+                }
             };
             if new_content == content {
                 return Ok(0);
@@ -786,5 +801,43 @@ mod tests {
         assert!(!report.applied, "timeout must not set applied");
         let after = fs::read_to_string(&path).unwrap();
         assert_eq!(after, original, "timeout must not word-boundary-write");
+    }
+
+    #[test]
+    fn ast_rewrite_signature_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        let original = nested_rust_source(80_000);
+        fs::write(&path, &original).unwrap();
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![crate::plan::Operation::AstRewriteSignature {
+                path: "deep.rs".into(),
+                old: "main".into(),
+                new_signature: None,
+                visibility: None,
+                parameters: Some("(x: u64)".into()),
+                return_type: None,
+                lang: None,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+        assert!(!report.ok, "timeout must not apply rewrite: {report:?}");
+        assert_eq!(
+            report.error_kind.as_deref(),
+            Some("parse_timeout"),
+            "tx rewrite_signature timeout must be parse_timeout, got {report:?}"
+        );
+        assert!(!report.applied, "timeout must not set applied");
+        let after = fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "timeout must not write dest");
     }
 }
