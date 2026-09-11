@@ -553,9 +553,25 @@ pub(super) fn handle_ast_search(
                 .unwrap_or(crate::ast::Language::Rust)
         });
         Some(
-            crate::ast::search::compile_pattern_query(&p.query, validation_lang).map_err(|e| {
-                McpError::invalid_params(format!("invalid pattern query: {e}"), None)
-            })?,
+            match crate::ast::search::compile_pattern_query(&p.query, validation_lang) {
+                Ok(q) => q,
+                Err(e) if crate::exit::is_invalid_input(&e) => {
+                    let msg = crate::exit::agent_error_message(&e);
+                    let body = serde_json::json!({
+                        "ok": false,
+                        "applied": false,
+                        "error_kind": "invalid_input",
+                        "error": msg,
+                    });
+                    return exit_code_to_result(exit::FAILURE, &body.to_string(), &msg);
+                }
+                Err(e) => {
+                    return Err(McpError::invalid_params(
+                        format!("invalid pattern query: {e}"),
+                        None,
+                    ));
+                }
+            },
         )
     } else {
         None
@@ -1631,6 +1647,41 @@ impl Point {
         let result = handle_ast_search(&svc, params).unwrap();
         let text = extract_text(&result);
         assert!(text.contains("greet"));
+    }
+
+    #[test]
+    fn ast_search_empty_pattern_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("sample.rs"), RUST_SAMPLE).unwrap();
+        let svc = make_service(&dir);
+        for query in ["", "   "] {
+            let params = AstSearchParams {
+                path: "sample.rs".into(),
+                query: query.into(),
+                pattern: true,
+                lang: Some("rs".into()),
+                max_results: None,
+            };
+            let result = handle_ast_search(&svc, params).expect("empty pattern is a tool result");
+            assert!(
+                result.is_error.unwrap_or(false),
+                "empty pattern must set isError so hosts do not treat whole-file hit as success"
+            );
+            let text = extract_text(&result);
+            let v: serde_json::Value = serde_json::from_str(&text)
+                .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+            assert_eq!(
+                v["error_kind"].as_str(),
+                Some("invalid_input"),
+                "empty pattern must peel invalid_input, got: {text}"
+            );
+            assert!(
+                v["error"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("must not be empty")),
+                "must name empty pattern, got: {text}"
+            );
+        }
     }
 
     fn nested_rust_source(depth: usize) -> String {

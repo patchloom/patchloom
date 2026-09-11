@@ -489,9 +489,12 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
             match crate::ast::search::compile_pattern_query(&args.query, lang) {
                 Ok(q) => q,
                 Err(e) => {
-                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("parse_error");
                     let msg = crate::exit::agent_error_message(&e);
-                    global.emit_error_json_kind(Some(kind), &msg)?;
+                    if let Some((kind, code)) = crate::exit::classify_typed_error(&e) {
+                        global.emit_error_json_kind(Some(kind), &msg)?;
+                        return Ok(code);
+                    }
+                    global.emit_error_json_kind(Some("parse_error"), &msg)?;
                     return Ok(exit::PARSE_ERROR);
                 }
             }
@@ -1161,6 +1164,47 @@ mod tests {
                 "expected parse_timeout, got {e}"
             ),
         }
+    }
+
+    #[test]
+    fn search_empty_pattern_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("t.rs"), "fn foo() {}\n").unwrap();
+        let global = GlobalFlags {
+            json: true,
+            quiet: true,
+            ..GlobalFlags::test_with_cwd(dir.path())
+        };
+        for query in ["", "   "] {
+            let code = run_search(
+                SearchArgs {
+                    query: query.into(),
+                    path: "t.rs".into(),
+                    pattern: true,
+                    lang: None,
+                    max_results: None,
+                },
+                &global,
+            )
+            .expect("empty pattern is a typed exit");
+            assert_eq!(
+                code,
+                exit::FAILURE,
+                "empty --pattern {query:?} must be invalid_input exit 1, not success/no_matches"
+            );
+        }
+        let ok = run_search(
+            SearchArgs {
+                query: "fn foo() {}".into(),
+                path: "t.rs".into(),
+                pattern: true,
+                lang: None,
+                max_results: None,
+            },
+            &global,
+        )
+        .expect("non-empty pattern");
+        assert_eq!(ok, exit::SUCCESS);
     }
 
     #[test]

@@ -409,6 +409,31 @@ fn test_ast_search_basic() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_search_empty_pattern_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("s.rs");
+    fs::write(&f, "fn f() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args(["--json", "ast", "search", "--pattern", "", "s.rs"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("empty --pattern JSON: {e}\n{text}"));
+    assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+    assert!(
+        v["error"]
+            .as_str()
+            .is_some_and(|s| s.contains("must not be empty")),
+        "must name empty pattern, got: {text}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_refs_basic() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("r.rs");
