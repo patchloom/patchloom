@@ -317,7 +317,7 @@ impl SectionError {
             .into(),
             SectionError::EmptyConstruct => crate::exit::InvalidInputError {
                 msg: format!(
-                    "md insert or bullet content must not be empty or whitespace-only (heading {heading:?})"
+                    "md insert or bullet content must not be empty, whitespace-only, or prefix-only (heading {heading:?})"
                 ),
             }
             .into(),
@@ -678,18 +678,17 @@ pub fn upsert_bullet_in(
     heading: &str,
     bullet: &str,
 ) -> Result<String, SectionError> {
-    let eol = crate::write::detect_eol(content);
-    let (body_start, body_end) = find_section(content, heading)?;
-    let body = &content[body_start..body_end];
-
     let trimmed = bullet.trim();
-    // "" / "   " and prefix-only ("- ", "-", "* ", "+") must not write "- " / "- -".
     if trimmed.is_empty()
         || matches!(trimmed, "-" | "*" | "+")
         || strip_bullet_prefix(trimmed).trim().is_empty()
     {
         return Err(SectionError::EmptyConstruct);
     }
+    let eol = crate::write::detect_eol(content);
+    let (body_start, body_end) = find_section(content, heading)?;
+    let body = &content[body_start..body_end];
+
     let normalized =
         if trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ") {
             trimmed.to_string()

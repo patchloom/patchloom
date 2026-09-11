@@ -1501,11 +1501,18 @@ mod tests {
         };
         let rust_out = rewrite_function_signature(rust_src, "foo", &rust_edit, Language::Rust)
             .expect("rust whitespace return_type");
-        assert!(
-            rust_out.contains("fn foo() {"),
-            "whitespace return_type must remove return: {rust_out}"
+        assert_eq!(
+            rust_out, "fn foo() { 1 }\n",
+            "whitespace return_type must remove return, not leave padded spaces"
         );
-        assert!(!rust_out.contains("->"), "got: {rust_out}");
+
+        let rust_bare =
+            rewrite_function_signature("fn foo() { 1 }\n", "foo", &rust_edit, Language::Rust)
+                .expect("rust whitespace return_type on bare fn");
+        assert_eq!(
+            rust_bare, "fn foo() { 1 }\n",
+            "whitespace return_type must not insert spaces before the brace"
+        );
 
         let py_src = "def foo() -> int:\n    return 1\n";
         let py_edit = FunctionSigEdit {

@@ -1804,6 +1804,10 @@ body
             upsert_bullet_in(content, "List", "- new").expect("real bullet"),
             "# List\n\n- existing\n- new\n"
         );
+        assert_eq!(
+            upsert_bullet_in(content, "Missing", "").expect_err("empty before heading lookup"),
+            SectionError::EmptyConstruct
+        );
     }
 
     #[test]
