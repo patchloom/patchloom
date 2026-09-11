@@ -1918,14 +1918,21 @@ impl Point {
             lang: Some("rs".into()),
         };
         let result = handle_ast_deps(&svc, params).expect("reverse deps is a tool result");
-        // Windows dest JSON uses `\`; product already listed both importers.
-        let text = extract_text(&result).replace('\\', "/");
+        let text = extract_text(&result);
+        // Parse JSON so Windows `tests\import.rs` is one dest, not JSON `\\`.
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("expected JSON rows, got {e}: {text}"));
+        let files: Vec<String> = rows
+            .iter()
+            .filter_map(|r| r.get("file").and_then(|v| v.as_str()))
+            .map(|s| s.replace('\\', "/"))
+            .collect();
         assert!(
-            text.contains("tests/import.rs"),
+            files.iter().any(|f| f == "tests/import.rs"),
             "reverse deps must scan cwd and include importers outside dest parent, got: {text}"
         );
         assert!(
-            text.contains("src/lib.rs"),
+            files.iter().any(|f| f == "src/lib.rs"),
             "reverse deps must still report the in-parent importer, got: {text}"
         );
     }
