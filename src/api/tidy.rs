@@ -51,9 +51,7 @@ pub fn tidy_with_indent(
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
     let caller_path = path;
-    #[cfg(any(feature = "cli", feature = "files"))]
     let path_owned = super::library_abs_path(path, guard)?;
-    #[cfg(any(feature = "cli", feature = "files"))]
     let path = path_owned.as_path();
 
     // TidyFix has no charset field; non-Keep is applied locally.

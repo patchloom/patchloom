@@ -2906,6 +2906,56 @@ fn tidy_utf8_strips_bom_after_dedent() {
     assert_eq!(disk, "hello\n");
 }
 
+/// Non-Keep charset is applied locally. PathGuard must fail closed when the
+/// dest is a workspace symlink whose target is outside (same class as
+/// apply_patch content hunks). Keep-eol tidy already calls library_abs_path
+/// on the no-files fallback.
+#[cfg(unix)]
+#[test]
+fn tidy_charset_symlink_outside_fails_closed() {
+    let dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let secret = outside.path().join("secret.env");
+    const BODY: &str = "hello\n";
+    fs::write(&secret, BODY).unwrap();
+    let link = dir.path().join("link.txt");
+    std::os::unix::fs::symlink(&secret, &link).unwrap();
+    let guard = PathGuard::new(
+        dir.path().to_path_buf(),
+        AbsolutePathPolicy::AllowIfContained,
+    )
+    .expect("guard");
+    let opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8,
+        ..WritePolicyOptions::default()
+    };
+
+    let err = tidy(&link, &opts, ApplyMode::Apply, Some(&guard))
+        .expect_err("charset tidy through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::GuardRejected),
+        "charset tidy through outside symlink must peel guard_rejected: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(&secret).unwrap(),
+        BODY,
+        "outside target must not be rewritten by charset tidy"
+    );
+    assert!(
+        link.symlink_metadata().unwrap().file_type().is_symlink(),
+        "workspace link must remain when charset tidy is refused"
+    );
+
+    let preview = tidy(&link, &opts, ApplyMode::Preview, Some(&guard))
+        .expect_err("preview charset tidy through outside symlink must fail closed");
+    assert_eq!(
+        crate::fallback::edit_error_kind(&preview),
+        Some(EditErrorKind::GuardRejected),
+        "preview must not leak charset-tidy payload: {preview}"
+    );
+}
+
 #[test]
 fn search_finds_matches() {
     let dir = TempDir::new().unwrap();
