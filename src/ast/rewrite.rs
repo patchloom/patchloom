@@ -1766,18 +1766,9 @@ mod tests {
         assert!(!span.signature_text.contains("return 0"));
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn rewrite_signature_timeout_is_parse_timeout() {
-        let source = nested_rust_source(80_000);
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let edit = FunctionSigEdit {
             parameters: Some("(x: u64)".into()),

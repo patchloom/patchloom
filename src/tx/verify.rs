@@ -923,12 +923,7 @@ fn not_a_test() {}
     fn snapshot_symbols_timeout_is_parse_timeout() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(80_000));
-        source.push('1');
-        source.push_str(&")".repeat(80_000));
-        source.push_str("; }\n");
-        std::fs::write(&path, source).unwrap();
+        std::fs::write(&path, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
         let check = VerifyCheck::SymbolCount {
             kind: "function".into(),
             attr: None,

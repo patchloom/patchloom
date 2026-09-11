@@ -620,24 +620,47 @@ pub(crate) fn reject_blank_object_key(k: &str, op: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Refuse overlays that wipe or inject blank keys.
+///
+/// `[]` replaces a non-object (`deep_merge`), so it is invalid.
+/// `{}` is a no-op object merge and is accepted. Blank object keys
+/// are rejected at every depth, capped by [`MAX_MERGE_DEPTH`].
 pub(crate) fn reject_blank_merge_overlay(value: &serde_json::Value) -> anyhow::Result<()> {
+    reject_blank_merge_overlay_inner(value, 0)
+}
+
+fn reject_blank_merge_overlay_inner(value: &serde_json::Value, depth: usize) -> anyhow::Result<()> {
+    if depth >= MAX_MERGE_DEPTH {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "doc merge overlay exceeds maximum nesting depth".into(),
+        }));
+    }
     match value {
-        serde_json::Value::String(s) if crate::containment::is_blank_text(s) => {
+        serde_json::Value::String(s) if crate::containment::is_blank_text(s) && depth == 0 => {
             Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: "doc merge overlay must not be empty or whitespace-only".into(),
             }))
         }
-        serde_json::Value::Array(items) if items.is_empty() => {
+        serde_json::Value::Array(items) if items.is_empty() && depth == 0 => {
             Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: "doc merge overlay must not be an empty array".into(),
             }))
         }
-        serde_json::Value::Null => Err(anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: "doc merge overlay must not be null".into(),
-        })),
+        serde_json::Value::Null if depth == 0 => {
+            Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "doc merge overlay must not be null".into(),
+            }))
+        }
         serde_json::Value::Object(map) => {
-            for k in map.keys() {
+            for (k, v) in map {
                 reject_blank_object_key(k, "doc.merge")?;
+                reject_blank_merge_overlay_inner(v, depth + 1)?;
+            }
+            Ok(())
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                reject_blank_merge_overlay_inner(item, depth + 1)?;
             }
             Ok(())
         }
@@ -1387,5 +1410,49 @@ mod tests {
             Some(&json!(42)),
             "source value must be preserved on destination failure: {root}"
         );
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_empty_object_is_ok() {
+        reject_blank_merge_overlay(&json!({})).expect("{} is a no-op object merge");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_empty_array_is_invalid() {
+        let err = reject_blank_merge_overlay(&json!([])).expect_err("[] wipes");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert!(err.to_string().contains("empty array"), "{err}");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_nested_blank_key() {
+        let err = reject_blank_merge_overlay(&json!({"a": {"": 1}})).expect_err("nested blank");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+        assert!(err.to_string().contains("object key"), "{err}");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_blank_key_in_array_element() {
+        let err = reject_blank_merge_overlay(&json!([{"   ": 1}])).expect_err("array blank key");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_top_level_blank_key() {
+        let err = reject_blank_merge_overlay(&json!({"": 1})).expect_err("top-level blank");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_nested_empty_string_value_is_ok() {
+        reject_blank_merge_overlay(&json!({"a": ""})).expect("clear-field overlay");
+        reject_blank_merge_overlay(&json!({"a": "  "})).expect("nested whitespace value");
+        reject_blank_merge_overlay(&json!({"a": "ok"})).expect("nested string");
+    }
+
+    #[test]
+    fn reject_blank_merge_overlay_top_level_blank_string_is_invalid() {
+        let err = reject_blank_merge_overlay(&json!("   ")).expect_err("top-level wipe");
+        assert!(crate::exit::is_invalid_input(&err), "{err}");
     }
 }

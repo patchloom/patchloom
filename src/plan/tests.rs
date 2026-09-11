@@ -649,12 +649,11 @@ fn for_each_has_symbol_matches_nested_method() {
 #[test]
 fn for_each_has_symbol_timeout_is_parse_timeout() {
     let dir = tempfile::tempdir().unwrap();
-    let mut source = String::from("fn main() { let x = ");
-    source.push_str(&"(".repeat(80_000));
-    source.push('1');
-    source.push_str(&")".repeat(80_000));
-    source.push_str("; }\n");
-    std::fs::write(dir.path().join("deep.rs"), source).unwrap();
+    std::fs::write(
+        dir.path().join("deep.rs"),
+        crate::ast::nested_rust_source_for_timeout(80_000),
+    )
+    .unwrap();
 
     let json = r#"{
             "version": 1,

@@ -284,7 +284,7 @@ pub(super) fn handle_ast_rename(
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
     // Sole explicit non-text: fail closed (CLI rename parity), not soft empty.
-    if paths.len() == 1 {
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let sole = &paths[0];
         if let Err(e) = crate::files::load_text_strict(sole, &p.path)
             && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
@@ -307,77 +307,102 @@ pub(super) fn handle_ast_rename(
     let old = p.old.as_str();
     let new = p.new.as_str();
     let lang_cli = p.lang.clone();
-    // Sole explicit file: fail closed on parse timeout before the
-    // word-boundary prefilter can select the file as a match.
-    if paths.len() == 1 {
-        let sole = &paths[0];
-        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sole));
-        if lang.has_grammar()
-            && let Ok(source) = crate::files::try_read_text_file(sole)
-            && let Err(e) = crate::ast::rename::try_rename_in_source(&source, old, new, lang)
-            && crate::exit::is_parse_timeout(&e)
-        {
-            let msg = crate::exit::agent_error_message(&e);
-            let body = serde_json::json!({
-                "ok": false,
-                "applied": false,
-                "error_kind": "parse_timeout",
-                "error": msg,
-            });
-            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+    let rename_op = |path: &std::path::Path| -> crate::plan::Operation {
+        let rel = path
+            .strip_prefix(&cwd)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
+        crate::plan::Operation::AstRename {
+            path: rel,
+            old: old.to_string(),
+            new: new.to_string(),
+            lang: lang_cli.clone(),
         }
-    }
+    };
     let unreadable = std::sync::Mutex::new(Vec::<String>::new());
     let operations: Vec<crate::plan::Operation> =
-        crate::par_process_files(&paths, None, &[], |path| {
-            // SoftSkip content; track Unreadable so empty ≠ no matches (#1894).
-            let source = match crate::files::try_read_text_file(path) {
-                Ok(s) => s,
+        if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
+            let sole = &paths[0];
+            match crate::files::try_read_text_file(sole) {
+                Ok(source) => {
+                    let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sole));
+                    match crate::ast::rename::source_has_rename_match(&source, old, new, lang) {
+                        Err(e) if crate::exit::is_parse_timeout(&e) => {
+                            let msg = crate::exit::agent_error_message(&e);
+                            let body = serde_json::json!({
+                                "ok": false,
+                                "applied": false,
+                                "error_kind": "parse_timeout",
+                                "error": msg,
+                            });
+                            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+                        }
+                        Err(e) => {
+                            return Err(McpError::invalid_params(
+                                crate::exit::agent_error_message(&e),
+                                None,
+                            ));
+                        }
+                        Ok(true) => vec![rename_op(sole)],
+                        Ok(false) => Vec::new(),
+                    }
+                }
                 Err(
                     crate::files::SoftTextSkip::Binary
                     | crate::files::SoftTextSkip::InvalidUtf8
                     | crate::files::SoftTextSkip::NotRegularFile,
-                ) => {
-                    return None;
-                }
+                ) => Vec::new(),
                 Err(crate::files::SoftTextSkip::Unreadable) => {
                     if let Ok(mut g) = unreadable.lock()
                         && g.len() < 8
                     {
-                        g.push(path.display().to_string());
+                        g.push(sole.display().to_string());
                     }
+                    Vec::new()
+                }
+            }
+        } else {
+            crate::par_process_files(&paths, None, &[], |path| {
+                // SoftSkip content; track Unreadable so empty ≠ no matches (#1894).
+                let source = match crate::files::try_read_text_file(path) {
+                    Ok(s) => s,
+                    Err(
+                        crate::files::SoftTextSkip::Binary
+                        | crate::files::SoftTextSkip::InvalidUtf8
+                        | crate::files::SoftTextSkip::NotRegularFile,
+                    ) => {
+                        return None;
+                    }
+                    Err(crate::files::SoftTextSkip::Unreadable) => {
+                        if let Ok(mut g) = unreadable.lock()
+                            && g.len() < 8
+                        {
+                            g.push(path.display().to_string());
+                        }
+                        return None;
+                    }
+                };
+                let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
+
+                let has_match = if lang.has_grammar() {
+                    crate::ast::rename::rename_in_source(&source, old, new, lang)
+                        .is_some_and(|r| r.replacements > 0)
+                } else {
+                    false
+                } || {
+                    crate::ops::replace::compile_replace_regex(old, false, false, false, true)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|re| re.is_match(&source))
+                };
+
+                if !has_match {
                     return None;
                 }
-            };
-            let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
-
-            let has_match = if lang.has_grammar() {
-                crate::ast::rename::rename_in_source(&source, old, new, lang)
-                    .is_some_and(|r| r.replacements > 0)
-            } else {
-                false
-            } || {
-                crate::ops::replace::compile_replace_regex(old, false, false, false, true)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|re| re.is_match(&source))
-            };
-
-            if !has_match {
-                return None;
-            }
-            let rel = path
-                .strip_prefix(&cwd)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .into_owned();
-            Some(crate::plan::Operation::AstRename {
-                path: rel,
-                old: old.to_string(),
-                new: new.to_string(),
-                lang: lang_cli.clone(),
+                Some(rename_op(path))
             })
-        });
+        };
 
     if operations.is_empty() {
         let unread = unreadable.into_inner().unwrap_or_default();
@@ -540,7 +565,7 @@ pub(super) fn handle_ast_search(
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
     // Sole explicit non-text: fail closed (CLI search parity).
-    if paths.len() == 1 {
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let sole = &paths[0];
         if let Err(e) = crate::files::load_text_strict(sole, &p.path)
             && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
@@ -608,8 +633,8 @@ pub(super) fn handle_ast_search(
         exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg)
     };
 
-    // Sole explicit path: surface parse_timeout instead of walk-soft no matches.
-    if paths.len() == 1 {
+    // Sole explicit file: surface parse_timeout instead of walk-soft no matches.
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let path = &paths[0];
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
         let query_str = search_query_for(path);
@@ -675,14 +700,7 @@ pub(super) fn handle_ast_search(
 
     let par_results: Vec<SearchFileResult> = crate::par_process_files(&paths, None, &[], |path| {
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
-        let query_str = if p.pattern {
-            // Re-compile per language (different languages may have different grammars),
-            // but compilation errors are now caught by pre-validation above.
-            crate::ast::search::compile_pattern_query(&p.query, lang)
-                .unwrap_or_else(|_| precompiled_query.clone().unwrap_or_default())
-        } else {
-            p.query.clone()
-        };
+        let query_str = search_query_for(path);
         let results =
             crate::ast::search::search_file(path, &query_str, Some(lang), p.max_results).ok()?;
         if results.is_empty() {
@@ -734,7 +752,7 @@ pub(super) fn handle_ast_refs(
     let paths = crate::cmd::ast::resolve_target_paths(&target, &p.path, &global)
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
-    let mut all_refs = if paths.len() == 1 {
+    let mut all_refs = if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let sole = &paths[0];
         let source = match crate::files::load_text_strict(sole, &p.path) {
             Ok(s) => s,
@@ -841,7 +859,7 @@ pub(super) fn handle_ast_deps(
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
     // Sole explicit non-text: fail closed (CLI parity; not soft empty).
-    if paths.len() == 1 {
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let sole = &paths[0];
         if let Err(e) = crate::files::load_text_strict(sole, &p.path)
             && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
@@ -853,7 +871,7 @@ pub(super) fn handle_ast_deps(
         }
     }
 
-    if paths.len() == 1 && !p.reverse {
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) && !p.reverse {
         let sole = &paths[0];
         let source = crate::files::load_text_strict(sole, &p.path).map_err(|e| {
             if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
@@ -1165,7 +1183,7 @@ pub(super) fn handle_ast_impact(
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
 
     // Sole explicit non-text: fail closed (CLI parity; not soft empty).
-    if paths.len() == 1 {
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let sole = &paths[0];
         if let Err(e) = crate::files::load_text_strict(sole, &p.path)
             && (crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e))
@@ -1694,19 +1712,14 @@ impl Point {
         }
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn ast_search_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstSearchParams {
@@ -1739,7 +1752,11 @@ impl Point {
     #[test]
     fn ast_validate_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstValidateParams {
@@ -1771,7 +1788,11 @@ impl Point {
     #[test]
     fn ast_list_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstListParams {
@@ -1802,7 +1823,11 @@ impl Point {
     #[test]
     fn ast_list_dir_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstListParams {
@@ -1833,7 +1858,11 @@ impl Point {
     #[test]
     fn ast_map_dir_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstMapParams {
@@ -2024,7 +2053,11 @@ impl Point {
     #[test]
     fn ast_read_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstReadParams {
@@ -2056,7 +2089,11 @@ impl Point {
     #[test]
     fn ast_refs_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstRefsParams {
@@ -2088,7 +2125,11 @@ impl Point {
     #[test]
     fn ast_refs_dir_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         std::fs::write(dir.path().join("main.rs"), "fn helper() { main(); }\n").unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
@@ -2122,7 +2163,7 @@ impl Point {
     fn ast_rename_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        let original = nested_rust_source(80_000);
+        let original = crate::ast::nested_rust_source_for_timeout(80_000);
         std::fs::write(&path, &original).unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
@@ -2153,7 +2194,11 @@ impl Point {
     #[test]
     fn ast_deps_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstDepsParams {
@@ -2182,9 +2227,79 @@ impl Point {
     }
 
     #[test]
+    fn ast_deps_one_file_dir_binary_is_no_imports() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("only.rs"), b"use foo::Bar;\0").unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_deps(
+            &svc,
+            AstDepsParams {
+                path: ".".into(),
+                reverse: false,
+                lang: None,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_refs_one_file_dir_binary_is_no_refs() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_refs(
+            &svc,
+            AstRefsParams {
+                path: ".".into(),
+                symbol: "main".into(),
+                include_def: true,
+                lang: None,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_search_one_file_dir_binary_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_search(
+            &svc,
+            AstSearchParams {
+                path: ".".into(),
+                query: "(function_item) @fn".into(),
+                pattern: false,
+                lang: None,
+                max_results: None,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
+        );
+    }
+
+    #[test]
     fn ast_deps_reverse_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstDepsParams {
@@ -2247,7 +2362,11 @@ impl Point {
     fn ast_diff_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         init_git_repo_with_committed_file(dir.path(), "deep.rs", "fn main() {}\n");
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstDiffParams {
@@ -2280,7 +2399,7 @@ impl Point {
     fn ast_rewrite_signature_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("deep.rs");
-        let original = nested_rust_source(80_000);
+        let original = crate::ast::nested_rust_source_for_timeout(80_000);
         std::fs::write(&path, &original).unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
@@ -2314,7 +2433,11 @@ impl Point {
     #[test]
     fn ast_impact_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        std::fs::write(
+            dir.path().join("deep.rs"),
+            crate::ast::nested_rust_source_for_timeout(80_000),
+        )
+        .unwrap();
         let svc = make_service(&dir);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let params = AstImpactParams {

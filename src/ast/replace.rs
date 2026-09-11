@@ -235,18 +235,9 @@ fn bar() {
         assert!(!without_cr.contains('\n'), "no bare LF in CRLF content");
     }
 
-    fn nested_rust_source(depth: usize) -> String {
-        let mut source = String::from("fn main() { let x = ");
-        source.push_str(&"(".repeat(depth));
-        source.push('1');
-        source.push_str(&")".repeat(depth));
-        source.push_str("; }\n");
-        source
-    }
-
     #[test]
     fn replace_in_symbol_timeout_is_parse_timeout() {
-        let source = nested_rust_source(80_000);
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
         let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
         let err = replace_in_symbol(&source, "main", "x", "y", false, Language::Rust)
             .expect_err("deadline must be Err, not Ok(None)");

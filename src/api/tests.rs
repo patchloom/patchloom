@@ -7155,7 +7155,7 @@ fn ast_rename_api_apply_and_preview() {
 fn ast_rename_parse_timeout_is_parse_timeout() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("deep.rs");
-    let original = nested_rust_source_for_timeout(80_000);
+    let original = crate::ast::nested_rust_source_for_timeout(80_000);
     fs::write(&file, &original).unwrap();
     let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
     let err = ast_rename(&file, "x", "y", ApplyMode::Apply, None).unwrap_err();
@@ -7166,16 +7166,6 @@ fn ast_rename_parse_timeout_is_parse_timeout() {
     );
     let after = fs::read_to_string(&file).unwrap();
     assert_eq!(after, original, "timeout must not write");
-}
-
-#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
-fn nested_rust_source_for_timeout(depth: usize) -> String {
-    let mut source = String::from("fn main() { let x = ");
-    source.push_str(&"(".repeat(depth));
-    source.push('1');
-    source.push_str(&")".repeat(depth));
-    source.push_str("; }\n");
-    source
 }
 
 #[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
@@ -7196,7 +7186,7 @@ fn ast_rename_no_match_is_structured() {
 fn ast_replace_in_symbol_parse_timeout_is_parse_timeout() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("deep.rs");
-    let original = nested_rust_source_for_timeout(80_000);
+    let original = crate::ast::nested_rust_source_for_timeout(80_000);
     fs::write(&file, &original).unwrap();
     let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
     let err = ast_replace_in_symbol(
@@ -7225,7 +7215,7 @@ fn ast_rewrite_signature_parse_timeout_is_parse_timeout() {
 
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("deep.rs");
-    let original = nested_rust_source_for_timeout(80_000);
+    let original = crate::ast::nested_rust_source_for_timeout(80_000);
     fs::write(&file, &original).unwrap();
     let edit = FunctionSigEdit {
         parameters: Some("(x: u64)".into()),

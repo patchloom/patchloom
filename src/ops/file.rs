@@ -9,9 +9,12 @@ use crate::ops::replace::preferred_line_ending;
 ///
 /// When a separator is needed, uses the file's dominant EOL (CRLF / CR / LF)
 /// so Windows CRLF files without a final newline do not gain a bare LF.
-/// Whitespace-only inject (`"   "`) is invalid for append, prepend, and create.
+/// Whitespace-only inject with no line break (`"   "`, `"\t"`) is invalid
+/// for append, prepend, and create.
+///
 /// Empty `""` is identity (append/prepend) or an empty file (create).
-/// `"\n"` / `"\r"` is a blank-line file.
+/// A payload that contains `\n` or `\r` is a blank-line or multi-line
+/// file (`"\n"`, `"\t\n"`, `"\n\t"`) and is accepted.
 pub(crate) fn reject_whitespace_only_payload(payload: &str, kind: &str) -> anyhow::Result<()> {
     if !payload.is_empty()
         && payload.trim().is_empty()
@@ -19,7 +22,7 @@ pub(crate) fn reject_whitespace_only_payload(payload: &str, kind: &str) -> anyho
         && !payload.contains('\r')
     {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: format!("{kind} content must not be whitespace-only"),
+            msg: format!("{kind} content must not be whitespace-only without a line break"),
         }));
     }
     Ok(())
@@ -1042,15 +1045,22 @@ mod tests {
 
     #[test]
     fn whitespace_only_payload_is_invalid_input() {
-        for payload in ["   ", "\t"] {
+        for payload in ["   ", "\t", " "] {
             let err = reject_whitespace_only_payload(payload, "append").expect_err(payload);
             assert!(
                 crate::exit::is_invalid_input(&err),
                 "payload {payload:?}: {err}"
             );
+            assert!(
+                err.to_string().contains("without a line break"),
+                "payload {payload:?}: {err}"
+            );
         }
         reject_whitespace_only_payload("", "append").expect("empty is identity");
         reject_whitespace_only_payload("\n", "append").expect("newline is a blank line");
+        reject_whitespace_only_payload("\r\n", "append").expect("crlf is a blank line");
+        reject_whitespace_only_payload("\n\t", "append").expect("newline plus indent is a file");
+        reject_whitespace_only_payload("\t\n", "append").expect("indent plus newline is a file");
         reject_whitespace_only_payload("ok", "append").expect("real content");
     }
 

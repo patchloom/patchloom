@@ -29,6 +29,13 @@ pub(super) fn setup_single_file(
     Ok((cwd, target, lang, source))
 }
 
+/// True when the user named this file (not a parent directory that happens
+/// to contain one source file). Same predicate as
+/// [`reject_sole_explicit_non_text`] (#2431).
+pub(crate) fn is_sole_explicit_file(paths: &[PathBuf], path_arg: &str) -> bool {
+    paths.len() == 1 && paths[0].ends_with(Path::new(path_arg))
+}
+
 /// When the user names exactly one **file** path, fail closed for binary,
 /// invalid UTF-8, or unreadable (parity with replace/search/tidy/md / #1894).
 /// Content SoftSkip peels to `binary` / `invalid_encoding` (#1963); unreadable
@@ -39,15 +46,10 @@ pub(super) fn reject_sole_explicit_non_text(
     paths: &[PathBuf],
     path_arg: &str,
 ) -> Result<(), anyhow::Error> {
-    if paths.len() != 1 {
+    if !is_sole_explicit_file(paths, path_arg) {
         return Ok(());
     }
-    // path_arg must name this file (not a parent directory). Otherwise the
-    // multi-file walk owns Unreadable policy.
     let sole = &paths[0];
-    if !sole.ends_with(Path::new(path_arg)) {
-        return Ok(());
-    }
     match crate::files::load_text_strict(sole, path_arg) {
         Ok(_) => Ok(()),
         Err(e) => {
@@ -277,6 +279,28 @@ mod tests {
         assert_eq!(Language::from_name_or_ext("terraform"), Language::Hcl);
         assert_eq!(Language::from_name_or_ext("markdown"), Language::Markdown);
         assert_eq!(Language::from_name_or_ext("Rust"), Language::Rust); // case-insensitive
+    }
+
+    #[test]
+    fn is_sole_explicit_file_rejects_parent_directory() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let f = dir.path().join("lib.rs");
+        std::fs::write(&f, "fn foo() {}\n").unwrap();
+        let paths = vec![f.clone()];
+        assert!(
+            is_sole_explicit_file(&paths, "lib.rs"),
+            "file argument names the sole path"
+        );
+        assert!(
+            !is_sole_explicit_file(&paths, "."),
+            "directory argument must not count as sole-explicit"
+        );
+        assert!(
+            !is_sole_explicit_file(&paths, dir.path().to_str().unwrap()),
+            "absolute parent must not count as sole-explicit"
+        );
+        assert!(!is_sole_explicit_file(&[], "lib.rs"));
+        assert!(!is_sole_explicit_file(&[f.clone(), f], "lib.rs"));
     }
 
     #[test]
