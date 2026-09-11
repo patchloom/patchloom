@@ -335,20 +335,46 @@ pub(super) fn handle_ast_validate(
         }
     }
 
-    let results: Vec<serde_json::Value> = crate::par_process_files(&paths, None, &[], |path| {
+    let results: Vec<serde_json::Value> = if paths.len() == 1 {
+        let path = &paths[0];
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
-        if !lang.has_grammar() {
-            return None;
+        match crate::ast::validate::validate_file(path, Some(lang)) {
+            Ok(result) => {
+                let display = crate::cmd::ast::display_path(path, &cwd);
+                vec![serde_json::json!({
+                    "file": display,
+                    "valid": result.valid,
+                    "language": result.language,
+                    "errors": result.errors,
+                })]
+            }
+            Err(e) if crate::exit::is_parse_timeout(&e) => {
+                let msg = crate::exit::agent_error_message(&e);
+                let body = serde_json::json!({
+                    "ok": false,
+                    "error_kind": "parse_timeout",
+                    "error": msg,
+                });
+                return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+            }
+            Err(e) => return Err(McpError::invalid_params(e.to_string(), None)),
         }
-        let result = crate::ast::validate::validate_file_for_walk(path, Some(lang))?;
-        let display = crate::cmd::ast::display_path(path, &cwd);
-        Some(serde_json::json!({
-            "file": display,
-            "valid": result.valid,
-            "language": result.language,
-            "errors": result.errors,
-        }))
-    });
+    } else {
+        crate::par_process_files(&paths, None, &[], |path| {
+            let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
+            if !lang.has_grammar() {
+                return None;
+            }
+            let result = crate::ast::validate::validate_file_for_walk(path, Some(lang))?;
+            let display = crate::cmd::ast::display_path(path, &cwd);
+            Some(serde_json::json!({
+                "file": display,
+                "valid": result.valid,
+                "language": result.language,
+                "errors": result.errors,
+            }))
+        })
+    };
 
     // CLI parity: unreadable co-paths are not soft empty / no-grammar.
     if let Some(err) = crate::ops::file::empty_scan_masked_by_unreadable(&paths, &cwd) {

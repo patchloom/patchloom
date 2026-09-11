@@ -136,10 +136,10 @@ fn file_write(
             } else {
                 String::new()
             };
-            // Entry containment: do not follow symlink targets (#2115).
+            // Caller spelling was already checked by library_abs_path_entry.
+            // Do not re-check the joined abs under Reject (#2405).
             // Preview/Check: report would-delete without unlinking (#2087 DryRun).
             let (applied, backup_session) = if mode == ApplyMode::Apply {
-                super::ensure_contained_entry(guard, path)?;
                 super::apply_mutation_at(
                     path,
                     mode,
@@ -152,7 +152,6 @@ fn file_write(
                     },
                 )?
             } else {
-                super::ensure_contained_entry(guard, path)?;
                 (false, None)
             };
             {

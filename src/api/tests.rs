@@ -11027,6 +11027,66 @@ fn file_create_delete_reject_guard_allows_relative_dest() {
     assert!(!dir.path().join("n.txt").exists());
 }
 
+/// Reject + relative dest: no-cli delete/rename must not re-check the joined abs.
+#[cfg(not(any(feature = "cli", feature = "files")))]
+#[test]
+fn file_delete_rename_reject_guard_allows_relative_dest() {
+    let dir = TempDir::new().unwrap();
+    let guard = PathGuard::new(dir.path().to_path_buf(), AbsolutePathPolicy::Reject).unwrap();
+
+    file_create(
+        Path::new("n.txt"),
+        "hi\n",
+        false,
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .expect("relative create under Reject");
+
+    let preview = file_delete(Path::new("n.txt"), ApplyMode::Preview, Some(&guard))
+        .expect("relative delete preview under Reject");
+    assert!(!preview.applied);
+    assert!(dir.path().join("n.txt").exists());
+
+    let deleted = file_delete(Path::new("n.txt"), ApplyMode::Apply, Some(&guard))
+        .expect("relative delete under Reject");
+    assert!(deleted.applied);
+    assert!(!dir.path().join("n.txt").exists());
+
+    file_create(
+        Path::new("a.txt"),
+        "x\n",
+        false,
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .expect("relative create for rename");
+
+    let preview_r = file_rename(
+        Path::new("a.txt"),
+        Path::new("b.txt"),
+        false,
+        ApplyMode::Preview,
+        Some(&guard),
+    )
+    .expect("relative rename preview under Reject");
+    assert!(!preview_r.applied);
+    assert!(dir.path().join("a.txt").exists());
+    assert!(!dir.path().join("b.txt").exists());
+
+    let renamed = file_rename(
+        Path::new("a.txt"),
+        Path::new("b.txt"),
+        false,
+        ApplyMode::Apply,
+        Some(&guard),
+    )
+    .expect("relative rename under Reject");
+    assert!(renamed.applied);
+    assert!(!dir.path().join("a.txt").exists());
+    assert_eq!(fs::read_to_string(dir.path().join("b.txt")).unwrap(), "x\n");
+}
+
 /// No-cli/files fallback must use entry containment for an outside-target link.
 #[cfg(all(unix, not(any(feature = "cli", feature = "files"))))]
 #[test]
