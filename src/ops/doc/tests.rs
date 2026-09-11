@@ -388,7 +388,7 @@ mod basic {
 
     #[test]
     fn mutation_merge_blank_overlay_is_invalid_input() {
-        for overlay in [json!(""), json!("   "), json!([])] {
+        for overlay in [json!(""), json!("   "), json!([]), json!(null)] {
             let mut root = json!({"a": 1});
             let err = apply_doc_mutation(
                 &mut root,

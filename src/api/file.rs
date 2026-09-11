@@ -189,6 +189,10 @@ fn file_write(
                 }));
             }
             let original = crate::files::load_text_strict(path, &path_str)?;
+            crate::ops::file::reject_whitespace_only_payload(
+                &content,
+                if is_append { "append" } else { "prepend" },
+            )?;
             let combined = if is_append {
                 crate::ops::file::append_content(&original, &content)
             } else {
