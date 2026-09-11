@@ -509,20 +509,26 @@ fn apply_one(content: &str, edit: &ContentEdit) -> anyhow::Result<OneEdit> {
                 .into()),
             }
         }
-        ContentEdit::Append { content: inject } => Ok(OneEdit {
-            content: append_content(content, inject),
-            match_count: 0,
-            match_mode: None,
-            match_score: None,
-            matched_text: None,
-        }),
-        ContentEdit::Prepend { content: inject } => Ok(OneEdit {
-            content: prepend_content(content, inject),
-            match_count: 0,
-            match_mode: None,
-            match_score: None,
-            matched_text: None,
-        }),
+        ContentEdit::Append { content: inject } => {
+            crate::ops::file::reject_whitespace_only_payload(inject, "append")?;
+            Ok(OneEdit {
+                content: append_content(content, inject),
+                match_count: 0,
+                match_mode: None,
+                match_score: None,
+                matched_text: None,
+            })
+        }
+        ContentEdit::Prepend { content: inject } => {
+            crate::ops::file::reject_whitespace_only_payload(inject, "prepend")?;
+            Ok(OneEdit {
+                content: prepend_content(content, inject),
+                match_count: 0,
+                match_mode: None,
+                match_score: None,
+                matched_text: None,
+            })
+        }
     }
 }
 

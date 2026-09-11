@@ -37,6 +37,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 // On-disk binary only (in-tx text create then append is fine).
                 crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             }
+            crate::ops::file::reject_whitespace_only_payload(content, "append")?;
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::append_content(existing, content);
             tx.write_file(&file_path, combined);
@@ -68,6 +69,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 }
                 crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             }
+            crate::ops::file::reject_whitespace_only_payload(content, "prepend")?;
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::prepend_content(existing, content);
             tx.write_file(&file_path, combined);

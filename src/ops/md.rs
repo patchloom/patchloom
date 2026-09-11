@@ -695,6 +695,20 @@ fn strip_bullet_prefix(s: &str) -> &str {
     }
 }
 
+/// `1.` / `1)` after trim is prefix-only. `1. item` is a real bullet.
+fn is_ordered_prefix_only(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() < 2 {
+        return false;
+    }
+    let last = b[b.len() - 1];
+    if last != b'.' && last != b')' {
+        return false;
+    }
+    let digits = &b[..b.len() - 1];
+    !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
+}
+
 pub fn upsert_bullet_in(
     content: &str,
     heading: &str,
@@ -704,6 +718,7 @@ pub fn upsert_bullet_in(
     if trimmed.is_empty()
         || matches!(trimmed, "-" | "*" | "+")
         || strip_bullet_prefix(trimmed).trim().is_empty()
+        || is_ordered_prefix_only(trimmed)
     {
         return Err(SectionError::EmptyConstruct);
     }

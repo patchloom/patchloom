@@ -4336,6 +4336,70 @@ fn file_append_and_prepend_basic() {
 }
 
 #[test]
+fn file_append_and_prepend_whitespace_only_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("a.txt");
+    std::fs::write(&file, "hello\n").unwrap();
+
+    for payload in ["   ", "\t"] {
+        let err = file_append(&file, payload, ApplyMode::Apply, None).expect_err(payload);
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "append {payload:?}: {err}"
+        );
+        assert!(
+            err.to_string().contains("whitespace-only"),
+            "append {payload:?}: {err}"
+        );
+        let err = file_prepend(&file, payload, ApplyMode::Apply, None).expect_err(payload);
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "prepend {payload:?}: {err}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "hello\n",
+            "must not write {payload:?}"
+        );
+    }
+    let res = file_append(&file, "", ApplyMode::Apply, None).expect("empty is identity");
+    assert!(!res.changed);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "hello\n");
+}
+
+#[test]
+fn apply_content_edits_whitespace_only_append_prepend_is_invalid_input() {
+    for (edit, kind) in [
+        (
+            ContentEdit::Append {
+                content: "   ".into(),
+            },
+            "append",
+        ),
+        (
+            ContentEdit::Prepend {
+                content: "\t".into(),
+            },
+            "prepend",
+        ),
+    ] {
+        let err = apply_content_edits("hello\n", &[edit]).expect_err(kind);
+        let msg = format!("{err:#}");
+        assert!(crate::exit::is_invalid_input(&err), "{kind}: {msg}");
+        assert!(msg.contains("whitespace-only"), "{kind}: {msg}");
+    }
+    let ok = apply_content_edits(
+        "hello\n",
+        &[ContentEdit::Append {
+            content: String::new(),
+        }],
+    )
+    .expect("empty append is identity");
+    assert!(!ok.changed);
+    assert_eq!(ok.modified, "hello\n");
+}
+
+#[test]
 #[cfg(any(feature = "cli", feature = "files"))]
 fn file_append_prepend_empty_file() {
     let dir = TempDir::new().unwrap();

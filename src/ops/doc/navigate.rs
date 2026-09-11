@@ -632,6 +632,9 @@ pub(crate) fn reject_blank_merge_overlay(value: &serde_json::Value) -> anyhow::R
                 msg: "doc merge overlay must not be an empty array".into(),
             }))
         }
+        serde_json::Value::Null => Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "doc merge overlay must not be null".into(),
+        })),
         serde_json::Value::Object(map) => {
             for k in map.keys() {
                 reject_blank_object_key(k, "doc.merge")?;

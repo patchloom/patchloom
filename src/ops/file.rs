@@ -9,6 +9,21 @@ use crate::ops::replace::preferred_line_ending;
 ///
 /// When a separator is needed, uses the file's dominant EOL (CRLF / CR / LF)
 /// so Windows CRLF files without a final newline do not gain a bare LF.
+/// Whitespace-only inject (`"   "`) is invalid. Empty `""` is identity.
+/// `"\n"` / `"\r"` is insert-a-blank-line.
+pub(crate) fn reject_whitespace_only_payload(payload: &str, kind: &str) -> anyhow::Result<()> {
+    if !payload.is_empty()
+        && payload.trim().is_empty()
+        && !payload.contains('\n')
+        && !payload.contains('\r')
+    {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("{kind} content must not be whitespace-only"),
+        }));
+    }
+    Ok(())
+}
+
 pub fn append_content(existing: &str, append: &str) -> String {
     if append.is_empty() {
         return existing.to_string();
@@ -1022,6 +1037,20 @@ mod tests {
     #[test]
     fn append_empty_append() {
         assert_eq!(append_content("existing", ""), "existing");
+    }
+
+    #[test]
+    fn whitespace_only_payload_is_invalid_input() {
+        for payload in ["   ", "\t"] {
+            let err = reject_whitespace_only_payload(payload, "append").expect_err(payload);
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "payload {payload:?}: {err}"
+            );
+        }
+        reject_whitespace_only_payload("", "append").expect("empty is identity");
+        reject_whitespace_only_payload("\n", "append").expect("newline is a blank line");
+        reject_whitespace_only_payload("ok", "append").expect("real content");
     }
 
     #[test]

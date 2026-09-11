@@ -1787,7 +1787,9 @@ body
     #[test]
     fn upsert_bullet_empty_or_prefix_only_is_invalid_input() {
         let content = "# List\n\n- existing\n";
-        for bullet in ["", "   ", "-", "- ", "*", "* ", "+", "+ "] {
+        for bullet in [
+            "", "   ", "-", "- ", "*", "* ", "+", "+ ", "1.", "1. ", "1)", "1) ",
+        ] {
             let err = upsert_bullet_in(content, "List", bullet).expect_err(bullet);
             assert_eq!(
                 err,
@@ -1803,6 +1805,10 @@ body
         assert_eq!(
             upsert_bullet_in(content, "List", "- new").expect("real bullet"),
             "# List\n\n- existing\n- new\n"
+        );
+        assert_eq!(
+            upsert_bullet_in(content, "List", "1. item").expect("real ordered bullet"),
+            "# List\n\n- existing\n- 1. item\n"
         );
         assert_eq!(
             upsert_bullet_in(content, "Missing", "").expect_err("empty before heading lookup"),
