@@ -1,7 +1,7 @@
 //! AST-aware code insertion: insert code at structurally-defined positions.
 
 use super::Language;
-use super::symbols::{SymbolDef, extract_symbols, find_symbol, full_symbol_span};
+use super::symbols::{SymbolDef, extract_symbols_or_timeout, find_symbol, full_symbol_span};
 
 /// Result of an AST insert operation.
 #[derive(Debug)]
@@ -54,7 +54,7 @@ pub fn insert_code(
     }
 
     let eol = crate::write::detect_eol(source);
-    let symbols = extract_symbols(source, lang);
+    let symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     let ctx = InsertContext {
@@ -720,6 +720,35 @@ mod tests {
             use_pos > open && use_pos < close,
             "use statement should be inside braces, got:\n{}",
             result.content
+        );
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn insert_timeout_is_parse_timeout() {
+        let source = nested_rust_source(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = insert_code(
+            &source,
+            "fn extra() {}",
+            None,
+            Some("main"),
+            None,
+            InsertPosition::End,
+            Language::Rust,
+        )
+        .expect_err("deadline must be Err, not symbol-not-found");
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "timeout must not become no_matches: {err}"
         );
     }
 }

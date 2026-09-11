@@ -370,4 +370,25 @@ mod tests {
             result.target_content
         );
     }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn extract_to_file_timeout_is_parse_timeout() {
+        let source = nested_rust_source(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err = extract_to_file(&source, "main", None, false, None, Language::Rust)
+            .expect_err("deadline must be Err, not symbol-not-found");
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "timeout must not become no_matches: {err}"
+        );
+    }
 }

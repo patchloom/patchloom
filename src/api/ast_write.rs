@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::ast::rewrite::{FunctionSigEdit, rewrite_function_signature};
+use crate::ast::rewrite::FunctionSigEdit;
 use crate::ast::{Language, rename, replace as ast_replace};
 use crate::containment::PathGuard;
 use crate::fallback::{EditError, EditErrorKind};
@@ -83,21 +83,34 @@ pub fn ast_rewrite_signature_in_content(
     let new_content = if let Some(full) = new_signature {
         // Full-span replace is currently Rust-oriented (tree-sitter function_item).
         let _ = lang;
-        crate::ast::rewrite::replace_function_signature(content, function_name, full).ok_or_else(
-            || {
-                EditError::new(
+        match crate::ast::rewrite::try_replace_function_signature(content, function_name, full) {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                return Err(EditError::new(
                     EditErrorKind::NoMatch,
                     format!("function `{function_name}` not found for signature rewrite"),
                 )
-            },
-        )?
+                .into());
+            }
+            Err(e) => return Err(e),
+        }
     } else {
-        rewrite_function_signature(content, function_name, edit, lang).ok_or_else(|| {
-            EditError::new(
-                EditErrorKind::NoMatch,
-                format!("function `{function_name}` not found for signature rewrite"),
-            )
-        })?
+        match crate::ast::rewrite::try_rewrite_function_signature(
+            content,
+            function_name,
+            edit,
+            lang,
+        ) {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                return Err(EditError::new(
+                    EditErrorKind::NoMatch,
+                    format!("function `{function_name}` not found for signature rewrite"),
+                )
+                .into());
+            }
+            Err(e) => return Err(e),
+        }
     };
     let changed = new_content != content;
     let diff = if changed {

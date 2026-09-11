@@ -783,6 +783,43 @@ pub(super) fn handle_ast_deps(
         }
     }
 
+    if paths.len() == 1 && !p.reverse {
+        let sole = &paths[0];
+        let source = crate::files::load_text_strict(sole, &p.path).map_err(|e| {
+            if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e) {
+                McpError::invalid_params(e.to_string(), None)
+            } else {
+                McpError::internal_error(e.to_string(), None)
+            }
+        })?;
+        let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(sole));
+        let imports = match crate::ast::deps::try_extract_imports(&source, lang) {
+            Ok(i) => i,
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                let msg = format!("parse deadline exceeded for {}", p.path);
+                let body = serde_json::json!({
+                    "ok": false,
+                    "applied": false,
+                    "error_kind": "parse_timeout",
+                    "error": msg,
+                });
+                return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+        };
+        if imports.is_empty() {
+            return no_results("No imports found.");
+        }
+        let display = crate::cmd::ast::display_path(sole, &cwd);
+        let results = vec![serde_json::json!({
+            "file": display,
+            "imports": imports,
+        })];
+        let json = serde_json::to_string_pretty(&results)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
+    }
+
     let mut results = Vec::new();
 
     if p.reverse {
@@ -950,7 +987,20 @@ pub(super) fn handle_ast_diff(
         })?
     };
 
-    let changes = crate::ast::diff::structural_diff(&old_source, &new_source, lang);
+    let changes = match crate::ast::diff::try_structural_diff(&old_source, &new_source, lang) {
+        Ok(c) => c,
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+            let msg = format!("parse deadline exceeded for {}", p.path);
+            let body = serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_timeout",
+                "error": msg,
+            });
+            return exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg);
+        }
+        Err(crate::ast::ParseFailure::NoGrammar) => Vec::new(),
+    };
 
     if changes.is_empty() {
         return no_results("No structural changes.");
@@ -1661,6 +1711,128 @@ impl Point {
         );
         let after = std::fs::read_to_string(&path).unwrap();
         assert_eq!(after, original, "timeout must not word-boundary-write");
+    }
+
+    #[test]
+    fn ast_deps_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstDepsParams {
+            path: "deep.rs".into(),
+            reverse: false,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_deps(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path deps timeout must not become no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No imports found"),
+            "deps timeout must not become walk-soft no imports: {text}"
+        );
+    }
+
+    fn git_ok(dir: &std::path::Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    fn init_git_repo_with_committed_file(dir: &std::path::Path, file: &str, content: &str) {
+        git_ok(dir, &["init"]);
+        git_ok(dir, &["config", "user.email", "test@test.com"]);
+        git_ok(dir, &["config", "user.name", "Test"]);
+        git_ok(dir, &["config", "commit.gpgsign", "false"]);
+        std::fs::write(dir.join(file), content).unwrap();
+        git_ok(dir, &["add", "--", file]);
+        git_ok(dir, &["commit", "-m", "init"]);
+    }
+
+    #[test]
+    fn ast_diff_sole_file_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        init_git_repo_with_committed_file(dir.path(), "deep.rs", "fn main() {}\n");
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstDiffParams {
+            path: "deep.rs".into(),
+            from: "HEAD".into(),
+            to: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_diff(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "sole-path diff timeout must not become no structural changes"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No structural changes"),
+            "diff timeout must not become walk-soft no changes: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_rewrite_signature_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("deep.rs");
+        let original = nested_rust_source(80_000);
+        std::fs::write(&path, &original).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstRewriteSignatureParams {
+            path: "deep.rs".into(),
+            old: "main".into(),
+            new_signature: None,
+            visibility: None,
+            parameters: Some("(x: u64)".into()),
+            return_type: None,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_rewrite_signature(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "rewrite_signature timeout must not apply as function-not-found"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(after, original, "timeout must not write dest");
     }
 
     #[test]

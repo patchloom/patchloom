@@ -116,6 +116,22 @@ pub fn extract_symbols(source: &str, lang: Language) -> Vec<SymbolDef> {
     try_extract_symbols(source, lang).unwrap_or_default()
 }
 
+/// Extract symbols, mapping a parse deadline to [`crate::exit::ParseTimeoutError`].
+/// Missing grammar is an empty list (same as [`extract_symbols`]).
+pub(crate) fn extract_symbols_or_timeout(
+    source: &str,
+    lang: Language,
+) -> anyhow::Result<Vec<SymbolDef>> {
+    match try_extract_symbols(source, lang) {
+        Ok(s) => Ok(s),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {lang}"),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
+}
+
 /// Read a file and extract symbols.
 pub fn extract_symbols_from_file(path: &Path, lang_hint: Option<Language>) -> Vec<SymbolDef> {
     let lang = lang_hint.unwrap_or_else(|| Language::from_path(path));

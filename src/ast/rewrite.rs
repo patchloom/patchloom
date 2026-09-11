@@ -22,7 +22,7 @@
 //! size-waiver: accepted single-domain bulk (policy #1408). Multi-language function signature rewrite; tests co-located; do not split for LOC alone.
 
 use super::symbol_extract::innermost_qualified_name;
-use super::{Language, child_text_by_kind, child_text_by_kinds, parse_source};
+use super::{Language, ParseFailure, child_text_by_kind, child_text_by_kinds, try_parse_source};
 
 /// Located function signature with byte offsets into the source.
 ///
@@ -110,6 +110,22 @@ pub fn splice_function_signature(
     }
 }
 
+/// Parse for rewrite helpers. Deadline is [`crate::exit::ParseTimeoutError`];
+/// missing grammar is `Ok(None)` so public `Option` APIs stay a miss.
+fn parse_or_timeout(
+    source: &str,
+    lang: Language,
+) -> anyhow::Result<Option<(tree_sitter_lib::Tree, tree_sitter_lib::Language)>> {
+    match try_parse_source(source, lang) {
+        Ok(parsed) => Ok(Some(parsed)),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {lang}"),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(None),
+    }
+}
+
 /// Find a function by name and return its signature span.
 ///
 /// Works for any language with a tree-sitter grammar. Returns `None` if
@@ -141,10 +157,26 @@ pub fn find_function_span(
     function_name: &str,
     lang: Language,
 ) -> Option<FunctionSpan> {
-    let (tree, _) = parse_source(source, lang)?;
+    try_find_function_span(source, function_name, lang)
+        .ok()
+        .flatten()
+}
+
+/// Like [`find_function_span`], but a parse deadline is
+/// [`crate::exit::ParseTimeoutError`] instead of `None`.
+pub(crate) fn try_find_function_span(
+    source: &str,
+    function_name: &str,
+    lang: Language,
+) -> anyhow::Result<Option<FunctionSpan>> {
+    let Some((tree, _)) = parse_or_timeout(source, lang)? else {
+        return Ok(None);
+    };
     let root = tree.root_node();
 
-    let fn_node = find_function_node(root, source, function_name)?;
+    let Some(fn_node) = find_function_node(root, source, function_name) else {
+        return Ok(None);
+    };
 
     let start = fn_node.start_byte();
     let end = fn_node.end_byte();
@@ -158,14 +190,14 @@ pub fn find_function_span(
         crate::ops::file::text_line_index(source, sig_end.saturating_sub(1)) + 1
     };
 
-    Some(FunctionSpan {
+    Ok(Some(FunctionSpan {
         full_range: start..end,
         signature_range: start..sig_end,
         signature_text,
         name: function_name.to_string(),
         start_line,
         signature_end_line: sig_end_line,
-    })
+    }))
 }
 
 /// Node kinds that represent function/method definitions per language.
@@ -303,7 +335,21 @@ fn find_body_start(fn_node: tree_sitter_lib::Node) -> Option<usize> {
 /// Preserves the rest of the source exactly. This is much safer than line-scan.
 /// For other languages or full attrs/generics/docs, extend with queries.
 pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -> Option<String> {
-    let (tree, _) = parse_source(source, Language::Rust)?;
+    try_replace_function_signature(source, old_name, new_sig)
+        .ok()
+        .flatten()
+}
+
+/// Like [`replace_function_signature`], but a parse deadline is
+/// [`crate::exit::ParseTimeoutError`] instead of `None`.
+pub(crate) fn try_replace_function_signature(
+    source: &str,
+    old_name: &str,
+    new_sig: &str,
+) -> anyhow::Result<Option<String>> {
+    let Some((tree, _)) = parse_or_timeout(source, Language::Rust)? else {
+        return Ok(None);
+    };
     let root = tree.root_node();
 
     // Find function_item whose identifier matches
@@ -327,14 +373,20 @@ pub fn replace_function_signature(source: &str, old_name: &str, new_sig: &str) -
         None
     }
 
-    let fn_node = find_fn(root, source, old_name)?;
+    let Some(fn_node) = find_fn(root, source, old_name) else {
+        return Ok(None);
+    };
 
     // Signature is from start of node to start of body (or end if no body, e.g. decl).
     // Use splice_function_signature so logical new_sig without trailing space
     // does not glue the type to `{` (#1503).
     let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
     let start = fn_node.start_byte();
-    Some(splice_function_signature(source, start..sig_end, new_sig))
+    Ok(Some(splice_function_signature(
+        source,
+        start..sig_end,
+        new_sig,
+    )))
 }
 
 /// Structured edits for parts of a function signature.
@@ -515,6 +567,19 @@ pub fn rewrite_function_signature(
     edit: &FunctionSigEdit,
     lang: Language,
 ) -> Option<String> {
+    try_rewrite_function_signature(source, old_name, edit, lang)
+        .ok()
+        .flatten()
+}
+
+/// Like [`rewrite_function_signature`], but a parse deadline is
+/// [`crate::exit::ParseTimeoutError`] instead of `None`.
+pub(crate) fn try_rewrite_function_signature(
+    source: &str,
+    old_name: &str,
+    edit: &FunctionSigEdit,
+    lang: Language,
+) -> anyhow::Result<Option<String>> {
     if lang == Language::Rust {
         return rewrite_rust_sig(source, old_name, edit);
     }
@@ -523,11 +588,19 @@ pub fn rewrite_function_signature(
 
 /// Rust-specific full reconstruction: extracts visibility, qualifiers, params,
 /// return type from tree-sitter nodes and rebuilds the signature.
-fn rewrite_rust_sig(source: &str, old_name: &str, edit: &FunctionSigEdit) -> Option<String> {
-    let (tree, _) = parse_source(source, Language::Rust)?;
+fn rewrite_rust_sig(
+    source: &str,
+    old_name: &str,
+    edit: &FunctionSigEdit,
+) -> anyhow::Result<Option<String>> {
+    let Some((tree, _)) = parse_or_timeout(source, Language::Rust)? else {
+        return Ok(None);
+    };
     let root = tree.root_node();
 
-    let fn_node = find_fn_for_rewrite(root, source, old_name)?;
+    let Some(fn_node) = find_fn_for_rewrite(root, source, old_name) else {
+        return Ok(None);
+    };
 
     let vis = edit.visibility.as_deref().unwrap_or_else(|| {
         child_text_by_kind(fn_node, "visibility_modifier", source).unwrap_or("")
@@ -566,7 +639,11 @@ fn rewrite_rust_sig(source: &str, old_name: &str, edit: &FunctionSigEdit) -> Opt
     // Preserve body gap via shared splice (#1503).
     let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
     let start = fn_node.start_byte();
-    Some(splice_function_signature(source, start..sig_end, &new_sig))
+    Ok(Some(splice_function_signature(
+        source,
+        start..sig_end,
+        &new_sig,
+    )))
 }
 
 /// Node kinds that represent function parameters across languages.
@@ -585,10 +662,14 @@ fn rewrite_sig_generic(
     old_name: &str,
     edit: &FunctionSigEdit,
     lang: Language,
-) -> Option<String> {
-    let (tree, _) = parse_source(source, lang)?;
+) -> anyhow::Result<Option<String>> {
+    let Some((tree, _)) = parse_or_timeout(source, lang)? else {
+        return Ok(None);
+    };
     let root = tree.root_node();
-    let fn_node = find_function_node(root, source, old_name)?;
+    let Some(fn_node) = find_function_node(root, source, old_name) else {
+        return Ok(None);
+    };
     let sig_end = find_body_start(fn_node).unwrap_or(fn_node.end_byte());
     let sig_start = fn_node.start_byte();
 
@@ -662,7 +743,7 @@ fn rewrite_sig_generic(
     for (range, text) in edits {
         result.replace_range(range, &text);
     }
-    Some(result)
+    Ok(Some(result))
 }
 
 /// Find the first child node matching any of the given kinds.
@@ -1461,5 +1542,30 @@ mod tests {
         assert_eq!(span.name, "main");
         assert!(span.signature_text.contains("int main"));
         assert!(!span.signature_text.contains("return 0"));
+    }
+
+    fn nested_rust_source(depth: usize) -> String {
+        let mut source = String::from("fn main() { let x = ");
+        source.push_str(&"(".repeat(depth));
+        source.push('1');
+        source.push_str(&")".repeat(depth));
+        source.push_str("; }\n");
+        source
+    }
+
+    #[test]
+    fn rewrite_signature_timeout_is_parse_timeout() {
+        let source = nested_rust_source(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let edit = FunctionSigEdit {
+            parameters: Some("(x: u64)".into()),
+            ..Default::default()
+        };
+        let err = try_rewrite_function_signature(&source, "main", &edit, Language::Rust)
+            .expect_err("deadline must be Err, not Ok(None)");
+        assert!(
+            crate::exit::is_parse_timeout(&err),
+            "timeout must not become Ok(None): {err}"
+        );
     }
 }

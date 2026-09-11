@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use super::{Language, parse_source};
+use super::{Language, ParseFailure, try_parse_source};
 
 /// A single import/dependency extracted from a file.
 #[derive(Debug, Clone, Serialize)]
@@ -18,14 +18,24 @@ pub struct Import {
 }
 
 /// Extract imports from source code.
+///
+/// Returns an empty list if the language has no grammar, parsing fails,
+/// or the parse deadline fires. Prefer [`try_extract_imports`] when
+/// timeout must fail closed instead of looking like "no imports".
 pub fn extract_imports(source: &str, lang: Language) -> Vec<Import> {
-    let Some((tree, _)) = parse_source(source, lang) else {
-        return Vec::new();
-    };
+    try_extract_imports(source, lang).unwrap_or_default()
+}
 
+/// Like [`extract_imports`], but distinguishes a parse deadline from
+/// a missing grammar so sole-file callers can fail closed.
+pub(crate) fn try_extract_imports(
+    source: &str,
+    lang: Language,
+) -> Result<Vec<Import>, ParseFailure> {
+    let (tree, _) = try_parse_source(source, lang)?;
     let mut imports = Vec::new();
     collect_imports(tree.root_node(), source, lang, &mut imports);
-    imports
+    Ok(imports)
 }
 
 /// Extract imports from a file.
