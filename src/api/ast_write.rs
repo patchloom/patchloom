@@ -143,13 +143,7 @@ pub fn ast_rename(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
-    if old.is_empty() || new.is_empty() {
-        return Err(EditError::new(
-            EditErrorKind::InvalidInput,
-            "ast_rename old/new must not be empty",
-        )
-        .into());
-    }
+    crate::ast::rename::reject_empty_rename_names(old, new)?;
     let display = path.to_string_lossy().into_owned();
     let abs = super::library_abs_path(path, guard)?;
     let path = abs.as_path();

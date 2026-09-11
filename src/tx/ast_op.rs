@@ -85,6 +85,7 @@ fn ast_rename_single_file(
     new: &str,
     lang_hint: Option<&str>,
 ) -> anyhow::Result<usize> {
+    crate::ast::rename::reject_empty_rename_names(old, new)?;
     let content = read_file_content(tx.pending, tx.existed_before, abs)?;
     let lang_val = resolve_op_lang(lang_hint, abs)?;
     match crate::ast::rename::try_rename_in_source(content, old, new, lang_val) {
