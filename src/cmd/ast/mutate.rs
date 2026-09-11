@@ -42,6 +42,8 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     );
     crate::verbose!("ast rename: scanning {} files", paths.len());
 
+    crate::ast::rename::reject_empty_rename_names(&args.old, &args.new)?;
+
     // Sole non-text must not look like "symbol not found" (NUL is valid UTF-8).
     if let Err(err) = super::common::reject_sole_explicit_non_text(&paths, &args.path) {
         let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
@@ -301,6 +303,31 @@ mod tests {
     use crate::cli::global::GlobalFlags;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn rename_empty_new_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("mod.rs"), "fn alpha() {}\n").unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let err = run_rename(
+            RenameArgs {
+                path: "mod.rs".into(),
+                old: "alpha".into(),
+                new: String::new(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        )
+        .expect_err("empty --new must not apply");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty --new must be invalid_input, got {err}"
+        );
+        let content = fs::read_to_string(dir.path().join("mod.rs")).unwrap();
+        assert_eq!(content, "fn alpha() {}\n");
+    }
 
     #[test]
     fn rename_path_first_with_old_new_flags_applies() {

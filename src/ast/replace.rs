@@ -27,6 +27,11 @@ pub fn replace_in_symbol(
     regex: bool,
     lang: Language,
 ) -> anyhow::Result<Option<ScopedReplaceResult>> {
+    if from.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast replace pattern must not be empty".into(),
+        }));
+    }
     let symbols = match try_extract_symbols(source, lang) {
         Ok(s) => s,
         Err(crate::ast::ParseFailure::DeadlineExceeded) => {
@@ -139,6 +144,33 @@ pub fn replace_in_symbol_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replace_empty_pattern_is_invalid_input() {
+        let err = replace_in_symbol(
+            "fn foo() { let x = 1; }\n",
+            "foo",
+            "",
+            "y",
+            false,
+            Language::Rust,
+        )
+        .expect_err("empty from must fail");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty from must be invalid_input, got {err}"
+        );
+        replace_in_symbol(
+            "fn foo() { let x = 1; }\n",
+            "foo",
+            "x",
+            "",
+            false,
+            Language::Rust,
+        )
+        .expect("empty to is a delete, not invalid_input")
+        .expect("symbol exists");
+    }
 
     #[test]
     fn replace_within_function() {

@@ -258,6 +258,16 @@ pub(super) fn handle_ast_rename(
     svc.check_path(&p.path)?;
     validate_param_size("old", &p.old)?;
     validate_param_size("new", &p.new)?;
+    if let Err(e) = crate::ast::rename::reject_empty_rename_names(&p.old, &p.new) {
+        let msg = crate::exit::agent_error_message(&e);
+        let body = serde_json::json!({
+            "ok": false,
+            "applied": false,
+            "error_kind": "invalid_input",
+            "error": msg,
+        });
+        return exit_code_to_result(exit::FAILURE, &body.to_string(), &msg);
+    }
     if p.old == p.new {
         return exit_code_to_result(exit::NO_MATCHES, "", "old and new are identical.");
     }
@@ -2364,6 +2374,30 @@ impl Point {
         );
         let after = std::fs::read_to_string(&path).unwrap();
         assert_eq!(after, original, "unknown lang must not mutate dest");
+    }
+
+    #[test]
+    fn ast_rename_empty_new_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("rename.rs"), RUST_SAMPLE).unwrap();
+        let svc = make_service(&dir);
+        let params = AstRenameParams {
+            path: "rename.rs".into(),
+            old: "greet".into(),
+            new: String::new(),
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_rename(&svc, params).expect("empty new is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "empty new must set isError"
+        );
+        let text = extract_text(&result);
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+        let after = std::fs::read_to_string(dir.path().join("rename.rs")).unwrap();
+        assert_eq!(after, RUST_SAMPLE, "empty new must not mutate dest");
     }
 
     #[test]

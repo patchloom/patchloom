@@ -434,6 +434,50 @@ fn test_ast_search_empty_pattern_is_invalid_input() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_rename_empty_new_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("s.rs");
+    fs::write(&f, "fn foo() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json", "ast", "rename", "s.rs", "--old", "foo", "--new", "", "--apply",
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("empty --new JSON: {e}\n{text}"));
+    assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+    assert_eq!(fs::read_to_string(&f).unwrap(), "fn foo() {}\n");
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_replace_empty_old_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("s.rs");
+    fs::write(&f, "fn foo() { let x = 1; }\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json", "ast", "replace", "s.rs", "foo", "--old", "", "--new", "x",
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("empty --old JSON: {e}\n{text}"));
+    assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+    assert_eq!(fs::read_to_string(&f).unwrap(), "fn foo() { let x = 1; }\n");
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_refs_basic() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("r.rs");

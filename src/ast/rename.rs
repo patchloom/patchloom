@@ -53,6 +53,23 @@ pub struct RenameResult {
 /// Distinguishes a parse deadline from a missing grammar: timeout is
 /// [`crate::exit::ParseTimeoutError`]; unknown languages return `Ok(None)`
 /// so callers may still word-boundary-fallback.
+///
+/// Empty `old` / `new` must be refused before the word-boundary fallback.
+/// Library [`crate::api::ast_rename`] already peels; CLI/tx/MCP used to
+/// apply `--new ''` as `fn ()`.
+#[cfg_attr(
+    not(any(feature = "cli", feature = "files", feature = "mcp")),
+    allow(dead_code)
+)]
+pub(crate) fn reject_empty_rename_names(old: &str, new: &str) -> anyhow::Result<()> {
+    if old.is_empty() || new.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast rename old/new must not be empty".into(),
+        }));
+    }
+    Ok(())
+}
+
 pub(crate) fn try_rename_in_source(
     source: &str,
     old_name: &str,
@@ -415,6 +432,18 @@ fn main() {
         source.push_str(&")".repeat(depth));
         source.push_str("; let s = \"x\"; /* x */ }\n");
         source
+    }
+
+    #[test]
+    fn reject_empty_rename_names_is_invalid_input() {
+        for (old, new) in [("", "bar"), ("foo", ""), ("", "")] {
+            let err = reject_empty_rename_names(old, new).expect_err("empty must fail");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "empty old/new must be invalid_input, got {err}"
+            );
+        }
+        reject_empty_rename_names("foo", "bar").expect("non-empty names");
     }
 
     #[test]
