@@ -50,6 +50,35 @@ pub fn split_file(
                 }));
             }
         }
+        // Empty/whitespace prepend inserts junk blanks vs omitting the field.
+        // Newline-only remains insert-a-blank-line.
+        if let Some(pre) = &target.prepend
+            && pre.trim().is_empty()
+            && !pre.contains('\n')
+            && !pre.contains('\r')
+        {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "ast split target prepend must not be empty".into(),
+            }));
+        }
+    }
+
+    // Whitespace-only affix (not empty "") inserts junk; empty is identity with omitted.
+    // Newline-only remains insert-a-blank-line.
+    for (label, affix) in [
+        ("source_suffix", source_suffix),
+        ("source_prefix", source_prefix),
+    ] {
+        if let Some(s) = affix
+            && !s.is_empty()
+            && s.trim().is_empty()
+            && !s.contains('\n')
+            && !s.contains('\r')
+        {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("ast split {label} must not be empty"),
+            }));
+        }
     }
 
     let eol = crate::write::detect_eol(source);
@@ -515,5 +544,165 @@ mod tests {
             err.to_string().contains("must not be empty"),
             "message must say must not be empty: {err}"
         );
+    }
+
+    #[test]
+    fn split_whitespace_source_suffix_is_invalid_input() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let err = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            Some("   "),
+            None,
+            true,
+            Language::Rust,
+        )
+        .expect_err("whitespace-only source_suffix must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace suffix must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn split_whitespace_source_prefix_is_invalid_input() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let err = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            None,
+            Some("   "),
+            true,
+            Language::Rust,
+        )
+        .expect_err("whitespace-only source_prefix must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace prefix must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
+    }
+
+    #[test]
+    fn split_empty_source_suffix_is_identity() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let omitted = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            None,
+            None,
+            true,
+            Language::Rust,
+        )
+        .unwrap();
+        let empty = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            Some(""),
+            None,
+            true,
+            Language::Rust,
+        )
+        .unwrap();
+        assert_eq!(
+            empty.source_content, omitted.source_content,
+            "empty source_suffix must match omitted"
+        );
+    }
+
+    #[test]
+    fn split_newline_source_suffix_is_ok() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let result = split_file(
+            source,
+            &targets,
+            &["beta".into()],
+            Some("\n"),
+            None,
+            true,
+            Language::Rust,
+        )
+        .expect("newline-only source_suffix is insert-a-blank-line");
+        assert!(
+            result.source_content.contains("fn beta"),
+            "beta must remain in source: {:?}",
+            result.source_content
+        );
+        assert!(
+            result.source_content.ends_with("\n\n") || result.source_content.contains("\n\n"),
+            "newline suffix should insert blank line: {:?}",
+            result.source_content
+        );
+    }
+
+    #[test]
+    fn split_empty_target_prepend_is_invalid_input() {
+        let source = "fn alpha() {}\n";
+        for pre in ["", "   "] {
+            let targets = vec![SplitTarget {
+                path: "a.rs".into(),
+                symbols: vec!["alpha".into()],
+                prepend: Some(pre.into()),
+            }];
+            let err = split_file(source, &targets, &[], None, None, false, Language::Rust)
+                .expect_err("empty/whitespace target prepend must be invalid_input");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "prepend {pre:?} must classify as invalid_input: {err}"
+            );
+            assert!(
+                err.to_string().contains("must not be empty"),
+                "message must say must not be empty: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_newline_target_prepend_is_ok() {
+        let source = "fn alpha() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: Some("\n".into()),
+        }];
+        let result = split_file(source, &targets, &[], None, None, false, Language::Rust)
+            .expect("newline-only target prepend is insert-a-blank-line");
+        assert!(
+            result.targets[0].1.starts_with('\n'),
+            "newline prepend should insert blank line: {:?}",
+            result.targets[0].1
+        );
+        assert!(result.targets[0].1.contains("fn alpha"));
     }
 }
