@@ -633,8 +633,8 @@ pub(super) fn handle_ast_search(
         exit_code_to_result(exit::PARSE_ERROR, &body.to_string(), &msg)
     };
 
-    // Sole explicit path: surface parse_timeout instead of walk-soft no matches.
-    if paths.len() == 1 {
+    // Sole explicit file: surface parse_timeout instead of walk-soft no matches.
+    if crate::cmd::ast::is_sole_explicit_file(&paths, &p.path) {
         let path = &paths[0];
         let lang = lang_hint.unwrap_or_else(|| crate::ast::Language::from_path(path));
         let query_str = search_query_for(path);
@@ -2259,6 +2259,29 @@ impl Point {
                 symbol: "main".into(),
                 include_def: true,
                 lang: None,
+            },
+        )
+        .expect("one-file dir must not hard-fail");
+        let text = extract_text(&result);
+        assert!(
+            !text.to_lowercase().contains("binary"),
+            "dir walk must not name the directory as binary: {text}"
+        );
+    }
+
+    #[test]
+    fn ast_search_one_file_dir_binary_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("only.rs"), b"fn main() {}\0").unwrap();
+        let svc = make_service(&dir);
+        let result = handle_ast_search(
+            &svc,
+            AstSearchParams {
+                path: ".".into(),
+                query: "(function_item) @fn".into(),
+                pattern: false,
+                lang: None,
+                max_results: None,
             },
         )
         .expect("one-file dir must not hard-fail");
