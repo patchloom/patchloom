@@ -86,8 +86,9 @@ const SKIP_KINDS: &[&str] = &[
 
 /// Find all references to `symbol_name` in the given source code.
 ///
-/// Parse deadline and missing grammar both yield an empty vec. Sole-file
-/// callers that must fail closed should use `try_find_refs_in_source`.
+/// Parse deadline and missing grammar both yield an empty vec. Prefer
+/// [`find_refs_in_source_or_timeout`] when a parse deadline must not
+/// look like "no references".
 pub fn find_refs_in_source(
     source: &str,
     symbol_name: &str,
@@ -95,6 +96,41 @@ pub fn find_refs_in_source(
     file_path: &str,
 ) -> Vec<SymbolRef> {
     try_find_refs_in_source(source, symbol_name, lang, file_path).unwrap_or_default()
+}
+
+/// Find refs, mapping a parse deadline to [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar is an empty list (same as [`find_refs_in_source`]).
+/// Library hosts that must distinguish a 5s parse deadline from "no
+/// references" should call this instead of [`find_refs_in_source`] (#2444).
+///
+/// ```
+/// use patchloom::ast::refs::find_refs_in_source_or_timeout;
+/// use patchloom::ast::Language;
+///
+/// let refs = find_refs_in_source_or_timeout(
+///     "fn foo() {}\nfn bar() { foo(); }\n",
+///     "foo",
+///     Language::Rust,
+///     "lib.rs",
+/// )
+/// .unwrap();
+/// assert!(!refs.is_empty());
+/// ```
+pub fn find_refs_in_source_or_timeout(
+    source: &str,
+    symbol_name: &str,
+    lang: Language,
+    file_path: &str,
+) -> anyhow::Result<Vec<SymbolRef>> {
+    match try_find_refs_in_source(source, symbol_name, lang, file_path) {
+        Ok(refs) => Ok(refs),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {lang}"),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
 }
 
 /// Like [`find_refs_in_source`], but distinguishes a parse deadline from
@@ -157,8 +193,8 @@ pub fn find_all_refs_in_source_with_tree(
 /// Find refs across multiple files.
 ///
 /// Soft-skips missing grammar, binary, and invalid UTF-8 as an empty list.
-/// Prefer [`try_find_refs_in_file`] when a parse deadline must fail closed
-/// instead of looking like "no references".
+/// Prefer [`find_refs_in_file_or_timeout`] when a parse deadline must not
+/// look like "no references".
 pub fn find_refs_in_file(
     path: &Path,
     symbol_name: &str,
@@ -166,6 +202,28 @@ pub fn find_refs_in_file(
     display_path: &str,
 ) -> Vec<SymbolRef> {
     try_find_refs_in_file(path, symbol_name, lang_hint, display_path).unwrap_or_default()
+}
+
+/// Find refs in a file, mapping a parse deadline to
+/// [`crate::exit::ParseTimeoutError`].
+///
+/// Missing grammar, binary, and invalid UTF-8 stay an empty list (same
+/// as [`find_refs_in_file`]). Prefer this over [`find_refs_in_file`]
+/// when a host must not treat a parse deadline as "no references" (#2444).
+pub fn find_refs_in_file_or_timeout(
+    path: &Path,
+    symbol_name: &str,
+    lang_hint: Option<Language>,
+    display_path: &str,
+) -> anyhow::Result<Vec<SymbolRef>> {
+    match try_find_refs_in_file(path, symbol_name, lang_hint, display_path) {
+        Ok(refs) => Ok(refs),
+        Err(ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {}", path.display()),
+        }
+        .into()),
+        Err(ParseFailure::NoGrammar) => Ok(Vec::new()),
+    }
 }
 
 /// Like [`find_refs_in_file`], but a parse deadline is
@@ -702,6 +760,62 @@ fn build(name: String) -> Config {
             refs.len() >= 3,
             "expected at least 3 refs for 'name' (struct field, param, shorthand init), got {}",
             refs.len()
+        );
+    }
+
+    // Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2444).
+    #[test]
+    fn find_refs_in_source_or_timeout_deadline_is_parse_timeout() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let err =
+            find_refs_in_source_or_timeout(&source, "x", Language::Rust, "deep.rs").unwrap_err();
+        assert_eq!(
+            crate::fallback::error_kind_str(&err),
+            Some("parse_timeout"),
+            "expected parse_timeout, got {err}"
+        );
+    }
+
+    #[test]
+    fn find_refs_in_source_deadline_stays_empty() {
+        let source = crate::ast::nested_rust_source_for_timeout(80_000);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let refs = find_refs_in_source(&source, "x", Language::Rust, "deep.rs");
+        assert!(
+            refs.is_empty(),
+            "empty-vec find_refs_in_source must stay empty on deadline"
+        );
+    }
+
+    #[test]
+    fn find_refs_in_source_or_timeout_unknown_lang_is_empty() {
+        let refs =
+            find_refs_in_source_or_timeout("anything", "x", Language::Unknown, "x.txt").unwrap();
+        assert!(
+            refs.is_empty(),
+            "missing grammar must stay empty, not parse_timeout"
+        );
+    }
+
+    #[test]
+    fn find_refs_in_file_or_timeout_binary_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bin.rs");
+        std::fs::write(&path, b"fn main() {}\0").unwrap();
+        let refs = find_refs_in_file_or_timeout(&path, "main", None, "bin.rs").unwrap();
+        assert!(refs.is_empty(), "binary must stay empty, not parse_timeout");
+    }
+
+    #[test]
+    fn find_refs_in_file_or_timeout_invalid_utf8_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("bad.rs");
+        std::fs::write(&path, [0xff, 0xfe, b'f', b'n']).unwrap();
+        let refs = find_refs_in_file_or_timeout(&path, "main", None, "bad.rs").unwrap();
+        assert!(
+            refs.is_empty(),
+            "invalid UTF-8 must stay empty, not parse_timeout"
         );
     }
 }

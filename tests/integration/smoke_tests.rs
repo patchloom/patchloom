@@ -826,6 +826,24 @@ fn test_smoke_embedder_host_notes_tree_sitter_027_links() {
 }
 
 #[test]
+fn test_smoke_embedder_host_names_ast_query_or_timeout() {
+    let embedder = fs::read_to_string(embedder_host_path()).unwrap();
+    for needle in [
+        "extract_symbols_or_timeout",
+        "extract_symbols_from_file_or_timeout",
+        "find_refs_in_source_or_timeout",
+        "find_refs_in_file_or_timeout",
+        "generate_map_or_timeout",
+        "parse_timeout",
+    ] {
+        assert!(
+            embedder.contains(needle),
+            "embedder-host.md must name the fail-closed AST query entry {needle} (#2444)"
+        );
+    }
+}
+
+#[test]
 fn test_smoke_library_embed_version_matches_cargo() {
     let cargo = fs::read_to_string(repo_root().join("Cargo.toml")).unwrap();
     let version_line = cargo
