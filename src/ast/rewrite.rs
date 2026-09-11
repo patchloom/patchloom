@@ -351,6 +351,16 @@ pub(crate) fn reject_empty_new_signature(new_sig: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Refuse whitespace-only `visibility`. Empty `""` stays documented private.
+pub(crate) fn reject_whitespace_only_visibility(vis: &str) -> anyhow::Result<()> {
+    if !vis.is_empty() && vis.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast rewrite visibility must not be empty".into(),
+        }));
+    }
+    Ok(())
+}
+
 /// Refuse empty / whitespace-only `parameters`. Valid no-params is `"()"`.
 pub(crate) fn reject_empty_parameters(params: &str) -> anyhow::Result<()> {
     if params.trim().is_empty() {
@@ -604,6 +614,9 @@ pub(crate) fn try_rewrite_function_signature(
 ) -> anyhow::Result<Option<String>> {
     if let Some(params) = edit.parameters.as_deref() {
         reject_empty_parameters(params)?;
+    }
+    if let Some(vis) = edit.visibility.as_deref() {
+        reject_whitespace_only_visibility(vis)?;
     }
     if lang == Language::Rust {
         return rewrite_rust_sig(source, old_name, edit);
@@ -1383,6 +1396,44 @@ mod tests {
         }
         reject_empty_parameters("()").expect("empty-parens is a valid no-params list");
         reject_empty_parameters("(x: i32)").expect("non-empty parameter list");
+    }
+
+    #[test]
+    fn reject_whitespace_only_visibility_is_invalid_input() {
+        for vis in ["   ", "\t", " \t "] {
+            let err = reject_whitespace_only_visibility(vis)
+                .expect_err("whitespace-only visibility must fail");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "whitespace visibility must be invalid_input, got {err}"
+            );
+            assert!(
+                err.to_string().contains("must not be empty"),
+                "message must say must not be empty: {err}"
+            );
+        }
+        reject_whitespace_only_visibility("").expect("empty visibility is documented private");
+        reject_whitespace_only_visibility("pub").expect("non-empty visibility");
+    }
+
+    #[test]
+    fn try_rewrite_whitespace_visibility_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        let edit = FunctionSigEdit {
+            visibility: Some("   ".into()),
+            ..Default::default()
+        };
+        let err = try_rewrite_function_signature(source, "foo", &edit, Language::Rust)
+            .expect_err("whitespace visibility must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "whitespace visibility must classify as invalid_input: {err}"
+        );
+        assert_eq!(
+            rewrite_function_signature(source, "foo", &edit, Language::Rust),
+            None,
+            "whitespace visibility must not rewrite"
+        );
     }
 
     #[test]

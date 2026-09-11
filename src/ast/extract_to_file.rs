@@ -31,6 +31,18 @@ pub fn extract_to_file(
     prepend: Option<&str>,
     lang: Language,
 ) -> anyhow::Result<ExtractResult> {
+    // Empty/whitespace prepend inserts junk blanks vs omitting the field.
+    // Newline-only remains insert-a-blank-line (same as wrap preamble).
+    if let Some(pre) = prepend
+        && pre.trim().is_empty()
+        && !pre.contains('\n')
+        && !pre.contains('\r')
+    {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast extract prepend must not be empty".into(),
+        }));
+    }
+
     let eol = crate::write::detect_eol(source);
     let symbols = match try_extract_symbols(source, lang) {
         Ok(s) => s,
@@ -390,5 +402,35 @@ mod tests {
             crate::exit::is_parse_timeout(&err),
             "timeout must not become no_matches: {err}"
         );
+    }
+
+    #[test]
+    fn extract_empty_prepend_is_invalid_input() {
+        let source = "fn foo() { let x = 1; }\n";
+        for pre in ["", "   "] {
+            let err = extract_to_file(source, "foo", None, false, Some(pre), Language::Rust)
+                .expect_err("empty/whitespace prepend must be invalid_input");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "prepend {pre:?} must classify as invalid_input: {err}"
+            );
+            assert!(
+                err.to_string().contains("must not be empty"),
+                "message must say must not be empty: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_newline_prepend_is_ok() {
+        let source = "fn foo() { let x = 1; }\n";
+        let result = extract_to_file(source, "foo", None, false, Some("\n"), Language::Rust)
+            .expect("newline-only prepend is insert-a-blank-line");
+        assert!(
+            result.target_content.starts_with('\n'),
+            "newline prepend should insert a blank line: {:?}",
+            result.target_content
+        );
+        assert!(result.target_content.contains("fn foo()"));
     }
 }

@@ -66,6 +66,12 @@ pub fn move_symbols(
     position: MovePosition,
     lang: Language,
 ) -> anyhow::Result<MoveResult> {
+    if symbols.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast move symbols must not be empty".into(),
+        }));
+    }
+
     let eol = crate::write::detect_eol(source);
     let src_symbols = extract_symbols_or_timeout(source, lang)?;
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
@@ -94,6 +100,7 @@ pub fn move_symbols(
         }));
     }
 
+    // symbols non-empty and no missing names implies to_move is non-empty.
     if to_move.is_empty() {
         return Ok(MoveResult {
             source_content: source.to_string(),
@@ -448,6 +455,21 @@ mod tests {
         );
         // These two should NOT overlap (they have a blank line separator)
         assert_eq!(result.expect("move should succeed").symbols_moved, 2);
+    }
+
+    #[test]
+    fn move_empty_symbols_is_invalid_input() {
+        let source = "fn foo() {}\n";
+        let err = move_symbols(source, "", &[], MovePosition::End, Language::Rust)
+            .expect_err("empty symbols vec must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty symbols must classify as invalid_input: {err}"
+        );
+        assert!(
+            err.to_string().contains("must not be empty"),
+            "message must say must not be empty: {err}"
+        );
     }
 
     #[test]

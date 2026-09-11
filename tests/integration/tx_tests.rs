@@ -8316,6 +8316,317 @@ fn test_tx_ast_rewrite_empty_parameters_invalid_input() {
     );
 }
 
+/// Whitespace-only ast.rename --new writes `fn    ()` without this peel.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rename_whitespace_new_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rename",
+            "path": "t.rs",
+            "old": "foo",
+            "new": "   "
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say rename old/new must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "file must be unchanged on whitespace rename new"
+    );
+}
+
+/// Whitespace-only ast.rewrite_signature visibility writes `    fn foo`.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_rewrite_whitespace_visibility_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.rewrite_signature",
+            "path": "t.rs",
+            "old": "foo",
+            "visibility": "   "
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say visibility must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "file must be unchanged on whitespace visibility"
+    );
+}
+
+/// Empty ast.move symbols vec is invalid_input (exit 1); dest must not exist.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_empty_symbols_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": "t.rs",
+            "target": "dest.rs",
+            "symbols": []
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say move symbols must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "source must be unchanged on empty move symbols"
+    );
+    assert!(
+        !dir.path().join("dest.rs").exists(),
+        "empty move symbols must not create dest"
+    );
+}
+
+/// Empty ast.move target_prepend is invalid_input (exit 1); dest must not exist.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_move_empty_target_prepend_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.move",
+            "path": "t.rs",
+            "target": "dest.rs",
+            "symbols": ["foo"],
+            "target_prepend": ""
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say target_prepend must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "source must be unchanged on empty target_prepend"
+    );
+    assert!(
+        !dir.path().join("dest.rs").exists(),
+        "empty target_prepend must not create dest"
+    );
+}
+
+/// Empty ast.extract_to_file prepend is invalid_input (exit 1); dest must not exist.
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_extract_empty_prepend_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.extract_to_file",
+            "source": "t.rs",
+            "symbol": "foo",
+            "target": "dest.rs",
+            "prepend": ""
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say prepend must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "source must be unchanged on empty extract prepend"
+    );
+    assert!(
+        !dir.path().join("dest.rs").exists(),
+        "empty extract prepend must not create dest"
+    );
+}
+
+/// Whitespace-only ast.split source_suffix is invalid_input (exit 1).
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_split_whitespace_source_suffix_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let original = "fn foo() { let x = 1; }\n\nfn bar() { let y = 2; }\n";
+    fs::write(dir.path().join("t.rs"), original).unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.split",
+            "source": "t.rs",
+            "targets": [{
+                "path": "a.rs",
+                "symbols": ["foo"]
+            }],
+            "keep_in_source": ["bar"],
+            "source_suffix": "   ",
+            "require_exhaustive": false
+        }]
+    });
+    fs::write(
+        dir.path().join("plan.json"),
+        serde_json::to_string(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["--json", "tx", "plan.json", "--apply"])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    assert_eq!(v["ok"], false, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("must not be empty"),
+        "error should say source_suffix must not be empty: {err}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("t.rs")).unwrap(),
+        original,
+        "source must be unchanged on whitespace source_suffix"
+    );
+    assert!(
+        !dir.path().join("a.rs").exists(),
+        "whitespace source_suffix must not create dest"
+    );
+}
+
 /// Empty ast.split symbol is invalid_input (exit 1); dest must not exist.
 #[test]
 #[cfg(feature = "ast")]

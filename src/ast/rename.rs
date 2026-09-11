@@ -62,7 +62,7 @@ pub struct RenameResult {
     allow(dead_code)
 )]
 pub(crate) fn reject_empty_rename_names(old: &str, new: &str) -> anyhow::Result<()> {
-    if old.is_empty() || new.is_empty() {
+    if old.trim().is_empty() || new.trim().is_empty() {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "ast rename old/new must not be empty".into(),
         }));
@@ -436,7 +436,14 @@ fn main() {
 
     #[test]
     fn reject_empty_rename_names_is_invalid_input() {
-        for (old, new) in [("", "bar"), ("foo", ""), ("", "")] {
+        for (old, new) in [
+            ("", "bar"),
+            ("foo", ""),
+            ("", ""),
+            ("   ", "bar"),
+            ("foo", "   "),
+            ("\t", "bar"),
+        ] {
             let err = reject_empty_rename_names(old, new).expect_err("empty must fail");
             assert!(
                 crate::exit::is_invalid_input(&err),

@@ -422,6 +422,18 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             old_module_path,
             new_module_path,
         } => {
+            // Empty/whitespace target_prepend inserts junk blanks vs omitting the field.
+            // Newline-only remains insert-a-blank-line (same as wrap preamble).
+            if let Some(p) = target_prepend
+                && p.trim().is_empty()
+                && !p.contains('\n')
+                && !p.contains('\r')
+            {
+                return Err(crate::exit::InvalidInputError {
+                    msg: "ast move target_prepend must not be empty".into(),
+                }
+                .into());
+            }
             let rewrite_mods =
                 import_rewrite_modules(*update_imports, old_module_path, new_module_path)?;
             let abs_source = tx.cwd.join(path);
@@ -842,5 +854,88 @@ mod tests {
         assert!(!report.applied, "timeout must not set applied");
         let after = fs::read_to_string(&path).unwrap();
         assert_eq!(after, original, "timeout must not write dest");
+    }
+
+    #[test]
+    fn ast_move_empty_target_prepend_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("src.rs");
+        let original = "fn foo() { let x = 1; }\n";
+        fs::write(&path, original).unwrap();
+        for prepend in [Some(String::new()), Some("   ".into())] {
+            let plan = crate::plan::Plan {
+                version: crate::plan::SCHEMA_VERSION,
+                cwd: None,
+                operations: vec![crate::plan::Operation::AstMove {
+                    path: "src.rs".into(),
+                    target: "dest.rs".into(),
+                    symbols: vec!["foo".into()],
+                    position: None,
+                    target_prepend: prepend.clone(),
+                    lang: None,
+                    update_imports: false,
+                    old_module_path: None,
+                    new_module_path: None,
+                }],
+                write_policy: None,
+                strict: None,
+                format: None,
+                validate: None,
+                verify: None,
+                for_each: None,
+            };
+            let report =
+                crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan executes");
+            assert!(!report.ok, "empty target_prepend must fail: {report:?}");
+            assert_eq!(
+                report.error_kind.as_deref(),
+                Some("invalid_input"),
+                "empty target_prepend must be invalid_input, got {report:?}"
+            );
+            assert!(!report.applied, "must not apply on empty target_prepend");
+            let after = fs::read_to_string(&path).unwrap();
+            assert_eq!(after, original, "source must be unchanged");
+            assert!(
+                !dir.path().join("dest.rs").exists(),
+                "empty target_prepend must not create dest"
+            );
+        }
+    }
+
+    #[test]
+    fn ast_move_newline_target_prepend_is_ok() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("src.rs");
+        fs::write(&path, "fn foo() { let x = 1; }\n").unwrap();
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![crate::plan::Operation::AstMove {
+                path: "src.rs".into(),
+                target: "dest.rs".into(),
+                symbols: vec!["foo".into()],
+                position: None,
+                target_prepend: Some("\n".into()),
+                lang: None,
+                update_imports: false,
+                old_module_path: None,
+                new_module_path: None,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+        let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan executes");
+        assert!(report.ok, "newline target_prepend must apply: {report:?}");
+        assert!(report.applied);
+        let dest = fs::read_to_string(dir.path().join("dest.rs")).unwrap();
+        assert!(
+            dest.starts_with('\n'),
+            "newline prepend should insert blank line: {dest:?}"
+        );
+        assert!(dest.contains("fn foo()"));
     }
 }
