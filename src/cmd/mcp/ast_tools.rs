@@ -2381,23 +2381,25 @@ impl Point {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("rename.rs"), RUST_SAMPLE).unwrap();
         let svc = make_service(&dir);
-        let params = AstRenameParams {
-            path: "rename.rs".into(),
-            old: "greet".into(),
-            new: String::new(),
-            lang: Some("rs".into()),
-        };
-        let result = handle_ast_rename(&svc, params).expect("empty new is a tool result");
-        assert!(
-            result.is_error.unwrap_or(false),
-            "empty new must set isError"
-        );
-        let text = extract_text(&result);
-        let v: serde_json::Value = serde_json::from_str(&text)
-            .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
-        assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
-        let after = std::fs::read_to_string(dir.path().join("rename.rs")).unwrap();
-        assert_eq!(after, RUST_SAMPLE, "empty new must not mutate dest");
+        for new in [String::new(), "   ".into()] {
+            let params = AstRenameParams {
+                path: "rename.rs".into(),
+                old: "greet".into(),
+                new,
+                lang: Some("rs".into()),
+            };
+            let result = handle_ast_rename(&svc, params).expect("empty new is a tool result");
+            assert!(
+                result.is_error.unwrap_or(false),
+                "empty new must set isError"
+            );
+            let text = extract_text(&result);
+            let v: serde_json::Value = serde_json::from_str(&text)
+                .unwrap_or_else(|e| panic!("tool text must be JSON: {e}\n{text}"));
+            assert_eq!(v["error_kind"].as_str(), Some("invalid_input"));
+            let after = std::fs::read_to_string(dir.path().join("rename.rs")).unwrap();
+            assert_eq!(after, RUST_SAMPLE, "empty new must not mutate dest");
+        }
     }
 
     #[test]
