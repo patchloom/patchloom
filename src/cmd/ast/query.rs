@@ -1473,6 +1473,62 @@ mod tests {
     }
 
     #[test]
+    fn deps_reverse_unreadable_sibling_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("target.rs"), "fn foo() {}\n").unwrap();
+        let locked = dir.path().join("locked.rs");
+        fs::write(&locked, "fn bar() {}\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+            // Root (common in Docker) can still read mode-000 files. Skip when
+            // permissions do not actually block reading.
+            if fs::read_to_string(&locked).is_ok() {
+                fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+                return;
+            }
+            let global = GlobalFlags {
+                json: true,
+                quiet: true,
+                ..GlobalFlags::test_with_cwd(dir.path())
+            };
+            let result = run_deps(
+                DepsArgs {
+                    path: "target.rs".into(),
+                    reverse: true,
+                    lang: None,
+                },
+                &global,
+            );
+            match result {
+                Ok(code) => {
+                    assert_eq!(
+                        code,
+                        exit::FAILURE,
+                        "reverse scan must surface invalid_input (exit {}), not no_matches ({})",
+                        exit::FAILURE,
+                        exit::NO_MATCHES
+                    );
+                    assert_ne!(
+                        code,
+                        exit::NO_MATCHES,
+                        "must not report no_matches when a scanned sibling is unreadable"
+                    );
+                }
+                Err(e) => {
+                    panic!("unreadable sibling must be Ok(FAILURE) invalid_input, not Err({e})")
+                }
+            }
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = locked;
+        }
+    }
+
+    #[test]
     fn impact_sole_file_timeout_is_parse_timeout() {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();

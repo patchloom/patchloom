@@ -1959,6 +1959,45 @@ impl Point {
         );
     }
 
+    #[test]
+    fn ast_deps_reverse_timeout_is_parse_timeout() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("deep.rs"), nested_rust_source(80_000)).unwrap();
+        let svc = make_service(&dir);
+        let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+        let params = AstDepsParams {
+            path: "deep.rs".into(),
+            reverse: true,
+            lang: Some("rs".into()),
+        };
+        let result = handle_ast_deps(&svc, params).expect("timeout is a tool result");
+        assert!(
+            result.is_error.unwrap_or(false),
+            "reverse deps timeout must be a tool envelope, not no_results success"
+        );
+        let text = extract_text(&result);
+        assert!(
+            text.contains("parse_timeout"),
+            "timeout must surface parse_timeout, got: {text}"
+        );
+        assert!(
+            text.contains("\"ok\":false") || text.contains("\"ok\": false"),
+            "parse_timeout JSON must set ok:false: {text}"
+        );
+        assert!(
+            text.contains("\"applied\":false") || text.contains("\"applied\": false"),
+            "parse_timeout JSON must set applied:false: {text}"
+        );
+        assert!(
+            !text.contains("No imports found"),
+            "reverse deps timeout must not become walk-soft no imports: {text}"
+        );
+        assert!(
+            !text.contains("invalid_params"),
+            "timeout must not become JSON-RPC invalid_params: {text}"
+        );
+    }
+
     fn git_ok(dir: &std::path::Path, args: &[&str]) {
         let out = std::process::Command::new("git")
             .args(args)
