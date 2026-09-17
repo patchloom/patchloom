@@ -254,8 +254,8 @@ AST tools so `list_tools` stays honest about what is callable.
 | `ast_imports` | List, add, remove, or deduplicate import statements in source files. |
 | `ast_reorder` | Reorder symbols by strategy: alphabetical, reverse, kind-first, or custom order. |
 | `ast_group` | Move symbols into a new or existing module block within the same file. |
-| `ast_move` | Move symbols between files with configurable insertion position. Optional `update_imports` plus `old_module_path` / `new_module_path` rewrites consumer imports. |
-| `ast_extract_to_file` | Extract a symbol to a new file, optionally unwrapping module blocks. Optional `update_imports` plus `old_module_path` / `new_module_path` rewrites consumer imports. |
+| `ast_move` | Move symbols between files with configurable insertion position. Optional `update_imports` (Rust only) plus `old_module_path` / `new_module_path` rewrites consumer use statements. |
+| `ast_extract_to_file` | Extract a symbol to a new file, optionally unwrapping module blocks. Optional `update_imports` (Rust only) plus `old_module_path` / `new_module_path` rewrites consumer use statements. |
 | `ast_split` | Split a file by distributing symbols across multiple target files. |
 
 ## How MCP mode differs from CLI mode

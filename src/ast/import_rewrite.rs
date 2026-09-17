@@ -17,6 +17,16 @@ pub struct SymbolMove {
     pub new_module: String,
 }
 
+/// `update_imports` is implemented for Rust only (#2536).
+pub(crate) fn reject_unsupported_update_imports(lang: Language) -> anyhow::Result<()> {
+    if matches!(lang, Language::Rust) {
+        return Ok(());
+    }
+    Err(anyhow::Error::new(crate::exit::InvalidInputError {
+        msg: format!("update_imports is only supported for Rust (got {lang})"),
+    }))
+}
+
 /// Rewrite import blocks in `source` for the given symbol moves.
 ///
 /// Returns `None` when no import text changes (no matching consumer, glob
@@ -394,6 +404,31 @@ mod tests {
             !out.replace("\r\n", "").contains('\n'),
             "mixed endings: {out:?}"
         );
+    }
+
+    /// #2536: update_imports is Rust-only; other languages refuse the flag.
+    #[test]
+    fn update_imports_refuses_non_rust_languages() {
+        for lang in [
+            Language::Python,
+            Language::TypeScript,
+            Language::Go,
+            Language::Java,
+        ] {
+            let err = reject_unsupported_update_imports(lang)
+                .expect_err("non-Rust update_imports must be invalid_input");
+            assert!(
+                crate::exit::is_invalid_input(&err),
+                "{lang} must classify as invalid_input: {err}"
+            );
+            let msg = err.to_string();
+            assert!(
+                msg.to_ascii_lowercase().contains("rust"),
+                "{lang} refusal must say Rust-only: {msg}"
+            );
+        }
+        reject_unsupported_update_imports(Language::Rust)
+            .expect("Rust update_imports must be allowed");
     }
 
     #[test]

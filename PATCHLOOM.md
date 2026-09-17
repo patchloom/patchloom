@@ -579,8 +579,8 @@ flags[!deprecated]              # absent, false, or null
 - `ast.imports`: Manage import/use statements: add (idempotent), remove, deduplicate.
 - `ast.reorder`: Reorder symbols within a file or scope by name, kind, or custom order.
 - `ast.group`: Group symbols into a named module within a file.
-- `ast.move`: Move symbols between files with optional target creation. Set update_imports with old_module_path and new_module_path to rewrite consumer use/import statements.
-- `ast.extract_to_file`: Extract a symbol to a separate file with optional module unwrapping. Set update_imports with old_module_path and new_module_path to rewrite consumer use/import statements.
+- `ast.move`: Move symbols between files with optional target creation. Set update_imports (Rust only) with old_module_path and new_module_path to rewrite consumer use statements.
+- `ast.extract_to_file`: Extract a symbol to a separate file with optional module unwrapping. Set update_imports (Rust only) with old_module_path and new_module_path to rewrite consumer use statements.
 - `ast.split`: Split a file into multiple target files by distributing symbols.
 
 ## Troubleshooting

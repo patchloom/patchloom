@@ -612,6 +612,79 @@ fn parse_params_and_return(s: &str) -> Result<FunctionSigEdit, ParseSigError> {
     })
 }
 
+/// Per-language structured rewrite capabilities (#2542).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SigRewriteCaps {
+    pub parameters: bool,
+    pub return_type: bool,
+    pub visibility: bool,
+    pub generics: bool,
+}
+
+/// Fields `ast.rewrite_signature` can apply for `lang` without inventing syntax.
+pub fn signature_rewrite_caps(lang: Language) -> SigRewriteCaps {
+    match lang {
+        Language::Rust => SigRewriteCaps {
+            parameters: true,
+            return_type: true,
+            visibility: true,
+            generics: true,
+        },
+        Language::Python
+        | Language::TypeScript
+        | Language::JavaScript
+        | Language::Go
+        | Language::C
+        | Language::Cpp => SigRewriteCaps {
+            parameters: true,
+            return_type: true,
+            visibility: false,
+            generics: false,
+        },
+        Language::Java => SigRewriteCaps {
+            parameters: true,
+            return_type: true,
+            visibility: true,
+            generics: false,
+        },
+        Language::CSharp | Language::Php => SigRewriteCaps {
+            parameters: true,
+            return_type: false,
+            visibility: false,
+            generics: false,
+        },
+        _ => SigRewriteCaps {
+            parameters: false,
+            return_type: false,
+            visibility: false,
+            generics: false,
+        },
+    }
+}
+
+fn reject_unsupported_sig_edit(lang: Language, edit: &FunctionSigEdit) -> anyhow::Result<()> {
+    let caps = signature_rewrite_caps(lang);
+    let mut bad = Vec::new();
+    if edit.parameters.is_some() && !caps.parameters {
+        bad.push("parameters");
+    }
+    if edit.return_type.is_some() && !caps.return_type {
+        bad.push("return_type");
+    }
+    if edit.visibility.is_some() && !caps.visibility {
+        bad.push("visibility");
+    }
+    if !bad.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!(
+                "ast.rewrite_signature does not support {} for {lang}",
+                bad.join(", ")
+            ),
+        }));
+    }
+    Ok(())
+}
+
 /// Rewrite function signature with structured changes for visibility, parameters, return type.
 /// Preserves function name, body, and other source exactly. Uses tree-sitter for location.
 ///
@@ -689,6 +762,7 @@ pub(crate) fn try_rewrite_function_signature(
     if let Some(vis) = edit.visibility.as_deref() {
         reject_whitespace_only_visibility(vis)?;
     }
+    reject_unsupported_sig_edit(lang, edit)?;
     if lang == Language::Rust {
         return rewrite_rust_sig(source, old_name, edit);
     }
@@ -1370,6 +1444,215 @@ mod tests {
             out.contains("void MyClass::process(int x, double y)"),
             "should replace C++ method params: {out}"
         );
+    }
+
+    /// #2542: each (language, field) pair either applies or is invalid_input.
+    #[test]
+    fn rewrite_signature_capability_matrix() {
+        #[derive(Clone, Copy)]
+        struct Case {
+            lang: Language,
+            source: &'static str,
+            parameters: bool,
+            return_type: bool,
+            visibility: bool,
+            generics: bool,
+        }
+        let cases = [
+            Case {
+                lang: Language::Rust,
+                source: "fn bar() {}\n",
+                parameters: true,
+                return_type: true,
+                visibility: true,
+                generics: true,
+            },
+            Case {
+                lang: Language::Python,
+                source: "def bar():\n    return 1\n",
+                parameters: true,
+                return_type: true,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::TypeScript,
+                source: "function bar() {}\n",
+                parameters: true,
+                return_type: true,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::JavaScript,
+                source: "function bar() {}\n",
+                parameters: true,
+                return_type: true,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Go,
+                source: "func bar() {}\n",
+                parameters: true,
+                return_type: true,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Java,
+                source: "class C { void bar() {} }\n",
+                parameters: true,
+                return_type: true,
+                visibility: true,
+                generics: false,
+            },
+            Case {
+                lang: Language::C,
+                source: "void bar(void) {}\n",
+                parameters: true,
+                return_type: true,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Cpp,
+                source: "void bar() {}\n",
+                parameters: true,
+                return_type: true,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::CSharp,
+                source: "class C { void bar() {} }\n",
+                parameters: true,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Php,
+                source: "<?php function bar() {}\n",
+                parameters: true,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Ruby,
+                source: "def bar\n  1\nend\n",
+                parameters: false,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Shell,
+                source: "bar() { echo 1; }\n",
+                parameters: false,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Hcl,
+                source: "variable \"bar\" {}\n",
+                parameters: false,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Protobuf,
+                source: "message Bar {}\n",
+                parameters: false,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Swift,
+                source: "func bar() {}\n",
+                parameters: false,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+            Case {
+                lang: Language::Kotlin,
+                source: "fun bar() {}\n",
+                parameters: false,
+                return_type: false,
+                visibility: false,
+                generics: false,
+            },
+        ];
+        for case in cases {
+            let caps = signature_rewrite_caps(case.lang);
+            assert_eq!(caps.parameters, case.parameters, "params cap {}", case.lang);
+            assert_eq!(
+                caps.return_type, case.return_type,
+                "return cap {}",
+                case.lang
+            );
+            assert_eq!(caps.visibility, case.visibility, "vis cap {}", case.lang);
+            assert_eq!(caps.generics, case.generics, "generics cap {}", case.lang);
+
+            let fields: [(&str, FunctionSigEdit, bool); 3] = [
+                (
+                    "parameters",
+                    FunctionSigEdit {
+                        parameters: Some("()".into()),
+                        ..Default::default()
+                    },
+                    case.parameters,
+                ),
+                (
+                    "return_type",
+                    FunctionSigEdit {
+                        return_type: Some("i32".into()),
+                        ..Default::default()
+                    },
+                    case.return_type,
+                ),
+                (
+                    "visibility",
+                    FunctionSigEdit {
+                        visibility: Some("private".into()),
+                        ..Default::default()
+                    },
+                    case.visibility,
+                ),
+            ];
+            for (field, edit, supported) in fields {
+                let result = try_rewrite_function_signature(case.source, "bar", &edit, case.lang);
+                if supported {
+                    let out = result
+                        .unwrap_or_else(|e| panic!("{} {field} must not refuse: {e}", case.lang));
+                    assert!(
+                        out.is_some(),
+                        "{} {field} must find bar and rewrite: {out:?}",
+                        case.lang
+                    );
+                } else {
+                    let err = result.expect_err(&format!(
+                        "{} {field} must be invalid_input, got Ok",
+                        case.lang
+                    ));
+                    assert!(
+                        crate::exit::is_invalid_input(&err),
+                        "{} {field} must classify as invalid_input: {err}",
+                        case.lang
+                    );
+                    assert!(
+                        err.to_string().contains(field),
+                        "{} refusal must name {field}: {err}",
+                        case.lang
+                    );
+                }
+            }
+        }
     }
 
     #[test]
