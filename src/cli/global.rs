@@ -92,6 +92,14 @@ pub struct GlobalFlags {
     )]
     pub color: ColorMode,
 
+    /// True when `--color` was present on the command line (including `auto`).
+    #[cfg_attr(feature = "cli", clap(skip))]
+    pub color_explicit: bool,
+
+    /// True after [`Self::merge_write`] (write subcommands only).
+    #[cfg_attr(feature = "cli", clap(skip))]
+    pub write_command: bool,
+
     // -- Write-only flags (populated via merge_write in dispatch) -----------
     #[cfg_attr(feature = "cli", clap(skip))]
     pub diff: bool,
@@ -284,6 +292,7 @@ impl GlobalFlags {
         self.apply = apply;
         self.check = check;
         self.confirm = confirm;
+        self.write_command = true;
         self.ensure_final_newline = ensure_final_newline;
         self.normalize_eol = normalize_eol;
         self.trim_trailing_whitespace = trim_trailing_whitespace;
@@ -911,6 +920,8 @@ impl GlobalFlags {
             format_config: base.format_config.clone(),
             verbose: base.verbose,
             color: base.color,
+            color_explicit: base.color_explicit,
+            write_command: base.write_command,
         }
     }
 }

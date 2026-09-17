@@ -22,12 +22,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-fn config_tx_strict(cwd: &Path) -> Option<bool> {
-    crate::config::find_and_load(cwd)
-        .map(|(config, _)| config.tx.strict)
-        .unwrap_or(None)
-}
-
 /// Execute a parsed [`Plan`] directly and return the structured `TxOutput` (PlanReport).
 /// Does **not** write to stdout or stderr.
 ///
@@ -65,7 +59,17 @@ pub(crate) fn validate_and_prepare_plan(
     }
 
     let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
-    let config_strict = config_tx_strict(&effective_cwd);
+    let loaded = match crate::config::find_and_load_strict(&effective_cwd) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(Box::new(build_error_output(
+                "parse_error",
+                &crate::exit::agent_error_message(&e),
+                None,
+            )));
+        }
+    };
+    let config_strict = loaded.as_ref().and_then(|(config, _)| config.tx.strict);
     let strict = plan::effective_strict(plan.strict, config_strict, no_strict);
 
     let mut global = GlobalFlags::with_cwd(&effective_cwd);
@@ -74,7 +78,7 @@ pub(crate) fn validate_and_prepare_plan(
         global.jsonl = src.jsonl;
         global.quiet = src.quiet;
     }
-    if let Some((config, _)) = crate::config::find_and_load(&effective_cwd) {
+    if let Some((config, _)) = loaded {
         crate::config::apply_config(&mut global, &config);
     }
 
@@ -477,6 +481,26 @@ mod tests {
         let (cwd, _strict, _global) = validate_and_prepare_plan(&plan, dir.path(), false, None)
             .expect("valid plan must prepare");
         assert_eq!(cwd, dir.path());
+    }
+
+    #[test]
+    fn validate_and_prepare_plan_rejects_malformed_config() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[write_policy]\nensur_final_newline = true\n",
+        )
+        .unwrap();
+        let plan = minimal_plan(crate::plan::SCHEMA_VERSION);
+        let err = validate_and_prepare_plan(&plan, dir.path(), false, None).unwrap_err();
+        assert_eq!(err.error_kind.as_deref(), Some("parse_error"));
+        let msg = err.error.as_deref().unwrap_or("");
+        assert!(
+            msg.contains("malformed")
+                || msg.contains("ensur_final_newline")
+                || msg.contains("unknown"),
+            "tx must fail closed on typo'd config: {msg}"
+        );
     }
 
     #[test]

@@ -121,37 +121,43 @@ pub fn find_and_load(start: &Path) -> Option<(ProjectConfig, PathBuf)> {
     find_and_load_opts(start, false)
 }
 
-/// Like [`find_and_load`], optionally printing read/parse warnings (CLI text).
-pub fn find_and_load_opts(start: &Path, warn: bool) -> Option<(ProjectConfig, PathBuf)> {
+/// Fail-closed load for CLI and tx. Missing file is `Ok(None)`; read or parse
+/// failure is `Err` (`parse_error`).
+pub fn find_and_load_strict(start: &Path) -> anyhow::Result<Option<(ProjectConfig, PathBuf)>> {
     let mut dir = start.to_path_buf();
     loop {
         let candidate = dir.join(".patchloom.toml");
         if candidate.is_file() {
-            let content = match std::fs::read_to_string(&candidate) {
-                Ok(c) => c,
-                Err(e) => {
-                    if warn {
-                        eprintln!("warning: could not read {}: {}", candidate.display(), e);
-                    }
-                    return None;
+            let content =
+                std::fs::read_to_string(&candidate).map_err(|e| crate::exit::ParseErrorError {
+                    msg: format!("could not read {}: {e}", candidate.display()),
+                })?;
+            let config = toml_edit::de::from_str::<ProjectConfig>(&content).map_err(|e| {
+                crate::exit::ParseErrorError {
+                    msg: format!("malformed {}: {e}", candidate.display()),
                 }
-            };
-            match toml_edit::de::from_str::<ProjectConfig>(&content) {
-                Ok(config) => return Some((config, dir)),
-                Err(e) => {
-                    if warn {
-                        eprintln!("warning: malformed {}: {}", candidate.display(), e);
-                    }
-                    return None;
-                }
-            }
+            })?;
+            return Ok(Some((config, dir)));
         }
         // Stop at repo root to avoid loading configs from parent directories.
         if dir.join(".git").exists() {
-            return None;
+            return Ok(None);
         }
         if !dir.pop() {
-            return None;
+            return Ok(None);
+        }
+    }
+}
+
+/// Like [`find_and_load`], optionally printing read/parse warnings (CLI text).
+pub fn find_and_load_opts(start: &Path, warn: bool) -> Option<(ProjectConfig, PathBuf)> {
+    match find_and_load_strict(start) {
+        Ok(v) => v,
+        Err(e) => {
+            if warn {
+                eprintln!("warning: {e}");
+            }
+            None
         }
     }
 }
@@ -193,7 +199,15 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
 
     // [defaults] apply is parsed for forward-compatible configs but never
     // honored. Write mode is --apply / --check / --diff / --confirm only.
-    if config.defaults.apply == Some(true) && !global.apply && show_warn {
+    // Warn only on write commands that have no explicit mode (#2516).
+    if config.defaults.apply == Some(true)
+        && show_warn
+        && global.write_command
+        && !global.apply
+        && !global.check
+        && !global.diff
+        && !global.confirm
+    {
         emit_config_warning(ignored_defaults_apply_warning());
     }
     if global.format.is_none() {
@@ -221,8 +235,9 @@ pub fn apply_config(global: &mut crate::cli::global::GlobalFlags, config: &Proje
         global.exclude = merged;
     }
 
-    // Color: config provides default, CLI wins.
-    if matches!(global.color, crate::cli::global::ColorMode::Auto)
+    // Color: config provides default. Explicit `--color` (including auto) wins (#2517).
+    if !global.color_explicit
+        && matches!(global.color, crate::cli::global::ColorMode::Auto)
         && let Some(ref color) = config.output.color
     {
         global.color = match color.as_str() {
@@ -498,6 +513,50 @@ color = "always"
         assert!(find_and_load(dir.path()).is_none());
     }
 
+    /// #2515: CLI/tx must fail closed on a typo'd or malformed config.
+    #[test]
+    fn find_and_load_strict_errors_on_unknown_keys() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[write_policy]\nensur_final_newline = true\n",
+        )
+        .unwrap();
+        let err = find_and_load_strict(dir.path()).expect_err("typo must be a hard error");
+        assert!(
+            crate::exit::is_parse_error(&err),
+            "malformed config must be parse_error: {err}"
+        );
+        assert!(
+            err.to_string().contains("ensur_final_newline")
+                || err.to_string().contains("unknown")
+                || err.to_string().contains("malformed"),
+            "error must name the problem: {err}"
+        );
+    }
+
+    #[test]
+    fn find_and_load_strict_errors_on_malformed_toml() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "this is not valid { toml [",
+        )
+        .unwrap();
+        let err =
+            find_and_load_strict(dir.path()).expect_err("malformed TOML must be a hard error");
+        assert!(
+            crate::exit::is_parse_error(&err),
+            "malformed config must be parse_error: {err}"
+        );
+    }
+
+    #[test]
+    fn find_and_load_strict_ok_when_missing() {
+        let dir = TempDir::new().unwrap();
+        assert!(find_and_load_strict(dir.path()).unwrap().is_none());
+    }
+
     #[test]
     #[cfg(feature = "cli")]
     fn apply_config_unknown_eol_value_ignored() {
@@ -643,6 +702,105 @@ color = "always"
         assert!(
             warning.contains("--apply"),
             "ignored-apply warning must point at --apply: {warning}"
+        );
+    }
+
+    /// #2516: read-only commands must not warn about ignored [defaults] apply.
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_does_not_warn_on_read_only_for_defaults_apply() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags::default();
+        let _ = take_config_warnings();
+        apply_config(&mut global, &config);
+        assert!(!global.apply);
+        let warnings = take_config_warnings();
+        assert!(
+            warnings
+                .iter()
+                .all(|w| !w.contains("apply = true is ignored")),
+            "read-only must not warn about [defaults] apply: {warnings:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_warns_on_write_preview_for_defaults_apply() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags {
+            write_command: true,
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        let _ = take_config_warnings();
+        apply_config(&mut global, &config);
+        assert!(!global.apply);
+        let warnings = take_config_warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("apply = true is ignored")),
+            "write preview must still warn: {warnings:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_does_not_warn_on_write_check_for_defaults_apply() {
+        let config = ProjectConfig {
+            defaults: Defaults {
+                apply: Some(true),
+                ..Defaults::default()
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags {
+            write_command: true,
+            check: true,
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        let _ = take_config_warnings();
+        apply_config(&mut global, &config);
+        let warnings = take_config_warnings();
+        assert!(
+            warnings
+                .iter()
+                .all(|w| !w.contains("apply = true is ignored")),
+            "explicit --check must not warn: {warnings:?}"
+        );
+    }
+
+    /// #2517: explicit `--color auto` must win over config always/never.
+    #[test]
+    #[cfg(feature = "cli")]
+    fn apply_config_explicit_color_auto_overrides_config() {
+        let config = ProjectConfig {
+            output: Output {
+                color: Some("always".into()),
+            },
+            ..ProjectConfig::default()
+        };
+        let mut global = crate::cli::global::GlobalFlags {
+            color: crate::cli::global::ColorMode::Auto,
+            color_explicit: true,
+            ..crate::cli::global::GlobalFlags::default()
+        };
+        apply_config(&mut global, &config);
+        assert!(
+            matches!(global.color, crate::cli::global::ColorMode::Auto),
+            "explicit --color auto must not be overwritten by config: {:?}",
+            global.color
         );
     }
 

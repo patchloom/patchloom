@@ -166,14 +166,14 @@ ENVIRONMENT:
 }
 
 /// Load and apply project config from `.patchloom.toml`.
-fn load_project_config(global: &mut crate::cli::global::GlobalFlags) {
+fn load_project_config(global: &mut crate::cli::global::GlobalFlags) -> anyhow::Result<()> {
     let Ok(cwd) = global.resolve_cwd() else {
-        return;
+        return Ok(());
     };
-    let warn = !global.quiet && !global.json && !global.jsonl;
-    if let Some((config, _)) = crate::config::find_and_load_opts(&cwd, warn) {
+    if let Some((config, _)) = crate::config::find_and_load_strict(&cwd)? {
         crate::config::apply_config(global, &config);
     }
+    Ok(())
 }
 
 pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
@@ -198,7 +198,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             #[cfg(feature = "mcp-http")]
             allow_unauthenticated,
         } => {
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             #[cfg(feature = "mcp-http")]
             if http {
                 return mcp::run_mcp_http_server(
@@ -229,88 +229,88 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             Ok(crate::exit::SUCCESS)
         }
         Command::Read(args) => {
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             read::run(args, &global)
         }
         Command::Explain(args) => {
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             explain::run(args, &global)
         }
         Command::Undo(args) => {
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             undo::run(args, &global)
         }
         Command::Search(args) => {
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             search::run(args, &global)
         }
         Command::Status(args) => {
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             status::run(args, &global)
         }
         Command::Append(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             append::run(args, &global)
         }
         Command::Prepend(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             prepend::run(args, &global)
         }
         Command::Create(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             create::run(args, &global)
         }
         Command::Delete(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             delete::run(args, &global)
         }
         Command::Rename(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             rename::run(args, &global)
         }
         Command::Replace(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             replace::run(args, &global)
         }
         Command::ApplyFragment(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             apply_fragment::run(args, &global)
         }
         Command::Patch(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             patch::run(args, &global)
         }
         Command::Md(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             md::run(args, &global)
         }
         Command::Doc(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             doc::run(args, &global)
         }
         Command::Tidy(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             tidy::run(args, &global)
         }
         Command::Tx(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             tx::run(args, &global)
         }
         Command::Batch(args) => {
             global.merge_write(&args.write);
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             batch::run(args, &global)
         }
         #[cfg(feature = "ast")]
@@ -321,7 +321,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
                 ast::AstCommand::Replace(ref a) => global.merge_write(&a.write),
                 _ => {}
             }
-            load_project_config(&mut global);
+            load_project_config(&mut global)?;
             ast::run(args, &global)
         }
     }
