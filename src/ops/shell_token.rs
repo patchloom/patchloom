@@ -129,16 +129,25 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
             return true;
         }
         let last = rest.as_bytes()[rest.len() - 1];
-        // Command separator → command position.
-        if matches!(last, b'|' | b';' | b'\n' | b'\r') {
+        // Command separator → command position. A backslash-newline
+        // continuation is not a separator (#2508).
+        if matches!(last, b'\n' | b'\r') {
+            if let Some(stripped) = strip_trailing_escaped_newline(rest) {
+                rest = stripped;
+                continue;
+            }
+            return true;
+        }
+        if matches!(last, b'|' | b';') {
             return true;
         }
         // `&&` or `||`
         if rest.ends_with("&&") || rest.ends_with("||") {
             return true;
         }
-        // After `$(` or backtick open is still a subshell command position.
-        if last == b'(' || last == b'`' {
+        // After `$(` or an opening backtick is still a subshell command
+        // position. A closing backtick is even-count on the line (#2508).
+        if last == b'(' || (last == b'`' && odd_unescaped_backticks_on_line(rest)) {
             return true;
         }
 
@@ -155,13 +164,13 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
         // Also peel stacked durations: `timeout --kill-after 5 30 pip` (kill-after
         // value then command duration).
         if is_duration_or_number(token) {
-            let mut left = rest[..prefix_start].trim_end();
+            let mut left = trim_hws(&rest[..prefix_start]);
             loop {
                 let Some((prev_start, prev)) = last_shell_token(left) else {
                     return false;
                 };
                 if is_duration_or_number(prev) {
-                    left = left[..prev_start].trim_end();
+                    left = trim_hws(&left[..prev_start]);
                     continue;
                 }
                 if TRANSPARENT_PREFIXES.contains(&prev)
@@ -197,7 +206,7 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
         }
         // Value for an arg-taking flag: `sudo -u root pip` → peel `root` when
         // the token before it is `-u` / `--user` / `-g` / `--group`.
-        let left = rest[..prefix_start].trim_end();
+        let left = trim_hws(&rest[..prefix_start]);
         if let Some((flag_start, flag)) = last_shell_token(left)
             && is_arg_taking_flag(flag)
         {
@@ -434,9 +443,59 @@ fn is_duration_or_number(token: &str) -> bool {
     matches!(&token[i..], "s" | "m" | "h" | "d" | "ms")
 }
 
-/// Last shell token in `s` (no leading/trailing ws). Returns (byte start, token).
+/// Horizontal whitespace only. Newlines stay so lookback cannot walk
+/// into the previous command (#2507).
+fn trim_hws(s: &str) -> &str {
+    s.trim_end_matches([' ', '\t'])
+}
+
+/// Drop a trailing unescaped `\` + newline run. `None` if the newline
+/// is a real command separator.
+fn strip_trailing_escaped_newline(s: &str) -> Option<&str> {
+    let bytes = s.as_bytes();
+    let mut i = bytes.len();
+    while i > 0 && (bytes[i - 1] == b'\n' || bytes[i - 1] == b'\r') {
+        i -= 1;
+    }
+    if i == bytes.len() || i == 0 || bytes[i - 1] != b'\\' {
+        return None;
+    }
+    let mut bs = 0;
+    let mut j = i;
+    while j > 0 && bytes[j - 1] == b'\\' {
+        bs += 1;
+        j -= 1;
+    }
+    if bs % 2 == 1 { Some(&s[..i - 1]) } else { None }
+}
+
+/// Odd unescaped backticks on the current line means we are still inside
+/// an opening backtick (command position). Even means the last `` ` ``
+/// closed the substitution (#2508).
+fn odd_unescaped_backticks_on_line(s: &str) -> bool {
+    let line = match s.rfind(['\n', '\r']) {
+        Some(i) => &s[i + 1..],
+        None => s,
+    };
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut n = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i = i.saturating_add(2);
+            continue;
+        }
+        if bytes[i] == b'`' {
+            n += 1;
+        }
+        i += 1;
+    }
+    n % 2 == 1
+}
+
+/// Last shell token in `s` (no leading/trailing horizontal ws). Returns (byte start, token).
 fn last_shell_token(s: &str) -> Option<(usize, &str)> {
-    let s = s.trim_end();
+    let s = trim_hws(s);
     if s.is_empty() {
         return None;
     }
@@ -483,6 +542,35 @@ mod tests {
     fn uv_pip_argument_not_command() {
         let c = "uv pip install\n";
         assert!(find_command_position_matches(c, "pip").is_empty());
+    }
+
+    #[test]
+    fn previous_line_wrapper_does_not_flip_argument() {
+        // #2507: lookback must not trim the newline and treat `flock` as
+        // wrapping `uv pip` on the next line.
+        let c = "apt-get install -y flock\nuv pip install x\n";
+        assert!(find_command_position_matches(c, "pip").is_empty());
+        let (out, n) = replace_command_position(c, "pip", "uv");
+        assert_eq!(n, 0);
+        assert_eq!(out, c);
+    }
+
+    #[test]
+    fn backslash_newline_continuation_is_not_command_separator() {
+        // #2508: `python -m \` + newline + `pip` is still argument position.
+        let c = "python -m \\\n  pip install x\n";
+        assert!(find_command_position_matches(c, "pip").is_empty());
+        let (_, n) = replace_command_position(c, "pip", "uv");
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn closing_backtick_is_not_command_opener() {
+        // #2508: `echo `hostname` pip` must not treat `pip` as command position.
+        let c = "echo `hostname` pip install\n";
+        assert!(find_command_position_matches(c, "pip").is_empty());
+        let (_, n) = replace_command_position(c, "pip", "uv");
+        assert_eq!(n, 0);
     }
 
     #[test]
