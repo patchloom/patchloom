@@ -530,6 +530,7 @@ mod tests {
                 path: ext_path,
                 action: backup::FileAction::Modified,
             }],
+            created_dirs: Vec::new(),
         };
         std::fs::write(
             session_dir.join("manifest.json"),

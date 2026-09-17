@@ -327,13 +327,16 @@ pub fn execute_plan_direct(
                         rollback_ok = false;
                     }
                 } else {
-                    rollback_strict(
+                    let rb_errors = rollback_strict(
                         &result.changes,
                         &result.pending,
                         &result.deletions,
                         &result.existed_before,
                         true,
                     );
+                    if !rb_errors.is_empty() {
+                        rollback_ok = false;
+                    }
                 }
                 if rollback_ok {
                     let msg = format!("strict mode -- all changes reverted ({})", err.message);
@@ -375,7 +378,8 @@ pub fn execute_plan_direct(
 #[cfg(test)]
 mod tests {
     use super::super::commit::{
-        CommitError, FORCE_RESTORE_FAIL, RestoreFailGuard, commit_changes, commit_error,
+        CommitError, FORCE_RESTORE_FAIL, RemoveFailGuard, RestoreFailGuard, commit_changes,
+        commit_error,
     };
     use super::super::steps::{
         COLLATERAL_SNAPSHOT_MAX_SIZE, LifecycleError, lifecycle_failure_msg, resolve_plan_cwd,
@@ -1239,6 +1243,78 @@ mod tests {
             report.error_kind.as_deref(),
             Some("parse_timeout"),
             "verify timeout must be parse_timeout, got {report:?}"
+        );
+    }
+
+    /// Strict format failure after creating a nested path must remove the
+    /// directories `create_dir_all` added (#2501).
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn execute_plan_strict_rollback_removes_created_dirs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cmd = if cfg!(windows) { "exit /b 1" } else { "false" };
+        let plan: Plan = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "strict": true,
+            "operations": [{
+                "op": "file.create",
+                "path": "newdir/sub/x.txt",
+                "content": "hi\n"
+            }],
+            "format": [{"cmd": cmd, "timeout": 5}]
+        }))
+        .unwrap();
+
+        let report = execute_plan_direct(plan, dir.path(), None).expect("plan returns output");
+        assert!(!report.ok, "strict format fail must not be ok: {report:?}");
+        assert!(
+            !dir.path().join("newdir/sub/x.txt").exists(),
+            "created file must be gone after strict rollback"
+        );
+        assert!(
+            !dir.path().join("newdir/sub").exists(),
+            "create_dir_all tree must be removed on strict rollback: {:?}",
+            std::fs::read_dir(dir.path())
+                .map(|rd| rd
+                    .filter_map(|e| e.ok().map(|e| e.path()))
+                    .collect::<Vec<_>>())
+                .unwrap_or_default()
+        );
+        assert!(
+            !dir.path().join("newdir").exists(),
+            "outer created dir must be gone after strict rollback"
+        );
+    }
+
+    /// Injected remove_file failure in the no-backup rollback_strict path
+    /// must surface as rollback_failed, not a silent success (#2502).
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn revert_strict_lifecycle_reports_remove_file_failure() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let created = dir.path().join("created.txt");
+        std::fs::write(&created, "new\n").unwrap();
+
+        let changes = vec![(created.clone(), String::new(), "new\n".to_string())];
+        let pending = HashMap::new();
+        let deletions = HashSet::new();
+        let existed_before = HashSet::new();
+        let collateral = HashMap::new();
+
+        let _guard = RemoveFailGuard::engage();
+        let result = revert_strict_lifecycle(
+            dir.path(),
+            &changes,
+            &pending,
+            &deletions,
+            &existed_before,
+            None,
+            &collateral,
+        );
+        let err = result.expect_err("injected remove_file failure must be reported");
+        assert!(
+            err.contains("created.txt") || err.contains("remove"),
+            "error must name the failed remove: {err}"
         );
     }
 }

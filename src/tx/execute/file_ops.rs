@@ -3,6 +3,7 @@ use super::{
     TxState, read_file_content, read_file_content_for_force_create, read_file_content_for_path_op,
 };
 use crate::plan::Operation;
+use std::path::{Path, PathBuf};
 
 // op_to_doc_mutation moved to plan.rs as the single source of truth for
 // Operation::Doc* -> DocMutation conversion (see #901).
@@ -37,6 +38,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 // On-disk binary only (in-tx text create then append is fine).
                 crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             }
+            tx.refuse_soft_non_text(&file_path, path)?;
             crate::ops::file::reject_whitespace_only_payload(content, "append")?;
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::append_content(existing, content);
@@ -69,6 +71,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 }
                 crate::ops::file::ensure_not_binary_file(&file_path, path)?;
             }
+            tx.refuse_soft_non_text(&file_path, path)?;
             crate::ops::file::reject_whitespace_only_payload(content, "prepend")?;
             let existing = read_file_content(tx.pending, tx.existed_before, &file_path)?;
             let combined = crate::ops::file::prepend_content(existing, content);
@@ -167,6 +170,7 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                     } else {
                         tx.pending
                             .insert(file_path.clone(), (String::new(), String::new()));
+                        tx.soft_non_text.insert(file_path.clone());
                     }
                     false
                 }
@@ -179,9 +183,10 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 tx.write_file(&file_path, String::new());
                 tx.deletions.insert(file_path.clone());
             }
-            // Deleting a rename dest must drop the pair so commit does not
-            // fs::rename the source back into existence.
-            tx.renames.retain(|(_, to)| to != &file_path);
+            // Deleting a rename dest must drop the full chain back to the
+            // root and keep the root as a deletion so commit does not
+            // fs::rename an intermediate into existence (#2500).
+            drop_rename_chain_ending_at(tx.renames, &file_path);
         }
 
         Operation::FileRename { from, to, force } => {
@@ -246,8 +251,13 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // recorded in `tx.renames` so commit uses `fs::rename` (bytes stay
             // intact). Hard fail only for missing / not-a-file (above) and
             // unreadable IO that is not a content SoftSkip.
-            let content = read_file_content_for_path_op(tx.pending, tx.existed_before, &src_path)?
-                .to_string();
+            let content = read_file_content_for_path_op(
+                tx.pending,
+                tx.existed_before,
+                tx.soft_non_text,
+                &src_path,
+            )?
+            .to_string();
 
             // Check destination does not already exist (unless force or
             // case-only rename on case-insensitive FS).
@@ -268,7 +278,12 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // atomic_create_new which would fail on existing files). Soft-load
             // non-text / special-node dest the same way as source (#2031 / #2091).
             if (*force || case_only) && !tx.pending.contains_key(&dst_path) && dst_kind.exists() {
-                let _ = read_file_content_for_path_op(tx.pending, tx.existed_before, &dst_path)?;
+                let _ = read_file_content_for_path_op(
+                    tx.pending,
+                    tx.existed_before,
+                    tx.soft_non_text,
+                    &dst_path,
+                )?;
             }
 
             // Record renames so commit can use fs::rename and preserve hardlinks
@@ -290,7 +305,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             // does not materialize empty files.
             let src_on_disk = src_kind.exists();
             let src_is_rename_dest = tx.renames.iter().any(|(_, to)| to == &src_path);
-            let dst_on_disk = dst_kind.exists();
+            // Treat a dest deleted earlier in this plan as not on disk so
+            // the fs::rename pair is recorded (#2497).
+            let dst_on_disk = dst_kind.exists() && !tx.deletions.contains(&dst_path);
             if case_only {
                 if src_on_disk || src_is_rename_dest {
                     tx.renames.push((src_path.clone(), dst_path.clone()));
@@ -301,8 +318,12 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
                 tx.renames.push((src_path.clone(), dst_path.clone()));
             }
 
+            let src_soft = tx.soft_non_text.contains(&src_path);
             // Write content to destination.
             tx.write_file(&dst_path, content);
+            if src_soft {
+                tx.soft_non_text.insert(dst_path.clone());
+            }
 
             // Delete source (same logic as file.delete for tx-created files).
             let created_in_tx = match tx.pending.get(&src_path) {
@@ -321,4 +342,15 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
         _ => anyhow::bail!("execute_file_op called with non-file operation"),
     }
     Ok(0)
+}
+
+/// Drop every rename pair in the chain that ends at `dest`, walking back
+/// to the original source. After `a->b`, `b->c`, delete `c` this removes
+/// both pairs so commit does not `fs::rename a -> b` (#2500).
+fn drop_rename_chain_ending_at(renames: &mut Vec<(PathBuf, PathBuf)>, dest: &Path) {
+    let mut current = dest.to_path_buf();
+    while let Some(idx) = renames.iter().position(|(_, to)| to == &current) {
+        let (from, _) = renames.remove(idx);
+        current = from;
+    }
 }

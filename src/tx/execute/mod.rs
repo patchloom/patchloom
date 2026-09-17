@@ -183,6 +183,7 @@ pub(crate) fn read_file_content_for_force_create<'a>(
 pub(crate) fn read_file_content_for_path_op<'a>(
     pending: &'a mut HashMap<PathBuf, (String, String)>,
     existed_before: &mut HashSet<PathBuf>,
+    soft_non_text: &mut HashSet<PathBuf>,
     path: &Path,
 ) -> anyhow::Result<&'a str> {
     use crate::ops::file::{PathEntryKind, classify_path_entry};
@@ -208,12 +209,14 @@ pub(crate) fn read_file_content_for_path_op<'a>(
                 }
                 PathEntryKind::RegularFile | PathEntryKind::Special => {}
             }
+            let mut soft = !kind.is_regular_file();
             let content = if kind.is_regular_file() {
                 match crate::files::load_text_strict(path, &display) {
                     Ok(s) => s,
                     Err(e)
                         if crate::exit::is_binary(&e) || crate::exit::is_invalid_encoding(&e) =>
                     {
+                        soft = true;
                         String::new()
                     }
                     Err(e) => return Err(e),
@@ -222,6 +225,9 @@ pub(crate) fn read_file_content_for_path_op<'a>(
                 // Symlink / FIFO / socket / device: empty path-only snapshot.
                 String::new()
             };
+            if soft {
+                soft_non_text.insert(path.to_path_buf());
+            }
             existed_before.insert(path.to_path_buf());
             Ok(&entry.insert((content.clone(), content)).1)
         }
@@ -304,10 +310,8 @@ impl TxState<'_> {
     /// so commit-time write_policy can re-apply after non-tidy writers (#1847).
     pub(crate) fn write_file(&mut self, path: &Path, new_content: String) {
         self.policy_finalized.remove(path);
-        // Only when clearing a prior deletion (resurrect) drop rename pairs
-        // that still name this path as source. Staging a rename source as
-        // empty+delete must not wipe the pair we just recorded.
-        let resurrecting = self.deletions.contains(path);
+        // Keep rename pairs when a later create resurrects the source
+        // (#2498). Commit renames first, then writes the new source.
         update_file_content(
             self.pending,
             self.deletions,
@@ -315,9 +319,18 @@ impl TxState<'_> {
             path,
             new_content,
         );
-        if resurrecting {
-            self.renames.retain(|(from, _)| from != path);
+        self.soft_non_text.remove(path);
+    }
+
+    /// Content ops must not treat a path-only soft-load as empty text (#2499).
+    pub(crate) fn refuse_soft_non_text(&self, path: &Path, display: &str) -> anyhow::Result<()> {
+        if self.soft_non_text.contains(path) {
+            return Err(crate::exit::BinaryError {
+                msg: format!("target is a binary file: {display}"),
+            }
+            .into());
         }
+        Ok(())
     }
 
     /// Path is still visible to `if_exists`: staged (and not deleted) or on disk.
@@ -469,6 +482,9 @@ pub(crate) struct TxState<'a> {
     pub(crate) replace_match_meta: &'a mut HashMap<PathBuf, super::output::ReplaceMatchMeta>,
     /// Explicit `file.rename` pairs `(from, to)` for hardlink-preserving commit.
     pub(crate) renames: &'a mut Vec<(PathBuf, PathBuf)>,
+    /// Paths whose pending snapshot is a path-only soft-load (binary,
+    /// invalid UTF-8, or special node). Content ops must refuse (#2499).
+    pub(crate) soft_non_text: &'a mut HashSet<PathBuf>,
     pub(crate) cwd: &'a Path,
     pub(crate) quiet: bool,
     pub(crate) structured: bool,
@@ -502,6 +518,7 @@ pub(crate) struct TxStateFixture {
     pub replace_match_meta: HashMap<PathBuf, crate::tx::output::ReplaceMatchMeta>,
     pub renames: Vec<(PathBuf, PathBuf)>,
     pub policy_finalized: HashSet<PathBuf>,
+    pub soft_non_text: HashSet<PathBuf>,
 }
 
 #[cfg(test)]
@@ -520,6 +537,7 @@ impl TxStateFixture {
             replace_match_meta: HashMap::new(),
             renames: Vec::new(),
             policy_finalized: HashSet::new(),
+            soft_non_text: HashSet::new(),
         }
     }
 
@@ -537,6 +555,7 @@ impl TxStateFixture {
             replace_hint: None,
             replace_match_meta: &mut self.replace_match_meta,
             renames: &mut self.renames,
+            soft_non_text: &mut self.soft_non_text,
             cwd,
             quiet: true,
             structured: false,
@@ -834,6 +853,7 @@ pub(crate) fn execute_and_collect(
     let mut replace_match_meta: HashMap<PathBuf, super::output::ReplaceMatchMeta> = HashMap::new();
     let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut policy_finalized: HashSet<PathBuf> = HashSet::new();
+    let mut soft_non_text: HashSet<PathBuf> = HashSet::new();
 
     // Upfront PathGuard (same contract as execute_plan_inner /
     // execute_plan_direct). CLI `tx` and `batch` call this function directly.
@@ -884,6 +904,7 @@ pub(crate) fn execute_and_collect(
             replace_hint: None,
             replace_match_meta: &mut replace_match_meta,
             renames: &mut renames,
+            soft_non_text: &mut soft_non_text,
             cwd,
             quiet,
             structured,

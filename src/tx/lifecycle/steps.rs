@@ -293,7 +293,13 @@ pub(crate) fn revert_strict_lifecycle(
             errors.push(format!("backup restore failed for session {ts}: {e}"));
         }
     } else {
-        rollback_strict(changes, pending, deletions, existed_before, true);
+        errors.extend(rollback_strict(
+            changes,
+            pending,
+            deletions,
+            existed_before,
+            true,
+        ));
     }
     if let Err(failed) = restore_collateral_files(collateral) {
         for path in failed {
@@ -316,26 +322,41 @@ pub(crate) fn rollback_strict(
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     quiet: bool,
-) {
+) -> Vec<String> {
     let noop_policy = WritePolicy::default();
+    let mut errors = Vec::new();
+    let mut created_files = Vec::new();
     for (path, original, _) in changes {
         if !existed_before.contains(path) {
             // File was created during this tx. Whether it was also deleted
             // does not matter: it should not exist after rollback.
-            if let Err(e) = std::fs::remove_file(path)
-                && !quiet
+            let remove_err = if super::commit::FORCE_REMOVE_FAIL
+                .with(|f| f.load(std::sync::atomic::Ordering::SeqCst))
             {
-                eprintln!(
-                    "tx: rollback: failed to remove created file {}: {e}",
+                Some(std::io::Error::other(format!(
+                    "injected remove_file failure for {}",
                     path.display()
-                );
+                )))
+            } else {
+                std::fs::remove_file(path).err()
+            };
+            if let Some(e) = remove_err {
+                let msg = format!("failed to remove created file {}: {e}", path.display());
+                if !quiet {
+                    eprintln!("tx: rollback: {msg}");
+                }
+                errors.push(msg);
+            } else {
+                created_files.push(path.clone());
             }
         } else if !deletions.contains(path) {
             // File existed before and was modified (not deleted): restore.
-            if let Err(e) = atomic_write(path, original, &noop_policy)
-                && !quiet
-            {
-                eprintln!("tx: rollback: failed to restore {}: {e}", path.display());
+            if let Err(e) = atomic_write(path, original, &noop_policy) {
+                let msg = format!("failed to restore {}: {e}", path.display());
+                if !quiet {
+                    eprintln!("tx: rollback: {msg}");
+                }
+                errors.push(msg);
             }
         }
         // If existed_before AND in deletions: handled by the deletions loop below.
@@ -344,6 +365,11 @@ pub(crate) fn rollback_strict(
         if let Some((orig, _)) = pending.get(path)
             && existed_before.contains(path)
         {
+            // Soft-empty snapshots are binary / special-node deletes. Do not
+            // recreate them as 0-byte regular files (#2502).
+            if orig.is_empty() {
+                continue;
+            }
             // Ensure parent directory exists before restoring; the directory
             // may have been removed if the deletion was the last file in it.
             if let Some(parent) = path.parent()
@@ -351,24 +377,36 @@ pub(crate) fn rollback_strict(
                 && !parent.exists()
                 && let Err(e) = std::fs::create_dir_all(parent)
             {
+                let msg = format!("failed to create dir {}: {e}", parent.display());
                 if !quiet {
-                    eprintln!(
-                        "tx: rollback: failed to create dir {}: {e}",
-                        parent.display()
-                    );
+                    eprintln!("tx: rollback: {msg}");
                 }
+                errors.push(msg);
                 continue;
             }
-            if let Err(e) = atomic_write(path, orig, &noop_policy)
-                && !quiet
-            {
-                eprintln!(
-                    "tx: rollback: failed to restore deleted {}: {e}",
-                    path.display()
-                );
+            if let Err(e) = atomic_write(path, orig, &noop_policy) {
+                let msg = format!("failed to restore deleted {}: {e}", path.display());
+                if !quiet {
+                    eprintln!("tx: rollback: {msg}");
+                }
+                errors.push(msg);
             }
         }
     }
+    // Best-effort: drop empty parents of tx-created files (no-backup path).
+    for path in created_files {
+        let mut parent = path.parent().map(Path::to_path_buf);
+        while let Some(dir) = parent {
+            if dir.as_os_str().is_empty() || !dir.is_dir() {
+                break;
+            }
+            if std::fs::remove_dir(&dir).is_err() {
+                break;
+            }
+            parent = dir.parent().map(Path::to_path_buf);
+        }
+    }
+    errors
 }
 
 /// Run format and validation lifecycle steps. Returns `None` on success.

@@ -42,6 +42,9 @@ thread_local! {
     /// longer reach commit: create/rename stage reject that case).
     pub(crate) static FORCE_WRITE_FAIL_CONTAINS: std::cell::RefCell<Option<String>> =
         const { std::cell::RefCell::new(None) };
+    /// When set, `rollback_strict` treats `remove_file` as failed (#2502).
+    pub(crate) static FORCE_REMOVE_FAIL: std::sync::atomic::AtomicBool =
+        const { std::sync::atomic::AtomicBool::new(false) };
 }
 
 /// RAII guard that forces restore failure on the current thread only.
@@ -58,6 +61,26 @@ impl RestoreFailGuard {
 impl Drop for RestoreFailGuard {
     fn drop(&mut self) {
         FORCE_RESTORE_FAIL.with(|flag| flag.store(false, std::sync::atomic::Ordering::SeqCst));
+    }
+}
+
+/// RAII guard that forces `rollback_strict` remove_file failure (#2502).
+#[cfg(test)]
+#[doc(hidden)]
+pub struct RemoveFailGuard;
+
+#[cfg(test)]
+impl RemoveFailGuard {
+    pub fn engage() -> Self {
+        FORCE_REMOVE_FAIL.with(|flag| flag.store(true, std::sync::atomic::Ordering::SeqCst));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for RemoveFailGuard {
+    fn drop(&mut self) {
+        FORCE_REMOVE_FAIL.with(|flag| flag.store(false, std::sync::atomic::Ordering::SeqCst));
     }
 }
 
@@ -167,6 +190,27 @@ pub(crate) fn commit_changes(
         }
     }
 
+    // Record parent dirs that do not exist yet so rollback/undo can remove
+    // the empty tree create_dir_all is about to add (#2501).
+    let mut seen_dirs = HashSet::new();
+    for (path, _, _) in changes {
+        if deletions.contains(path) {
+            continue;
+        }
+        for dir in missing_ancestor_dirs(path) {
+            if seen_dirs.insert(dir.clone()) {
+                backup.record_created_dir(&dir);
+            }
+        }
+    }
+    for (_, to) in renames {
+        for dir in missing_ancestor_dirs(to) {
+            if seen_dirs.insert(dir.clone()) {
+                backup.record_created_dir(&dir);
+            }
+        }
+    }
+
     // Finalize before writes so undo can recover from a mid-commit failure.
     let backup_session = backup
         .finalize()
@@ -174,26 +218,10 @@ pub(crate) fn commit_changes(
 
     // Prefer explicit file.rename records (covers rename-then-edit). Fall back
     // to content-based pure-rename detection for any remaining pairs.
-    // Drop stale rename records when a later op resurrected the source (e.g.
-    // rename a→b then create a) or removed the dest (rename a→b then delete b).
-    // Otherwise commit still fs::renames and skips writing resurrected content.
-    // Drop renames whose source was resurrected (e.g. rename a→b then create a).
-    // Keep intermediate chain sources that may not be in `deletions` because
-    // they were create-in-tx rename dests (empty original) before a further rename.
-    let mut rename_pairs: Vec<(PathBuf, PathBuf)> = renames
-        .iter()
-        .filter(|(from, _to)| {
-            if deletions.contains(from) {
-                return true;
-            }
-            // Resurrected: source is a non-empty write and not deleted.
-            let resurrected = changes
-                .iter()
-                .any(|(p, _, new_c)| p == from && !new_c.is_empty());
-            !resurrected
-        })
-        .cloned()
-        .collect();
+    // Keep pairs whose source was later recreated (#2498): commit renames
+    // first, then writes the resurrected source. Dest-delete drops the chain
+    // at staging (#2500).
+    let mut rename_pairs: Vec<(PathBuf, PathBuf)> = renames.to_vec();
     let mut covered_from: HashSet<PathBuf> = rename_pairs.iter().map(|(f, _)| f.clone()).collect();
     let mut covered_to: HashSet<PathBuf> = rename_pairs.iter().map(|(_, t)| t.clone()).collect();
     for (from, to) in detect_pure_renames(changes, deletions, existed_before) {
@@ -223,7 +251,21 @@ pub(crate) fn commit_changes(
 
         for (path, _, new_content) in changes {
             if renamed_from.contains(path.as_path()) {
-                // Source already moved by rename_or_copy.
+                if deletions.contains(path) {
+                    // Source already moved by rename_or_copy.
+                    continue;
+                }
+                // Resurrected source: inode moved; write new content at the
+                // old path after the rename (#2498).
+                if let Some(parent) = path.parent()
+                    && !parent.as_os_str().is_empty()
+                    && !parent.exists()
+                {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("creating directory {}", parent.display()))?;
+                }
+                injected_write_failure(path)?;
+                atomic_create_new(path, new_content, &noop_policy)?;
                 continue;
             }
             if deletions.contains(path) {
@@ -289,6 +331,30 @@ pub(crate) fn commit_changes(
     }
 
     Ok(backup_session)
+}
+
+/// Ancestors of `path` that do not exist yet (outermost first).
+fn missing_ancestor_dirs(path: &Path) -> Vec<PathBuf> {
+    let mut missing = Vec::new();
+    let Some(parent) = path.parent() else {
+        return missing;
+    };
+    if parent.as_os_str().is_empty() {
+        return missing;
+    }
+    let mut cur = parent.to_path_buf();
+    loop {
+        if cur.exists() {
+            break;
+        }
+        missing.push(cur.clone());
+        match cur.parent() {
+            Some(p) if p != cur && !p.as_os_str().is_empty() => cur = p.to_path_buf(),
+            _ => break,
+        }
+    }
+    missing.reverse();
+    missing
 }
 
 /// True when every rename source of `dest` has empty staged original content

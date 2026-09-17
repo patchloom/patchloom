@@ -225,6 +225,7 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
 
     if let Some(p) = path {
         let file_path = tx.cwd.join(p);
+        tx.refuse_soft_non_text(&file_path, p)?;
         // Strict load via read_file_content (#1894); sole binary / invalid UTF-8
         // fail closed. Soft if_exists still soft-skips missing paths.
         // CLI `replace --if-exists` soft-skips missing paths (`skipped[]`).
@@ -574,6 +575,9 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
         }
 
         for file_path in candidate_paths {
+            if tx.soft_non_text.contains(&file_path) {
+                continue;
+            }
             // Scan from pending when a prior write staged the path; otherwise
             // read a local buffer. Do not pending-insert read-only misses.
             let content = if let Some((_, staged)) = tx.pending.get(&file_path) {
