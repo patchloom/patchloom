@@ -16,7 +16,7 @@ mod basic {
 
         let args = MdArgs {
             action: MdAction::ReplaceSection {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Title".into(),
                 stdin: false,
                 content: Some("new content".into()),
@@ -55,7 +55,7 @@ mod basic {
 
         let args = MdArgs {
             action: MdAction::ReplaceSection {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Title".into(),
                 stdin: false,
                 content: Some("new content".into()),
@@ -84,7 +84,7 @@ mod basic {
 
         let args = MdArgs {
             action: MdAction::InsertAfterHeading {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Title".into(),
                 stdin: false,
                 content: Some("inserted".into()),
@@ -112,7 +112,7 @@ mod basic {
 
         let args = MdArgs {
             action: MdAction::UpsertBullet {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "List".into(),
                 bullet: "item2".into(),
             },
@@ -140,7 +140,7 @@ mod basic {
 
         let args = MdArgs {
             action: MdAction::DedupeHeadings {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -169,7 +169,7 @@ mod basic {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -229,7 +229,7 @@ mod basic {
 
         let args = MdArgs {
             action: MdAction::TableAppend {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Table".into(),
                 row: "| C | D |".into(),
             },
@@ -367,7 +367,7 @@ mod edge_cases {
 
         let args = MdArgs {
             action: MdAction::UpsertBullet {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "List".into(),
                 bullet: "- item1".into(),
             },
@@ -441,7 +441,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::ReplaceSection {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Missing".into(),
                 stdin: false,
                 content: Some("new".into()),
@@ -460,7 +460,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::InsertAfterHeading {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Missing".into(),
                 stdin: false,
                 content: Some("inserted".into()),
@@ -479,7 +479,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::UpsertBullet {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Missing".into(),
                 bullet: "new item".into(),
             },
@@ -497,7 +497,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::TableAppend {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Missing".into(),
                 row: "| X |".into(),
             },
@@ -515,7 +515,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::ReplaceSection {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Missing".into(),
                 stdin: false,
                 content: Some("new".into()),
@@ -539,7 +539,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::TableAppend {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Missing".into(),
                 row: "| X |".into(),
             },
@@ -559,7 +559,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::TableAppend {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Title".into(),
                 row: "| X |".into(),
             },
@@ -579,7 +579,7 @@ mod error_handling {
 
         let args = MdArgs {
             action: MdAction::ReplaceSection {
-                file: missing.to_str().unwrap().to_string(),
+                files: vec![missing.to_str().unwrap().to_string()],
                 heading: "Title".into(),
                 stdin: false,
                 content: Some("new".into()),
@@ -657,7 +657,7 @@ mod security {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -673,7 +673,7 @@ mod security {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -689,7 +689,7 @@ mod security {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -709,7 +709,7 @@ mod security {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -729,7 +729,7 @@ mod security {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -745,7 +745,7 @@ mod security {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -787,7 +787,7 @@ mod security {
 
         let args = MdArgs {
             action: MdAction::LintAgents {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
             },
             write: Default::default(),
         };
@@ -812,7 +812,7 @@ mod format_preservation {
 
         let args = MdArgs {
             action: MdAction::ReplaceSection {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Title".into(),
                 stdin: false,
                 content: Some("replaced".into()),
@@ -838,7 +838,7 @@ mod format_preservation {
 
         let args = MdArgs {
             action: MdAction::TableAppend {
-                file: file.to_str().unwrap().to_string(),
+                files: vec![file.to_str().unwrap().to_string()],
                 heading: "Table".into(),
                 row: "| B |".into(),
             },
@@ -861,5 +861,51 @@ mod format_preservation {
             "next section damaged"
         );
         assert!(result.contains("| B |"), "new row missing");
+    }
+}
+
+mod multi_path {
+    use super::*;
+
+    #[test]
+    fn upsert_bullet_two_files() {
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.md");
+        let b = dir.path().join("b.md");
+        fs::write(&a, "## X\n\n- keep\n").unwrap();
+        fs::write(&b, "## X\n\n- keep\n").unwrap();
+
+        let args = MdArgs {
+            action: MdAction::UpsertBullet {
+                files: vec![
+                    a.to_str().unwrap().to_string(),
+                    b.to_str().unwrap().to_string(),
+                ],
+                heading: "X".into(),
+                bullet: "- y".into(),
+            },
+            write: Default::default(),
+        };
+        let code = run(args, &GlobalFlags::test_apply()).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(fs::read_to_string(&a).unwrap().contains("- y"));
+        assert!(fs::read_to_string(&b).unwrap().contains("- y"));
+    }
+
+    #[test]
+    fn dest_glob_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let args = MdArgs {
+            action: MdAction::UpsertBullet {
+                files: vec!["*.md".into()],
+                heading: "X".into(),
+                bullet: "- y".into(),
+            },
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
     }
 }

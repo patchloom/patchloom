@@ -312,7 +312,7 @@ mod basic {
         let action = DocAction::Set {
             file: path.clone(),
             selector: "age".into(),
-            value: "42".into(),
+            value: Some("42".into()),
             if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -331,7 +331,7 @@ mod basic {
         let action = DocAction::Set {
             file: path.clone(),
             selector: "name".into(),
-            value: "world".into(),
+            value: Some("world".into()),
             if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -350,7 +350,7 @@ mod basic {
         let action = DocAction::Set {
             file: path.to_string_lossy().into_owned(),
             selector: "a".into(),
-            value: "2".into(),
+            value: Some("2".into()),
             if_exists: true,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -367,7 +367,7 @@ mod basic {
         let action = DocAction::Set {
             file: path.clone(),
             selector: "missing".into(),
-            value: "9".into(),
+            value: Some("9".into()),
             if_exists: true,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -387,7 +387,7 @@ mod basic {
         let action = DocAction::Set {
             file: path.clone(),
             selector: "a".into(),
-            value: "2".into(),
+            value: Some("2".into()),
             if_exists: true,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -407,7 +407,7 @@ mod basic {
         let action = DocAction::Update {
             file: path.clone(),
             selector: "env[name=FEATURE_FLAG].value".into(),
-            value: "on".into(),
+            value: Some("on".into()),
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -530,7 +530,7 @@ mod basic {
         let action = DocAction::Append {
             file: path.clone(),
             selector: "items".into(),
-            value: "4".into(),
+            value: Some("4".into()),
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -548,7 +548,7 @@ mod basic {
         let action = DocAction::Prepend {
             file: path.clone(),
             selector: "items".into(),
-            value: "0".into(),
+            value: Some("0".into()),
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -603,7 +603,7 @@ mod basic {
         let action = DocAction::Ensure {
             file: path.clone(),
             selector: "age".into(),
-            value: "30".into(),
+            value: Some("30".into()),
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -645,7 +645,7 @@ mod basic {
         let action = DocAction::Set {
             file: path.clone(),
             selector: "name".into(),
-            value: "world".into(),
+            value: Some("world".into()),
             if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -666,7 +666,7 @@ mod basic {
         let action = DocAction::Set {
             file: path,
             selector: "name".into(),
-            value: "world".into(),
+            value: Some("world".into()),
             if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -728,7 +728,7 @@ mod basic {
         let action = DocAction::Set {
             file: path.clone(),
             selector: "version".into(),
-            value: "\"2.0\"".into(),
+            value: Some("\"2.0\"".into()),
             if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
@@ -817,7 +817,7 @@ mod edge_cases {
         let action = DocAction::Ensure {
             file: path.clone(),
             selector: "name".into(),
-            value: "overwritten".into(),
+            value: Some("overwritten".into()),
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -1110,7 +1110,7 @@ mod error_handling {
         let action = DocAction::Append {
             file: path,
             selector: "name".into(),
-            value: "42".into(),
+            value: Some("42".into()),
         };
         let global = GlobalFlags::test_with_cwd(dir.path());
         let code = run_doc(action, &global).unwrap();
@@ -1124,7 +1124,7 @@ mod error_handling {
         let action = DocAction::Prepend {
             file: path,
             selector: "name".into(),
-            value: "42".into(),
+            value: Some("42".into()),
         };
         let global = GlobalFlags::test_with_cwd(dir.path());
         let code = run_doc(action, &global).unwrap();
@@ -1310,6 +1310,53 @@ mod error_paths {
             value: Some(r#"{"b": 2}"#.to_string()),
         };
         let code = run_doc(action, &GlobalFlags::test_default()).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+}
+
+mod multi_path {
+    use super::*;
+
+    #[test]
+    fn set_glob_shifts_selector_and_value() {
+        let dir = TempDir::new().unwrap();
+        let pkg = dir.path().join("pkg");
+        fs::create_dir(&pkg).unwrap();
+        fs::write(pkg.join("package.json"), r#"{"version":"1.0.0"}"#).unwrap();
+        fs::write(dir.path().join("notes.md"), "# n\n").unwrap();
+
+        let action = DocAction::Set {
+            file: "version".into(),
+            selector: "2.0.0".into(),
+            value: None,
+            if_exists: false,
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        global.glob = vec!["**/package.json".into()];
+        let code = run_doc(action, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let body = fs::read_to_string(pkg.join("package.json")).unwrap();
+        assert!(body.contains("2.0.0"), "{body}");
+        assert!(
+            !fs::read_to_string(dir.path().join("notes.md"))
+                .unwrap()
+                .contains("2.0.0")
+        );
+    }
+
+    #[test]
+    fn dest_glob_is_invalid_input() {
+        let dir = TempDir::new().unwrap();
+        let action = DocAction::Set {
+            file: "*.json".into(),
+            selector: "version".into(),
+            value: Some("2".into()),
+            if_exists: false,
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_doc(action, &global).unwrap();
         assert_eq!(code, exit::FAILURE);
     }
 }

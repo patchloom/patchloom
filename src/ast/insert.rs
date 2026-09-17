@@ -59,14 +59,44 @@ pub fn insert_code(
         }));
     }
 
-    let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols_or_timeout(source, lang)?;
+    insert_code_from_symbols(
+        source, &symbols, content, inside, after, before, position, lang,
+    )
+}
+
+/// Like [`insert_code`] using a pre-extracted symbol list (tx tree cache).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn insert_code_from_symbols(
+    source: &str,
+    symbols: &[SymbolDef],
+    content: &str,
+    inside: Option<&str>,
+    after: Option<&str>,
+    before: Option<&str>,
+    position: InsertPosition,
+    lang: Language,
+) -> anyhow::Result<InsertResult> {
+    let mode_count = inside.is_some() as u8 + after.is_some() as u8 + before.is_some() as u8;
+    if mode_count != 1 {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "exactly one of 'inside', 'after', or 'before' must be specified".into(),
+        }));
+    }
+
+    if content.trim().is_empty() && !content.contains('\n') && !content.contains('\r') {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast insert content must not be empty".into(),
+        }));
+    }
+
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     let ctx = InsertContext {
         source,
         content,
-        symbols: &symbols,
+        symbols,
         lines: &lines,
         lang,
         eol,

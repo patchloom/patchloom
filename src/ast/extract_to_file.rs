@@ -5,7 +5,7 @@
 
 use super::Language;
 use super::symbols::{
-    SymbolKind, extract_symbol_text, find_symbol, full_symbol_span, try_extract_symbols,
+    SymbolDef, SymbolKind, extract_symbol_text, find_symbol, full_symbol_span, try_extract_symbols,
 };
 
 /// Result of an extract-to-file operation.
@@ -43,7 +43,6 @@ pub fn extract_to_file(
         }));
     }
 
-    let eol = crate::write::detect_eol(source);
     let symbols = match try_extract_symbols(source, lang) {
         Ok(s) => s,
         Err(crate::ast::ParseFailure::DeadlineExceeded) => {
@@ -59,7 +58,31 @@ pub fn extract_to_file(
             .into());
         }
     };
-    let sym = find_symbol(&symbols, symbol).ok_or_else(|| {
+    extract_to_file_from_symbols(source, &symbols, symbol, replacement, unwrap, prepend, lang)
+}
+
+/// Like [`extract_to_file`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn extract_to_file_from_symbols(
+    source: &str,
+    symbols: &[SymbolDef],
+    symbol: &str,
+    replacement: Option<&str>,
+    unwrap: bool,
+    prepend: Option<&str>,
+    lang: Language,
+) -> anyhow::Result<ExtractResult> {
+    if let Some(pre) = prepend
+        && pre.trim().is_empty()
+        && !pre.contains('\n')
+        && !pre.contains('\r')
+    {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast extract prepend must not be empty".into(),
+        }));
+    }
+
+    let eol = crate::write::detect_eol(source);
+    let sym = find_symbol(symbols, symbol).ok_or_else(|| {
         anyhow::Error::new(crate::exit::NoMatchError {
             msg: format!("symbol '{symbol}' not found"),
         })

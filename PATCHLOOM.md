@@ -258,7 +258,7 @@ Use these names in plans, MCP args, and CLI flags (do not invent alternates):
 | Text/identifier before | `old` | CLI **replace**: positional `OLD` (not `--old`). CLI **ast rename/replace**: `--old`. Plans/MCP: `"old"`. |
 | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `"new"`. |
 | Doc path into a document | `selector` | CLI positional. Plans/MCP: `"selector"`. |
-| AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). `ast replace-symbol PATH --symbol NAME --content TEXT`; `ast delete-symbol PATH --symbol NAME`. |
+| AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). `ast replace-symbol PATH --symbol NAME --content TEXT`; `ast delete-symbol PATH --symbol NAME`. `ast insert PATH --content CODE --after SYMBOL`; `ast wrap PATH --wrapper W --symbols a,b`; `ast imports PATH --add I`; `ast rewrite-signature PATH --old NAME --parameters P`. |
 | AST refs / impact | symbol first | `ast refs SYMBOL PATH` / `ast impact SYMBOL PATH` (no `--name` flag; #1841). |
 | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |
 
@@ -282,7 +282,7 @@ md.upsert_bullet CHANGELOG.md "## Changes" "- Bumped to 2.0.0"
 EOF
 ```
 
-One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays (`file.create f.json {"x":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, `\n` `\t` `\r` `\\` `\"` expand (multi-line content on one batch line). Prefer positional content (`file.create f.txt "hi"`); a leading `content=` / `body=` key is also accepted so plan-shaped lines do not write literal `content=…` bytes. The same peel applies to md `heading=`/`content=`/`bullet=`/`row=`, `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`heading=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, doc `selector=`/`key=`/`value=`/`predicate=`, `tidy.fix` `path=`, and bare `path=` on single-path ops.
+One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays (`file.create f.json {"x":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, `\n` `\t` `\r` `\\` `\"` expand (multi-line content on one batch line). Prefer positional content (`file.create f.txt "hi"`); a leading `content=` / `body=` key is also accepted so plan-shaped lines do not write literal `content=…` bytes. The same peel applies to md `heading=`/`content=`/`bullet=`/`row=`, `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`heading=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, `ast.insert`/`ast.wrap`/`ast.imports`/`ast.reorder`/`ast.group`/`ast.move`/`ast.extract_to_file`/`ast.split` `--inside`/`--after`/`--symbols`/`@path` content, doc `selector=`/`key=`/`value=`/`predicate=`, `tidy.fix` `path=`, and bare `path=` on single-path ops.
 Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). Optional `old=`/`new=` (or `from=`/`to=`) prefixes on the pattern tokens are peeled. Optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.
 
 On Windows (where heredocs are not available), write operations to a file and pass it:
@@ -484,6 +484,7 @@ ast.rename src/lib.rs OldStruct NewStruct
 ast.replace src/config.rs default_timeout "30" "60"
 # path old parameters [return_type]:
 ast.rewrite_signature src/lib.rs process "(x: u64)" "-> u64"
+ast.insert src/lib.rs "fn added() {}" --after existing
 ```
 
 ## Selector path syntax

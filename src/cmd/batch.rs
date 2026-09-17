@@ -5,6 +5,7 @@ use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::plan::{Operation, Plan};
 use clap::Args;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// Maximum number of operations in a single batch. Prevents unbounded
@@ -53,7 +54,19 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// ast.replace_symbol <path> <symbol> <content>
 /// ast.delete_symbol <path> <symbol>
 /// ast.rewrite_signature <path> <old> <parameters> [return_type]
+/// ast.insert <path> <content> [--inside X] [--after X] [--before X] [--position start|end]
+/// ast.wrap <path> <wrapper> [--symbols a,b] [--lines N-M] [--preamble T]
+/// ast.imports <path> [--add I] [--remove I] [--dedupe]
+/// ast.reorder <path> <order>
+/// ast.group <path> <module> <symbol> [symbol...]
+/// ast.move <path> <target> <symbol> [symbol...] [--position P]
+/// ast.extract_to_file <source> <symbol> <target>
+/// ast.split <source> <targets-json>
 /// ```
+///
+/// A content, wrapper, or preamble token that is exactly `@path` is read from
+/// that file (fail closed if missing). `@` inside other quoted code is left
+/// as-is.
 ///
 /// Lines starting with `#` are comments. Empty lines are ignored.
 /// Values containing spaces must be quoted with double quotes.
@@ -66,7 +79,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   md.insert_after_section, md.insert_before_heading (alias md.insert_before_section),
   md.move_section, md.dedupe_headings,
   md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.replace_symbol,
-  ast.delete_symbol, ast.rewrite_signature
+  ast.delete_symbol, ast.rewrite_signature, ast.insert, ast.wrap, ast.imports,
+  ast.reorder, ast.group, ast.move, ast.extract_to_file, ast.split
 
 REPLACE SHAPE:
   Batch:  replace PATH OLD NEW [--fuzzy …]
@@ -423,6 +437,22 @@ fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Res
                 lang: None
             })
         }
+        #[cfg(feature = "ast")]
+        "ast.insert" => parse_ast_insert(args, line_num, cwd),
+        #[cfg(feature = "ast")]
+        "ast.wrap" => parse_ast_wrap(args, line_num, cwd),
+        #[cfg(feature = "ast")]
+        "ast.imports" => parse_ast_imports(args, line_num),
+        #[cfg(feature = "ast")]
+        "ast.reorder" => parse_ast_reorder(args, line_num),
+        #[cfg(feature = "ast")]
+        "ast.group" => parse_ast_group(args, line_num, cwd),
+        #[cfg(feature = "ast")]
+        "ast.move" => parse_ast_move(args, line_num),
+        #[cfg(feature = "ast")]
+        "ast.extract_to_file" => parse_ast_extract_to_file(args, line_num),
+        #[cfg(feature = "ast")]
+        "ast.split" => parse_ast_split(args, line_num),
 
         _ => Err(anyhow::Error::new(crate::exit::ParseErrorError {
             msg: unknown_batch_op_msg(line_num, op),
@@ -462,6 +492,14 @@ const KNOWN_BATCH_OPS: &[&str] = &[
     "ast.replace_symbol",
     "ast.delete_symbol",
     "ast.rewrite_signature",
+    "ast.insert",
+    "ast.wrap",
+    "ast.imports",
+    "ast.reorder",
+    "ast.group",
+    "ast.move",
+    "ast.extract_to_file",
+    "ast.split",
 ];
 
 /// Ops that exist as standalone CLI / tx but not in batch line format.
@@ -479,14 +517,6 @@ fn batch_unsupported_hint(op: &str) -> Option<&'static str> {
         "apply.fragment" | "apply_fragment" | "apply-fragment" => {
             Some("not supported in batch; use a tx plan (`apply.fragment`) or MCP `apply_fragment`")
         }
-        "ast.insert"
-        | "ast.wrap"
-        | "ast.imports"
-        | "ast.group"
-        | "ast.move"
-        | "ast.extract_to_file"
-        | "ast.split"
-        | "ast.reorder" => Some("not supported in batch; use a tx plan or MCP ast_* tools"),
         _ => None,
     }
 }
@@ -637,6 +667,571 @@ fn path_is_file_under_cwd(p: &str, cwd: Option<&Path>) -> bool {
     } else {
         path.is_file()
     }
+}
+
+fn path_under_cwd(p: &str, cwd: Option<&Path>) -> std::path::PathBuf {
+    let path = Path::new(p);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Some(cwd) = cwd {
+        cwd.join(p)
+    } else {
+        path.to_path_buf()
+    }
+}
+
+/// Read `@path` payloads for content-bearing batch fields.
+///
+/// Only the whole token (after quote stripping / key peel) is treated as a
+/// file reference. `@` inside other source is left unchanged. Missing files
+/// fail closed as not_found.
+fn resolve_at_payload(
+    value: &str,
+    cwd: Option<&Path>,
+    line_num: usize,
+    field: &str,
+) -> anyhow::Result<String> {
+    let Some(rest) = value.strip_prefix('@') else {
+        return Ok(value.to_string());
+    };
+    if rest.is_empty() {
+        return Ok(value.to_string());
+    }
+    let path = path_under_cwd(rest, cwd);
+    if !path.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("line {line_num}: {field} file '{rest}' not found"),
+        )
+        .into());
+    }
+    std::fs::read_to_string(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("line {line_num}: {field} file '{rest}' not found"),
+            )
+            .into()
+        } else {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("line {line_num}: failed to read {field} file '{rest}': {e}"),
+            })
+        }
+    })
+}
+
+fn resolve_content_token(
+    tok: &BatchToken,
+    keys: &[&str],
+    cwd: Option<&Path>,
+    line_num: usize,
+    field: &str,
+) -> anyhow::Result<String> {
+    let raw = peel_owned(tok, keys);
+    resolve_at_payload(&raw, cwd, line_num, field)
+}
+
+fn split_csv_symbols(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+struct PeeledFlags {
+    positionals: Vec<BatchToken>,
+    values: BTreeMap<String, Vec<String>>,
+    switches: BTreeSet<String>,
+}
+
+fn peel_cli_flags(
+    args: &[BatchToken],
+    valued: &[&str],
+    switches: &[&str],
+    line_num: usize,
+    op: &str,
+) -> anyhow::Result<PeeledFlags> {
+    let mut positionals = Vec::new();
+    let mut values: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut switch_set = BTreeSet::new();
+    let mut i = 0usize;
+    while i < args.len() {
+        let tok = args[i].as_str();
+        if let Some(rest) = tok.strip_prefix("--") {
+            let (name, inline) = match rest.split_once('=') {
+                Some((n, v)) => (n, Some(v.to_string())),
+                None => (rest, None),
+            };
+            if switches.contains(&name) {
+                if inline.is_some() {
+                    return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                        msg: format!("line {line_num}: '{op}' flag --{name} does not take a value"),
+                    }));
+                }
+                switch_set.insert(name.to_string());
+                i += 1;
+                continue;
+            }
+            if valued.contains(&name) {
+                let val = if let Some(v) = inline {
+                    v
+                } else {
+                    i += 1;
+                    args.get(i).map(|t| t.value.clone()).ok_or_else(|| {
+                        anyhow::Error::new(crate::exit::ParseErrorError {
+                            msg: format!("line {line_num}: '{op}' --{name} requires a value"),
+                        })
+                    })?
+                };
+                values.entry(name.to_string()).or_default().push(val);
+                i += 1;
+                continue;
+            }
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("line {line_num}: '{op}' unknown flag --{name}"),
+            }));
+        }
+        positionals.push(args[i].clone());
+        i += 1;
+    }
+    Ok(PeeledFlags {
+        positionals,
+        values,
+        switches: switch_set,
+    })
+}
+
+fn first_flag<'a>(flags: &'a PeeledFlags, name: &str) -> Option<&'a str> {
+    flags
+        .values
+        .get(name)
+        .and_then(|v| v.first())
+        .map(String::as_str)
+}
+
+fn flag_values(flags: &PeeledFlags, name: &str) -> Vec<String> {
+    flags.values.get(name).cloned().unwrap_or_default()
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_insert(
+    args: &[BatchToken],
+    line_num: usize,
+    cwd: Option<&Path>,
+) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &["inside", "after", "before", "position", "content", "lang"],
+        &[],
+        line_num,
+        "ast.insert",
+    )?;
+    if flags.positionals.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.insert' requires a path argument"),
+        }));
+    }
+    let path = peel_owned(&flags.positionals[0], &["path"]);
+    let content = if let Some(c) = first_flag(&flags, "content") {
+        resolve_at_payload(c, cwd, line_num, "content")?
+    } else if flags.positionals.len() >= 2 {
+        resolve_content_token(
+            &flags.positionals[1],
+            &["content", "body"],
+            cwd,
+            line_num,
+            "content",
+        )?
+    } else {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("line {line_num}: 'ast.insert' requires content"),
+        }));
+    };
+    if flags.positionals.len() > 2 {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: 'ast.insert' unexpected extra argument '{}'",
+                flags.positionals[2].as_str()
+            ),
+        }));
+    }
+    op!(AstInsert {
+        path,
+        content,
+        inside: first_flag(&flags, "inside").map(str::to_string),
+        after: first_flag(&flags, "after").map(str::to_string),
+        before: first_flag(&flags, "before").map(str::to_string),
+        position: first_flag(&flags, "position").map(str::to_string),
+        lang: first_flag(&flags, "lang").map(str::to_string),
+    })
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_wrap(
+    args: &[BatchToken],
+    line_num: usize,
+    cwd: Option<&Path>,
+) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &["symbols", "lines", "preamble", "wrapper", "lang"],
+        &[],
+        line_num,
+        "ast.wrap",
+    )?;
+    if flags.positionals.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.wrap' requires a path argument"),
+        }));
+    }
+    let path = peel_owned(&flags.positionals[0], &["path"]);
+    let wrapper = if let Some(w) = first_flag(&flags, "wrapper") {
+        resolve_at_payload(w, cwd, line_num, "wrapper")?
+    } else if flags.positionals.len() >= 2 {
+        resolve_content_token(
+            &flags.positionals[1],
+            &["wrapper"],
+            cwd,
+            line_num,
+            "wrapper",
+        )?
+    } else {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("line {line_num}: 'ast.wrap' requires a wrapper"),
+        }));
+    };
+    if flags.positionals.len() > 2 {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: 'ast.wrap' unexpected extra argument '{}'",
+                flags.positionals[2].as_str()
+            ),
+        }));
+    }
+    let mut symbols = Vec::new();
+    for raw in flag_values(&flags, "symbols") {
+        symbols.extend(split_csv_symbols(&raw));
+    }
+    let preamble = match first_flag(&flags, "preamble") {
+        Some(p) => Some(resolve_at_payload(p, cwd, line_num, "preamble")?),
+        None => None,
+    };
+    op!(AstWrap {
+        path,
+        symbols: if symbols.is_empty() {
+            None
+        } else {
+            Some(symbols)
+        },
+        lines: first_flag(&flags, "lines").map(str::to_string),
+        wrapper,
+        preamble,
+        lang: first_flag(&flags, "lang").map(str::to_string),
+    })
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_imports(args: &[BatchToken], line_num: usize) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &["add", "remove", "lang"],
+        &["dedupe"],
+        line_num,
+        "ast.imports",
+    )?;
+    if flags.positionals.len() != 1 {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: 'ast.imports' requires a path argument, got {}",
+                flags.positionals.len()
+            ),
+        }));
+    }
+    let add = flag_values(&flags, "add");
+    let remove = flag_values(&flags, "remove");
+    op!(AstImports {
+        path: peel_owned(&flags.positionals[0], &["path"]),
+        add: if add.is_empty() { None } else { Some(add) },
+        remove: if remove.is_empty() {
+            None
+        } else {
+            Some(remove)
+        },
+        dedupe: flags.switches.contains("dedupe"),
+        lang: first_flag(&flags, "lang").map(str::to_string),
+    })
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_reorder(args: &[BatchToken], line_num: usize) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &["order", "inside", "lang"],
+        &[],
+        line_num,
+        "ast.reorder",
+    )?;
+    if flags.positionals.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.reorder' requires a path argument"),
+        }));
+    }
+    let path = peel_owned(&flags.positionals[0], &["path"]);
+    let order_raw = if let Some(o) = first_flag(&flags, "order") {
+        o.to_string()
+    } else if flags.positionals.len() >= 2 {
+        peel_owned(&flags.positionals[1], &["order"])
+    } else {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.reorder' requires an order argument"),
+        }));
+    };
+    if flags.positionals.len() > 2 {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: 'ast.reorder' unexpected extra argument '{}'",
+                flags.positionals[2].as_str()
+            ),
+        }));
+    }
+    let order = crate::cmd::ast::parse_reorder_order(&order_raw)?;
+    op!(AstReorder {
+        path,
+        inside: first_flag(&flags, "inside").map(str::to_string),
+        order,
+        lang: first_flag(&flags, "lang").map(str::to_string),
+    })
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_group(
+    args: &[BatchToken],
+    line_num: usize,
+    cwd: Option<&Path>,
+) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &["module", "preamble", "position", "lang"],
+        &[],
+        line_num,
+        "ast.group",
+    )?;
+    if flags.positionals.len() < 2 {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: 'ast.group' requires path, module, and at least one symbol"
+            ),
+        }));
+    }
+    let path = peel_owned(&flags.positionals[0], &["path"]);
+    let module = first_flag(&flags, "module")
+        .map(str::to_string)
+        .unwrap_or_else(|| peel_owned(&flags.positionals[1], &["module"]));
+    let symbol_start = if first_flag(&flags, "module").is_some() {
+        1
+    } else {
+        2
+    };
+    if flags.positionals.len() <= symbol_start {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.group' requires at least one symbol"),
+        }));
+    }
+    let symbols = flags.positionals[symbol_start..]
+        .iter()
+        .map(|t| peel_owned(t, &["symbol", "symbols"]))
+        .collect::<Vec<_>>();
+    let preamble = match first_flag(&flags, "preamble") {
+        Some(p) => Some(resolve_at_payload(p, cwd, line_num, "preamble")?),
+        None => None,
+    };
+    op!(AstGroup {
+        path,
+        module,
+        symbols,
+        preamble,
+        position: first_flag(&flags, "position").map(str::to_string),
+        lang: first_flag(&flags, "lang").map(str::to_string),
+    })
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_move(args: &[BatchToken], line_num: usize) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &["target", "position", "target-prepend", "lang"],
+        &[],
+        line_num,
+        "ast.move",
+    )?;
+    if flags.positionals.len() < 2 {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!(
+                "line {line_num}: 'ast.move' requires path, target, and at least one symbol"
+            ),
+        }));
+    }
+    let path = peel_owned(&flags.positionals[0], &["path"]);
+    let target = first_flag(&flags, "target")
+        .map(str::to_string)
+        .unwrap_or_else(|| peel_owned(&flags.positionals[1], &["target"]));
+    let symbol_start = if first_flag(&flags, "target").is_some() {
+        1
+    } else {
+        2
+    };
+    if flags.positionals.len() <= symbol_start {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.move' requires at least one symbol"),
+        }));
+    }
+    let symbols = flags.positionals[symbol_start..]
+        .iter()
+        .map(|t| peel_owned(t, &["symbol", "symbols"]))
+        .collect::<Vec<_>>();
+    op!(AstMove {
+        path,
+        target,
+        symbols,
+        position: first_flag(&flags, "position").map(str::to_string),
+        target_prepend: first_flag(&flags, "target-prepend").map(str::to_string),
+        lang: first_flag(&flags, "lang").map(str::to_string),
+        update_imports: false,
+        old_module_path: None,
+        new_module_path: None,
+    })
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_extract_to_file(args: &[BatchToken], line_num: usize) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &[
+            "source",
+            "symbol",
+            "target",
+            "replacement",
+            "prepend",
+            "lang",
+        ],
+        &["unwrap", "force"],
+        line_num,
+        "ast.extract_to_file",
+    )?;
+    let mut positionals = flags.positionals.iter();
+    let source = first_flag(&flags, "source")
+        .map(str::to_string)
+        .or_else(|| {
+            positionals
+                .next()
+                .map(|t| peel_owned(t, &["source", "path"]))
+        })
+        .ok_or_else(|| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("line {line_num}: 'ast.extract_to_file' requires a source path"),
+            })
+        })?;
+    let symbol = first_flag(&flags, "symbol")
+        .map(str::to_string)
+        .or_else(|| positionals.next().map(|t| peel_owned(t, &["symbol"])))
+        .ok_or_else(|| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("line {line_num}: 'ast.extract_to_file' requires a symbol"),
+            })
+        })?;
+    let target = first_flag(&flags, "target")
+        .map(str::to_string)
+        .or_else(|| positionals.next().map(|t| peel_owned(t, &["target"])))
+        .ok_or_else(|| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("line {line_num}: 'ast.extract_to_file' requires a target path"),
+            })
+        })?;
+    if positionals.next().is_some() {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.extract_to_file' unexpected extra argument"),
+        }));
+    }
+    op!(AstExtractToFile {
+        source,
+        symbol,
+        target,
+        replacement: first_flag(&flags, "replacement").map(str::to_string),
+        unwrap: if flags.switches.contains("unwrap") {
+            Some(true)
+        } else {
+            None
+        },
+        prepend: first_flag(&flags, "prepend").map(str::to_string),
+        force: flags.switches.contains("force"),
+        lang: first_flag(&flags, "lang").map(str::to_string),
+        update_imports: false,
+        old_module_path: None,
+        new_module_path: None,
+    })
+}
+
+#[cfg(feature = "ast")]
+fn parse_ast_split(args: &[BatchToken], line_num: usize) -> anyhow::Result<Operation> {
+    let flags = peel_cli_flags(
+        args,
+        &[
+            "source",
+            "targets",
+            "keep-in-source",
+            "source-suffix",
+            "source-prefix",
+            "lang",
+        ],
+        &["require-exhaustive"],
+        line_num,
+        "ast.split",
+    )?;
+    let mut positionals = flags.positionals.iter();
+    let source = first_flag(&flags, "source")
+        .map(str::to_string)
+        .or_else(|| {
+            positionals
+                .next()
+                .map(|t| peel_owned(t, &["source", "path"]))
+        })
+        .ok_or_else(|| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("line {line_num}: 'ast.split' requires a source path"),
+            })
+        })?;
+    let targets_raw = first_flag(&flags, "targets")
+        .map(str::to_string)
+        .or_else(|| positionals.next().map(|t| peel_owned(t, &["targets"])))
+        .ok_or_else(|| {
+            anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: format!("line {line_num}: 'ast.split' requires a targets JSON array"),
+            })
+        })?;
+    if positionals.next().is_some() {
+        return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+            msg: format!("line {line_num}: 'ast.split' unexpected extra argument"),
+        }));
+    }
+    let targets = crate::cmd::ast::parse_split_targets(&targets_raw)?;
+    let mut keep_in_source = Vec::new();
+    for raw in flag_values(&flags, "keep-in-source") {
+        keep_in_source.extend(split_csv_symbols(&raw));
+    }
+    op!(AstSplit {
+        source,
+        targets,
+        keep_in_source,
+        source_suffix: first_flag(&flags, "source-suffix").map(str::to_string),
+        source_prefix: first_flag(&flags, "source-prefix").map(str::to_string),
+        require_exhaustive: if flags.switches.contains("require-exhaustive") {
+            Some(true)
+        } else {
+            None
+        },
+        lang: first_flag(&flags, "lang").map(str::to_string),
+    })
 }
 
 /// Parse batch `replace path old new [--flags…]` (#1724).
@@ -1192,6 +1787,14 @@ pub fn run(args: BatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         match parse_line_at(trimmed, i + 1, Some(&cwd)) {
             Ok(op) => operations.push(op),
             Err(e) => {
+                if crate::exit::is_io_not_found(&e) {
+                    global.emit_error_json_kind(Some("not_found"), &e.to_string())?;
+                    return Ok(exit::FAILURE);
+                }
+                if crate::exit::is_invalid_input(&e) {
+                    global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+                    return Ok(exit::FAILURE);
+                }
                 global.emit_error_json_kind(Some("parse_error"), &e.to_string())?;
                 return Ok(exit::PARSE_ERROR);
             }

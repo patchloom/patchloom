@@ -1,3 +1,4 @@
+// size-waiver: CLI doc query/write surface plus include-walk dest resolve #2533
 use crate::cli::global::GlobalFlags;
 use crate::exit;
 use crate::ops::doc::{diff_values, flatten_value, parse_value};
@@ -25,7 +26,7 @@ pub struct DocArgs {
     pub write: crate::cli::global::WriteFlags,
 }
 
-#[derive(Debug, clap::Subcommand)]
+#[derive(Debug, Clone, clap::Subcommand)]
 pub enum DocAction {
     /// Read a value at a selector path.
     Get {
@@ -70,7 +71,9 @@ pub enum DocAction {
         /// use `doc update` for multi-match writes.
         selector: String,
         /// Value (JSON literal or bare string).
-        value: String,
+        /// Omit dest and this trailing value when `--glob` / `--files-from`
+        /// supplies files (`doc set --glob '**/package.json' version 2.0.0`).
+        value: Option<String>,
         // ref:doc-mode:if-exists
         /// Soft-skip when the file is missing or the selector is not present
         /// (do not create the key). Same as plan/MCP/batch `if_exists`.
@@ -120,7 +123,7 @@ pub enum DocAction {
         /// Selector path to an array (e.g. items, dependencies).
         selector: String,
         /// Value to append (JSON literal or bare string).
-        value: String,
+        value: Option<String>,
     },
     /// Prepend to an array.
     Prepend {
@@ -129,7 +132,7 @@ pub enum DocAction {
         /// Selector path to an array (e.g. items, dependencies).
         selector: String,
         /// Value to prepend (JSON literal or bare string).
-        value: String,
+        value: Option<String>,
     },
     /// Filter array items by predicate.
     Select {
@@ -148,7 +151,7 @@ pub enum DocAction {
         /// (unlike `doc delete-where --predicate`).
         selector: String,
         /// New value (JSON literal or bare string).
-        value: String,
+        value: Option<String>,
     },
     /// Move or rename a selector path.
     Move {
@@ -168,7 +171,7 @@ pub enum DocAction {
         /// predicates or wildcards use `doc update`.
         selector: String,
         /// Value to set if missing (JSON literal or bare string).
-        value: String,
+        value: Option<String>,
     },
     /// List all leaf selector paths and their values.
     Flatten {
@@ -300,6 +303,107 @@ struct DocWriteOutput {
     style_changed: bool,
 }
 
+fn require_doc_value(value: &Option<String>) -> anyhow::Result<&str> {
+    value.as_deref().ok_or_else(|| {
+        crate::exit::InvalidInputError {
+            msg: "value is required (or pass --glob / --files-from and omit dest)".into(),
+        }
+        .into()
+    })
+}
+
+fn set_doc_action_file(action: &mut DocAction, path: String) {
+    match action {
+        DocAction::Set { file, .. }
+        | DocAction::Delete { file, .. }
+        | DocAction::DeleteWhere { file, .. }
+        | DocAction::Merge { file, .. }
+        | DocAction::Append { file, .. }
+        | DocAction::Prepend { file, .. }
+        | DocAction::Update { file, .. }
+        | DocAction::Move { file, .. }
+        | DocAction::Ensure { file, .. } => *file = path,
+        _ => {}
+    }
+}
+
+fn set_doc_op_path(op: &mut Operation, path: String) {
+    match op {
+        Operation::DocSet { path: p, .. }
+        | Operation::DocDelete { path: p, .. }
+        | Operation::DocDeleteWhere { path: p, .. }
+        | Operation::DocMerge { path: p, .. }
+        | Operation::DocAppend { path: p, .. }
+        | Operation::DocPrepend { path: p, .. }
+        | Operation::DocUpdate { path: p, .. }
+        | Operation::DocMove { path: p, .. }
+        | Operation::DocEnsure { path: p, .. } => *p = path,
+        _ => {}
+    }
+}
+
+fn resolve_doc_write_paths(
+    action: &mut DocAction,
+    global: &GlobalFlags,
+) -> anyhow::Result<Vec<String>> {
+    let cwd = global.resolve_cwd()?;
+    let walk = crate::cmd::write_targets::write_walk_requested(global);
+    let explicit = match action {
+        DocAction::Set {
+            file,
+            selector,
+            value,
+            ..
+        }
+        | DocAction::Append {
+            file,
+            selector,
+            value,
+            ..
+        }
+        | DocAction::Prepend {
+            file,
+            selector,
+            value,
+            ..
+        }
+        | DocAction::Update {
+            file,
+            selector,
+            value,
+            ..
+        }
+        | DocAction::Ensure {
+            file,
+            selector,
+            value,
+            ..
+        } => {
+            let (explicit, sel, val) = crate::cmd::write_targets::shift_doc_set_args(
+                walk,
+                file.clone(),
+                selector.clone(),
+                value.clone(),
+            )?;
+            *file = explicit.first().cloned().unwrap_or_default();
+            *selector = sel;
+            *value = Some(val);
+            explicit
+        }
+        DocAction::Delete { file, .. }
+        | DocAction::DeleteWhere { file, .. }
+        | DocAction::Merge { file, .. }
+        | DocAction::Move { file, .. } => vec![file.clone()],
+        _ => Vec::new(),
+    };
+    crate::cmd::write_targets::resolve_write_targets(
+        global,
+        &cwd,
+        &explicit,
+        crate::cmd::write_targets::TargetKind::StructuredDoc,
+    )
+}
+
 /// Convert a write [`DocAction`] into the corresponding [`Operation`] variant.
 fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
     match action {
@@ -319,7 +423,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             Ok(Operation::DocSet {
                 path: file.clone(),
                 selector: selector.clone(),
-                value: parse_value(value),
+                value: parse_value(require_doc_value(value)?),
                 if_exists: *if_exists,
             })
         }
@@ -395,7 +499,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             Ok(Operation::DocAppend {
                 path: file.clone(),
                 selector: selector.clone(),
-                value: parse_value(value),
+                value: parse_value(require_doc_value(value)?),
             })
         }
         DocAction::Prepend {
@@ -412,7 +516,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             Ok(Operation::DocPrepend {
                 path: file.clone(),
                 selector: selector.clone(),
-                value: parse_value(value),
+                value: parse_value(require_doc_value(value)?),
             })
         }
         DocAction::Update {
@@ -429,7 +533,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             Ok(Operation::DocUpdate {
                 path: file.clone(),
                 selector: selector.clone(),
-                value: parse_value(value),
+                value: parse_value(require_doc_value(value)?),
             })
         }
         DocAction::Move { file, from, to } => {
@@ -454,7 +558,7 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             Ok(Operation::DocEnsure {
                 path: file.clone(),
                 selector: selector.clone(),
-                value: parse_value(value),
+                value: parse_value(require_doc_value(value)?),
             })
         }
         _ => anyhow::bail!("not a write action"),
@@ -828,15 +932,44 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let _format_guard = crate::ops::doc::FormatOverrideGuard::apply(override_fmt);
 
     if args.action.is_write() {
-        let display_path = args.action.file_path().unwrap_or("").to_string();
-        let op = match action_to_operation(&args.action) {
-            Ok(op) => op,
+        let paths = match resolve_doc_write_paths(&mut args.action, global) {
+            Ok(p) => p,
+            Err(e) => {
+                if exit::is_no_match(&e) {
+                    global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
+                    return Ok(exit::NO_MATCHES);
+                }
+                if exit::is_invalid_input(&e) {
+                    global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+                    return Ok(exit::FAILURE);
+                }
+                return Err(e);
+            }
+        };
+        let display_path = if paths.len() == 1 {
+            paths[0].clone()
+        } else {
+            format!("{} files", paths.len())
+        };
+        let ops = match paths
+            .iter()
+            .map(|p| {
+                let mut action = args.action.clone();
+                set_doc_action_file(&mut action, p.clone());
+                let mut op = action_to_operation(&action)?;
+                set_doc_op_path(&mut op, p.clone());
+                Ok(op)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()
+        {
+            Ok(ops) => ops,
             Err(e) => {
                 let msg = e.to_string();
                 // Merge flag validation and other write-op build errors.
                 if msg.contains("mutually exclusive")
                     || msg.contains("requires --stdin or --value")
                     || msg.contains("not a write action")
+                    || exit::is_invalid_input(&e)
                 {
                     global.emit_error_json_kind(Some("invalid_input"), &msg)?;
                     return Ok(exit::FAILURE);
@@ -854,7 +987,7 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         let path_clone = display_path;
         match (|| -> anyhow::Result<u8> {
             let (cwd, result) = crate::cmd::output::stage_for_write(
-                crate::tx::engine::WriteSource::Operations(vec![op]),
+                crate::tx::engine::WriteSource::Operations(ops),
                 global,
             )?;
             let changed = result.has_changes;

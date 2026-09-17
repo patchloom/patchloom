@@ -81,13 +81,37 @@ pub fn group_symbols(
             msg: "ast group preamble must not be empty".into(),
         }));
     }
-    let eol = crate::write::detect_eol(source);
     let symbols = extract_symbols_or_timeout(source, lang)?;
+    group_symbols_from_symbols(source, &symbols, spec, lang)
+}
+
+/// Like [`group_symbols`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn group_symbols_from_symbols(
+    source: &str,
+    symbols: &[super::symbols::SymbolDef],
+    spec: &GroupSpec,
+    lang: Language,
+) -> anyhow::Result<GroupResult> {
+    if spec.module.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast group module must not be empty".into(),
+        }));
+    }
+    if let Some(pre) = &spec.preamble
+        && pre.trim().is_empty()
+        && !pre.contains('\n')
+        && !pre.contains('\r')
+    {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast group preamble must not be empty".into(),
+        }));
+    }
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Check if target module already exists
-    let existing_mod = find_symbol(&symbols, &spec.module)
-        .filter(|s| s.kind == super::symbols::SymbolKind::Module);
+    let existing_mod =
+        find_symbol(symbols, &spec.module).filter(|s| s.kind == super::symbols::SymbolKind::Module);
     let module_exists = existing_mod.is_some();
 
     // Find each symbol to move and collect their text + spans
@@ -95,7 +119,7 @@ pub fn group_symbols(
     let mut missing: Vec<&str> = Vec::new();
 
     for name in &spec.symbols {
-        if let Some(sym) = find_symbol(&symbols, name) {
+        if let Some(sym) = find_symbol(symbols, name) {
             // Check if already inside the target module
             if let Some(parent_mod) = &existing_mod
                 && sym.start_line >= parent_mod.start_line

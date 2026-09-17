@@ -500,6 +500,11 @@ pub(crate) struct TxState<'a> {
     /// `tidy.fix` (op fields win). Cleared when a later non-tidy write updates
     /// the path (#1847).
     pub(crate) policy_finalized: &'a mut HashSet<PathBuf>,
+    /// Parsed trees keyed by path. Survives across ops in one plan (#2546).
+    /// Hash is of the source that produced the stored tree; on write the tree
+    /// is kept as `old_tree` for the next incremental parse.
+    #[cfg(feature = "ast")]
+    pub(crate) ast_trees: HashMap<PathBuf, (u64, tree_sitter_lib::Tree)>,
 }
 
 /// Test fixture that owns all the storage behind a `TxState`, avoiding
@@ -519,6 +524,8 @@ pub(crate) struct TxStateFixture {
     pub renames: Vec<(PathBuf, PathBuf)>,
     pub policy_finalized: HashSet<PathBuf>,
     pub soft_non_text: HashSet<PathBuf>,
+    #[cfg(feature = "ast")]
+    pub ast_trees: HashMap<PathBuf, (u64, tree_sitter_lib::Tree)>,
 }
 
 #[cfg(test)]
@@ -538,6 +545,8 @@ impl TxStateFixture {
             renames: Vec::new(),
             policy_finalized: HashSet::new(),
             soft_non_text: HashSet::new(),
+            #[cfg(feature = "ast")]
+            ast_trees: HashMap::new(),
         }
     }
 
@@ -562,6 +571,8 @@ impl TxStateFixture {
             guard: None,
             plan_write_policy: None,
             policy_finalized: &mut self.policy_finalized,
+            #[cfg(feature = "ast")]
+            ast_trees: std::mem::take(&mut self.ast_trees),
         }
     }
 }
@@ -856,6 +867,8 @@ pub(crate) fn execute_and_collect(
     let mut renames: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut policy_finalized: HashSet<PathBuf> = HashSet::new();
     let mut soft_non_text: HashSet<PathBuf> = HashSet::new();
+    #[cfg(feature = "ast")]
+    let mut ast_trees: HashMap<PathBuf, (u64, tree_sitter_lib::Tree)> = HashMap::new();
 
     // Upfront PathGuard (same contract as execute_plan_inner /
     // execute_plan_direct). CLI `tx` and `batch` call this function directly.
@@ -913,9 +926,15 @@ pub(crate) fn execute_and_collect(
             guard,
             plan_write_policy: plan.write_policy.as_ref(),
             policy_finalized: &mut policy_finalized,
+            #[cfg(feature = "ast")]
+            ast_trees,
         };
         match execute_operation(op, &mut tx) {
             Ok(count) => {
+                #[cfg(feature = "ast")]
+                {
+                    ast_trees = tx.ast_trees;
+                }
                 crate::verbose!(
                     "tx: operation {} succeeded (replace_matches: {count})",
                     i + 1

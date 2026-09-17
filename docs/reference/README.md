@@ -271,16 +271,16 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:md -->
 ## `md`
 
-- **What it does:** Performs heading aware markdown edits for sections, bullets, tables, and AGENTS linting.
-- **Use when:** Documentation needs semantic markdown edits that should not depend on raw byte offsets.
+- **What it does:** Performs heading aware markdown edits for sections, bullets, tables, and AGENTS linting. Write subcommands (and `lint-agents`) accept multiple files and honor `--glob` / `--files-from` as an include walk. A dest like `*.md` is `invalid_input`, not dest-glob expand. `move-section` stays single-file.
+- **Use when:** Documentation needs semantic markdown edits that should not depend on raw byte offsets. Use `--glob` to edit every matching markdown file in one command.
 - **Prefer instead:** Use `replace` for simple line level edits, or `patch` for exact diff application.
 - **Related:** `md` actions, `tx` markdown operations
 
 <!-- ref:command:doc -->
 ## `doc`
 
-- **What it does:** Performs parser backed JSON, YAML, and TOML queries and mutations.
-- **Use when:** Config or metadata changes should operate on keys and arrays instead of brittle text matching.
+- **What it does:** Performs parser backed JSON, YAML, and TOML queries and mutations. Write subcommands honor `--glob` / `--files-from` as an include walk. `doc set --glob '**/package.json' version 2.0.0` treats the two positionals as selector and value. A dest like `*.json` is `invalid_input`, not dest-glob expand.
+- **Use when:** Config or metadata changes should operate on keys and arrays instead of brittle text matching. Use `--glob` to set the same key in every matching file.
 - **Prefer instead:** Use `replace` for plain text, `md` for markdown, or `patch` for existing diffs.
 - **Related:** `doc` actions, `tx` document operations
 
@@ -351,11 +351,12 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 30 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace with optional flags, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_after_section, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.replace_symbol, ast.delete_symbol, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 38 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace with optional flags, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_after_section, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.replace_symbol, ast.delete_symbol, ast.rewrite_signature, ast.insert, ast.wrap, ast.imports, ast.reorder, ast.group, ast.move, ast.extract_to_file, ast.split) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
 - **Replace order:** Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). CLI flag `--new` (and plan-shaped `--from`/`--to`) is rejected with a PATH OLD NEW hint; path-last positionals also fail with a parse hint when the third token is an existing file. Bare `old=`/`new=` (and `from=`/`to=`) prefixes on those tokens are peeled.
 - **`--if-exists`:** Optional on `replace`, `doc.set`, and `file.delete`. Soft-skips a missing file (and, for `doc.set`, a missing selector) so sibling lines still apply.
-- **Plan-shaped keys:** Optional `key=value` prefixes on positionals are peeled so pasted plan/MCP keys do not become file bytes: file `content=`/`body=`/`path=`, md `heading=`/`content=`/`bullet=`/`row=` plus `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, doc `selector=`/`key=`/`value=`/`predicate=`, and `tidy.fix` `path=`.
+- **Plan-shaped keys:** Optional `key=value` prefixes on positionals are peeled so pasted plan/MCP keys do not become file bytes: file `content=`/`body=`/`path=`, md `heading=`/`content=`/`bullet=`/`row=` plus `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, `ast.insert`/`ast.wrap`/`ast.group`/`ast.move`/`ast.extract_to_file`/`ast.split` `inside=`/`after=`/`before=`/`position=`/`wrapper=`/`preamble=`/`module=`/`target=`/`source=`/`order=`, doc `selector=`/`key=`/`value=`/`predicate=`, and `tidy.fix` `path=`.
+- **`@path` payloads:** On `ast.insert` content, `ast.wrap` wrapper/preamble, and `ast.group` preamble, a token that is exactly `@path` is read from that file. Missing files fail closed (`not_found`). `@` inside other quoted source is not treated as a file.
 - **Quoting:** Double-quoted tokens allow only `\"` and `\\`. Sequences like `\n` are **literal** (not newlines). Prefer `tx` / MCP JSON for multi-line content, or put real newlines outside one-line quoted strings.
 - **Values (doc.set and friends):** After quote removal, each value token is parsed as JSON. Batch `doc.set f.json v "2.0"` still stores a **number** because the token text is `2.0`. Force a string with nested JSON quotes: `doc.set f.json v "\"2.0\""`, or use `tx` / MCP with `"value": "2.0"`. Same rule as CLI `doc set` (see agent-rules note).
 - **Failure behavior:** Line parse failures (unknown op, bad arity, bad quotes, CLI-order replace) exit `4` (`PARSE_ERROR`) with `error_kind: "parse_error"` and `applied: false` under `--json`/`--jsonl`. Too many operations (over the hard cap) exits `1` with `invalid_input`. Runtime op failures use the shared tx exit codes. Preview with changes uses the same `status: "changes_detected"` / exit `2` contract as `tx`.
@@ -480,8 +481,8 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 <!-- ref:command:ast -->
 ## `ast`
 
-- **What it does:** AST-aware operations on source code (20 languages). Subcommands: `list` (extract symbol definitions), `read` (read a symbol by name), `rename` (rename identifiers, skipping strings/comments), `validate` (syntax validation), `search` (structural queries), `refs` (find references), `deps` (extract imports), `map` (ranked repo map via PageRank), `diff` (structural diff vs git refs), `impact` (transitive impact analysis), `replace` (scoped text replacement within a symbol), `replace-symbol` (replace a whole symbol span including leading docs/attributes), `delete-symbol` (remove a whole symbol span and collapse surrounding blanks). `list`, `read`, `replace`, `replace-symbol`, `delete-symbol`, and `validate` use the same line numbering as `search` (LF, CRLF, and a lone CR).
-- **Use when:** You need to list, read, rename, validate, search, or analyze symbols with structural awareness (skip strings, comments, and documentation). Especially useful for rename operations where the old name appears inside strings that should not be changed, and for impact analysis before refactoring. Use `replace-symbol` / `delete-symbol` when the whole definition (not a text snippet inside it) is the edit.
+- **What it does:** AST-aware operations on source code (20 languages). Subcommands: `list` (extract symbol definitions), `read` (read a symbol by name), `rename` (rename identifiers, skipping strings/comments), `validate` (syntax validation), `search` (structural queries), `refs` (find references), `deps` (extract imports), `map` (ranked repo map via PageRank), `diff` (structural diff vs git refs), `impact` (transitive impact analysis), `replace` (scoped text replacement within a symbol), `replace-symbol` (replace a whole symbol span including leading docs/attributes), `delete-symbol` (remove a whole symbol span and collapse surrounding blanks), `insert` (insert source after/before/inside a symbol), `wrap` (wrap symbols or a line range), `imports` (add/remove/dedupe imports), `reorder` (reorder symbols), `group` (move symbols into a module), `move` (move symbols to another file), `extract-to-file` (extract one symbol to a new file), `split` (distribute symbols across files), `rewrite-signature` (rewrite a function signature). `list`, `read`, `replace`, `replace-symbol`, `delete-symbol`, and `validate` use the same line numbering as `search` (LF, CRLF, and a lone CR).
+- **Use when:** You need to list, read, rename, validate, search, or analyze symbols with structural awareness (skip strings, comments, and documentation). Especially useful for rename operations where the old name appears inside strings that should not be changed, and for impact analysis before refactoring. Use `replace-symbol` / `delete-symbol` when the whole definition (not a text snippet inside it) is the edit. Use `insert` / `wrap` / `imports` / `reorder` / `group` / `move` / `extract-to-file` / `split` / `rewrite-signature` when the matching plan op should run from the CLI.
 - **Prefer instead:** Use `replace --word-boundary` for quick identifier renames when AST precision is not required. Use a language server (LSP) when cross-file type-aware rename is needed.
 - **Related:** [`replace`](#replace), [`search`](#search)
 
@@ -1386,7 +1387,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.rewrite_signature -->
 ### `ast.rewrite_signature`
 
-- **What it does:** Rewrites a function signature using tree-sitter. Structured fields `visibility`, `parameters`, and `return_type` map to [`FunctionSigEdit`](https://docs.rs/patchloom); optional `new_signature` replaces the whole signature span. Field `old` (alias `name`) is the function name. Library: `api::ast_rewrite_signature`. MCP: `ast_rewrite_signature`.
+- **What it does:** Rewrites a function signature using tree-sitter. Structured fields `visibility`, `parameters`, and `return_type` map to [`FunctionSigEdit`](https://docs.rs/patchloom); optional `new_signature` replaces the whole signature span. Field `old` (alias `name`) is the function name. CLI: `ast rewrite-signature`. Library: `api::ast_rewrite_signature`. MCP: `ast_rewrite_signature`.
 - **Body gap:** High-level paths accept a logical `new_signature` without trailing whitespace and preserve the original gap before `{` (or insert a conventional space if the original was already glued). Trait/extern forms ending in `;` do not get a spurious space. See #1503 / `splice_function_signature`.
 - **Use when:** Changing parameter lists, visibility, or return types without a brittle line scan (LLM agent hosts and embedders).
 - **Failure behavior:** Missing function name exits 3 (`no_matches`) with the function name in the error; JSON plans report `error_kind: "no_matches"`.
@@ -1395,7 +1396,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.insert -->
 ### `ast.insert`
 
-- **What it does:** Inserts new source code at a position relative to an existing symbol (before, after, inside-start, inside-end). Handles indentation matching and blank-line separation.
+- **What it does:** Inserts new source code at a position relative to an existing symbol (before, after, inside-start, inside-end). Handles indentation matching and blank-line separation. CLI: `ast insert PATH --content CODE --after SYMBOL`.
 - **Use when:** You need to add a new function, field, or statement adjacent to or inside an existing symbol without manually computing line numbers.
 - **Failure behavior:** Missing container/adjacent symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`.
 - **Related:** `ast.wrap`, `ast.group`
@@ -1403,7 +1404,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.wrap -->
 ### `ast.wrap`
 
-- **What it does:** Wraps an existing symbol with a prefix and suffix, re-indenting the original body. Commonly used for wrapping a function in an `impl` block, a `mod` block, or an `if` guard.
+- **What it does:** Wraps an existing symbol with a prefix and suffix, re-indenting the original body. Commonly used for wrapping a function in an `impl` block, a `mod` block, or an `if` guard. CLI: `ast wrap PATH --wrapper "mod tests" --symbols a,b`.
 - **Use when:** You need to add structural nesting around an existing symbol (e.g., wrapping free functions in an `impl`, adding `#[cfg(test)]` module wrappers).
 - **Failure behavior:** Missing symbol or empty symbols list exits **3** / **1** (`no_matches` / `invalid_input`). Bad line-range numbers use `invalid_input`.
 - **Related:** `ast.insert`, `ast.group`
@@ -1411,14 +1412,14 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.imports -->
 ### `ast.imports`
 
-- **What it does:** Adds or removes import statements from a file. Supports `add` and `remove` actions with deduplication. Language-aware: handles `use` (Rust), `import` (Python/JS/TS/Go/Java), `#include` (C/C++).
+- **What it does:** Adds or removes import statements from a file. Supports `add` and `remove` actions with deduplication. Language-aware: handles `use` (Rust), `import` (Python/JS/TS/Go/Java), `#include` (C/C++). CLI: `ast imports PATH --add "use std::io;"`.
 - **Use when:** You need to manage imports programmatically after moving symbols, adding new dependencies, or cleaning up unused imports.
 - **Related:** `ast.move`, `ast.extract_to_file`
 
 <!-- ref:tx-op:ast.reorder -->
 ### `ast.reorder`
 
-- **What it does:** Reorders top-level symbols (or symbols inside a scope) according to a strategy: `alphabetical`, `reverse`, `kind-first` (types before functions), or a custom ordered list of names. Preserves attached doc comments and attributes.
+- **What it does:** Reorders top-level symbols (or symbols inside a scope) according to a strategy: `alphabetical`, `reverse`, `kind-first` (types before functions), or a custom ordered list of names. Preserves attached doc comments and attributes. CLI: `ast reorder PATH --order alphabetical`.
 - **Use when:** You want to enforce a consistent declaration order (e.g., alphabetical functions, types-first convention) or manually arrange symbols to match a specification.
 - **Failure behavior:** Missing container symbol exits **3** (`no_matches`). Malformed custom order items exit **1** with `invalid_input`.
 - **Related:** `ast.group`, `ast.move`
@@ -1426,7 +1427,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.group -->
 ### `ast.group`
 
-- **What it does:** Moves one or more symbols into a new or existing module block within the same file. Supports a preamble (e.g., `use super::*;`) and configurable placement (first-symbol position, end of file, or after a specific symbol).
+- **What it does:** Moves one or more symbols into a new or existing module block within the same file. Supports a preamble (e.g., `use super::*;`) and configurable placement (first-symbol position, end of file, or after a specific symbol). CLI: `ast group PATH --module tests --symbols a,b`.
 - **Use when:** You want to organize related symbols into a `mod tests { ... }` block or group utility functions into a sub-module without extracting to a separate file.
 - **Failure behavior:** Missing symbols exit **3** (`no_matches`) with `error_kind: "no_matches"`.
 - **Related:** `ast.extract_to_file`, `ast.move`, `ast.reorder`
@@ -1434,7 +1435,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.move -->
 ### `ast.move`
 
-- **What it does:** Moves symbols from one file to another, removing them from the source and inserting at a specified position in the target. Supports creating the target file with an optional prepend. Preserves attached doc comments and attributes. Set `update_imports` (Rust only) with `old_module_path` and `new_module_path` to rewrite consumer `use` statements of the moved symbols (default off; missing module paths fail with `invalid_input`).
+- **What it does:** Moves symbols from one file to another, removing them from the source and inserting at a specified position in the target. Supports creating the target file with an optional prepend. Preserves attached doc comments and attributes. Set `update_imports` (Rust only) with `old_module_path` and `new_module_path` to rewrite consumer `use` statements of the moved symbols (default off; missing module paths fail with `invalid_input`). CLI: `ast move PATH --target DEST --symbols a,b`.
 - **Use when:** You need to relocate functions, structs, or constants between files during a refactoring (e.g., moving helpers from `lib.rs` to `utils.rs`).
 - **Failure behavior:** Missing source or target anchor symbols exit **3** (`no_matches`) with `error_kind: "no_matches"`. `update_imports: true` without both module paths, or `update_imports: true` on a non-Rust file, exits **1** with `error_kind: "invalid_input"`.
 - **Related:** `ast.extract_to_file`, `ast.group`, `ast.imports`
@@ -1442,7 +1443,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.extract_to_file -->
 ### `ast.extract_to_file`
 
-- **What it does:** Extracts a single symbol from a source file into a new target file. For module blocks, it can unwrap the module wrapper and un-indent the body. Leaves an optional replacement text (e.g., `mod tests;`) in the source. Supports a prepend for the target (e.g., `use super::*;`). Set `update_imports` (Rust only) with `old_module_path` and `new_module_path` to rewrite consumer `use` statements of the extracted symbol (default off; missing module paths fail with `invalid_input`).
+- **What it does:** Extracts a single symbol from a source file into a new target file. For module blocks, it can unwrap the module wrapper and un-indent the body. Leaves an optional replacement text (e.g., `mod tests;`) in the source. Supports a prepend for the target (e.g., `use super::*;`). Set `update_imports` (Rust only) with `old_module_path` and `new_module_path` to rewrite consumer `use` statements of the extracted symbol (default off; missing module paths fail with `invalid_input`). CLI: `ast extract-to-file --source SRC --symbol NAME --target DEST`.
 - **Use when:** You want to extract a test module, a large struct, or a helper block into its own file while leaving a `mod` declaration behind.
 - **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`. Existing target without force exits **1** with `error_kind: "already_exists"`. `update_imports: true` without both module paths, or `update_imports: true` on a non-Rust file, exits **1** with `error_kind: "invalid_input"`.
 - **Related:** `ast.split`, `ast.move`, `ast.imports`
@@ -1450,7 +1451,7 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.split -->
 ### `ast.split`
 
-- **What it does:** Splits a file into multiple target files by distributing symbols. Each target specifies which symbols it receives and an optional prepend. Symbols not assigned to any target stay in the source (controlled by `keep_in_source`). Supports `source_suffix` and `source_prefix` for adding `mod` declarations. Enforces exhaustive accounting by default.
+- **What it does:** Splits a file into multiple target files by distributing symbols. Each target specifies which symbols it receives and an optional prepend. Symbols not assigned to any target stay in the source (controlled by `keep_in_source`). Supports `source_suffix` and `source_prefix` for adding `mod` declarations. Enforces exhaustive accounting by default. CLI: `ast split --source SRC --targets '[{"path":"a.rs","symbols":["A"]}]'`.
 - **Use when:** A file has grown too large and you want to distribute its symbols across several new files in one atomic operation, with `mod` re-exports generated automatically.
 - **Failure behavior:** Duplicate or unaccounted symbols exit **1** with `error_kind: "invalid_input"`.
 - **Related:** `ast.extract_to_file`, `ast.move`, `ast.group`

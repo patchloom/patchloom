@@ -5142,3 +5142,153 @@ fn test_tx_doc_set_ini() {
     assert!(body.contains("[server]"), "{body}");
     assert!(body.contains("port=443"), "{body}");
 }
+
+/// #2533: `doc set --glob '**/package.json' version 2.0.0` walks, does not dest-glob.
+#[test]
+fn test_doc_set_glob_package_json() {
+    let dir = TempDir::new().unwrap();
+    let pkg = dir.path().join("pkg");
+    fs::create_dir(&pkg).unwrap();
+    fs::write(pkg.join("package.json"), r#"{"version":"1.0.0"}"#).unwrap();
+    fs::write(dir.path().join("other.json"), r#"{"version":"9"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "--glob",
+            "**/package.json",
+            "version",
+            "2.0.0",
+            "--check",
+        ])
+        .assert()
+        .code(2);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "--glob",
+            "**/package.json",
+            "version",
+            "2.0.0",
+            "--apply",
+        ])
+        .assert()
+        .success();
+
+    let pkg_body = fs::read_to_string(pkg.join("package.json")).unwrap();
+    assert!(pkg_body.contains("2.0.0"), "{pkg_body}");
+    let other = fs::read_to_string(dir.path().join("other.json")).unwrap();
+    assert!(other.contains("\"9\""), "{other}");
+}
+
+/// #2533: dest-looking glob without --glob is invalid_input.
+#[test]
+fn test_doc_set_dest_glob_refused() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.json"), r#"{"version":"1"}"#).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["--json", "doc", "set", "*.json", "version", "2", "--check"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("dest glob"),
+        "{json}"
+    );
+}
+
+/// #2533: --files-from is an explicit include list.
+#[test]
+fn test_doc_set_files_from() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.json"), r#"{"n":1}"#).unwrap();
+    fs::write(dir.path().join("b.json"), r#"{"n":1}"#).unwrap();
+    fs::write(dir.path().join("skip.json"), r#"{"n":1}"#).unwrap();
+    fs::write(dir.path().join("list.txt"), "a.json\nb.json\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "--files-from",
+            "list.txt",
+            "n",
+            "2",
+            "--apply",
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        fs::read_to_string(dir.path().join("a.json"))
+            .unwrap()
+            .contains('2')
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("b.json"))
+            .unwrap()
+            .contains('2')
+    );
+    assert!(
+        fs::read_to_string(dir.path().join("skip.json"))
+            .unwrap()
+            .contains('1')
+    );
+}
+
+/// #2533: `--if-exists` skips files that lack the selector; others still write.
+#[test]
+fn test_doc_set_glob_if_exists_skips_missing_selector() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.json"), r#"{"version":"1"}"#).unwrap();
+    fs::write(dir.path().join("b.json"), r#"{"name":"x"}"#).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "--glob",
+            "*.json",
+            "version",
+            "2",
+            "--if-exists",
+            "--apply",
+        ])
+        .assert()
+        .success();
+
+    let a_body = fs::read_to_string(dir.path().join("a.json")).unwrap();
+    let a_val: serde_json::Value = serde_json::from_str(&a_body).unwrap();
+    assert_eq!(
+        a_val["version"], 2,
+        "existing selector must still write: {a_body}"
+    );
+    assert!(
+        !fs::read_to_string(dir.path().join("b.json"))
+            .unwrap()
+            .contains("version"),
+        "missing selector must not be created under --if-exists"
+    );
+}

@@ -1,7 +1,88 @@
+// size-waiver: AST plan mutators plus plan-local tree cache #2546
 use super::execute::{TxState, read_and_probe, read_file_content};
 use crate::plan::Operation;
 
 use std::path::{Path, PathBuf};
+
+impl TxState<'_> {
+    /// Parse `source` for `path`, reusing the plan-local tree cache (#2546).
+    pub(crate) fn parse_ast_cached(
+        &mut self,
+        path: &Path,
+        source: &str,
+        lang: crate::ast::Language,
+    ) -> Result<(tree_sitter_lib::Tree, tree_sitter_lib::Language), crate::ast::ParseFailure> {
+        let hash = crate::ast::hash_source(source);
+        if let Some((last_hash, cached)) = self.ast_trees.get(path) {
+            if *last_hash == hash {
+                let ts_lang =
+                    crate::ast::ts_language_for(lang).ok_or(crate::ast::ParseFailure::NoGrammar)?;
+                return Ok((cached.clone(), ts_lang));
+            }
+            let mut old_tree = cached.clone();
+            apply_full_file_edit(&mut old_tree, source);
+            let (tree, ts_lang) =
+                crate::ast::try_parse_source_with_old(source, lang, Some(&old_tree))?;
+            self.ast_trees
+                .insert(path.to_path_buf(), (hash, tree.clone()));
+            return Ok((tree, ts_lang));
+        }
+        let (tree, ts_lang) = crate::ast::try_parse_source_with_old(source, lang, None)?;
+        self.ast_trees
+            .insert(path.to_path_buf(), (hash, tree.clone()));
+        Ok((tree, ts_lang))
+    }
+
+    /// Extract symbols using [`Self::parse_ast_cached`] (no second parse).
+    pub(crate) fn extract_symbols_cached(
+        &mut self,
+        path: &Path,
+        source: &str,
+        lang: crate::ast::Language,
+    ) -> anyhow::Result<Vec<crate::ast::symbols::SymbolDef>> {
+        match self.parse_ast_cached(path, source, lang) {
+            Ok((tree, _)) => Ok(crate::ast::symbols::extract_symbols_from_tree(
+                &tree, source, lang,
+            )),
+            Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                Err(crate::exit::ParseTimeoutError {
+                    msg: format!("parse deadline exceeded for {lang}"),
+                }
+                .into())
+            }
+            Err(crate::ast::ParseFailure::NoGrammar) => Ok(Vec::new()),
+        }
+    }
+}
+
+/// Mark the whole file as replaced so incremental parse stays consistent
+/// when we do not have a precise edit range (#2546).
+fn apply_full_file_edit(tree: &mut tree_sitter_lib::Tree, new_source: &str) {
+    let root = tree.root_node();
+    tree.edit(&tree_sitter_lib::InputEdit {
+        start_byte: 0,
+        old_end_byte: root.end_byte(),
+        new_end_byte: new_source.len(),
+        start_position: tree_sitter_lib::Point { row: 0, column: 0 },
+        old_end_position: root.end_position(),
+        new_end_position: source_end_point(new_source),
+    });
+}
+
+fn source_end_point(source: &str) -> tree_sitter_lib::Point {
+    let mut row = 0usize;
+    let mut line_start = 0usize;
+    for (i, b) in source.as_bytes().iter().enumerate() {
+        if *b == b'\n' {
+            row = row.saturating_add(1);
+            line_start = i.saturating_add(1);
+        }
+    }
+    tree_sitter_lib::Point {
+        row,
+        column: source.len().saturating_sub(line_start),
+    }
+}
 
 /// Walk a directory and collect files that have a tree-sitter grammar.
 /// Used by ast.rename/ast.replace in execute_plan when the path is a directory.
@@ -86,9 +167,19 @@ fn ast_rename_single_file(
     lang_hint: Option<&str>,
 ) -> anyhow::Result<usize> {
     crate::ast::rename::reject_empty_rename_names(old, new)?;
-    let content = read_file_content(tx.pending, tx.existed_before, abs)?;
+    let content = read_file_content(tx.pending, tx.existed_before, abs)?.to_string();
     let lang_val = resolve_op_lang(lang_hint, abs)?;
-    match crate::ast::rename::try_rename_in_source(content, old, new, lang_val) {
+    let rename = match tx.parse_ast_cached(abs, &content, lang_val) {
+        Ok((tree, _)) => Ok(Some(crate::ast::rename::rename_in_tree(
+            &content, &tree, old, new,
+        ))),
+        Err(crate::ast::ParseFailure::DeadlineExceeded) => Err(crate::exit::ParseTimeoutError {
+            msg: format!("parse deadline exceeded for {lang_val}"),
+        }
+        .into()),
+        Err(crate::ast::ParseFailure::NoGrammar) => Ok(None),
+    };
+    match rename {
         Ok(Some(r)) if r.replacements > 0 => {
             tx.write_file(abs, r.content);
             Ok(r.replacements)
@@ -103,8 +194,8 @@ fn ast_rename_single_file(
             // Do not fall through here on DeadlineExceeded.
             let re = crate::ops::replace::compile_replace_regex(old, false, false, false, true)?;
             if let Some(re) = re {
-                let new_content = re.replace_all(content, new).to_string();
-                let count = re.find_iter(content).count();
+                let new_content = re.replace_all(&content, new).to_string();
+                let count = re.find_iter(&content).count();
                 if count > 0 {
                     tx.write_file(abs, new_content);
                     return Ok(count);
@@ -181,10 +272,11 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
-            let result = crate::ast::replace::replace_in_symbol(
-                content, symbol, old, new_text, *regex, lang_val,
+            let symbols = tx.extract_symbols_cached(&abs, &content, lang_val)?;
+            let result = crate::ast::replace::replace_in_symbol_from_symbols(
+                &content, &symbols, symbol, old, new_text, *regex, lang_val,
             )?;
             match result {
                 Some(r) if r.replacements > 0 => {
@@ -212,19 +304,25 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
-            let new_content =
-                crate::ast::replace::replace_symbol(file_content, symbol, content, lang_val)
-                    .map_err(|e| {
-                        if crate::exit::is_no_match(&e) {
-                            anyhow::Error::new(crate::exit::NoMatchError {
-                                msg: format!("symbol '{symbol}' not found in {path}"),
-                            })
-                        } else {
-                            e
-                        }
-                    })?;
+            let symbols = tx.extract_symbols_cached(&abs, &file_content, lang_val)?;
+            let new_content = crate::ast::replace::replace_symbol_from_symbols(
+                &file_content,
+                &symbols,
+                symbol,
+                content,
+                lang_val,
+            )
+            .map_err(|e| {
+                if crate::exit::is_no_match(&e) {
+                    anyhow::Error::new(crate::exit::NoMatchError {
+                        msg: format!("symbol '{symbol}' not found in {path}"),
+                    })
+                } else {
+                    e
+                }
+            })?;
             if new_content != file_content {
                 tx.write_file(&abs, new_content);
             }
@@ -233,18 +331,24 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
 
         Operation::AstDeleteSymbol { path, symbol, lang } => {
             let abs = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
-            let new_content = crate::ast::replace::delete_symbol(file_content, symbol, lang_val)
-                .map_err(|e| {
-                    if crate::exit::is_no_match(&e) {
-                        anyhow::Error::new(crate::exit::NoMatchError {
-                            msg: format!("symbol '{symbol}' not found in {path}"),
-                        })
-                    } else {
-                        e
-                    }
-                })?;
+            let symbols = tx.extract_symbols_cached(&abs, &file_content, lang_val)?;
+            let new_content = crate::ast::replace::delete_symbol_from_symbols(
+                &file_content,
+                &symbols,
+                symbol,
+                lang_val,
+            )
+            .map_err(|e| {
+                if crate::exit::is_no_match(&e) {
+                    anyhow::Error::new(crate::exit::NoMatchError {
+                        msg: format!("symbol '{symbol}' not found in {path}"),
+                    })
+                } else {
+                    e
+                }
+            })?;
             if new_content != file_content {
                 tx.write_file(&abs, new_content);
             }
@@ -261,7 +365,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let has_structured =
                 visibility.is_some() || parameters.is_some() || return_type.is_some();
@@ -271,22 +375,31 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
                 .into());
             }
+            let tree = match tx.parse_ast_cached(&abs, &content, lang_val) {
+                Ok((tree, _)) => Some(tree),
+                Err(crate::ast::ParseFailure::DeadlineExceeded) => {
+                    return Err(crate::exit::ParseTimeoutError {
+                        msg: format!("parse deadline exceeded for {lang_val}"),
+                    }
+                    .into());
+                }
+                Err(crate::ast::ParseFailure::NoGrammar) => None,
+            };
             let new_content = if let Some(new_sig) = new_signature {
                 crate::ast::rewrite::reject_empty_new_signature(new_sig)?;
-                let span = match crate::ast::rewrite::try_find_function_span(content, old, lang_val)
-                {
-                    Ok(Some(s)) => s,
-                    Ok(None) => {
-                        return Err(crate::exit::NoMatchError {
-                            msg: format!("function '{old}' not found in {path}"),
-                        }
-                        .into());
+                let span = match tree.as_ref() {
+                    Some(tree) => crate::ast::rewrite::function_span_in_tree(&content, tree, old),
+                    None => None,
+                };
+                let Some(span) = span else {
+                    return Err(crate::exit::NoMatchError {
+                        msg: format!("function '{old}' not found in {path}"),
                     }
-                    Err(e) => return Err(e),
+                    .into());
                 };
                 // Preserve original gap before `{` (or insert space if glued). #1503
                 crate::ast::rewrite::splice_function_signature(
-                    content,
+                    &content,
                     span.signature_range,
                     new_sig,
                 )
@@ -296,8 +409,12 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     parameters: parameters.clone(),
                     return_type: return_type.clone(),
                 };
-                match crate::ast::rewrite::try_rewrite_function_signature(
-                    content, old, &edit, lang_val,
+                match crate::ast::rewrite::try_rewrite_function_signature_in_tree(
+                    &content,
+                    tree.as_ref(),
+                    old,
+                    &edit,
+                    lang_val,
                 ) {
                     Ok(Some(c)) => c,
                     Ok(None) => {
@@ -326,7 +443,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let pos = match position.as_deref() {
                 None | Some("") | Some("end") => crate::ast::insert::InsertPosition::End,
@@ -338,8 +455,10 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     .into());
                 }
             };
-            let result = crate::ast::insert::insert_code(
-                file_content,
+            let symbols = tx.extract_symbols_cached(&abs, &file_content, lang_val)?;
+            let result = crate::ast::insert::insert_code_from_symbols(
+                &file_content,
+                &symbols,
                 insert_content,
                 inside.as_deref(),
                 after.as_deref(),
@@ -360,10 +479,12 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
-            let result = crate::ast::wrap::wrap_code(
-                file_content,
+            let symbols = tx.extract_symbols_cached(&abs, &file_content, lang_val)?;
+            let result = crate::ast::wrap::wrap_code_from_symbols(
+                &file_content,
+                &symbols,
                 sym_names.as_deref(),
                 line_range.as_deref(),
                 wrapper,
@@ -417,11 +538,13 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let strategy = crate::ast::reorder::parse_strategy(order)?;
-            let result = crate::ast::reorder::reorder_symbols(
-                file_content,
+            let symbols = tx.extract_symbols_cached(&abs, &file_content, lang_val)?;
+            let result = crate::ast::reorder::reorder_symbols_from_symbols(
+                &file_content,
+                &symbols,
                 inside.as_deref(),
                 &strategy,
                 lang_val,
@@ -441,7 +564,7 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs = tx.cwd.join(path);
-            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
             let pos = crate::ast::group::parse_group_position(position.as_deref())?;
             let spec = crate::ast::group::GroupSpec {
@@ -450,7 +573,13 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 preamble: preamble.clone(),
                 position: pos,
             };
-            let result = crate::ast::group::group_symbols(file_content, &spec, lang_val)?;
+            let symbols = tx.extract_symbols_cached(&abs, &file_content, lang_val)?;
+            let result = crate::ast::group::group_symbols_from_symbols(
+                &file_content,
+                &symbols,
+                &spec,
+                lang_val,
+            )?;
             if result.symbols_moved > 0 {
                 tx.write_file(&abs, result.content);
             }
@@ -505,9 +634,11 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 crate::ast::import_rewrite::reject_unsupported_update_imports(lang_val)?;
             }
             let pos = crate::ast::move_symbols::parse_position(position.as_deref())?;
-            let result = crate::ast::move_symbols::move_symbols(
+            let src_symbols = tx.extract_symbols_cached(&abs_source, &source_content, lang_val)?;
+            let result = crate::ast::move_symbols::move_symbols_from_symbols(
                 &source_content,
                 &target_content,
+                &src_symbols,
                 sym_names,
                 pos,
                 lang_val,
@@ -557,14 +688,17 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
                 .into());
             }
-            let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
+            let source_content =
+                read_file_content(tx.pending, tx.existed_before, &abs_source)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs_source)?;
             if rewrite_mods.is_some() {
                 crate::ast::import_rewrite::reject_unsupported_update_imports(lang_val)?;
             }
             let do_unwrap = unwrap.unwrap_or(true);
-            let result = crate::ast::extract_to_file::extract_to_file(
-                source_content,
+            let symbols = tx.extract_symbols_cached(&abs_source, &source_content, lang_val)?;
+            let result = crate::ast::extract_to_file::extract_to_file_from_symbols(
+                &source_content,
+                &symbols,
                 symbol,
                 replacement.as_deref(),
                 do_unwrap,
@@ -595,7 +729,8 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             lang,
         } => {
             let abs_source = tx.cwd.join(source);
-            let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
+            let source_content =
+                read_file_content(tx.pending, tx.existed_before, &abs_source)?.to_string();
             let lang_val = resolve_op_lang(lang.as_deref(), &abs_source)?;
             let split_targets: Vec<crate::ast::split::SplitTarget> = targets
                 .iter()
@@ -615,8 +750,10 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                 }
             }
             let exhaustive = require_exhaustive.unwrap_or(true);
-            let result = crate::ast::split::split_file(
-                source_content,
+            let symbols = tx.extract_symbols_cached(&abs_source, &source_content, lang_val)?;
+            let result = crate::ast::split::split_file_from_symbols(
+                &source_content,
+                &symbols,
                 &split_targets,
                 keep_in_source,
                 source_suffix.as_deref(),
@@ -943,5 +1080,138 @@ mod tests {
             "newline prepend should insert blank line: {dest:?}"
         );
         assert!(dest.contains("fn foo()"));
+    }
+
+    #[test]
+    fn extract_symbols_cached_twice_same_pending_is_one_parse() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("lib.rs");
+        let src = "fn foo() {}\nfn bar() {}\n";
+        fs::write(&path, src).unwrap();
+        let mut f = crate::tx::TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let content = crate::tx::read_file_content(tx.pending, tx.existed_before, &path)
+            .unwrap()
+            .to_string();
+        crate::ast::reset_parse_count();
+        let first = tx
+            .extract_symbols_cached(&path, &content, crate::ast::Language::Rust)
+            .unwrap();
+        let second = tx
+            .extract_symbols_cached(&path, &content, crate::ast::Language::Rust)
+            .unwrap();
+        assert_eq!(
+            crate::ast::take_parse_count(),
+            1,
+            "unchanged pending must reuse the cached tree"
+        );
+        assert_eq!(first.len(), second.len());
+        assert!(first.iter().any(|s| s.name == "foo"));
+        assert!(second.iter().any(|s| s.name == "bar"));
+    }
+
+    #[test]
+    fn extract_symbols_cached_after_write_uses_incremental_and_finds_new() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("lib.rs");
+        fs::write(&path, "fn foo() {}\nfn bar() {}\n").unwrap();
+        let mut f = crate::tx::TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let content = crate::tx::read_file_content(tx.pending, tx.existed_before, &path)
+            .unwrap()
+            .to_string();
+        crate::ast::reset_parse_count();
+        let first = tx
+            .extract_symbols_cached(&path, &content, crate::ast::Language::Rust)
+            .unwrap();
+        assert!(first.iter().any(|s| s.name == "bar"));
+        tx.write_file(&path, "fn foo() {}\nfn baz() {}\n".into());
+        let updated = tx.pending.get(&path).unwrap().1.clone();
+        let second = tx
+            .extract_symbols_cached(&path, &updated, crate::ast::Language::Rust)
+            .unwrap();
+        assert_eq!(
+            crate::ast::take_parse_count(),
+            2,
+            "write then extract is one cold parse plus one incremental"
+        );
+        assert!(second.iter().any(|s| s.name == "baz"));
+        assert!(!second.iter().any(|s| s.name == "bar"));
+    }
+
+    #[test]
+    fn extract_symbols_cached_different_files_do_not_share() {
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.rs");
+        let b = dir.path().join("b.rs");
+        fs::write(&a, "fn alpha() {}\n").unwrap();
+        fs::write(&b, "fn beta() {}\n").unwrap();
+        let mut f = crate::tx::TxStateFixture::new();
+        let mut tx = f.state(dir.path());
+        let a_src = crate::tx::read_file_content(tx.pending, tx.existed_before, &a)
+            .unwrap()
+            .to_string();
+        let b_src = crate::tx::read_file_content(tx.pending, tx.existed_before, &b)
+            .unwrap()
+            .to_string();
+        crate::ast::reset_parse_count();
+        let a_syms = tx
+            .extract_symbols_cached(&a, &a_src, crate::ast::Language::Rust)
+            .unwrap();
+        let b_syms = tx
+            .extract_symbols_cached(&b, &b_src, crate::ast::Language::Rust)
+            .unwrap();
+        assert_eq!(crate::ast::take_parse_count(), 2);
+        assert!(a_syms.iter().any(|s| s.name == "alpha"));
+        assert!(b_syms.iter().any(|s| s.name == "beta"));
+        assert!(!a_syms.iter().any(|s| s.name == "beta"));
+    }
+
+    #[test]
+    fn two_ast_replace_same_file_both_land_and_reuse_tree() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("lib.rs");
+        fs::write(&path, "fn foo() { let x = 1; }\nfn bar() { let y = 2; }\n").unwrap();
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![
+                crate::plan::Operation::AstReplace {
+                    path: "lib.rs".into(),
+                    symbol: "foo".into(),
+                    old: "x".into(),
+                    new_text: "xx".into(),
+                    regex: false,
+                    lang: None,
+                },
+                crate::plan::Operation::AstReplace {
+                    path: "lib.rs".into(),
+                    symbol: "bar".into(),
+                    old: "y".into(),
+                    new_text: "yy".into(),
+                    regex: false,
+                    lang: None,
+                },
+            ],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+        crate::ast::reset_parse_count();
+        let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+        assert!(report.ok, "two ast.replace must apply: {report:?}");
+        assert!(report.applied);
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(after.contains("let xx = 1"), "foo replace missing: {after}");
+        assert!(after.contains("let yy = 2"), "bar replace missing: {after}");
+        let n = crate::ast::take_parse_count();
+        assert!(
+            n <= 2,
+            "two replaces on one file must not cold-parse each op twice, got {n}"
+        );
+        assert!(n >= 1, "at least one parse must run, got {n}");
     }
 }
