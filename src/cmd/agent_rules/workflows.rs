@@ -156,6 +156,7 @@ pub(crate) fn append_workflows(
              ast.replace src/config.rs default_timeout \"30\" \"60\"\n\
              # path old parameters [return_type]:\n\
              ast.rewrite_signature src/lib.rs process \"(x: u64)\" \"-> u64\"\n\
+             ast.insert src/lib.rs \"fn added() {}\" --after existing\n\
              ```\n\n",
         );
     }

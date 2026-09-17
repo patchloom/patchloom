@@ -1,6 +1,6 @@
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::WritePhase;
-use crate::cmd::output::execute_via_engine;
+
 use crate::exit;
 use crate::ops::md::{dedupe_headings_in, lint_agents_content};
 use crate::plan::Operation;
@@ -31,8 +31,9 @@ pub enum MdAction {
     /// owns following `##` sections until the next `#`). Prefer peer-level
     /// headings when sibling sections must survive.
     ReplaceSection {
-        /// Markdown file to edit.
-        file: String,
+        /// Markdown file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
         /// Heading of the section to replace (e.g. `## Unreleased`).
         #[arg(long)]
         heading: String,
@@ -49,8 +50,9 @@ pub enum MdAction {
     /// Does not insert after the full section body. For a sibling section after
     /// the section ends, use `insert-after-section` (#1726).
     InsertAfterHeading {
-        /// Markdown file to edit.
-        file: String,
+        /// Markdown file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
         /// Heading line to insert under (e.g. `## Config`).
         #[arg(long)]
         heading: String,
@@ -68,8 +70,9 @@ pub enum MdAction {
     /// `insert-after-heading` only for content under the heading (e.g. intro
     /// before a table). #1726
     InsertAfterSection {
-        /// Markdown file to edit.
-        file: String,
+        /// Markdown file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
         /// Heading whose section body ends just before the insertion point.
         #[arg(long)]
         heading: String,
@@ -88,8 +91,9 @@ pub enum MdAction {
     /// (symmetry with `insert-after-section` / `insert-after-heading`).
     #[command(visible_alias = "insert-before-section")]
     InsertBeforeHeading {
-        /// Markdown file to edit.
-        file: String,
+        /// Markdown file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
         /// Heading line to insert before (e.g. `## Config`).
         #[arg(long)]
         heading: String,
@@ -103,8 +107,9 @@ pub enum MdAction {
     },
     /// Add a bullet under a heading if not already present.
     UpsertBullet {
-        /// Markdown file to edit.
-        file: String,
+        /// Markdown file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
         /// Heading under which to upsert the bullet (e.g. `## Rules`).
         #[arg(long)]
         heading: String,
@@ -118,19 +123,22 @@ pub enum MdAction {
     /// Drops heading **and** body until the next same-or-higher heading; unique
     /// content under the second heading is not kept.
     DedupeHeadings {
-        /// Markdown file to scan for duplicate headings.
-        file: String,
+        /// Markdown file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
     },
     /// Lint common AGENTS.md problems.
     #[command(name = "lint-agents", alias = "lint")]
     LintAgents {
-        /// AGENTS.md (or similar) file to lint.
-        file: String,
+        /// AGENTS.md (or similar) file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
     },
     /// Append a row to a markdown table under a heading.
     TableAppend {
-        /// Markdown file containing the table.
-        file: String,
+        /// Markdown file(s). Omit when using --glob / --files-from.
+        #[arg(num_args = 0.., value_name = "FILE")]
+        files: Vec<String>,
         /// Heading above the target table (e.g. `## API`).
         #[arg(long)]
         heading: String,
@@ -215,6 +223,52 @@ fn set_md_op_path(op: &mut Operation, path: String) {
     }
 }
 
+fn resolve_md_files(global: &GlobalFlags, files: &[String]) -> anyhow::Result<Vec<String>> {
+    let cwd = global.resolve_cwd()?;
+    crate::cmd::write_targets::resolve_write_targets(
+        global,
+        &cwd,
+        files,
+        crate::cmd::write_targets::TargetKind::Markdown,
+    )
+}
+
+fn map_md_resolve_err(global: &GlobalFlags, e: anyhow::Error) -> anyhow::Result<u8> {
+    if exit::is_no_match(&e) {
+        global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
+        Ok(exit::NO_MATCHES)
+    } else if exit::is_invalid_input(&e) {
+        global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+        Ok(exit::FAILURE)
+    } else {
+        Err(e)
+    }
+}
+
+fn run_md_write(
+    files: Vec<String>,
+    global: &GlobalFlags,
+    mut make_op: impl FnMut(String) -> Operation,
+) -> anyhow::Result<u8> {
+    let files = match resolve_md_files(global, &files) {
+        Ok(f) => f,
+        Err(e) => return map_md_resolve_err(global, e),
+    };
+    let display = if files.len() == 1 {
+        files[0].clone()
+    } else {
+        format!("{} files", files.len())
+    };
+    let ops: Vec<Operation> = files.into_iter().map(&mut make_op).collect();
+    execute_md_ops(
+        ops,
+        global,
+        &display,
+        &format!("would modify {display}"),
+        &format!("modified {display}"),
+    )
+}
+
 /// Execute a single md operation through the engine, mapping "not found"
 /// errors to `exit::NO_MATCHES`.
 fn execute_md_op(
@@ -225,13 +279,23 @@ fn execute_md_op(
     apply_msg: &str,
 ) -> anyhow::Result<u8> {
     let cwd = global.resolve_cwd()?;
-    // Rewrite absolute paths for I/O; keep relative spellings (#1931 suite).
     let file = global.rewrite_user_path_arg(&cwd, file)?;
     set_md_op_path(&mut op, file.clone());
-    let file_owned = file;
-    // Callers may mention multiple paths (move-section cross-file); keep them.
-    match execute_via_engine(
-        op,
+    execute_md_ops(vec![op], global, &file, check_msg, apply_msg)
+}
+
+/// Execute md operation(s) through the engine, mapping "not found"
+/// errors to `exit::NO_MATCHES`.
+fn execute_md_ops(
+    ops: Vec<Operation>,
+    global: &GlobalFlags,
+    display: &str,
+    check_msg: &str,
+    apply_msg: &str,
+) -> anyhow::Result<u8> {
+    let file_owned = display.to_string();
+    match crate::cmd::output::run_write(
+        crate::tx::engine::WriteSource::Operations(ops),
         global,
         |phase, diff, _backup| MdOutput {
             ok: true,
@@ -244,8 +308,12 @@ fn execute_md_op(
             applied: phase.applied_flag(),
             backup_session: _backup,
         },
-        check_msg,
-        apply_msg,
+        crate::cmd::write_mode::WriteMessages {
+            check: check_msg,
+            apply: apply_msg,
+            post_confirm: None,
+        },
+        crate::cmd::write_mode::RenderPolicy::default(),
     ) {
         Ok(code) => Ok(code),
         Err(e) => {
@@ -271,151 +339,132 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("md: action={:?}", std::mem::discriminant(&args.action));
     match args.action {
         MdAction::ReplaceSection {
-            file,
+            files,
             heading,
             stdin,
             content,
         } => {
-            crate::verbose!("md: replace-section file={}, heading={:?}", file, heading);
+            crate::verbose!(
+                "md: replace-section files={:?}, heading={:?}",
+                files,
+                heading
+            );
             let Some(replacement) = read_content(stdin, &content, global)? else {
                 return Ok(exit::FAILURE);
             };
-            let op = Operation::MdReplaceSection {
-                path: file.clone(),
+            run_md_write(files, global, |path| Operation::MdReplaceSection {
+                path,
                 heading: heading.clone(),
-                content: replacement,
-            };
-            execute_md_op(
-                op,
-                global,
-                &file,
-                &format!("would modify {file}"),
-                &format!("modified {file}"),
-            )
+                content: replacement.clone(),
+            })
         }
 
         MdAction::InsertAfterHeading {
-            file,
+            files,
             heading,
             stdin,
             content,
         } => {
             crate::verbose!(
-                "md: insert-after-heading file={}, heading={:?}",
-                file,
+                "md: insert-after-heading files={:?}, heading={:?}",
+                files,
                 heading
             );
             let Some(insertion) = read_content(stdin, &content, global)? else {
                 return Ok(exit::FAILURE);
             };
-            let op = Operation::MdInsertAfterHeading {
-                path: file.clone(),
+            run_md_write(files, global, |path| Operation::MdInsertAfterHeading {
+                path,
                 heading: heading.clone(),
-                content: insertion,
-            };
-            execute_md_op(
-                op,
-                global,
-                &file,
-                &format!("would modify {file}"),
-                &format!("modified {file}"),
-            )
+                content: insertion.clone(),
+            })
         }
 
         MdAction::InsertAfterSection {
-            file,
+            files,
             heading,
             stdin,
             content,
         } => {
             crate::verbose!(
-                "md: insert-after-section file={}, heading={:?}",
-                file,
+                "md: insert-after-section files={:?}, heading={:?}",
+                files,
                 heading
             );
             let Some(insertion) = read_content(stdin, &content, global)? else {
                 return Ok(exit::FAILURE);
             };
-            let op = Operation::MdInsertAfterSection {
-                path: file.clone(),
+            run_md_write(files, global, |path| Operation::MdInsertAfterSection {
+                path,
                 heading: heading.clone(),
-                content: insertion,
-            };
-            execute_md_op(
-                op,
-                global,
-                &file,
-                &format!("would modify {file}"),
-                &format!("modified {file}"),
-            )
+                content: insertion.clone(),
+            })
         }
 
         MdAction::InsertBeforeHeading {
-            file,
+            files,
             heading,
             stdin,
             content,
         } => {
             crate::verbose!(
-                "md: insert-before-heading file={}, heading={:?}",
-                file,
+                "md: insert-before-heading files={:?}, heading={:?}",
+                files,
                 heading
             );
             let Some(insertion) = read_content(stdin, &content, global)? else {
                 return Ok(exit::FAILURE);
             };
-            let op = Operation::MdInsertBeforeHeading {
-                path: file.clone(),
+            run_md_write(files, global, |path| Operation::MdInsertBeforeHeading {
+                path,
                 heading: heading.clone(),
-                content: insertion,
-            };
-            execute_md_op(
-                op,
-                global,
-                &file,
-                &format!("would modify {file}"),
-                &format!("modified {file}"),
-            )
+                content: insertion.clone(),
+            })
         }
 
         MdAction::UpsertBullet {
-            file,
+            files,
             heading,
             bullet,
         } => {
-            crate::verbose!("md: upsert-bullet file={}, heading={:?}", file, heading);
-            let op = Operation::MdUpsertBullet {
-                path: file.clone(),
+            crate::verbose!("md: upsert-bullet files={:?}, heading={:?}", files, heading);
+            run_md_write(files, global, |path| Operation::MdUpsertBullet {
+                path,
                 heading: heading.clone(),
-                bullet,
-            };
-            execute_md_op(
-                op,
-                global,
-                &file,
-                &format!("would modify {file}"),
-                &format!("modified {file}"),
-            )
+                bullet: bullet.clone(),
+            })
         }
 
-        MdAction::DedupeHeadings { mut file } => {
-            crate::verbose!("md: dedupe-headings file={}", file);
+        MdAction::DedupeHeadings { files } => {
+            crate::verbose!("md: dedupe-headings files={:?}", files);
+            let files = match resolve_md_files(global, &files) {
+                Ok(f) => f,
+                Err(e) => return map_md_resolve_err(global, e),
+            };
             // Pre-read to compute removed headings for structured output,
             // then route the actual write through the engine.
             let cwd = global.resolve_cwd()?;
-            file = global.rewrite_user_path_arg(&cwd, &file)?;
-            let path = cwd.join(&file);
-            let original = match crate::files::load_text_strict(&path, &file) {
-                Ok(s) => s,
-                Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
-                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
-                    let msg = crate::exit::agent_error_message(&e);
-                    global.emit_error_json_kind(Some(kind), &msg)?;
-                    return Ok(exit::FAILURE);
-                }
-                Err(e) => return Err(e).with_context(|| format!("reading {file}")),
+            let file = if files.len() == 1 {
+                files[0].clone()
+            } else {
+                format!("{} files", files.len())
             };
-            let (_new, removed) = dedupe_headings_in(&original);
+            let mut removed = Vec::new();
+            for path_str in &files {
+                let path = cwd.join(path_str);
+                let original = match crate::files::load_text_strict(&path, path_str) {
+                    Ok(s) => s,
+                    Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+                        let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                        let msg = crate::exit::agent_error_message(&e);
+                        global.emit_error_json_kind(Some(kind), &msg)?;
+                        return Ok(exit::FAILURE);
+                    }
+                    Err(e) => return Err(e).with_context(|| format!("reading {path_str}")),
+                };
+                let (_new, extra) = dedupe_headings_in(&original);
+                removed.extend(extra);
+            }
 
             // Human: one line per removed heading. JSONL streams headings then
             // a type:summary trailer with applied/backup (tidy/replace parity).
@@ -430,9 +479,12 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
             }
 
-            let op = Operation::MdDedupeHeadings { path: file.clone() };
+            let ops: Vec<Operation> = files
+                .iter()
+                .map(|p| Operation::MdDedupeHeadings { path: p.clone() })
+                .collect();
             let (cwd, result) = crate::cmd::output::stage_for_write(
-                crate::tx::engine::WriteSource::Operations(vec![op]),
+                crate::tx::engine::WriteSource::Operations(ops),
                 global,
             )?;
             use crate::cmd::write_mode::{FinalizeCallbacks, finalize_report};
@@ -540,22 +592,29 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             )
         }
 
-        MdAction::LintAgents { mut file } => {
-            crate::verbose!("md: lint-agents file={}", file);
-            let cwd = global.resolve_cwd()?;
-            file = global.rewrite_user_path_arg(&cwd, &file)?;
-            let path = cwd.join(&file);
-            let content = match crate::files::load_text_strict(&path, &file) {
-                Ok(s) => s,
-                Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
-                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
-                    let msg = crate::exit::agent_error_message(&e);
-                    global.emit_error_json_kind(Some(kind), &msg)?;
-                    return Ok(exit::FAILURE);
-                }
-                Err(e) => return Err(e).with_context(|| format!("reading {file}")),
+        MdAction::LintAgents { files } => {
+            crate::verbose!("md: lint-agents files={:?}", files);
+            let files = match resolve_md_files(global, &files) {
+                Ok(f) => f,
+                Err(e) => return map_md_resolve_err(global, e),
             };
-            let issues = lint_agents_content(&content);
+            let cwd = global.resolve_cwd()?;
+            let file = files[0].clone();
+            let mut issues = Vec::new();
+            for file in &files {
+                let path = cwd.join(file);
+                let content = match crate::files::load_text_strict(&path, file) {
+                    Ok(s) => s,
+                    Err(e) if crate::exit::is_load_text_strict_fail(&e) => {
+                        let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                        let msg = crate::exit::agent_error_message(&e);
+                        global.emit_error_json_kind(Some(kind), &msg)?;
+                        return Ok(exit::FAILURE);
+                    }
+                    Err(e) => return Err(e).with_context(|| format!("reading {file}")),
+                };
+                issues.extend(lint_agents_content(&content));
+            }
 
             // --json: object envelope (tidy check parity, #1854). --jsonl: one
             // issue object per line. Text: human lines with file:line.
@@ -614,20 +673,17 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
 
-        MdAction::TableAppend { file, heading, row } => {
-            crate::verbose!("md: table-append file={}, heading={:?}", file, heading);
-            let op = Operation::MdTableAppend {
-                path: file.clone(),
+        MdAction::TableAppend {
+            files,
+            heading,
+            row,
+        } => {
+            crate::verbose!("md: table-append files={:?}, heading={:?}", files, heading);
+            run_md_write(files, global, |path| Operation::MdTableAppend {
+                path,
                 heading: heading.clone(),
-                row,
-            };
-            execute_md_op(
-                op,
-                global,
-                &file,
-                &format!("would modify {file}"),
-                &format!("modified {file}"),
-            )
+                row: row.clone(),
+            })
         }
 
         MdAction::MoveSection {

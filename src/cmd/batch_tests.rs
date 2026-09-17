@@ -1002,9 +1002,9 @@ mod error_handling {
 
     #[test]
     fn known_batch_ops_inventory_stable() {
-        // docs/reference and clap after_help list 30 batch ops; keep the
+        // docs/reference and clap after_help list 38 batch ops; keep the
         // suggestion table in lockstep so bare-name hints stay accurate.
-        assert_eq!(KNOWN_BATCH_OPS.len(), 30);
+        assert_eq!(KNOWN_BATCH_OPS.len(), 38);
         let mut sorted = KNOWN_BATCH_OPS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -1233,6 +1233,23 @@ mod doc_completeness {
             1,
         );
         result.expect("ast.rewrite_signature should be a valid operation");
+
+        parse_line(r#"ast.insert test.rs "fn x() {}" --after foo"#, 1)
+            .expect("ast.insert should be a valid operation");
+        parse_line(r#"ast.wrap test.rs "mod m" --symbols a,b"#, 1)
+            .expect("ast.wrap should be a valid operation");
+        parse_line(r#"ast.imports test.rs --add "use std::io;""#, 1)
+            .expect("ast.imports should be a valid operation");
+        parse_line(r#"ast.reorder test.rs alphabetical"#, 1)
+            .expect("ast.reorder should be a valid operation");
+        parse_line(r#"ast.group test.rs tests foo bar"#, 1)
+            .expect("ast.group should be a valid operation");
+        parse_line(r#"ast.move src.rs dest.rs foo"#, 1)
+            .expect("ast.move should be a valid operation");
+        parse_line(r#"ast.extract_to_file src.rs Foo dest.rs"#, 1)
+            .expect("ast.extract_to_file should be a valid operation");
+        parse_line(r#"ast.split src.rs [{"path":"a.rs","symbols":["A"]}]"#, 1)
+            .expect("ast.split should be a valid operation");
     }
 
     #[test]

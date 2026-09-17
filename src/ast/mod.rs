@@ -31,6 +31,7 @@ pub mod wrap;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -304,12 +305,31 @@ pub enum ParseFailure {
     DeadlineExceeded,
 }
 
+/// Stable hash of source bytes for the plan-local AST tree cache (#2546).
+pub(crate) fn hash_source(source: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.as_bytes().hash(&mut hasher);
+    hasher.finish()
+}
+
 /// Parse source text, distinguishing no-grammar from a deadline (#2406).
 ///
 /// [`parse_source`] stays an `Option` wrapper for existing callers.
 pub fn try_parse_source(
     source: &str,
     lang: Language,
+) -> Result<(tree_sitter_lib::Tree, tree_sitter_lib::Language), ParseFailure> {
+    try_parse_source_with_old(source, lang, None)
+}
+
+/// Like [`try_parse_source`], but reuse `old_tree` for incremental parse (#2546).
+///
+/// Increments [`PARSE_COUNT`] on every real parse, including incremental.
+/// Cache hits in the tx layer must not call this.
+pub fn try_parse_source_with_old(
+    source: &str,
+    lang: Language,
+    old_tree: Option<&tree_sitter_lib::Tree>,
 ) -> Result<(tree_sitter_lib::Tree, tree_sitter_lib::Language), ParseFailure> {
     let ts_lang = ts_language_for(lang).ok_or(ParseFailure::NoGrammar)?;
     #[cfg(test)]
@@ -328,7 +348,7 @@ pub fn try_parse_source(
         };
         // Resume after a cancelled parse would continue mid-document.
         parser.reset();
-        match parse_with_deadline(parser, source) {
+        match parse_with_deadline(parser, source, old_tree) {
             Ok(tree) => Ok(tree),
             Err(e) => {
                 parser.reset();
@@ -374,6 +394,7 @@ fn parse_deadline() -> Duration {
 fn parse_with_deadline(
     parser: &mut tree_sitter_lib::Parser,
     source: &str,
+    old_tree: Option<&tree_sitter_lib::Tree>,
 ) -> Result<tree_sitter_lib::Tree, ParseFailure> {
     let deadline = Instant::now() + parse_deadline();
     let timed_out = std::cell::Cell::new(false);
@@ -392,7 +413,7 @@ fn parse_with_deadline(
         &mut |i, _| {
             if i < len { &bytes[i..] } else { &[] as &[u8] }
         },
-        None,
+        old_tree,
         Some(options),
     ) {
         Some(tree) => Ok(tree),
@@ -737,5 +758,17 @@ mod tests {
         assert_eq!(Language::Rust.to_string(), "Rust");
         assert_eq!(Language::CSharp.to_string(), "C#");
         assert_eq!(Language::Cpp.to_string(), "C++");
+    }
+
+    #[test]
+    fn try_parse_source_with_old_increments_parse_count() {
+        reset_parse_count();
+        let source = "fn main() {}\n";
+        let (tree, _) = try_parse_source(source, Language::Rust).expect("cold parse");
+        let edited = "fn main() { let x = 1; }\n";
+        let (next, _) =
+            try_parse_source_with_old(edited, Language::Rust, Some(&tree)).expect("incremental");
+        assert!(!next.root_node().has_error());
+        assert_eq!(take_parse_count(), 2, "incremental parse still counts");
     }
 }

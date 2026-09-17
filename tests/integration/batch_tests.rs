@@ -551,42 +551,129 @@ fn test_batch_malformed_line_fails() {
         .stderr(predicates::str::contains("unknown operation"));
 }
 
-/// Plan-only AST ops should steer agents to tx/MCP, not bare "unknown".
 #[test]
-fn test_batch_ast_insert_hints_tx_plan() {
+#[cfg(feature = "ast")]
+fn test_batch_ast_insert() {
     let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn existing() {}\n").unwrap();
     let ops = dir.path().join("ops.txt");
-    fs::write(&ops, "ast.insert lib.rs after foo \"fn bar() {}\"\n").unwrap();
+    fs::write(
+        &ops,
+        "ast.insert lib.rs \"fn added() { 1 }\" --after existing\n",
+    )
+    .unwrap();
 
     patchloom_in(dir.path())
         .arg("batch")
         .arg(&ops)
         .arg("--apply")
         .assert()
-        .code(4)
-        .stderr(predicates::str::contains("not supported in batch"))
-        .stderr(predicates::str::contains("tx plan"));
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("fn added()"),
+        "batch ast.insert should add fn: {content}"
+    );
 }
 
-/// #2054: wrap/imports batch lines also hint at tx/MCP (same unsupported class).
 #[test]
-fn test_batch_ast_wrap_and_imports_hint_tx_plan() {
+#[cfg(feature = "ast")]
+fn test_batch_ast_insert_at_file_payload() {
     let dir = TempDir::new().unwrap();
-    for line in [
-        "ast.wrap lib.rs symbols=test_a wrapper=\"mod m\"\n",
-        "ast.imports lib.rs add=use std::io;\n",
-    ] {
-        let ops = dir.path().join("ops.txt");
-        fs::write(&ops, line).unwrap();
-        patchloom_in(dir.path())
-            .arg("batch")
-            .arg(&ops)
-            .arg("--apply")
-            .assert()
-            .code(4)
-            .stderr(predicates::str::contains("not supported in batch"))
-            .stderr(predicate::str::contains("tx plan").or(predicate::str::contains("MCP")));
-    }
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn existing() {}\n").unwrap();
+    let snippet = dir.path().join("snippet.rs");
+    fs::write(&snippet, "fn added() { 1 }\n").unwrap();
+    let ops = dir.path().join("ops.txt");
+    fs::write(
+        &ops,
+        format!(
+            "ast.insert lib.rs @{} --after existing\n",
+            portable_path_str(&snippet)
+        ),
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("fn added()"),
+        "batch @path content should insert: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_batch_ast_insert_missing_at_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn existing() {}\n").unwrap();
+    let ops = dir.path().join("ops.txt");
+    fs::write(
+        &ops,
+        "ast.insert lib.rs @missing-snippet.rs --after existing\n",
+    )
+    .unwrap();
+
+    let out = patchloom_in(dir.path())
+        .arg("--json")
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let kind = v["error_kind"].as_str().unwrap_or("");
+    assert!(
+        kind == "not_found" || kind == "invalid_input",
+        "missing @file must be not_found or invalid_input, got {v}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_batch_ast_wrap_and_imports() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn test_a() {}\nfn test_b() {}\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("main.rs"), "use std::io;\n\nfn main() {}\n").unwrap();
+    let ops = dir.path().join("ops.txt");
+    fs::write(
+        &ops,
+        "ast.wrap lib.rs \"mod tests\" --symbols test_a,test_b\nast.imports main.rs --add \"use std::collections::HashMap;\"\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let wrapped = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        wrapped.contains("mod tests"),
+        "wrap should apply: {wrapped}"
+    );
+    let imports = fs::read_to_string(dir.path().join("main.rs")).unwrap();
+    assert!(
+        imports.contains("use std::collections::HashMap"),
+        "imports should apply: {imports}"
+    );
 }
 
 /// Nested JSON quotes keep batch doc.set values as strings (not float 2.0).

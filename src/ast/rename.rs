@@ -89,7 +89,16 @@ pub(crate) fn try_rename_in_source(
         }
         Err(ParseFailure::NoGrammar) => return Ok(None),
     };
+    Ok(Some(rename_in_tree(source, &tree, old_name, new_name)))
+}
 
+/// Like [`try_rename_in_source`] using a pre-parsed tree (tx tree cache).
+pub(crate) fn rename_in_tree(
+    source: &str,
+    tree: &tree_sitter_lib::Tree,
+    old_name: &str,
+    new_name: &str,
+) -> RenameResult {
     // Collect byte ranges to replace (in reverse order for offset stability)
     let mut replacements = Vec::new();
     collect_rename_nodes(tree.root_node(), source, old_name, &mut replacements);
@@ -103,10 +112,10 @@ pub(crate) fn try_rename_in_source(
         result.replace_range(*start..*end, new_name);
     }
 
-    Ok(Some(RenameResult {
+    RenameResult {
         content: result,
         replacements: replacements_count,
-    }))
+    }
 }
 
 /// Rename all identifier occurrences of `old_name` to `new_name` in source code,

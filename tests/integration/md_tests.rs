@@ -1689,3 +1689,136 @@ fn test_md_sole_invalid_encoding_error_kind() {
         assert_eq!(json["ok"], false, "args={args:?} json={json}");
     }
 }
+
+/// #2533: two positional markdown dests on a write subcommand.
+#[test]
+fn test_md_upsert_bullet_two_files() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.md");
+    let b = dir.path().join("b.md");
+    fs::write(&a, "## X\n\n- keep\n").unwrap();
+    fs::write(&b, "## X\n\n- keep\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "md",
+            "upsert-bullet",
+            "a.md",
+            "b.md",
+            "--heading",
+            "## X",
+            "--bullet",
+            "- y",
+            "--apply",
+        ])
+        .assert()
+        .success();
+
+    assert!(fs::read_to_string(&a).unwrap().contains("- y"), "a.md");
+    assert!(fs::read_to_string(&b).unwrap().contains("- y"), "b.md");
+}
+
+/// #2533: --glob is an include walk, not dest-glob.
+#[test]
+fn test_md_upsert_bullet_glob() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.md"), "## X\n\n- keep\n").unwrap();
+    fs::write(dir.path().join("skip.txt"), "no\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "md",
+            "upsert-bullet",
+            "--glob",
+            "*.md",
+            "--heading",
+            "## X",
+            "--bullet",
+            "- y",
+            "--apply",
+        ])
+        .assert()
+        .success();
+
+    assert!(
+        fs::read_to_string(dir.path().join("a.md"))
+            .unwrap()
+            .contains("- y")
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("skip.txt")).unwrap(),
+        "no\n"
+    );
+}
+
+/// #2533: dest-looking glob without --glob is invalid_input.
+#[test]
+fn test_md_upsert_bullet_dest_glob_refused() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.md"), "## X\n").unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "--json",
+            "md",
+            "upsert-bullet",
+            "*.md",
+            "--heading",
+            "## X",
+            "--bullet",
+            "- y",
+            "--check",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["ok"], false, "{json}");
+    assert_eq!(json["error_kind"], "invalid_input", "{json}");
+    assert!(
+        json["error"].as_str().unwrap_or("").contains("dest glob"),
+        "{json}"
+    );
+}
+
+/// #2533: missing heading fail-closed across multi-file.
+#[test]
+fn test_md_upsert_bullet_missing_heading_fail_closed() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("a.md"), "## X\n\n- keep\n").unwrap();
+    fs::write(dir.path().join("b.md"), "## Other\n\n- keep\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "md",
+            "upsert-bullet",
+            "a.md",
+            "b.md",
+            "--heading",
+            "## X",
+            "--bullet",
+            "- y",
+            "--apply",
+        ])
+        .assert()
+        .code(3);
+
+    assert!(
+        !fs::read_to_string(dir.path().join("a.md"))
+            .unwrap()
+            .contains("- y"),
+        "must not write when a sibling file misses the heading"
+    );
+}

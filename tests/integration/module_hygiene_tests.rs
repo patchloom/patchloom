@@ -170,6 +170,7 @@ fn ast_run_entrypoints_enforce_path_containment() {
     let files = [
         repo_root().join("src/cmd/ast/query.rs"),
         repo_root().join("src/cmd/ast/mutate.rs"),
+        repo_root().join("src/cmd/ast/mutate_extra.rs"),
     ];
     // Match `fn run_foo(` even when prefixed with `pub(super)`.
     let fn_re =
@@ -195,7 +196,8 @@ fn ast_run_entrypoints_enforce_path_containment() {
                 || body.contains("setup_single_file")
                 || body.contains("setup_multi_file")
                 || body.contains("run_write_op")
-                || body.contains("stage_for_write");
+                || body.contains("stage_for_write")
+                || body.contains("run_single_file_ast_op");
             if !ok {
                 missing.push(format!(
                     "{}::{name} (no check_paths_contained / setup_* in body)",

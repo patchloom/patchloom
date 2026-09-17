@@ -1,7 +1,7 @@
 //! AST-aware code wrapping: wrap existing code in a block (module, impl, etc.).
 
 use super::Language;
-use super::symbols::{extract_symbols_or_timeout, find_symbol, full_symbol_span};
+use super::symbols::{SymbolDef, extract_symbols_or_timeout, find_symbol, full_symbol_span};
 
 /// Result of a wrap operation.
 #[derive(Debug)]
@@ -20,6 +20,47 @@ pub struct WrapResult {
 /// - `preamble`: optional content to insert at the top of the wrapped block.
 pub fn wrap_code(
     source: &str,
+    symbols_arg: Option<&[String]>,
+    lines_arg: Option<&str>,
+    wrapper: &str,
+    preamble: Option<&str>,
+    lang: Language,
+) -> anyhow::Result<WrapResult> {
+    wrap_code_inner(
+        source,
+        None,
+        symbols_arg,
+        lines_arg,
+        wrapper,
+        preamble,
+        lang,
+    )
+}
+
+/// Like [`wrap_code`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn wrap_code_from_symbols(
+    source: &str,
+    symbols: &[SymbolDef],
+    symbols_arg: Option<&[String]>,
+    lines_arg: Option<&str>,
+    wrapper: &str,
+    preamble: Option<&str>,
+    lang: Language,
+) -> anyhow::Result<WrapResult> {
+    wrap_code_inner(
+        source,
+        Some(symbols),
+        symbols_arg,
+        lines_arg,
+        wrapper,
+        preamble,
+        lang,
+    )
+}
+
+fn wrap_code_inner(
+    source: &str,
+    cached_symbols: Option<&[SymbolDef]>,
     symbols_arg: Option<&[String]>,
     lines_arg: Option<&str>,
     wrapper: &str,
@@ -54,7 +95,10 @@ pub fn wrap_code(
 
     // Determine the range of lines to wrap (0-based indices).
     let (start_idx, end_idx) = if let Some(symbol_names) = symbols_arg {
-        find_symbol_range(source, symbol_names, lang)?
+        match cached_symbols {
+            Some(symbols) => find_symbol_range_from(source, symbols, symbol_names, lang)?,
+            None => find_symbol_range(source, symbol_names, lang)?,
+        }
     } else {
         parse_line_range_to_indices(
             lines_arg.expect("mode_count==1 guarantees Some"),
@@ -194,11 +238,26 @@ fn find_symbol_range(
         }));
     }
     let symbols = extract_symbols_or_timeout(source, lang)?;
+    find_symbol_range_from(source, &symbols, symbol_names, lang)
+}
+
+/// Like [`find_symbol_range`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn find_symbol_range_from(
+    source: &str,
+    symbols: &[SymbolDef],
+    symbol_names: &[String],
+    lang: Language,
+) -> anyhow::Result<(usize, usize)> {
+    if symbol_names.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "symbols list must not be empty".into(),
+        }));
+    }
     let mut min_start = usize::MAX;
     let mut max_end = 0usize;
 
     for name in symbol_names {
-        let sym = find_symbol(&symbols, name).ok_or_else(|| {
+        let sym = find_symbol(symbols, name).ok_or_else(|| {
             anyhow::Error::new(crate::exit::NoMatchError {
                 msg: format!("symbol '{name}' not found"),
             })

@@ -39,12 +39,23 @@ pub fn reorder_symbols(
     strategy: &ReorderStrategy,
     lang: Language,
 ) -> anyhow::Result<ReorderResult> {
-    let eol = crate::write::detect_eol(source);
     let all_symbols = extract_symbols_or_timeout(source, lang)?;
+    reorder_symbols_from_symbols(source, &all_symbols, inside, strategy, lang)
+}
+
+/// Like [`reorder_symbols`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn reorder_symbols_from_symbols(
+    source: &str,
+    all_symbols: &[SymbolDef],
+    inside: Option<&str>,
+    strategy: &ReorderStrategy,
+    lang: Language,
+) -> anyhow::Result<ReorderResult> {
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     let (scope_symbols, scope_start_0, scope_end_0) = if let Some(container) = inside {
-        let parent = find_symbol(&all_symbols, container).ok_or_else(|| {
+        let parent = find_symbol(all_symbols, container).ok_or_else(|| {
             anyhow::Error::new(crate::exit::NoMatchError {
                 msg: format!("symbol '{container}' not found"),
             })
@@ -52,9 +63,9 @@ pub fn reorder_symbols(
         // Find the opening brace line of the container
         let open_line_0 = find_opening_line(&lines, parent.start_line.saturating_sub(1));
         let close_line_0 = parent.end_line.min(lines.len()).saturating_sub(1);
-        (&parent.children, open_line_0 + 1, close_line_0)
+        (parent.children.as_slice(), open_line_0 + 1, close_line_0)
     } else {
-        (&all_symbols as &Vec<SymbolDef>, 0usize, lines.len())
+        (all_symbols, 0usize, lines.len())
     };
 
     if scope_symbols.is_empty() {

@@ -1420,6 +1420,174 @@ fn test_ast_replace_symbol_missing_exits_3() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_insert_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn existing() {}\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "insert",
+            "lib.rs",
+            "--content",
+            "fn added() { 1 }",
+            "--after",
+            "existing",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("fn added()"),
+        "ast insert --apply should add fn: {content}"
+    );
+    assert!(
+        content.find("fn existing").unwrap() < content.find("fn added").unwrap(),
+        "added after existing: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_insert_missing_content_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("lib.rs"), "fn existing() {}\n").unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json", "ast", "insert", "lib.rs", "--after", "existing", "--apply",
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_insert_missing_file_is_not_found() {
+    let dir = TempDir::new().unwrap();
+    let out = patchloom_in(dir.path())
+        .args([
+            "--json",
+            "ast",
+            "insert",
+            "gone.rs",
+            "--content",
+            "fn added() {}",
+            "--after",
+            "existing",
+            "--apply",
+        ])
+        .assert()
+        .code(1)
+        .get_output()
+        .stdout
+        .clone();
+    let v: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let kind = v["error_kind"].as_str().unwrap_or("");
+    assert!(
+        kind == "not_found" || kind == "invalid_input",
+        "missing file must be not_found or invalid_input, got {v}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_rewrite_signature_check() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn process(x: i32) {}\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "rewrite-signature",
+            "lib.rs",
+            "--old",
+            "process",
+            "--parameters",
+            "(x: u64)",
+            "--return-type",
+            "-> u64",
+            "--check",
+        ])
+        .assert()
+        .code(2);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert_eq!(content, "fn process(x: i32) {}\n");
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_wrap_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn test_a() {}\nfn test_b() {}\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "wrap",
+            "lib.rs",
+            "--wrapper",
+            "mod tests",
+            "--symbols",
+            "test_a,test_b",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("mod tests"),
+        "wrapper should appear: {content}"
+    );
+    assert!(
+        content.contains("fn test_a"),
+        "wrapped symbol remains: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_imports_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("main.rs");
+    fs::write(&file, "use std::io;\n\nfn main() {}\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "imports",
+            "main.rs",
+            "--add",
+            "use std::collections::HashMap;",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("use std::collections::HashMap"),
+        "import should be added: {content}"
+    );
+    assert!(
+        content.contains("use std::io"),
+        "existing import remains: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_impact_no_refs_exits_3() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("i.rs");

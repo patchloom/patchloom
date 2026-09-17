@@ -28,6 +28,7 @@ pub mod tx;
 pub mod undo;
 pub mod write_dispatch;
 pub mod write_mode;
+pub mod write_targets;
 
 use crate::cli::Cli;
 use clap::Subcommand;
@@ -323,12 +324,21 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         }
         #[cfg(feature = "ast")]
         Command::Ast(args) => {
-            // ast rename/replace/replace-symbol/delete-symbol have write flags
+            // ast write subcommands merge WriteFlags into the global apply/check/diff matrix
             match args.command {
                 ast::AstCommand::Rename(ref a) => global.merge_write(&a.write),
                 ast::AstCommand::Replace(ref a) => global.merge_write(&a.write),
                 ast::AstCommand::ReplaceSymbol(ref a) => global.merge_write(&a.write),
                 ast::AstCommand::DeleteSymbol(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Insert(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Wrap(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Imports(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Reorder(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Group(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Move(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::ExtractToFile(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::Split(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::RewriteSignature(ref a) => global.merge_write(&a.write),
                 _ => {}
             }
             load_project_config(&mut global)?;

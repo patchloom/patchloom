@@ -195,11 +195,18 @@ pub(crate) fn try_find_function_span(
     let Some((tree, _)) = parse_or_timeout(source, lang)? else {
         return Ok(None);
     };
+    Ok(function_span_in_tree(source, &tree, function_name))
+}
+
+/// Like [`try_find_function_span`] using a pre-parsed tree (tx tree cache).
+pub(crate) fn function_span_in_tree(
+    source: &str,
+    tree: &tree_sitter_lib::Tree,
+    function_name: &str,
+) -> Option<FunctionSpan> {
     let root = tree.root_node();
 
-    let Some(fn_node) = find_function_node(root, source, function_name) else {
-        return Ok(None);
-    };
+    let fn_node = find_function_node(root, source, function_name)?;
 
     let start = fn_node.start_byte();
     let end = fn_node.end_byte();
@@ -213,14 +220,14 @@ pub(crate) fn try_find_function_span(
         crate::ops::file::text_line_index(source, sig_end.saturating_sub(1)) + 1
     };
 
-    Ok(Some(FunctionSpan {
+    Some(FunctionSpan {
         full_range: start..end,
         signature_range: start..sig_end,
         signature_text,
         name: function_name.to_string(),
         start_line,
         signature_end_line: sig_end_line,
-    }))
+    })
 }
 
 /// Node kinds that represent function/method definitions per language.
@@ -763,21 +770,47 @@ pub(crate) fn try_rewrite_function_signature(
         reject_whitespace_only_visibility(vis)?;
     }
     reject_unsupported_sig_edit(lang, edit)?;
-    if lang == Language::Rust {
-        return rewrite_rust_sig(source, old_name, edit);
+    try_rewrite_function_signature_in_tree(source, None, old_name, edit, lang)
+}
+
+/// Like [`try_rewrite_function_signature`] using a pre-parsed tree (tx tree cache).
+pub(crate) fn try_rewrite_function_signature_in_tree(
+    source: &str,
+    tree: Option<&tree_sitter_lib::Tree>,
+    old_name: &str,
+    edit: &FunctionSigEdit,
+    lang: Language,
+) -> anyhow::Result<Option<String>> {
+    if let Some(params) = edit.parameters.as_deref() {
+        reject_empty_parameters(params)?;
     }
-    rewrite_sig_generic(source, old_name, edit, lang)
+    if let Some(vis) = edit.visibility.as_deref() {
+        reject_whitespace_only_visibility(vis)?;
+    }
+    reject_unsupported_sig_edit(lang, edit)?;
+    if lang == Language::Rust {
+        return rewrite_rust_sig(source, tree, old_name, edit);
+    }
+    rewrite_sig_generic(source, tree, old_name, edit, lang)
 }
 
 /// Rust-specific full reconstruction: extracts visibility, qualifiers, params,
 /// return type from tree-sitter nodes and rebuilds the signature.
 fn rewrite_rust_sig(
     source: &str,
+    tree: Option<&tree_sitter_lib::Tree>,
     old_name: &str,
     edit: &FunctionSigEdit,
 ) -> anyhow::Result<Option<String>> {
-    let Some((tree, _)) = parse_or_timeout(source, Language::Rust)? else {
-        return Ok(None);
+    let owned;
+    let tree = if let Some(t) = tree {
+        t
+    } else {
+        let Some((parsed, _)) = parse_or_timeout(source, Language::Rust)? else {
+            return Ok(None);
+        };
+        owned = parsed;
+        &owned
     };
     let root = tree.root_node();
 
@@ -852,12 +885,20 @@ const PARAM_NODE_KINDS: &[&str] = &[
 /// in right-to-left order to avoid offset invalidation.
 fn rewrite_sig_generic(
     source: &str,
+    tree: Option<&tree_sitter_lib::Tree>,
     old_name: &str,
     edit: &FunctionSigEdit,
     lang: Language,
 ) -> anyhow::Result<Option<String>> {
-    let Some((tree, _)) = parse_or_timeout(source, lang)? else {
-        return Ok(None);
+    let owned;
+    let tree = if let Some(t) = tree {
+        t
+    } else {
+        let Some((parsed, _)) = parse_or_timeout(source, lang)? else {
+            return Ok(None);
+        };
+        owned = parsed;
+        &owned
     };
     let root = tree.root_node();
     let Some(fn_node) = find_function_node(root, source, old_name) else {

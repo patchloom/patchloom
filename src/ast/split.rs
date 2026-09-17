@@ -2,7 +2,8 @@
 
 use super::Language;
 use super::symbols::{
-    check_no_overlapping_spans, extract_symbol_text, extract_symbols_or_timeout, full_symbol_span,
+    SymbolDef, check_no_overlapping_spans, extract_symbol_text, extract_symbols_or_timeout,
+    full_symbol_span,
 };
 
 /// Target specification for a split operation.
@@ -81,8 +82,71 @@ pub fn split_file(
         }
     }
 
-    let eol = crate::write::detect_eol(source);
     let all_symbols = extract_symbols_or_timeout(source, lang)?;
+    split_file_from_symbols(
+        source,
+        &all_symbols,
+        targets,
+        keep_in_source,
+        source_suffix,
+        source_prefix,
+        require_exhaustive,
+        lang,
+    )
+}
+
+/// Like [`split_file`] using a pre-extracted symbol list (tx tree cache).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn split_file_from_symbols(
+    source: &str,
+    all_symbols: &[SymbolDef],
+    targets: &[SplitTarget],
+    keep_in_source: &[String],
+    source_suffix: Option<&str>,
+    source_prefix: Option<&str>,
+    require_exhaustive: bool,
+    lang: Language,
+) -> anyhow::Result<SplitResult> {
+    for target in targets {
+        if target.symbols.is_empty() {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "ast split target symbols must not be empty".into(),
+            }));
+        }
+        for name in &target.symbols {
+            if name.trim().is_empty() {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: "ast split symbol must not be empty".into(),
+                }));
+            }
+        }
+        if let Some(pre) = &target.prepend
+            && pre.trim().is_empty()
+            && !pre.contains('\n')
+            && !pre.contains('\r')
+        {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "ast split target prepend must not be empty".into(),
+            }));
+        }
+    }
+    for (label, affix) in [
+        ("source_suffix", source_suffix),
+        ("source_prefix", source_prefix),
+    ] {
+        if let Some(s) = affix
+            && !s.is_empty()
+            && s.trim().is_empty()
+            && !s.contains('\n')
+            && !s.contains('\r')
+        {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: format!("ast split {label} must not be empty"),
+            }));
+        }
+    }
+
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Build a map of symbol name -> target index
@@ -103,7 +167,7 @@ pub fn split_file(
 
     // Fail closed on names that do not exist (targets and keep_in_source).
     {
-        let found = collect_symbol_names(&all_symbols);
+        let found = collect_symbol_names(all_symbols);
         let mut missing: Vec<&str> = Vec::new();
         for name in targets
             .iter()
@@ -124,7 +188,7 @@ pub fn split_file(
     // Validate exhaustiveness
     if require_exhaustive {
         let mut unaccounted: Vec<&str> = Vec::new();
-        for sym in &all_symbols {
+        for sym in all_symbols {
             if !sym_to_target.contains_key(sym.name.as_str())
                 && !keep_in_source.iter().any(|k| k == &sym.name)
             {
@@ -146,7 +210,7 @@ pub fn split_file(
     let mut target_contents: Vec<String> = vec![String::new(); targets.len()];
 
     // Build target contents
-    for sym in &all_symbols {
+    for sym in all_symbols {
         if let Some(&target_idx) = sym_to_target.get(sym.name.as_str()) {
             let text = extract_symbol_text(source, sym, lang);
             if !target_contents[target_idx].is_empty() {

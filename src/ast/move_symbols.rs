@@ -72,8 +72,26 @@ pub fn move_symbols(
         }));
     }
 
-    let eol = crate::write::detect_eol(source);
     let src_symbols = extract_symbols_or_timeout(source, lang)?;
+    move_symbols_from_symbols(source, target, &src_symbols, symbols, position, lang)
+}
+
+/// Like [`move_symbols`] using a pre-extracted source symbol list (tx tree cache).
+pub(crate) fn move_symbols_from_symbols(
+    source: &str,
+    target: &str,
+    src_symbols: &[super::symbols::SymbolDef],
+    symbols: &[String],
+    position: MovePosition,
+    lang: Language,
+) -> anyhow::Result<MoveResult> {
+    if symbols.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast move symbols must not be empty".into(),
+        }));
+    }
+
+    let eol = crate::write::detect_eol(source);
     let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
 
     // Collect symbols to move
@@ -81,7 +99,7 @@ pub fn move_symbols(
     let mut missing: Vec<&str> = Vec::new();
 
     for name in symbols {
-        if let Some(sym) = find_symbol(&src_symbols, name) {
+        if let Some(sym) = find_symbol(src_symbols, name) {
             let (full_start, full_end) = full_symbol_span(source, sym, lang);
             let text = extract_symbol_text(source, sym, lang).to_string();
             to_move.push((

@@ -5,7 +5,7 @@ use std::path::Path;
 use super::Language;
 use super::insert::indent_content;
 use super::symbols::{
-    extract_symbols_or_timeout, find_symbol, full_symbol_span, try_extract_symbols,
+    SymbolDef, extract_symbols_or_timeout, find_symbol, full_symbol_span, try_extract_symbols,
 };
 
 /// Result of a symbol-scoped replacement.
@@ -45,7 +45,25 @@ pub fn replace_in_symbol(
         }
         Err(crate::ast::ParseFailure::NoGrammar) => return Ok(None),
     };
-    let sym = match find_symbol(&symbols, symbol_name) {
+    replace_in_symbol_from_symbols(source, &symbols, symbol_name, from, to, regex, lang)
+}
+
+/// Like [`replace_in_symbol`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn replace_in_symbol_from_symbols(
+    source: &str,
+    symbols: &[SymbolDef],
+    symbol_name: &str,
+    from: &str,
+    to: &str,
+    regex: bool,
+    _lang: Language,
+) -> anyhow::Result<Option<ScopedReplaceResult>> {
+    if from.is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: "ast replace pattern must not be empty".into(),
+        }));
+    }
+    let sym = match find_symbol(symbols, symbol_name) {
         Some(s) => s,
         None => return Ok(None),
     };
@@ -169,7 +187,18 @@ fn resolve_symbol_span<'a>(
 ) -> anyhow::Result<ResolvedSymbolSpan<'a>> {
     reject_empty_symbol_name(symbol_name, op)?;
     let symbols = extract_symbols_or_timeout(source, lang)?;
-    let sym = find_symbol(&symbols, symbol_name).ok_or_else(|| {
+    resolve_symbol_span_from(source, &symbols, symbol_name, lang, op)
+}
+
+fn resolve_symbol_span_from<'a>(
+    source: &'a str,
+    symbols: &[SymbolDef],
+    symbol_name: &str,
+    lang: Language,
+    op: &str,
+) -> anyhow::Result<ResolvedSymbolSpan<'a>> {
+    reject_empty_symbol_name(symbol_name, op)?;
+    let sym = find_symbol(symbols, symbol_name).ok_or_else(|| {
         anyhow::Error::new(crate::exit::NoMatchError {
             msg: format!("symbol '{symbol_name}' not found"),
         })
@@ -234,6 +263,26 @@ pub fn replace_symbol(
     lang: Language,
 ) -> anyhow::Result<String> {
     let span = resolve_symbol_span(source, symbol_name, lang, "ast.replace_symbol")?;
+    replace_symbol_span(source, span, content)
+}
+
+/// Like [`replace_symbol`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn replace_symbol_from_symbols(
+    source: &str,
+    symbols: &[SymbolDef],
+    symbol_name: &str,
+    content: &str,
+    lang: Language,
+) -> anyhow::Result<String> {
+    let span = resolve_symbol_span_from(source, symbols, symbol_name, lang, "ast.replace_symbol")?;
+    replace_symbol_span(source, span, content)
+}
+
+fn replace_symbol_span(
+    source: &str,
+    span: ResolvedSymbolSpan<'_>,
+    content: &str,
+) -> anyhow::Result<String> {
     let mut lines: Vec<String> = span.lines.iter().map(|l| (*l).to_string()).collect();
     lines.drain(span.start_0..span.end_0);
     if content.is_empty() {
@@ -256,6 +305,21 @@ pub fn replace_symbol(
 /// [`crate::exit::NoMatchError`].
 pub fn delete_symbol(source: &str, symbol_name: &str, lang: Language) -> anyhow::Result<String> {
     let span = resolve_symbol_span(source, symbol_name, lang, "ast.delete_symbol")?;
+    delete_symbol_span(source, span)
+}
+
+/// Like [`delete_symbol`] using a pre-extracted symbol list (tx tree cache).
+pub(crate) fn delete_symbol_from_symbols(
+    source: &str,
+    symbols: &[SymbolDef],
+    symbol_name: &str,
+    lang: Language,
+) -> anyhow::Result<String> {
+    let span = resolve_symbol_span_from(source, symbols, symbol_name, lang, "ast.delete_symbol")?;
+    delete_symbol_span(source, span)
+}
+
+fn delete_symbol_span(source: &str, span: ResolvedSymbolSpan<'_>) -> anyhow::Result<String> {
     let mut lines: Vec<String> = span.lines.iter().map(|l| (*l).to_string()).collect();
     lines.drain(span.start_0..span.end_0);
     collapse_surrounding_blanks(&mut lines, span.start_0);
