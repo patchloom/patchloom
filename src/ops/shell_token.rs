@@ -108,6 +108,11 @@ pub fn is_command_position(content: &str, start: usize, end: usize) -> bool {
     if start > content.len() || end > content.len() || start >= end {
         return false;
     }
+    // Fuzz start/end can land mid-codepoint (`BҸ` + start=2). Slicing
+    // `&content[..start]` panics if this is not a char boundary (#2489).
+    if !content.is_char_boundary(start) || !content.is_char_boundary(end) {
+        return false;
+    }
     // Must be a standalone token (word boundary).
     let bytes = content.as_bytes();
     if start > 0 && is_token_char(bytes[start - 1]) {
@@ -528,6 +533,15 @@ mod tests {
         let (out, n) = replace_command_position(c, "pip", "uv");
         assert_eq!(n, 1);
         assert_eq!(out, "uv install x\n");
+    }
+
+    #[test]
+    fn mid_codepoint_range_is_not_command_position() {
+        // fuzz_shell_token: ("BҸ+B\u{2}B~BB", 2, 3) — start is inside 'Ҹ'.
+        let c = "BҸ+B\u{2}B~BB";
+        assert!(!c.is_char_boundary(2));
+        assert!(!is_command_position(c, 2, 3));
+        assert!(!is_command_position(c, 1, 2));
     }
 
     #[test]
