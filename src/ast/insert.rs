@@ -152,12 +152,14 @@ fn insert_inside(
         InsertPosition::End => {
             // Brace / `end` languages: insert before the closer. Brace-less
             // languages (Python): insert after the last container line (#2526).
-            let insert_before_idx =
-                if is_closer_line(ctx.lines.get(close_line_idx).copied().unwrap_or("")) {
-                    close_line_idx
-                } else {
-                    end_idx.min(ctx.lines.len())
-                };
+            let insert_before_idx = if is_closer_line(
+                ctx.lang,
+                ctx.lines.get(close_line_idx).copied().unwrap_or(""),
+            ) {
+                close_line_idx
+            } else {
+                end_idx.min(ctx.lines.len())
+            };
 
             for line in &ctx.lines[..insert_before_idx] {
                 result.push_str(line);
@@ -304,7 +306,9 @@ fn insert_adjacent(
 }
 
 /// True when a line is a block closer (`}` / Ruby `end`), not a statement.
-fn is_closer_line(line: &str) -> bool {
+/// `end` / `end ` / `end;` / `end#` are Ruby-only. A Python `end = 1`
+/// last line is a statement, not a closer.
+fn is_closer_line(lang: Language, line: &str) -> bool {
     let t = line.trim();
     if t.is_empty() {
         return false;
@@ -312,7 +316,8 @@ fn is_closer_line(line: &str) -> bool {
     if t.starts_with('}') {
         return true;
     }
-    t == "end" || t.starts_with("end ") || t.starts_with("end;") || t.starts_with("end#")
+    matches!(lang, Language::Ruby)
+        && (t == "end" || t.starts_with("end ") || t.starts_with("end;") || t.starts_with("end#"))
 }
 
 /// Find the line with the opening brace/colon of a container.
@@ -641,6 +646,45 @@ mod tests {
         assert_eq!(
             result.content,
             "class Foo:\n    def a(self):\n        return 1\n\n    def b(self):\n        return 2\n"
+        );
+    }
+
+    /// `end = 1` is a Python assignment, not a Ruby closer.
+    #[test]
+    fn insert_python_inside_end_after_end_assignment() {
+        let source = "class Foo:\n    end = 1\n";
+        let result = insert_code(
+            source,
+            "def b(self):\n    return 2",
+            Some("Foo"),
+            None,
+            None,
+            InsertPosition::End,
+            Language::Python,
+        )
+        .unwrap();
+        assert_eq!(
+            result.content,
+            "class Foo:\n    end = 1\n\n    def b(self):\n        return 2\n"
+        );
+    }
+
+    #[test]
+    fn insert_ruby_inside_end_stays_before_closer() {
+        let source = "class Foo\n  def a\n    1\n  end\nend\n";
+        let result = insert_code(
+            source,
+            "def b\n  2\nend",
+            Some("Foo"),
+            None,
+            None,
+            InsertPosition::End,
+            Language::Ruby,
+        )
+        .unwrap();
+        assert_eq!(
+            result.content,
+            "class Foo\n  def a\n    1\n  end\n\n  def b\n    2\n  end\nend\n"
         );
     }
 
