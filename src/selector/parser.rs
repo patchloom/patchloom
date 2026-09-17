@@ -4,8 +4,9 @@ pub type Selector = Vec<Segment>;
 /// Comparison operator inside a [`Segment::Predicate`].
 ///
 /// Equality (`Eq`) is the default and matches historical `key=value`.
-/// Numeric compares require an `f64` operand at parse time. Regex is not
-/// supported. `[!key]` is [`PredicateOp::Not`].
+/// Numeric compares require a finite operand at parse time. Regex is not
+/// supported. `[!key]` is [`PredicateOp::Not`]. `[!key=value]` is
+/// [`PredicateOp::Ne`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PredicateOp {
     /// `key=value` (default).
@@ -54,6 +55,8 @@ pub enum Segment {
 /// Operator scan is left-to-right. At each index, two-character operators
 /// (`!=`, `>=`, `<=`) are tried before `=`, then `>` and `<`. Searching `>`
 /// before `=` would treat `items[url=a>b]` as a greater-than compare.
+/// A leading `!` is peeled before the operator scan so `[!key=value]` is
+/// [`PredicateOp::Ne`] rather than equality on a key named `!key` (#2520).
 fn parse_bracket_content(content: &str) -> Result<Segment, String> {
     if content == "*" {
         return Ok(Segment::Wildcard);
@@ -67,7 +70,7 @@ fn parse_bracket_content(content: &str) -> Result<Segment, String> {
         if key.is_empty() {
             return Err("empty predicate key".to_string());
         }
-        reject_question_prefix(key, "")?;
+        reject_question_prefix(key, "", content)?;
         return Ok(Segment::Predicate {
             key: key.to_string(),
             op: PredicateOp::Not,
@@ -84,20 +87,37 @@ fn parse_bracket_content(content: &str) -> Result<Segment, String> {
 /// Split `key<op>value` if a comparison or equality operator is present.
 ///
 /// Shared with `doc delete-where` so `!=` `>=` `<=` `>` `<` match the
-/// selector grammar (#2483).
+/// selector grammar (#2483). A leading `!` is peeled first: `!key=value`
+/// is [`PredicateOp::Ne`]; `!` plus `>` / `>=` / `<` / `<=` is rejected
+/// with a hint to `[key!=value]` (#2520).
 pub fn split_predicate(content: &str) -> Result<Option<(String, PredicateOp, String)>, String> {
-    let Some((key_end, op, value_start)) = find_predicate_op(content) else {
+    let (body, bang) = match content.strip_prefix('!') {
+        Some(rest) if !rest.starts_with('=') => (rest, true),
+        _ => (content, false),
+    };
+    let Some((key_end, op, value_start)) = find_predicate_op(body) else {
         return Ok(None);
     };
-    let key = &content[..key_end];
-    let mut value = content[value_start..].to_string();
+    let op = if bang {
+        if op == PredicateOp::Eq {
+            PredicateOp::Ne
+        } else {
+            return Err(format!(
+                "'!' cannot combine with {op}; use [key!=value] instead of [{content}]"
+            ));
+        }
+    } else {
+        op
+    };
+    let key = &body[..key_end];
+    let mut value = body[value_start..].to_string();
     if key.is_empty() {
         return Err("empty predicate key".to_string());
     }
-    reject_question_prefix(key, &value)?;
+    reject_question_prefix(key, &value, content)?;
     if op.is_numeric_compare() {
         let trimmed = value.trim();
-        if trimmed.parse::<f64>().is_err() {
+        if !trimmed.parse::<f64>().is_ok_and(f64::is_finite) {
             return Err(format!(
                 "comparison operand must be numeric (got '{value}' after {op})"
             ));
@@ -135,15 +155,20 @@ fn find_predicate_op(content: &str) -> Option<(usize, PredicateOp, usize)> {
     None
 }
 
-fn reject_question_prefix(key: &str, value: &str) -> Result<(), String> {
+fn reject_question_prefix(key: &str, value: &str, original: &str) -> Result<(), String> {
     if let Some(stripped) = key.strip_prefix('?') {
-        let suggestion = if value.is_empty() {
+        let negated = original.starts_with('!');
+        let suggestion = if negated && value.is_empty() {
+            format!("[!{stripped}]")
+        } else if negated {
+            format!("[!{stripped}={value}]")
+        } else if value.is_empty() {
             format!("[{stripped}]")
         } else {
             format!("[{stripped}={value}]")
         };
         return Err(format!(
-            "predicate key starts with '?'; use {suggestion} instead of [{key}={value}]"
+            "predicate key starts with '?'; use {suggestion} instead of [{original}]"
         ));
     }
     Ok(())
@@ -678,6 +703,121 @@ mod tests {
         assert_eq!(
             parse("a.b").unwrap(),
             vec![Segment::Key("a".into()), Segment::Key("b".into())]
+        );
+    }
+
+    // ── #2520 peel leading ! before split_predicate ────────────────
+
+    #[test]
+    fn parse_bang_eq_is_ne() {
+        let sel = parse("items[!status=done]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("items".into()),
+                pred("status", PredicateOp::Ne, "done"),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_predicate_bang_eq_is_ne() {
+        let (key, op, value) = split_predicate("!status=done").unwrap().unwrap();
+        assert_eq!(key, "status");
+        assert_eq!(op, PredicateOp::Ne);
+        assert_eq!(value, "done");
+    }
+
+    #[test]
+    fn parse_bang_gt_is_rejected() {
+        let err = parse("items[!port>1]").unwrap_err();
+        assert!(
+            err.contains("[key!=value]"),
+            "expected hint to [key!=value], got: {err}"
+        );
+        assert!(
+            err.contains('!') || err.contains("cannot combine"),
+            "expected ! / combine diagnostic, got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_bang_ge_lt_le_are_rejected() {
+        for sel in ["items[!n>=1]", "items[!n<1]", "items[!n<=1]"] {
+            let err = parse(sel).unwrap_err();
+            assert!(
+                err.contains("[key!=value]"),
+                "expected [key!=value] hint for {sel}, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_predicate_bang_gt_is_rejected() {
+        let err = split_predicate("!port>1").unwrap_err();
+        assert!(
+            err.contains("[key!=value]"),
+            "expected [key!=value] hint for delete-where, got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_bang_key_still_not() {
+        let sel = parse("flags[!deprecated]").unwrap();
+        assert_eq!(
+            sel,
+            vec![
+                Segment::Key("flags".into()),
+                pred("deprecated", PredicateOp::Not, ""),
+            ]
+        );
+    }
+
+    // ── #2524 reject non-finite compare operands ───────────────────
+
+    #[test]
+    fn parse_nan_compare_operand_errors() {
+        for sel in [
+            "items[port>NaN]",
+            "items[port<=inf]",
+            "items[port>infinity]",
+            "items[n<-inf]",
+        ] {
+            let err = parse(sel).unwrap_err();
+            assert!(
+                err.contains("numeric") || err.contains("finite") || err.contains("comparison"),
+                "expected non-finite operand error for {sel}, got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_predicate_rejects_nan_and_inf() {
+        for pred in ["port>NaN", "port<=inf", "n>infinity"] {
+            let err = split_predicate(pred).unwrap_err();
+            assert!(
+                err.contains("numeric") || err.contains("finite") || err.contains("comparison"),
+                "expected non-finite operand error for {pred}, got: {err}"
+            );
+        }
+    }
+
+    // ── #2525 [!?name] hint ────────────────────────────────────────
+
+    #[test]
+    fn parse_bang_question_name_suggests_bang_name() {
+        let err = parse("items[!?name]").unwrap_err();
+        assert!(
+            err.contains("[!name]"),
+            "expected suggestion [!name], got: {err}"
+        );
+        assert!(
+            err.contains("[!?name]"),
+            "expected original input quoted, got: {err}"
+        );
+        assert!(
+            !err.contains("[?name=]"),
+            "must not misquote as [?name=], got: {err}"
         );
     }
 }
