@@ -126,6 +126,12 @@ pub fn rename_in_source(
         .flatten()
 }
 
+/// Cheap prefilter: identifier substring only, no parse or rewrite (#2545).
+#[cfg_attr(not(any(feature = "cli", feature = "mcp")), allow(dead_code))]
+pub(crate) fn source_may_have_rename(source: &str, old_name: &str) -> bool {
+    !old_name.is_empty() && source.contains(old_name)
+}
+
 /// One parse: AST rename match, else word-boundary. Timeout fails closed
 /// so the fallback cannot select the file (#2432).
 #[cfg_attr(not(any(feature = "cli", feature = "mcp")), allow(dead_code))]

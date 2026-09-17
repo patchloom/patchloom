@@ -8,7 +8,7 @@ use serde::Serialize;
 use super::Language;
 use super::ParseFailure;
 use super::refs::{RefKind, find_all_refs_in_source_with_tree};
-use super::symbols::try_extract_symbols;
+use super::symbols::extract_symbols_from_tree;
 use super::try_parse_source;
 
 /// A node in the impact tree.
@@ -105,11 +105,7 @@ pub(crate) fn try_compute_impact(
             Err(ParseFailure::NoGrammar) => continue,
         };
 
-        let symbols = match try_extract_symbols(source, *lang) {
-            Ok(s) => s,
-            Err(ParseFailure::DeadlineExceeded) => return Err(ParseFailure::DeadlineExceeded),
-            Err(ParseFailure::NoGrammar) => continue,
-        };
+        let symbols = extract_symbols_from_tree(&tree, source, *lang);
 
         let all_refs = find_all_refs_in_source_with_tree(source, &tree, display);
 
@@ -303,6 +299,19 @@ mod tests {
     }
 
     // Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2445).
+    /// #2547: impact must parse each in-memory file once.
+    #[test]
+    fn compute_impact_parses_each_file_once() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("lib.rs");
+        std::fs::write(&path, "fn foo() {}\nfn bar() { foo(); }\n").unwrap();
+        let files = [(path.as_path(), "lib.rs".to_string())];
+        crate::ast::reset_parse_count();
+        let _nodes = compute_impact("foo", &files, 2);
+        let n = crate::ast::take_parse_count();
+        assert_eq!(n, 1, "impact must parse one file once, got {n}");
+    }
+
     #[test]
     fn compute_impact_or_timeout_deadline_is_parse_timeout() {
         let dir = tempfile::TempDir::new().unwrap();

@@ -8,7 +8,7 @@ use serde::Serialize;
 use super::Language;
 use super::ParseFailure;
 use super::refs::{RefKind, find_all_refs_in_source_with_tree};
-use super::symbols::{SymbolDef, SymbolKind, try_extract_symbols};
+use super::symbols::{SymbolDef, SymbolKind, extract_symbols_from_tree};
 
 /// A symbol entry in the repository map.
 #[derive(Debug, Clone, Serialize)]
@@ -51,8 +51,8 @@ impl Default for MapOptions<'_> {
 struct FileData {
     path: String,
     source: String,
-    lang: Language,
     symbols: Vec<SymbolDef>,
+    tree: tree_sitter_lib::Tree,
 }
 
 /// Generate a ranked repository map from a directory of source files.
@@ -102,8 +102,8 @@ pub(crate) fn try_generate_map(
         let Some(source) = crate::files::read_text_file(path) else {
             continue;
         };
-        let symbols = match try_extract_symbols(&source, lang) {
-            Ok(s) => s,
+        let (tree, _) = match super::try_parse_source(&source, lang) {
+            Ok(parsed) => parsed,
             Err(ParseFailure::DeadlineExceeded) => {
                 return Err(crate::exit::ParseTimeoutError {
                     msg: format!("parse deadline exceeded for {}", path.display()),
@@ -112,14 +112,15 @@ pub(crate) fn try_generate_map(
             }
             Err(ParseFailure::NoGrammar) => continue,
         };
+        let symbols = extract_symbols_from_tree(&tree, &source, lang);
         if symbols.is_empty() {
             continue;
         }
         file_data.push(FileData {
             path: display.clone(),
             source,
-            lang,
             symbols,
+            tree,
         });
     }
 
@@ -139,13 +140,10 @@ pub(crate) fn try_generate_map(
     // Build adjacency: edges[i] = set of j where symbol i references symbol j
     let mut edges: Vec<HashSet<usize>> = vec![HashSet::new(); n];
 
-    // Pre-parse all files once; reuse trees for all symbol lookups.
-    let tree_cache: HashMap<&str, tree_sitter_lib::Tree> = file_data
+    // Reuse the trees from phase 1; do not parse again (#2547).
+    let tree_cache: HashMap<&str, &tree_sitter_lib::Tree> = file_data
         .iter()
-        .filter_map(|fd| {
-            let (tree, _) = super::parse_source(&fd.source, fd.lang)?;
-            Some((fd.path.as_str(), tree))
-        })
+        .map(|fd| (fd.path.as_str(), &fd.tree))
         .collect();
 
     // Collect all identifiers in each file in a single pass (O(1) parses per file).
@@ -661,6 +659,19 @@ mod tests {
     }
 
     // Unique: public or_timeout twin peels parse_timeout; empty-vec API stays empty (#2444).
+    /// #2547: map must parse each in-memory file once.
+    #[test]
+    fn generate_map_parses_each_file_once() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("lib.rs");
+        std::fs::write(&path, "fn foo() {}\nfn bar() { foo(); }\n").unwrap();
+        let files = [(path.as_path(), "lib.rs".to_string())];
+        crate::ast::reset_parse_count();
+        let _entries = generate_map(&files, &MapOptions::default());
+        let n = crate::ast::take_parse_count();
+        assert_eq!(n, 1, "map must parse one file once, got {n}");
+    }
+
     #[test]
     fn generate_map_or_timeout_deadline_is_parse_timeout() {
         let dir = tempfile::TempDir::new().unwrap();
