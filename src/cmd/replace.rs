@@ -364,6 +364,15 @@ fn collect_replacements_with_list(
                     nth,
                     case_insensitive,
                 )
+            } else if let Some(ia) = insert_after.as_deref() {
+                crate::ops::replace::replace_insert_after(
+                    &content,
+                    from,
+                    ia,
+                    compiled_re.as_ref(),
+                    nth,
+                    case_insensitive,
+                )
             } else if whole_line {
                 replace_whole_lines(
                     &content,

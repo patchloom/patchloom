@@ -261,6 +261,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                 *nth,
                 *case_insensitive,
             )
+        } else if let Some(ia) = insert_after.as_deref() {
+            crate::ops::replace::replace_insert_after(
+                content,
+                old,
+                ia,
+                compiled_re.as_ref(),
+                *nth,
+                *case_insensitive,
+            )
         } else if *whole_line {
             replace_whole_lines(
                 content,
@@ -617,6 +626,15 @@ pub(crate) fn execute_replace_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow
                     &content,
                     old,
                     ib,
+                    compiled_re.as_ref(),
+                    *nth,
+                    *case_insensitive,
+                )
+            } else if let Some(ia) = insert_after.as_deref() {
+                crate::ops::replace::replace_insert_after(
+                    &content,
+                    old,
+                    ia,
                     compiled_re.as_ref(),
                     *nth,
                     *case_insensitive,

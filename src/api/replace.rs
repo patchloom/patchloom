@@ -267,6 +267,15 @@ fn replace_write(
                 nth,
                 case_insensitive,
             )
+        } else if let Some(ia) = insert_after.as_deref() {
+            ops::replace::replace_insert_after(
+                &original,
+                &old,
+                ia,
+                compiled_re.as_ref(),
+                nth,
+                case_insensitive,
+            )
         } else if whole_line {
             ops::replace::replace_whole_lines(
                 &original,
@@ -677,6 +686,15 @@ fn replace_in_content_inner(
             content,
             from,
             ib,
+            compiled_re.as_ref(),
+            opts.nth,
+            opts.case_insensitive,
+        )
+    } else if let Some(ia) = opts.insert_after.as_deref() {
+        ops::replace::replace_insert_after(
+            content,
+            from,
+            ia,
             compiled_re.as_ref(),
             opts.nth,
             opts.case_insensitive,
