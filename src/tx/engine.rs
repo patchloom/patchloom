@@ -313,6 +313,7 @@ pub fn execute_precomputed(
         replace_hint: None,
         replace_match_meta: HashMap::new(),
         renames: Vec::new(),
+        soft_non_text: HashSet::new(),
     };
 
     Ok(ExecutionResult {

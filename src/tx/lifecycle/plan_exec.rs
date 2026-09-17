@@ -22,12 +22,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-fn config_tx_strict(cwd: &Path) -> Option<bool> {
-    crate::config::find_and_load(cwd)
-        .map(|(config, _)| config.tx.strict)
-        .unwrap_or(None)
-}
-
 /// Execute a parsed [`Plan`] directly and return the structured `TxOutput` (PlanReport).
 /// Does **not** write to stdout or stderr.
 ///
@@ -65,7 +59,17 @@ pub(crate) fn validate_and_prepare_plan(
     }
 
     let effective_cwd = resolve_plan_cwd(cwd, plan.cwd.as_deref());
-    let config_strict = config_tx_strict(&effective_cwd);
+    let loaded = match crate::config::find_and_load_strict(&effective_cwd) {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(Box::new(build_error_output(
+                "parse_error",
+                &crate::exit::agent_error_message(&e),
+                None,
+            )));
+        }
+    };
+    let config_strict = loaded.as_ref().and_then(|(config, _)| config.tx.strict);
     let strict = plan::effective_strict(plan.strict, config_strict, no_strict);
 
     let mut global = GlobalFlags::with_cwd(&effective_cwd);
@@ -74,7 +78,7 @@ pub(crate) fn validate_and_prepare_plan(
         global.jsonl = src.jsonl;
         global.quiet = src.quiet;
     }
-    if let Some((config, _)) = crate::config::find_and_load(&effective_cwd) {
+    if let Some((config, _)) = loaded {
         crate::config::apply_config(&mut global, &config);
     }
 
@@ -291,6 +295,7 @@ pub fn execute_plan_direct(
                     &result.existed_before,
                     apply_backup_session.as_deref(),
                     &collateral_snapshot,
+                    &result.soft_non_text,
                 ) {
                     Ok(()) => {
                         let msg = format!("strict mode -- all changes reverted ({})", err.message);
@@ -327,13 +332,18 @@ pub fn execute_plan_direct(
                         rollback_ok = false;
                     }
                 } else {
-                    rollback_strict(
+                    let rb_errors = rollback_strict(
                         &result.changes,
                         &result.pending,
                         &result.deletions,
                         &result.existed_before,
                         true,
+                        &result.soft_non_text,
+                        Some(effective_cwd.as_path()),
                     );
+                    if !rb_errors.is_empty() {
+                        rollback_ok = false;
+                    }
                 }
                 if rollback_ok {
                     let msg = format!("strict mode -- all changes reverted ({})", err.message);
@@ -375,7 +385,8 @@ pub fn execute_plan_direct(
 #[cfg(test)]
 mod tests {
     use super::super::commit::{
-        CommitError, FORCE_RESTORE_FAIL, RestoreFailGuard, commit_changes, commit_error,
+        CommitError, FORCE_RESTORE_FAIL, RemoveFailGuard, RestoreFailGuard, commit_changes,
+        commit_error,
     };
     use super::super::steps::{
         COLLATERAL_SNAPSHOT_MAX_SIZE, LifecycleError, lifecycle_failure_msg, resolve_plan_cwd,
@@ -473,6 +484,26 @@ mod tests {
         let (cwd, _strict, _global) = validate_and_prepare_plan(&plan, dir.path(), false, None)
             .expect("valid plan must prepare");
         assert_eq!(cwd, dir.path());
+    }
+
+    #[test]
+    fn validate_and_prepare_plan_rejects_malformed_config() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[write_policy]\nensur_final_newline = true\n",
+        )
+        .unwrap();
+        let plan = minimal_plan(crate::plan::SCHEMA_VERSION);
+        let err = validate_and_prepare_plan(&plan, dir.path(), false, None).unwrap_err();
+        assert_eq!(err.error_kind.as_deref(), Some("parse_error"));
+        let msg = err.error.as_deref().unwrap_or("");
+        assert!(
+            msg.contains("malformed")
+                || msg.contains("ensur_final_newline")
+                || msg.contains("unknown"),
+            "tx must fail closed on typo'd config: {msg}"
+        );
     }
 
     #[test]
@@ -677,7 +708,15 @@ mod tests {
         existed_before.insert(file_pb.clone());
 
         // rollback_strict should recreate the parent dir and restore the file.
-        rollback_strict(&[], &pending, &deletions, &existed_before, true);
+        rollback_strict(
+            &[],
+            &pending,
+            &deletions,
+            &existed_before,
+            true,
+            &HashSet::new(),
+            Some(dir.path()),
+        );
         assert!(
             file.exists(),
             "rollback should restore file even when parent dir was removed"
@@ -705,7 +744,15 @@ mod tests {
         // Create the file on disk to simulate mid-tx state.
         std::fs::write(&file, "hello").unwrap();
 
-        rollback_strict(&changes, &pending, &deletions, &existed_before, true);
+        rollback_strict(
+            &changes,
+            &pending,
+            &deletions,
+            &existed_before,
+            true,
+            &HashSet::new(),
+            Some(dir.path()),
+        );
 
         assert!(
             !file.exists(),
@@ -741,7 +788,15 @@ mod tests {
         // Simulate mid-tx state: file was deleted.
         std::fs::remove_file(&file).unwrap();
 
-        rollback_strict(&changes, &pending, &deletions, &existed_before, true);
+        rollback_strict(
+            &changes,
+            &pending,
+            &deletions,
+            &existed_before,
+            true,
+            &HashSet::new(),
+            Some(dir.path()),
+        );
 
         // The deletions loop should restore the original.
         assert!(file.exists(), "deleted file should be restored");
@@ -1000,6 +1055,7 @@ mod tests {
             &existed_before,
             Some("missing-session"),
             &collateral,
+            &HashSet::new(),
         )
         .expect_err("forced restore fail must not claim full revert");
         assert!(
@@ -1240,5 +1296,163 @@ mod tests {
             Some("parse_timeout"),
             "verify timeout must be parse_timeout, got {report:?}"
         );
+    }
+
+    /// Strict format failure after creating a nested path must remove the
+    /// directories `create_dir_all` added (#2501).
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn execute_plan_strict_rollback_removes_created_dirs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let cmd = if cfg!(windows) { "exit /b 1" } else { "false" };
+        let plan: Plan = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "strict": true,
+            "operations": [{
+                "op": "file.create",
+                "path": "newdir/sub/x.txt",
+                "content": "hi\n"
+            }],
+            "format": [{"cmd": cmd, "timeout": 5}]
+        }))
+        .unwrap();
+
+        let report = execute_plan_direct(plan, dir.path(), None).expect("plan returns output");
+        assert!(!report.ok, "strict format fail must not be ok: {report:?}");
+        assert!(
+            !dir.path().join("newdir/sub/x.txt").exists(),
+            "created file must be gone after strict rollback"
+        );
+        assert!(
+            !dir.path().join("newdir/sub").exists(),
+            "create_dir_all tree must be removed on strict rollback: {:?}",
+            std::fs::read_dir(dir.path())
+                .map(|rd| rd
+                    .filter_map(|e| e.ok().map(|e| e.path()))
+                    .collect::<Vec<_>>())
+                .unwrap_or_default()
+        );
+        assert!(
+            !dir.path().join("newdir").exists(),
+            "outer created dir must be gone after strict rollback"
+        );
+    }
+
+    /// Injected remove_file failure in the no-backup rollback_strict path
+    /// must surface as rollback_failed, not a silent success (#2502).
+    #[cfg(any(feature = "cli", feature = "files"))]
+    #[test]
+    fn revert_strict_lifecycle_reports_remove_file_failure() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let created = dir.path().join("created.txt");
+        std::fs::write(&created, "new\n").unwrap();
+
+        let changes = vec![(created.clone(), String::new(), "new\n".to_string())];
+        let pending = HashMap::new();
+        let deletions = HashSet::new();
+        let existed_before = HashSet::new();
+        let collateral = HashMap::new();
+
+        let _guard = RemoveFailGuard::engage();
+        let result = revert_strict_lifecycle(
+            dir.path(),
+            &changes,
+            &pending,
+            &deletions,
+            &existed_before,
+            None,
+            &collateral,
+            &HashSet::new(),
+        );
+        let err = result.expect_err("injected remove_file failure must be reported");
+        assert!(
+            err.contains("created.txt") || err.contains("remove"),
+            "error must name the failed remove: {err}"
+        );
+    }
+
+    /// Empty text-file delete must be restored on rollback. Soft-empty skip
+    /// is only for path-only non-text loads (#2502 reviewer).
+    #[test]
+    fn rollback_strict_restores_deleted_empty_text_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("empty.txt");
+        std::fs::write(&file, "").unwrap();
+        std::fs::remove_file(&file).unwrap();
+
+        let mut pending = HashMap::new();
+        pending.insert(file.clone(), (String::new(), String::new()));
+        let mut deletions = HashSet::new();
+        deletions.insert(file.clone());
+        let mut existed_before = HashSet::new();
+        existed_before.insert(file.clone());
+
+        rollback_strict(
+            &[],
+            &pending,
+            &deletions,
+            &existed_before,
+            true,
+            &HashSet::new(),
+            Some(dir.path()),
+        );
+        assert!(
+            file.exists(),
+            "empty text delete must restore the empty file"
+        );
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "");
+    }
+
+    /// Soft-empty binary delete still must not become a 0-byte regular file.
+    #[test]
+    fn rollback_strict_skips_soft_empty_non_text_delete() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("blob.bin");
+        let mut pending = HashMap::new();
+        pending.insert(file.clone(), (String::new(), String::new()));
+        let mut deletions = HashSet::new();
+        deletions.insert(file.clone());
+        let mut existed_before = HashSet::new();
+        existed_before.insert(file.clone());
+        let mut soft = HashSet::new();
+        soft.insert(file.clone());
+
+        rollback_strict(
+            &[],
+            &pending,
+            &deletions,
+            &existed_before,
+            true,
+            &soft,
+            Some(dir.path()),
+        );
+        assert!(
+            !file.exists(),
+            "soft-empty non-text delete must not recreate a regular file"
+        );
+    }
+
+    /// No-backup rollback must not rmdir the workspace root (#2501 reviewer).
+    #[test]
+    fn rollback_strict_does_not_remove_cwd() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("only.txt");
+        std::fs::write(&file, "new\n").unwrap();
+        let changes = vec![(file.clone(), String::new(), "new\n".to_string())];
+
+        rollback_strict(
+            &changes,
+            &HashMap::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            true,
+            &HashSet::new(),
+            Some(dir.path()),
+        );
+        assert!(
+            dir.path().is_dir(),
+            "workspace root must remain after rollback of a created file"
+        );
+        assert!(!file.exists(), "created file must still be removed");
     }
 }

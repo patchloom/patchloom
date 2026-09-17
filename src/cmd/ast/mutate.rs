@@ -1,6 +1,6 @@
 //! Mutating `patchloom ast` subcommands (rename, replace).
 
-use super::common::{resolve_lang, setup_multi_file};
+use super::common::setup_multi_file;
 use crate::ast::parse_lang_hint;
 use crate::cli::global::GlobalFlags;
 use crate::cmd::output::{run_write_op, stage_for_write};
@@ -56,7 +56,7 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
     // as a batch through the tx engine. This gives backup, rollback, and format.
     // SoftSkip content kinds (binary/utf8); track Unreadable so empty results
     // are not reported as no_matches when IO may have masked the scan (#1894).
-    let lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
+    let _lang_hint = args.lang.as_deref().map(parse_lang_hint).transpose()?;
     let old = args.old.as_str();
     let new = args.new.as_str();
     let lang_cli = args.lang.clone();
@@ -74,14 +74,13 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
             lang: lang_cli.clone(),
         }
     };
-    // Sole explicit file: one parse is the prefilter (timeout fail-closed).
+    // Sole explicit file: cheap substring prefilter; the engine parses once.
     // A one-file directory stays on the walk so glob / soft-skip apply (#2431).
     let operations: Vec<Operation> = if super::common::is_sole_explicit_file(&paths, &args.path) {
         let path = &paths[0];
         match crate::files::try_read_text_file(path) {
             Ok(source) => {
-                let lang = resolve_lang(lang_hint, path);
-                if crate::ast::rename::source_has_rename_match(&source, old, new, lang)? {
+                if crate::ast::rename::source_may_have_rename(&source, old) {
                     vec![rename_op(path)]
                 } else {
                     Vec::new()
@@ -121,18 +120,7 @@ pub(super) fn run_rename(args: RenameArgs, global: &GlobalFlags) -> anyhow::Resu
                     return None;
                 }
             };
-            let lang = resolve_lang(lang_hint, path);
-            let has_match =
-                if lang.has_grammar() {
-                    crate::ast::rename::rename_in_source(&source, old, new, lang)
-                        .is_some_and(|r| r.replacements > 0)
-                } else {
-                    false
-                } || crate::ops::replace::compile_replace_regex(old, false, false, false, true)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|re| re.is_match(&source));
-            if !has_match {
+            if !crate::ast::rename::source_may_have_rename(&source, old) {
                 return None;
             }
             Some(rename_op(path))
@@ -450,9 +438,9 @@ mod tests {
         .expect("rename applies");
         assert_eq!(code, exit::SUCCESS);
         let n = crate::ast::take_parse_count();
-        assert!(
-            (1..=2).contains(&n),
-            "sole-file rename must parse at most twice (prefilter + execute), got {n}"
+        assert_eq!(
+            n, 1,
+            "sole-file rename must parse once (cheap prefilter, one execute), got {n}"
         );
         let after = fs::read_to_string(&path).unwrap();
         assert!(after.contains("fn bar()"), "rename must apply: {after}");

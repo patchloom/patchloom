@@ -40,6 +40,7 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 diff,
                 |path| {
                     let file_path = tx.cwd.join(path);
+                    tx.refuse_soft_non_text(&file_path, path)?;
                     // Content patches load through load_text_strict (follows a
                     // live file symlink; FIFO/socket refuse without hanging).
                     // Empty-hunk delete never reaches this loader

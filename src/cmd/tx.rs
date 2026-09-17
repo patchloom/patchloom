@@ -250,6 +250,7 @@ fn commit_and_finalize(
                 &result.existed_before,
                 apply_backup_session.as_deref(),
                 &collateral_snapshot,
+                &result.soft_non_text,
             ) {
                 Ok(()) => {
                     let rollback_msg = format!(

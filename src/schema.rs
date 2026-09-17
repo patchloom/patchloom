@@ -554,7 +554,7 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "ast.move",
-        description: "Move symbols between files with optional target creation. Set update_imports with old_module_path and new_module_path to rewrite consumer use/import statements.",
+        description: "Move symbols between files with optional target creation. Set update_imports (Rust only) with old_module_path and new_module_path to rewrite consumer use statements.",
         tier: Tier::Medium,
         examples: &[
             (
@@ -569,7 +569,7 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "ast.extract_to_file",
-        description: "Extract a symbol to a separate file with optional module unwrapping. Set update_imports with old_module_path and new_module_path to rewrite consumer use/import statements.",
+        description: "Extract a symbol to a separate file with optional module unwrapping. Set update_imports (Rust only) with old_module_path and new_module_path to rewrite consumer use statements.",
         tier: Tier::Medium,
         examples: &[
             (

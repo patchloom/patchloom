@@ -1,5 +1,8 @@
 //! Text replacement operations for the public library API.
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). Host replace
+//! adapters, fuzzy honesty, and nth/span policy stay in one module.
+//!
 //! Delegates to the tx engine via `execute_as_edit_result`.
 
 use std::path::Path;
@@ -263,6 +266,15 @@ fn replace_write(
                 &original,
                 &old,
                 ib,
+                compiled_re.as_ref(),
+                nth,
+                case_insensitive,
+            )
+        } else if let Some(ia) = insert_after.as_deref() {
+            ops::replace::replace_insert_after(
+                &original,
+                &old,
+                ia,
                 compiled_re.as_ref(),
                 nth,
                 case_insensitive,
@@ -677,6 +689,15 @@ fn replace_in_content_inner(
             content,
             from,
             ib,
+            compiled_re.as_ref(),
+            opts.nth,
+            opts.case_insensitive,
+        )
+    } else if let Some(ia) = opts.insert_after.as_deref() {
+        ops::replace::replace_insert_after(
+            content,
+            from,
+            ia,
             compiled_re.as_ref(),
             opts.nth,
             opts.case_insensitive,

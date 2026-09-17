@@ -119,6 +119,31 @@ fn rust_impl_without_trait() {
     assert_eq!(impl_sym.name, "Bar");
 }
 
+/// #2531: top-level static, macro_rules!, and union must be listed.
+#[test]
+fn extract_rust_static_macro_union() {
+    let source =
+        "static FOO: i32 = 1;\nmacro_rules! m { () => {} }\nunion U { a: i32 }\nfn f() {}\n";
+    let symbols = extract_symbols(source, Language::Rust);
+    let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+    assert!(
+        names.contains(&"FOO"),
+        "static FOO must be listed, got {names:?}"
+    );
+    assert!(
+        names.contains(&"m"),
+        "macro_rules! m must be listed, got {names:?}"
+    );
+    assert!(
+        names.contains(&"U"),
+        "union U must be listed, got {names:?}"
+    );
+    assert!(
+        names.contains(&"f"),
+        "fn f must still be listed, got {names:?}"
+    );
+}
+
 #[test]
 fn extract_python_symbols() {
     let source = r#"

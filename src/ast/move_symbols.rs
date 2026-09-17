@@ -172,6 +172,131 @@ pub fn move_symbols(
     })
 }
 
+/// Count leading preamble lines that `position=start` must stay after (#2530).
+fn preamble_line_count(source: &str, lang: Language) -> usize {
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
+    let mut i = 0usize;
+    if lines.first().is_some_and(|l| l.starts_with("#!")) {
+        i += 1;
+    }
+    match lang {
+        Language::Python => {
+            if i < lines.len() && is_python_encoding_comment(lines[i]) {
+                i += 1;
+            }
+            i = skip_blank_lines(&lines, i);
+            if i < lines.len()
+                && let Some(after_doc) = skip_python_string_literal(&lines, i)
+            {
+                i = skip_blank_lines(&lines, after_doc);
+            }
+            while i < lines.len() && is_python_future_import(lines[i]) {
+                i += 1;
+                if i < lines.len() && lines[i].trim().is_empty() {
+                    let next = i + 1;
+                    if next < lines.len() && is_python_future_import(lines[next]) {
+                        i = next;
+                    }
+                }
+            }
+            i
+        }
+        Language::Rust => {
+            while i < lines.len() {
+                let t = lines[i].trim();
+                if t.is_empty() {
+                    if i + 1 < lines.len() && is_rust_inner_preamble(lines[i + 1]) {
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                if t.starts_with("//!") {
+                    i += 1;
+                    continue;
+                }
+                if t.starts_with("#![") {
+                    i = skip_rust_crate_attr(&lines, i);
+                    continue;
+                }
+                break;
+            }
+            i
+        }
+        _ => i,
+    }
+}
+
+fn skip_blank_lines(lines: &[&str], mut i: usize) -> usize {
+    while i < lines.len() && lines[i].trim().is_empty() {
+        i += 1;
+    }
+    i
+}
+
+fn is_python_encoding_comment(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with('#') && t.to_ascii_lowercase().contains("coding")
+}
+
+fn is_python_future_import(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with("from __future__ import")
+}
+
+fn skip_python_string_literal(lines: &[&str], start: usize) -> Option<usize> {
+    let t = lines[start].trim_start();
+    let quote = if t.starts_with("\"\"\"") {
+        "\"\"\""
+    } else if t.starts_with("'''") {
+        "'''"
+    } else if t.starts_with('"') {
+        "\""
+    } else if t.starts_with('\'') {
+        "'"
+    } else {
+        return None;
+    };
+    if quote.len() == 1 {
+        // Single-line module docstring only.
+        if t[quote.len()..].contains(quote) {
+            return Some(start + 1);
+        }
+        return None;
+    }
+    if t[quote.len()..].contains(quote) {
+        return Some(start + 1);
+    }
+    let mut i = start + 1;
+    while i < lines.len() {
+        if lines[i].contains(quote) {
+            return Some(i + 1);
+        }
+        i += 1;
+    }
+    None
+}
+
+fn is_rust_inner_preamble(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with("//!") || t.starts_with("#![")
+}
+
+fn skip_rust_crate_attr(lines: &[&str], start: usize) -> usize {
+    let t = lines[start].trim();
+    if t.ends_with(']') {
+        return start + 1;
+    }
+    let mut i = start + 1;
+    while i < lines.len() {
+        if lines[i].contains(']') {
+            return i + 1;
+        }
+        i += 1;
+    }
+    start + 1
+}
+
 fn insert_into_target(
     target: &str,
     insert_text: &str,
@@ -196,9 +321,35 @@ fn insert_into_target(
             Ok(result)
         }
         MovePosition::Start => {
-            let mut result = insert_text.to_string();
-            result.push_str(eol);
-            result.push_str(target);
+            let skip = preamble_line_count(target, lang);
+            if skip == 0 {
+                let mut result = insert_text.to_string();
+                result.push_str(eol);
+                result.push_str(target);
+                return Ok(result);
+            }
+            let mut result = String::new();
+            for line in &lines[..skip] {
+                result.push_str(line);
+                result.push_str(eol);
+            }
+            if skip > 0 && !lines[skip - 1].trim().is_empty() {
+                result.push_str(eol);
+            }
+            result.push_str(insert_text);
+            if !insert_text.ends_with('\n') {
+                result.push_str(eol);
+            }
+            if skip < lines.len() && !lines[skip].trim().is_empty() {
+                result.push_str(eol);
+            }
+            for line in &lines[skip..] {
+                result.push_str(line);
+                result.push_str(eol);
+            }
+            if !target.ends_with('\n') && result.ends_with('\n') {
+                result.truncate(result.len() - eol.len());
+            }
             Ok(result)
         }
         MovePosition::After(sym_name) => {
@@ -342,6 +493,55 @@ mod tests {
         assert!(result.target_content.contains("#[test]"));
         assert!(result.target_content.contains("#[cfg(unix)]"));
         assert!(result.target_content.contains("fn foo()"));
+    }
+
+    /// #2530: start is after `from __future__`, not at byte 0.
+    #[test]
+    fn move_position_start_after_python_future() {
+        let source = "def moved():\n    return 1\n";
+        let target = "from __future__ import annotations\n\ndef existing():\n    pass\n";
+        let result = move_symbols(
+            source,
+            target,
+            &["moved".into()],
+            MovePosition::Start,
+            Language::Python,
+        )
+        .unwrap();
+        assert_eq!(
+            result.target_content,
+            "from __future__ import annotations\n\ndef moved():\n    return 1\n\ndef existing():\n    pass\n"
+        );
+        let future_pos = result.target_content.find("from __future__").unwrap();
+        let moved_pos = result.target_content.find("def moved").unwrap();
+        assert!(
+            future_pos < moved_pos,
+            "moved symbol must follow the future import: {}",
+            result.target_content
+        );
+    }
+
+    /// #2530: start is after `//!` inner docs and `#![...]` crate attrs.
+    #[test]
+    fn move_position_start_after_rust_inner_docs_and_crate_attr() {
+        let source = "fn moved() {}\n";
+        let target = "//! crate docs\n#![deny(unsafe_code)]\n\nfn existing() {}\n";
+        let result = move_symbols(
+            source,
+            target,
+            &["moved".into()],
+            MovePosition::Start,
+            Language::Rust,
+        )
+        .unwrap();
+        assert_eq!(
+            result.target_content,
+            "//! crate docs\n#![deny(unsafe_code)]\n\nfn moved() {}\n\nfn existing() {}\n"
+        );
+        let doc_pos = result.target_content.find("//! crate docs").unwrap();
+        let attr_pos = result.target_content.find("#![deny").unwrap();
+        let moved_pos = result.target_content.find("fn moved").unwrap();
+        assert!(doc_pos < moved_pos && attr_pos < moved_pos);
     }
 
     #[test]

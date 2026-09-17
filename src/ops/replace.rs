@@ -332,39 +332,7 @@ pub fn normalize_line_insert(
     insert_content: &str,
     side: InsertSide,
 ) -> String {
-    let eol = preferred_line_ending(file_content);
-    match side {
-        InsertSide::After => {
-            if starts_with_line_ending(insert_content) || ends_with_line_ending(anchor) {
-                return insert_content.to_string();
-            }
-            if looks_like_new_line_payload(insert_content)
-                || anchor_is_whole_line(file_content, anchor)
-            {
-                let indent = if insert_content.starts_with([' ', '\t']) {
-                    ""
-                } else {
-                    indent_before_first_anchor(file_content, anchor)
-                };
-                let payload = strip_one_trailing_eol(insert_content);
-                format!("{eol}{indent}{payload}")
-            } else {
-                insert_content.to_string()
-            }
-        }
-        InsertSide::Before => {
-            if ends_with_line_ending(insert_content) || starts_with_line_ending(anchor) {
-                return insert_content.to_string();
-            }
-            if looks_like_new_line_payload(insert_content)
-                || anchor_is_whole_line(file_content, anchor)
-            {
-                format!("{insert_content}{eol}")
-            } else {
-                insert_content.to_string()
-            }
-        }
-    }
+    normalize_line_insert_ci(file_content, anchor, insert_content, side, false)
 }
 
 /// Like [`normalize_line_insert`], but whole-line detection honors case-insensitive
@@ -377,41 +345,70 @@ pub fn normalize_line_insert_ci(
     side: InsertSide,
     case_insensitive: bool,
 ) -> String {
-    if !case_insensitive {
-        return normalize_line_insert(file_content, anchor, insert_content, side);
-    }
+    let start = first_anchor_start(file_content, anchor, case_insensitive);
+    let whole_line = anchor_is_whole_line_ci(file_content, anchor, case_insensitive);
+    normalize_line_insert_at(
+        file_content,
+        anchor,
+        start,
+        insert_content,
+        side,
+        whole_line,
+    )
+}
+
+/// Like [`normalize_line_insert_ci`] using indent at `match_start` (#2511).
+///
+/// `whole_line` is hoisted by callers that apply many hits (#2548).
+fn normalize_line_insert_at(
+    file_content: &str,
+    anchor: &str,
+    match_start: Option<usize>,
+    insert_content: &str,
+    side: InsertSide,
+    whole_line: bool,
+) -> String {
     let eol = preferred_line_ending(file_content);
+    let rewritten = rewrite_line_endings(insert_content, eol);
     match side {
         InsertSide::After => {
             if starts_with_line_ending(insert_content) || ends_with_line_ending(anchor) {
-                return insert_content.to_string();
+                return rewritten;
             }
-            if looks_like_new_line_payload(insert_content)
-                || anchor_is_whole_line_ci(file_content, anchor, true)
-            {
+            if looks_like_new_line_payload(insert_content) || whole_line {
                 let indent = if insert_content.starts_with([' ', '\t']) {
                     ""
                 } else {
-                    indent_before_first_anchor_ci(file_content, anchor, true)
+                    match_start
+                        .map(|i| line_indent_at(file_content, i))
+                        .unwrap_or("")
                 };
-                let payload = strip_one_trailing_eol(insert_content);
-                format!("{eol}{indent}{payload}")
+                let payload = strip_one_trailing_eol(&rewritten);
+                let payload = prefix_indent_on_nonempty_lines(payload, indent);
+                format!("{eol}{payload}")
             } else {
-                insert_content.to_string()
+                rewritten
             }
         }
         InsertSide::Before => {
             if ends_with_line_ending(insert_content) || starts_with_line_ending(anchor) {
-                return insert_content.to_string();
+                return rewritten;
             }
-            if looks_like_new_line_payload(insert_content)
-                || anchor_is_whole_line_ci(file_content, anchor, true)
-            {
-                format!("{insert_content}{eol}")
+            if looks_like_new_line_payload(insert_content) || whole_line {
+                format!("{rewritten}{eol}")
             } else {
-                insert_content.to_string()
+                rewritten
             }
         }
+    }
+}
+
+fn first_anchor_start(file_content: &str, anchor: &str, case_insensitive: bool) -> Option<usize> {
+    if case_insensitive {
+        let needle = anchor.to_ascii_lowercase();
+        file_content.to_ascii_lowercase().find(&needle)
+    } else {
+        file_content.find(anchor)
     }
 }
 
@@ -426,6 +423,48 @@ pub fn preferred_line_ending(content: &str) -> &'static str {
     } else {
         "\n"
     }
+}
+
+/// Rewrite `\r\n` / `\r` / `\n` in `s` to `eol` (target file dominant ending).
+pub(crate) fn rewrite_line_endings(s: &str, eol: &str) -> String {
+    if s.is_empty() {
+        return String::new();
+    }
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+            out.push_str(eol);
+            i += 2;
+        } else if bytes[i] == b'\r' || bytes[i] == b'\n' {
+            out.push_str(eol);
+            i += 1;
+        } else {
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'\r' && bytes[i] != b'\n' {
+                i += 1;
+            }
+            out.push_str(&s[start..i]);
+        }
+    }
+    out
+}
+
+/// Prefix `indent` onto every non-empty line of `payload` (#2509).
+fn prefix_indent_on_nonempty_lines(payload: &str, indent: &str) -> String {
+    if indent.is_empty() || payload.is_empty() {
+        return payload.to_string();
+    }
+    let mut out = String::with_capacity(payload.len() + indent.len() * 4);
+    for (line, ending) in crate::ops::file::text_lines_with_endings(payload) {
+        if !line.is_empty() {
+            out.push_str(indent);
+        }
+        out.push_str(line);
+        out.push_str(ending);
+    }
+    out
 }
 
 #[inline]
@@ -547,32 +586,6 @@ fn skip_horiz_fwd(bytes: &[u8], mut i: usize) -> usize {
         i += 1;
     }
     i
-}
-
-/// Horizontal indent of the line that contains the first `anchor` match.
-///
-/// Uses the line indent even when `anchor` itself starts with those spaces
-/// (copy-paste of `    let x = 1;` as `--after` / `--before`). Mid-line
-/// matches still return empty.
-fn indent_before_first_anchor<'a>(file_content: &'a str, anchor: &str) -> &'a str {
-    indent_before_first_anchor_ci(file_content, anchor, false)
-}
-
-fn indent_before_first_anchor_ci<'a>(
-    file_content: &'a str,
-    anchor: &str,
-    case_insensitive: bool,
-) -> &'a str {
-    let i = if case_insensitive {
-        let needle = anchor.to_ascii_lowercase();
-        file_content.to_ascii_lowercase().find(&needle)
-    } else {
-        file_content.find(anchor)
-    };
-    let Some(i) = i else {
-        return "";
-    };
-    line_indent_at(file_content, i)
 }
 
 /// Indent of the line containing `match_start`, or empty when the match is
@@ -1011,18 +1024,51 @@ pub fn leading_line_indent_start(content: &str, start: usize) -> usize {
     }
 }
 
-fn insert_before_is_line_oriented(
-    file_content: &str,
-    anchor: &str,
-    insert: &str,
-    case_insensitive: bool,
-) -> bool {
-    if ends_with_line_ending(insert) || starts_with_line_ending(anchor) {
-        return looks_like_new_line_payload(insert)
-            || anchor_is_whole_line_ci(file_content, anchor, case_insensitive);
+fn insert_before_is_line_oriented(insert: &str, whole_line: bool) -> bool {
+    looks_like_new_line_payload(insert) || whole_line
+}
+
+struct InsertHit {
+    start: usize,
+    end: usize,
+}
+
+fn collect_insert_hits(content: &str, from: &str, compiled_re: Option<&Regex>) -> Vec<InsertHit> {
+    let mut hits = Vec::new();
+    if let Some(re) = compiled_re {
+        let content_len = content.len();
+        for caps in re.captures_iter(content) {
+            let Some(m) = caps.get(0) else {
+                continue;
+            };
+            if m.start() == content_len && m.end() == content_len {
+                continue;
+            }
+            hits.push(InsertHit {
+                start: m.start(),
+                end: m.end(),
+            });
+        }
+    } else if !from.is_empty() {
+        for (start, _) in content.match_indices(from) {
+            hits.push(InsertHit {
+                start,
+                end: start + from.len(),
+            });
+        }
     }
-    looks_like_new_line_payload(insert)
-        || anchor_is_whole_line_ci(file_content, anchor, case_insensitive)
+    hits
+}
+
+fn select_nth_insert_hits(hits: Vec<InsertHit>, nth: Option<usize>) -> Vec<InsertHit> {
+    if let Some(n) = nth {
+        hits.into_iter()
+            .nth(n.saturating_sub(1))
+            .into_iter()
+            .collect()
+    } else {
+        hits
+    }
 }
 
 /// Insert `insert` before each match of `from`, keeping line indent on the
@@ -1043,6 +1089,56 @@ pub fn replace_insert_before<'a>(
     })
 }
 
+/// Insert `insert` after each match of `from`, using that match's indent (#2511).
+pub fn replace_insert_after<'a>(
+    content: &'a str,
+    from: &str,
+    insert: &str,
+    compiled_re: Option<&Regex>,
+    nth: Option<usize>,
+    case_insensitive: bool,
+) -> (std::borrow::Cow<'a, str>, usize) {
+    apply_with_optional_bom(content, |content| {
+        replace_insert_after_body(content, from, insert, compiled_re, nth, case_insensitive)
+    })
+}
+
+fn replace_insert_after_body<'a>(
+    content: &'a str,
+    from: &str,
+    insert: &str,
+    compiled_re: Option<&Regex>,
+    nth: Option<usize>,
+    case_insensitive: bool,
+) -> (std::borrow::Cow<'a, str>, usize) {
+    use std::borrow::Cow;
+
+    let selected = select_nth_insert_hits(collect_insert_hits(content, from, compiled_re), nth);
+    if selected.is_empty() {
+        return (Cow::Borrowed(content), 0);
+    }
+
+    let whole_line = anchor_is_whole_line_ci(content, from, case_insensitive);
+    let count = selected.len();
+    let mut out = String::with_capacity(content.len() + count.saturating_mul(insert.len() + 8));
+    let mut cursor = 0usize;
+    for hit in &selected {
+        out.push_str(&content[cursor..hit.end]);
+        let insertion = normalize_line_insert_at(
+            content,
+            from,
+            Some(hit.start),
+            insert,
+            InsertSide::After,
+            whole_line,
+        );
+        out.push_str(&insertion);
+        cursor = hit.end;
+    }
+    out.push_str(&content[cursor..]);
+    (Cow::Owned(out), count)
+}
+
 fn replace_insert_before_body<'a>(
     content: &'a str,
     from: &str,
@@ -1053,79 +1149,62 @@ fn replace_insert_before_body<'a>(
 ) -> (std::borrow::Cow<'a, str>, usize) {
     use std::borrow::Cow;
 
-    struct Hit {
-        start: usize,
-        end: usize,
-    }
-
-    let mut hits: Vec<Hit> = Vec::new();
-    if let Some(re) = compiled_re {
-        let content_len = content.len();
-        for caps in re.captures_iter(content) {
-            let Some(m) = caps.get(0) else {
-                continue;
-            };
-            if m.start() == content_len && m.end() == content_len {
-                continue;
-            }
-            hits.push(Hit {
-                start: m.start(),
-                end: m.end(),
-            });
-        }
-    } else if !from.is_empty() {
-        for (start, _) in content.match_indices(from) {
-            hits.push(Hit {
-                start,
-                end: start + from.len(),
-            });
-        }
-    }
-
-    let selected: Vec<Hit> = if let Some(n) = nth {
-        hits.into_iter()
-            .nth(n.saturating_sub(1))
-            .into_iter()
-            .collect()
-    } else {
-        hits
-    };
+    let selected = select_nth_insert_hits(collect_insert_hits(content, from, compiled_re), nth);
     if selected.is_empty() {
         return (Cow::Borrowed(content), 0);
     }
 
+    // Whole-line uses the search pattern (`from`), not the matched text.
+    // A regex `b+` that matches a whole line `bbb` must stay byte-exact
+    // (legacy `Xbbb`), same as build_replacement_text.
+    let whole_line = anchor_is_whole_line_ci(content, from, case_insensitive);
+    let line_oriented = insert_before_is_line_oriented(insert, whole_line);
+    let normalized = if line_oriented {
+        Some(normalize_line_insert_at(
+            content,
+            from,
+            None,
+            insert,
+            InsertSide::Before,
+            whole_line,
+        ))
+    } else {
+        None
+    };
+
     let count = selected.len();
-    let mut out = content.to_string();
-    for hit in selected.into_iter().rev() {
-        let matched = out[hit.start..hit.end].to_string();
-        // Whole-line detection uses the search pattern (`from`), not the
-        // matched text. A regex `b+` that matches a whole line `bbb` must
-        // stay byte-exact (legacy `Xbbb`), same as build_replacement_text.
-        let line_oriented = insert_before_is_line_oriented(&out, from, insert, case_insensitive);
-        let (span_start, replacement) = if line_oriented {
-            let indent_start = leading_line_indent_start(&out, hit.start);
-            let indent = line_indent_at(&out, hit.start).to_string();
-            // Detect whole-line using `from` (the pattern), not `matched`.
-            let normalized =
-                normalize_line_insert_ci(&out, from, insert, InsertSide::Before, case_insensitive);
+    let mut out = String::with_capacity(content.len() + count.saturating_mul(insert.len() + 8));
+    let mut cursor = 0usize;
+    for hit in &selected {
+        let matched = &content[hit.start..hit.end];
+        if let Some(normalized) = normalized.as_deref() {
+            let indent_start = leading_line_indent_start(content, hit.start);
+            let indent = line_indent_at(content, hit.start);
             let insert_out = if insert.starts_with([' ', '\t']) {
-                normalized
+                normalized.to_string()
             } else {
-                format!("{indent}{normalized}")
+                prefix_indent_on_nonempty_lines(normalized, indent)
             };
             // When the match already includes the line indent, do not
             // prefix it again (copy-paste `--before '    let x = 1;'`).
             let keep_indent = if hit.start == indent_start {
                 ""
             } else {
-                indent.as_str()
+                indent
             };
-            (indent_start, format!("{insert_out}{keep_indent}{matched}"))
+            let span_start = indent_start.max(cursor);
+            out.push_str(&content[cursor..span_start]);
+            out.push_str(&insert_out);
+            out.push_str(keep_indent);
+            out.push_str(matched);
         } else {
-            (hit.start, format!("{insert}{matched}"))
-        };
-        out.replace_range(span_start..hit.end, &replacement);
+            out.push_str(&content[cursor..hit.start]);
+            out.push_str(insert);
+            out.push_str(matched);
+        }
+        cursor = hit.end;
     }
+    out.push_str(&content[cursor..]);
     (Cow::Owned(out), count)
 }
 

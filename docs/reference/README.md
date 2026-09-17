@@ -195,6 +195,20 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** You need to override the default terminal detection, for example forcing color into a pager or disabling it in a terminal that renders escape codes literally.
 - **Prefer instead:** Set the `NO_COLOR` environment variable when you want a global, tool-agnostic way to disable color across all CLI tools.
 
+<!-- ref:global-flag:color-explicit -->
+### `color_explicit` (internal)
+
+- **What it does:** True when `--color` was present on the command line (including `--color auto`). Distinguishes an explicit choice from the default so empty `NO_COLOR` does not override a user-set `--color`.
+- **Use when:** Dispatch needs to know whether color was requested. Not a CLI flag.
+- **Prefer instead:** Pass `--color always` or `--color never` when you want to override terminal detection.
+
+<!-- ref:global-flag:write-command -->
+### `write_command` (internal)
+
+- **What it does:** True after write flags are merged onto a write subcommand. Read-only commands leave this false so config `[defaults]` apply/check/diff cannot enable writes on search or read.
+- **Use when:** Config merge needs to know the command mutates files. Not a CLI flag.
+- **Prefer instead:** Use a write subcommand (`replace`, `tx`, `undo`) when you intend to mutate files.
+
 <!-- ref:global-flag:format-config -->
 ### `format_config` (internal)
 
@@ -380,6 +394,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **Notable flags:**
   - `--list` shows available backup sessions. `--json` emits `{ "items": [...], "warnings": [...] }` (each item still has `timestamp`, `project_root`, `file_count`, `entries`). `--jsonl` emits one session object per line, then a `type: warnings` trailer when listing warnings exist (no stderr).
   - `--session <timestamp>` targets a specific session (defaults to most recent).
+  - `--path <rel>` (repeatable) restores only those session files. An unknown path is `no_matches` and does not restore the rest. The session is kept (not removed) when `--path` is set.
   - `--apply` actually restores files (required for a real restore; omitted = preview only).
 - **Failure behavior:** No backup sessions (`--list` empty, or restore with no sessions) exits `3` (`NO_MATCHES`) with `error_kind: "no_matches"`. If session directories exist but none have a readable `manifest.json`, `--list` exits `1` with `error_kind: "invalid_input"` (not `no_matches`) and the warning text (including the path) in the error message.
 - **Agent trap:** Do not treat exit `2` from bare `undo` as a completed restore. Re-run with `--apply`.
@@ -1379,17 +1394,17 @@ The operations below are the building blocks inside `operations`.
 <!-- ref:tx-op:ast.move -->
 ### `ast.move`
 
-- **What it does:** Moves symbols from one file to another, removing them from the source and inserting at a specified position in the target. Supports creating the target file with an optional prepend. Preserves attached doc comments and attributes. Set `update_imports` with `old_module_path` and `new_module_path` to rewrite consumer `use`/import statements of the moved symbols (default off; missing module paths fail with `invalid_input`).
+- **What it does:** Moves symbols from one file to another, removing them from the source and inserting at a specified position in the target. Supports creating the target file with an optional prepend. Preserves attached doc comments and attributes. Set `update_imports` (Rust only) with `old_module_path` and `new_module_path` to rewrite consumer `use` statements of the moved symbols (default off; missing module paths fail with `invalid_input`).
 - **Use when:** You need to relocate functions, structs, or constants between files during a refactoring (e.g., moving helpers from `lib.rs` to `utils.rs`).
-- **Failure behavior:** Missing source or target anchor symbols exit **3** (`no_matches`) with `error_kind: "no_matches"`. `update_imports: true` without both module paths exits **1** with `error_kind: "invalid_input"`.
+- **Failure behavior:** Missing source or target anchor symbols exit **3** (`no_matches`) with `error_kind: "no_matches"`. `update_imports: true` without both module paths, or `update_imports: true` on a non-Rust file, exits **1** with `error_kind: "invalid_input"`.
 - **Related:** `ast.extract_to_file`, `ast.group`, `ast.imports`
 
 <!-- ref:tx-op:ast.extract_to_file -->
 ### `ast.extract_to_file`
 
-- **What it does:** Extracts a single symbol from a source file into a new target file. For module blocks, it can unwrap the module wrapper and un-indent the body. Leaves an optional replacement text (e.g., `mod tests;`) in the source. Supports a prepend for the target (e.g., `use super::*;`). Set `update_imports` with `old_module_path` and `new_module_path` to rewrite consumer `use`/import statements of the extracted symbol (default off; missing module paths fail with `invalid_input`).
+- **What it does:** Extracts a single symbol from a source file into a new target file. For module blocks, it can unwrap the module wrapper and un-indent the body. Leaves an optional replacement text (e.g., `mod tests;`) in the source. Supports a prepend for the target (e.g., `use super::*;`). Set `update_imports` (Rust only) with `old_module_path` and `new_module_path` to rewrite consumer `use` statements of the extracted symbol (default off; missing module paths fail with `invalid_input`).
 - **Use when:** You want to extract a test module, a large struct, or a helper block into its own file while leaving a `mod` declaration behind.
-- **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`. Existing target without force exits **1** with `error_kind: "already_exists"`. `update_imports: true` without both module paths exits **1** with `error_kind: "invalid_input"`.
+- **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`. Existing target without force exits **1** with `error_kind: "already_exists"`. `update_imports: true` without both module paths, or `update_imports: true` on a non-Rust file, exits **1** with `error_kind: "invalid_input"`.
 - **Related:** `ast.split`, `ast.move`, `ast.imports`
 
 <!-- ref:tx-op:ast.split -->

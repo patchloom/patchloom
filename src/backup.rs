@@ -128,6 +128,10 @@ pub enum FileAction {
 pub struct Manifest {
     pub timestamp: String,
     pub entries: Vec<ManifestEntry>,
+    /// Directories created by `create_dir_all` during commit. Removed on
+    /// restore/undo when still empty (#2501).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub created_dirs: Vec<String>,
 }
 
 /// Convert a file path into a safe relative path for use inside a backup session.
@@ -232,6 +236,7 @@ pub struct BackupSession {
     project_root: PathBuf,
     timestamp: String,
     entries: Vec<ManifestEntry>,
+    created_dirs: Vec<String>,
 }
 
 impl BackupSession {
@@ -259,7 +264,18 @@ impl BackupSession {
             project_root: project_root.to_path_buf(),
             timestamp,
             entries: Vec::new(),
+            created_dirs: Vec::new(),
         })
+    }
+
+    /// Record a directory that commit is about to create with `create_dir_all`.
+    pub fn record_created_dir(&mut self, dir_path: &Path) {
+        let rel = sanitize_rel_path(dir_path, &self.project_root);
+        let rel_str = rel.to_string_lossy().to_string();
+        if self.created_dirs.iter().any(|p| p == &rel_str) {
+            return;
+        }
+        self.created_dirs.push(rel_str);
     }
 
     /// Save the original content of a file before it is modified.
@@ -355,7 +371,7 @@ impl BackupSession {
     /// Write the manifest and finalize the backup session.
     /// Returns `None` if no files were backed up.
     pub fn finalize(self) -> anyhow::Result<Option<String>> {
-        if self.entries.is_empty() {
+        if self.entries.is_empty() && self.created_dirs.is_empty() {
             // Clean up empty session directory.
             let _ = std::fs::remove_dir(&self.session_dir);
             return Ok(None);
@@ -364,6 +380,7 @@ impl BackupSession {
         let manifest = Manifest {
             timestamp: self.timestamp.clone(),
             entries: self.entries,
+            created_dirs: self.created_dirs,
         };
 
         let manifest_path = self.session_dir.join("manifest.json");
@@ -1046,6 +1063,24 @@ pub fn restore_session_with_guard(
         }
     }
 
+    // Innermost first so nested create_dir_all trees unwind (#2501).
+    let mut created_dirs = manifest.created_dirs;
+    created_dirs.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    for rel in created_dirs {
+        let target = resolve_restore_path(project_root, &rel);
+        if target.is_dir() {
+            match std::fs::remove_dir(&target) {
+                Ok(()) => {
+                    restored += 1;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(_) => {
+                    // Still has entries (or not empty); leave it.
+                }
+            }
+        }
+    }
+
     Ok(restored)
 }
 
@@ -1716,6 +1751,7 @@ mod tests {
         let manifest = Manifest {
             timestamp: ts.to_string(),
             entries: Vec::new(),
+            created_dirs: Vec::new(),
         };
         std::fs::write(
             d.join("manifest.json"),
@@ -2075,6 +2111,7 @@ mod tests {
                 path: "../../etc/passwd".to_string(),
                 action: FileAction::Modified,
             }],
+            created_dirs: Vec::new(),
         };
         let json = serde_json::to_string_pretty(&manifest).unwrap();
         std::fs::write(session_dir.join("manifest.json"), json).unwrap();
@@ -2104,6 +2141,7 @@ mod tests {
                 path: "__external__/../../../etc/shadow".to_string(),
                 action: FileAction::Modified,
             }],
+            created_dirs: Vec::new(),
         };
         std::fs::write(
             session_dir.join("manifest.json"),
@@ -2682,6 +2720,7 @@ mod tests {
                 path: entry_path.to_string(),
                 action,
             }],
+            created_dirs: Vec::new(),
         };
         std::fs::write(
             session_dir.join("manifest.json"),

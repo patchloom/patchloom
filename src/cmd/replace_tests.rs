@@ -922,6 +922,92 @@ mod error_handling {
     }
 
     #[test]
+    fn first_scan_records_nth_candidates_per_readable_file() {
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "x x x\n").unwrap();
+        fs::write(&b, "x\n").unwrap();
+        let mut args = make_args(
+            "x",
+            "y",
+            vec![
+                a.to_string_lossy().into_owned(),
+                b.to_string_lossy().into_owned(),
+            ],
+        );
+        args.nth = Some(2);
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..GlobalFlags::test_default()
+        };
+        let scan = collect_replacements_with_list(&args, &global, None).unwrap();
+        let totals: std::collections::HashMap<&str, usize> = scan
+            .nth_candidates
+            .iter()
+            .map(|c| (c.display_path.as_str(), c.total))
+            .collect();
+        assert_eq!(totals.get("a.txt").copied(), Some(3), "got {totals:?}");
+        assert_eq!(totals.get("b.txt").copied(), Some(1), "got {totals:?}");
+        assert_eq!(scan.replacements.len(), 1);
+        assert_eq!(scan.replacements[0].display_path, "a.txt");
+        assert_eq!(scan.replacements[0].match_count, 1);
+        assert_eq!(scan.replacements[0].replaced, "x y x\n");
+    }
+
+    #[test]
+    fn first_scan_classifies_explicit_miss_as_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "hello world\n").unwrap();
+        fs::write(&b, "unrelated\n").unwrap();
+        let args = make_args(
+            "hello",
+            "hi",
+            vec![
+                a.to_string_lossy().into_owned(),
+                b.to_string_lossy().into_owned(),
+            ],
+        );
+        let global = GlobalFlags {
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..GlobalFlags::test_default()
+        };
+        let scan = collect_replacements_with_list(&args, &global, None).unwrap();
+        let refused = scan
+            .zero_match_refused
+            .expect("explicit miss must be classified on the first scan");
+        assert!(
+            refused
+                .iter()
+                .any(|r| r.path == "b.txt" && r.reason == "no_matches"),
+            "got {refused:?}"
+        );
+        assert!(
+            !refused.iter().any(|r| r.path == "a.txt"),
+            "matched file must not be refused: {refused:?}"
+        );
+    }
+
+    #[test]
+    fn nth_out_of_range_uses_first_scan_totals() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("t.txt");
+        fs::write(&file, "x x\n").unwrap();
+        let mut args = make_args("x", "y", vec![file.to_string_lossy().into_owned()]);
+        args.nth = Some(3);
+        let global = GlobalFlags {
+            json: true,
+            quiet: true,
+            cwd: Some(dir.path().to_string_lossy().into_owned()),
+            ..GlobalFlags::test_default()
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::FAILURE);
+    }
+
+    #[test]
     fn nth_zero_is_rejected() {
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("test.txt");

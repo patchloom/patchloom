@@ -621,6 +621,15 @@ pub fn error_kind_implies_not_applied(kind: &str) -> bool {
     )
 }
 
+/// Text-mode uncaught-error message and exit code (#2519).
+///
+/// Same classification as [`structured_error_payload`]; message is
+/// [`agent_error_message`] so the OS detail is not printed twice.
+pub fn classify_dispatch_error(err: &anyhow::Error) -> (String, u8) {
+    let code = classify_typed_error(err).map(|(_, c)| c).unwrap_or(FAILURE);
+    (agent_error_message(err), code)
+}
+
 /// Classify a typed error for JSON `error_kind` + exit code.
 ///
 /// Shared by global `--json` dispatch and command remappers (e.g. doc write)
@@ -1238,6 +1247,47 @@ mod tests {
     fn classify_typed_error_none_for_plain() {
         let err = anyhow::anyhow!("plain");
         assert_eq!(classify_typed_error(&err), None);
+    }
+
+    /// #2519: text-mode uncaught errors must match JSON exit codes and not
+    /// double the OS message.
+    #[test]
+    fn classify_dispatch_error_matches_json_exit_and_single_os() {
+        let cases: Vec<anyhow::Error> = vec![
+            NoMatchError { msg: "none".into() }.into(),
+            AmbiguousError { msg: "many".into() }.into(),
+            ParseErrorError {
+                msg: "parse".into(),
+            }
+            .into(),
+            ConflictsError {
+                msg: "conflict".into(),
+            }
+            .into(),
+            std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory").into(),
+        ];
+        for err in cases {
+            let (json_payload, json_code) = structured_error_payload(&err);
+            let (text, text_code) = classify_dispatch_error(&err);
+            assert_eq!(
+                text_code, json_code,
+                "text/json exit mismatch for {err}: text={text_code} json={json_code}"
+            );
+            assert_eq!(text, agent_error_message(&err));
+            let json_err = json_payload["error"].as_str().unwrap_or("");
+            assert_eq!(text, json_err, "text and JSON must share one message");
+        }
+
+        let io = std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory");
+        let msg = format!("failed to read missing.txt: {io}");
+        let err = anyhow::Error::new(io).context(msg);
+        let (text, code) = classify_dispatch_error(&err);
+        assert_eq!(code, FAILURE);
+        assert_eq!(
+            text.matches("No such file").count(),
+            1,
+            "text path must not double OS detail: {text}"
+        );
     }
 
     #[test]

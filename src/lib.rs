@@ -440,7 +440,7 @@ pub fn bounded_regex_build(builder: &mut regex::RegexBuilder) -> anyhow::Result<
 pub fn run() -> anyhow::Result<u8> {
     use clap::Parser;
 
-    let cli = match crate::cli::Cli::try_parse() {
+    let mut cli = match crate::cli::Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
             // Help/version print to stdout and are success; everything else
@@ -476,6 +476,10 @@ pub fn run() -> anyhow::Result<u8> {
         enable_verbose();
     }
 
+    // `--color auto` is clap's default; only an explicit flag blocks config (#2517).
+    cli.global.color_explicit =
+        std::env::args().any(|a| a == "--color" || a.starts_with("--color="));
+
     let structured = cli.global.json || cli.global.jsonl;
     let compact = cli.global.jsonl;
     match cmd::dispatch(cli) {
@@ -486,7 +490,7 @@ pub fn run() -> anyhow::Result<u8> {
             let primary_ok = json_emit::print_structured(&output, compact);
             Ok(json_emit::exit_after_emit(primary_ok, code))
         }
-        Err(e) => Err(e),
+        Err(e) => Ok(report_dispatch_error(&e)),
     }
 }
 
@@ -544,6 +548,13 @@ fn clap_usage_error_message(err: &clap::Error) -> String {
 #[cfg(feature = "cli")]
 fn structured_dispatch_error(err: &anyhow::Error) -> (serde_json::Value, u8) {
     exit::structured_error_payload(err)
+}
+
+/// Print one text-mode uncaught error and return the typed exit code (#2519).
+pub fn report_dispatch_error(err: &anyhow::Error) -> u8 {
+    let (msg, code) = exit::classify_dispatch_error(err);
+    eprintln!("patchloom: {msg}");
+    code
 }
 
 #[cfg(test)]

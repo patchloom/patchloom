@@ -2,7 +2,7 @@
 
 ## Problem
 
-Full default inventory (~58 tools with AST) can overwhelm small agents (context tax on tool schemas). Competitors often ship tiny FS MCP servers.
+Full default inventory (~60 tools with AST) can overwhelm small agents (context tax on tool schemas). Competitors often ship tiny FS MCP servers.
 
 ## Decision
 

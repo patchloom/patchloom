@@ -71,8 +71,16 @@ pub fn extract_to_file(
     let end_0 = full_end.min(lines.len());
 
     // Extract the symbol's content for the target file
-    let target_body = if unwrap && sym.kind == SymbolKind::Module {
-        unwrap_module_body(&lines, sym.start_line.saturating_sub(1), end_0, eol)
+    let target_body = if unwrap && matches!(sym.kind, SymbolKind::Module | SymbolKind::Class) {
+        unwrap_container_body(
+            source,
+            lang,
+            sym,
+            &lines,
+            sym.start_line.saturating_sub(1),
+            end_0,
+            eol,
+        )?
     } else {
         let text = extract_symbol_text(source, sym, lang);
         text.to_string()
@@ -123,10 +131,155 @@ pub fn extract_to_file(
     })
 }
 
+/// Extract the body of a module/class, removing the wrapper and un-indenting.
+///
+/// Prefers the tree-sitter `body` node; falls back to `{`/`}` or Ruby `end`
+/// pairing. `unwrap` with no locatable body is `invalid_input` (#2529).
+fn unwrap_container_body(
+    source: &str,
+    lang: Language,
+    sym: &super::symbols::SymbolDef,
+    lines: &[&str],
+    sym_start_0: usize,
+    sym_end_0: usize,
+    eol: &str,
+) -> anyhow::Result<String> {
+    if let Some(body) = unwrap_body_from_ast(source, lang, sym, eol) {
+        return Ok(body);
+    }
+    if let Some(body) = unwrap_body_from_braces(lines, sym_start_0, sym_end_0, eol) {
+        return Ok(body);
+    }
+    if let Some(body) = unwrap_body_from_end(lines, sym_start_0, sym_end_0, eol) {
+        return Ok(body);
+    }
+    Err(anyhow::Error::new(crate::exit::InvalidInputError {
+        msg: format!(
+            "ast extract unwrap requested but no body found for '{}'",
+            sym.name
+        ),
+    }))
+}
+
+fn unwrap_body_from_ast(
+    source: &str,
+    lang: Language,
+    sym: &super::symbols::SymbolDef,
+    eol: &str,
+) -> Option<String> {
+    let (tree, _) = super::parse_source(source, lang)?;
+    let node = find_node_for_span(tree.root_node(), source, sym.start_line, sym.end_line)?;
+    let body = node.child_by_field_name("body").or_else(|| {
+        let kinds = [
+            "declaration_list",
+            "body_statement",
+            "block",
+            "class_body",
+            "statement_block",
+        ];
+        let mut cursor = node.walk();
+        node.children(&mut cursor)
+            .find(|child| kinds.contains(&child.kind()))
+    })?;
+    let raw = body_inner_text(source, body);
+    Some(unindent_body_text(raw, eol))
+}
+
+fn find_node_for_span<'a>(
+    node: tree_sitter_lib::Node<'a>,
+    source: &str,
+    start_line: usize,
+    end_line: usize,
+) -> Option<tree_sitter_lib::Node<'a>> {
+    let (ns, ne) = super::symbol_extract::node_source_lines(source, node);
+    if ns == start_line && ne == end_line {
+        return Some(node);
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if let Some(found) = find_node_for_span(child, source, start_line, end_line) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn body_inner_text<'a>(source: &'a str, body: tree_sitter_lib::Node<'a>) -> &'a str {
+    let text = &source[body.start_byte()..body.end_byte()];
+    let trimmed = text.trim();
+    if trimmed.starts_with('{')
+        && trimmed.ends_with('}')
+        && let (Some(open), Some(close)) = (text.find('{'), text.rfind('}'))
+        && close > open
+    {
+        return &text[open + 1..close];
+    }
+    text
+}
+
+fn unindent_body_text(raw: &str, eol: &str) -> String {
+    let body_lines: Vec<&str> = crate::ops::file::text_lines(raw).collect();
+    let min_indent = body_lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| crate::write::indent_char_count(l))
+        .min()
+        .unwrap_or(0);
+    let parts: Vec<String> = body_lines
+        .iter()
+        .map(|line| {
+            if line.trim().is_empty() {
+                String::new()
+            } else {
+                line[crate::write::indent_strip_offset(line, min_indent)..].to_string()
+            }
+        })
+        .collect();
+    // Drop leading/trailing blank lines introduced by brace inner text.
+    let start = parts.iter().position(|l| !l.is_empty()).unwrap_or(0);
+    let end = parts
+        .iter()
+        .rposition(|l| !l.is_empty())
+        .map(|i| i + 1)
+        .unwrap_or(parts.len());
+    if start >= end {
+        return String::new();
+    }
+    parts[start..end].join(eol)
+}
+
+fn unwrap_body_from_end(
+    lines: &[&str],
+    sym_start_0: usize,
+    sym_end_0: usize,
+    eol: &str,
+) -> Option<String> {
+    if sym_end_0 <= sym_start_0 + 1 {
+        return None;
+    }
+    let last = lines
+        .get(sym_end_0.saturating_sub(1))
+        .copied()
+        .unwrap_or("");
+    let t = last.trim();
+    let is_end =
+        t == "end" || t.starts_with("end ") || t.starts_with("end;") || t.starts_with("end#");
+    if !is_end {
+        return None;
+    }
+    let body_lines = &lines[sym_start_0 + 1..sym_end_0 - 1];
+    Some(unindent_body_text(&body_lines.join(eol), eol))
+}
+
 /// Extract the body of a module, removing the wrapper and un-indenting.
-fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol: &str) -> String {
+fn unwrap_body_from_braces(
+    lines: &[&str],
+    sym_start_0: usize,
+    sym_end_0: usize,
+    eol: &str,
+) -> Option<String> {
     // Find the opening brace line
-    let mut body_start = sym_start_0;
+    let mut body_start = None;
     let mut brace_line_tail: Option<&str> = None;
     for (i, line) in lines.iter().enumerate().take(sym_end_0).skip(sym_start_0) {
         let trimmed = line.trim();
@@ -139,10 +292,11 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol:
                     brace_line_tail = Some(line[open + 1..].trim_end());
                 }
             }
-            body_start = i + 1;
+            body_start = Some(i + 1);
             break;
         }
     }
+    let body_start = body_start?;
 
     // The closing brace is on the last line
     let body_end = if sym_end_0 > 0 {
@@ -161,12 +315,12 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol:
                 if let Some(close) = after_open.rfind('}') {
                     let inner = after_open[..close].trim();
                     if !inner.is_empty() {
-                        return inner.to_string();
+                        return Some(inner.to_string());
                     }
                 }
             }
         }
-        return String::new();
+        return None;
     }
 
     let body_lines = &lines[body_start..body_end];
@@ -201,7 +355,7 @@ fn unwrap_module_body(lines: &[&str], sym_start_0: usize, sym_end_0: usize, eol:
         }
     }));
 
-    parts.join(eol)
+    Some(parts.join(eol))
 }
 
 #[cfg(test)]
@@ -380,6 +534,35 @@ mod tests {
             result.target_content.contains("fn baz()"),
             "body content should also be present, got: {:?}",
             result.target_content
+        );
+    }
+
+    /// #2529: unwrap of a Ruby module must drop `module`/`end` and keep the body.
+    #[test]
+    fn extract_unwrap_ruby_module() {
+        let source = "module Foo\n  def bar\n    1\n  end\nend\n";
+        let result = extract_to_file(source, "Foo", None, true, None, Language::Ruby).unwrap();
+        assert_eq!(result.target_content, "def bar\n  1\nend\n");
+        assert!(
+            !result.target_content.contains("module Foo"),
+            "unwrapped body must not keep the module header: {}",
+            result.target_content
+        );
+        assert!(
+            !result.source_content.contains("module Foo"),
+            "source must drop the extracted module: {}",
+            result.source_content
+        );
+    }
+
+    #[test]
+    fn extract_unwrap_without_body_is_invalid_input() {
+        let source = "mod foo;\n";
+        let err = extract_to_file(source, "foo", None, true, None, Language::Rust)
+            .expect_err("unwrap of a body-less module must be invalid_input");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "unwrap without a body must classify as invalid_input: {err}"
         );
     }
 

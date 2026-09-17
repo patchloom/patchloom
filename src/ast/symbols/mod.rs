@@ -90,7 +90,15 @@ pub(crate) fn try_extract_symbols(
     lang: Language,
 ) -> Result<Vec<SymbolDef>, ParseFailure> {
     let (tree, _) = try_parse_source(source, lang)?;
+    Ok(extract_symbols_from_tree(&tree, source, lang))
+}
 
+/// Extract symbols from an already-parsed tree (no second parse).
+pub fn extract_symbols_from_tree(
+    tree: &tree_sitter_lib::Tree,
+    source: &str,
+    lang: Language,
+) -> Vec<SymbolDef> {
     let mut symbols = Vec::new();
     let mut cursor = tree.walk();
     super::symbol_extract::visit_node(&mut cursor, source, lang, 0, &mut symbols);
@@ -104,7 +112,7 @@ pub(crate) fn try_extract_symbols(
         super::symbol_extract::group_go_receiver_methods(&mut symbols);
     }
 
-    Ok(symbols)
+    symbols
 }
 
 /// Extract all symbol definitions from source code.

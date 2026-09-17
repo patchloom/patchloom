@@ -76,7 +76,7 @@ fn full_server_instructions() -> String {
          md_move_section, md_dedupe_headings, md_lint\n\
          - Text ops: replace_text, batch_replace, search_files, list_files, apply_fragment, apply_patch\n\
          - File ops: create_file, read_file, delete_file, move_file, append_file, \
-         prepend_file, fix_whitespace, batch_tidy, git_status\n",
+         prepend_file, fix_whitespace, batch_tidy, git_status, undo_list, undo_restore\n",
     );
     // Continuation lines after `\` discard leading whitespace. Start each
     // push_str body on the category marker so we do not inject indent spaces.

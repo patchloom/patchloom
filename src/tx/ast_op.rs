@@ -455,6 +455,9 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
                     .unwrap_or_default()
             };
             let lang_val = resolve_op_lang(lang.as_deref(), &abs_source)?;
+            if rewrite_mods.is_some() {
+                crate::ast::import_rewrite::reject_unsupported_update_imports(lang_val)?;
+            }
             let pos = crate::ast::move_symbols::parse_position(position.as_deref())?;
             let result = crate::ast::move_symbols::move_symbols(
                 &source_content,
@@ -510,6 +513,9 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             }
             let source_content = read_file_content(tx.pending, tx.existed_before, &abs_source)?;
             let lang_val = resolve_op_lang(lang.as_deref(), &abs_source)?;
+            if rewrite_mods.is_some() {
+                crate::ast::import_rewrite::reject_unsupported_update_imports(lang_val)?;
+            }
             let do_unwrap = unwrap.unwrap_or(true);
             let result = crate::ast::extract_to_file::extract_to_file(
                 source_content,

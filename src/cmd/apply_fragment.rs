@@ -440,6 +440,35 @@ mod tests {
         assert_eq!(code, crate::exit::AMBIGUOUS);
     }
 
+    /// #2511: each non-unique hit keeps its own indent. Unique stays fail-closed.
+    #[test]
+    fn apply_fragment_allow_non_unique_uses_per_match_indent() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("c.rs");
+        std::fs::write(&path, "if a {\n  a();\n  if b {\n        a();\n  }\n}\n").unwrap();
+        let code = run(
+            ApplyFragmentArgs {
+                file: path.to_string_lossy().into(),
+                fragment: Some("b();".into()),
+                stdin: false,
+                instruction: None,
+                after: Some("a();".into()),
+                before: None,
+                old: None,
+                allow_non_unique: true,
+                write: Default::default(),
+            },
+            &g_apply(),
+        )
+        .unwrap();
+        assert_eq!(code, crate::exit::SUCCESS);
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            body, "if a {\n  a();\n  b();\n  if b {\n        a();\n        b();\n  }\n}\n",
+            "second hit must keep 8-space indent: {body:?}"
+        );
+    }
+
     #[test]
     fn apply_fragment_allow_non_unique_applies_all() {
         let dir = TempDir::new().unwrap();

@@ -89,7 +89,8 @@ pub(crate) fn predicate_tests_object_self(val: &serde_json::Value, key: &str) ->
 /// Arrays: each element. Objects: the object itself when it already has
 /// `key` (or is not a map-of-records), plus each object/array child so
 /// `services[name=api]` still filters a map of objects even if the map
-/// also has a `name` field.
+/// also has a `name` field. Scalar children are skipped (#2521); `[*]`
+/// still includes them.
 fn predicate_candidates<'a>(val: &'a serde_json::Value, key: &str) -> Vec<&'a serde_json::Value> {
     if let Some(arr) = val.as_array() {
         return arr.iter().collect();
@@ -102,7 +103,7 @@ fn predicate_candidates<'a>(val: &'a serde_json::Value, key: &str) -> Vec<&'a se
         out.push(val);
     }
     if object_has_container_children(val) {
-        out.extend(obj.values());
+        out.extend(obj.values().filter(|v| v.is_object() || v.is_array()));
     }
     out
 }
@@ -422,5 +423,97 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["port"], json!(9000));
         assert_eq!(results[0]["type"], json!("server"));
+    }
+
+    // ── #2520 [!key=value] is Ne ───────────────────────────────────
+
+    #[test]
+    fn eval_bang_eq_matches_other_status() {
+        let data = json!({
+            "items": [
+                {"status": "done"},
+                {"status": "open"}
+            ]
+        });
+        let sel = parse("items[!status=done]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["status"], json!("open"));
+    }
+
+    // ── #2521 [!key] on map-of-records skips scalars ───────────────
+
+    #[test]
+    fn eval_not_on_map_of_records_skips_scalars() {
+        let data = json!({
+            "services": {
+                "version": 2,
+                "web": {"deprecated": true},
+                "api": {"name": "api"}
+            }
+        });
+        let sel = parse("services[!deprecated]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results, vec![&data["services"]["api"]]);
+    }
+
+    #[test]
+    fn eval_wildcard_on_map_still_includes_scalars() {
+        let data = json!({
+            "services": {
+                "version": 2,
+                "web": {"name": "web"}
+            }
+        });
+        let sel = parse("services[*]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().any(|v| *v == &json!(2)));
+        assert!(results.iter().any(|v| v.get("name") == Some(&json!("web"))));
+    }
+
+    // ── #2522 numeric segments in predicate keys ───────────────────
+
+    #[test]
+    fn eval_predicate_numeric_segment_indexes_array() {
+        let data = json!({
+            "jobs": [
+                {"steps": [{"name": "build"}]},
+                {"steps": [{"name": "test"}]}
+            ]
+        });
+        let sel = parse("jobs[steps.0.name=test]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["steps"][0]["name"], json!("test"));
+    }
+
+    // ── #2523 numeric = / != ───────────────────────────────────────
+
+    #[test]
+    fn eval_port_eq_8080_matches_float_8080() {
+        let data = json!({"servers": [{"port": 8080.0}]});
+        let sel = parse("servers[port=8080]").unwrap();
+        assert_eq!(eval(&data, &sel).len(), 1);
+    }
+
+    #[test]
+    fn eval_port_ne_8080_skips_float_8080() {
+        let data = json!({"servers": [{"port": 8080.0}, {"port": 80}]});
+        let sel = parse("servers[port!=8080]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["port"], json!(80));
+    }
+
+    // ── #2524 integer-exact compare above 2^53 ─────────────────────
+
+    #[test]
+    fn eval_large_integer_id_gt_is_exact() {
+        let data = json!({"items": [{"id": 9007199254740993i64}]});
+        let sel = parse("items[id>9007199254740992]").unwrap();
+        let results = eval(&data, &sel);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0]["id"], json!(9007199254740993i64));
     }
 }

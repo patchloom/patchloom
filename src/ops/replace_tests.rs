@@ -409,6 +409,150 @@ mod replace_tests {
             assert_eq!(out, "xx Xfoo yy\n");
         }
 
+        /// #2509: every non-empty fragment line gets the anchor indent.
+        #[test]
+        fn normalize_line_insert_after_two_line_fragment_copies_indent() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let out = normalize_line_insert(
+                file,
+                "let x = 1;",
+                "let y = 2;\nlet z = 3;",
+                InsertSide::After,
+            );
+            assert_eq!(out, "\n    let y = 2;\n    let z = 3;");
+        }
+
+        #[test]
+        fn normalize_line_insert_after_three_line_tab_indent() {
+            let file = "fn main() {\n\tlet x = 1;\n}\n";
+            let out = normalize_line_insert(
+                file,
+                "let x = 1;",
+                "let y = 2;\nlet z = 3;\nlet w = 4;",
+                InsertSide::After,
+            );
+            assert_eq!(out, "\n\tlet y = 2;\n\tlet z = 3;\n\tlet w = 4;");
+        }
+
+        #[test]
+        fn replace_insert_before_two_line_fragment_copies_indent() {
+            let file = "fn main() {\n    let x = 1;\n}\n";
+            let (out, n) = replace_insert_before(
+                file,
+                "let x = 1;",
+                "let y = 2;\nlet z = 3;",
+                None,
+                None,
+                false,
+            );
+            assert_eq!(n, 1);
+            assert_eq!(
+                out,
+                "fn main() {\n    let y = 2;\n    let z = 3;\n    let x = 1;\n}\n"
+            );
+        }
+
+        #[test]
+        fn replace_insert_after_allow_non_unique_uses_per_match_indent() {
+            let file = "if a {\n  a();\n  if b {\n        a();\n  }\n}\n";
+            let (out, n) = replace_insert_after(file, "a();", "b();", None, None, false);
+            assert_eq!(n, 2);
+            assert_eq!(
+                out,
+                "if a {\n  a();\n  b();\n  if b {\n        a();\n        b();\n  }\n}\n"
+            );
+        }
+
+        #[test]
+        fn replace_insert_before_three_line_tab_indent() {
+            let file = "fn main() {\n\tlet x = 1;\n}\n";
+            let (out, n) = replace_insert_before(
+                file,
+                "let x = 1;",
+                "let y = 2;\nlet z = 3;\nlet w = 4;",
+                None,
+                None,
+                false,
+            );
+            assert_eq!(n, 1);
+            assert_eq!(
+                out,
+                "fn main() {\n\tlet y = 2;\n\tlet z = 3;\n\tlet w = 4;\n\tlet x = 1;\n}\n"
+            );
+        }
+
+        /// #2548: many hits stay one forward pass; body matches reverse splice.
+        #[test]
+        fn replace_insert_after_many_hits_preserves_per_match_indent() {
+            let file = "a();\n  a();\n    a();\n      a();\n";
+            let (out, n) = replace_insert_after(file, "a();", "b();", None, None, false);
+            assert_eq!(n, 4);
+            assert_eq!(
+                out,
+                "a();\nb();\n  a();\n  b();\n    a();\n    b();\n      a();\n      b();\n"
+            );
+        }
+
+        #[test]
+        fn replace_insert_before_many_hits_preserves_indent_and_eol() {
+            let file = "  a();\n    a();\n      a();\n";
+            let (out, n) = replace_insert_before(file, "a();", "b();", None, None, false);
+            assert_eq!(n, 3);
+            assert_eq!(
+                out,
+                "  b();\n  a();\n    b();\n    a();\n      b();\n      a();\n"
+            );
+        }
+
+        #[test]
+        fn replace_insert_after_nth_picks_only_that_hit() {
+            let file = "a();\n  a();\n    a();\n";
+            let (out, n) = replace_insert_after(file, "a();", "b();", None, Some(2), false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "a();\n  a();\n  b();\n    a();\n");
+        }
+
+        #[test]
+        fn replace_insert_before_nth_picks_only_that_hit() {
+            let file = "  a();\n    a();\n      a();\n";
+            let (out, n) = replace_insert_before(file, "a();", "b();", None, Some(3), false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "  a();\n    a();\n      b();\n      a();\n");
+        }
+
+        #[test]
+        fn replace_insert_after_midline_many_hits_stay_byte_exact() {
+            let file = "xx foo foo foo yy\n";
+            let (out, n) = replace_insert_after(file, "foo", "X", None, None, false);
+            assert_eq!(n, 3);
+            assert_eq!(out, "xx fooX fooX fooX yy\n");
+        }
+
+        /// #2510: payload internal EOLs follow the target file's dominant ending.
+        #[test]
+        fn normalize_line_insert_after_lf_payload_on_crlf_file() {
+            let file = "fn main() {\r\n    let x = 1;\r\n}\r\n";
+            let out = normalize_line_insert(
+                file,
+                "let x = 1;",
+                "let y = 2;\nlet z = 3;",
+                InsertSide::After,
+            );
+            assert_eq!(out, "\r\n    let y = 2;\r\n    let z = 3;");
+            assert!(
+                !out.contains('\n') || out.contains("\r\n"),
+                "must not splice bare LF into a CRLF file: {out:?}"
+            );
+            assert!(!out.replace("\r\n", "").contains('\n'), "bare LF: {out:?}");
+        }
+
+        #[test]
+        fn normalize_line_insert_before_lf_payload_on_crlf_file() {
+            let file = "A\r\nB\r\n";
+            let out = normalize_line_insert(file, "B", "PRE\nMID", InsertSide::Before);
+            assert_eq!(out, "PRE\r\nMID\r\n");
+        }
+
         #[test]
         fn normalize_line_insert_already_has_newline_unchanged() {
             let file = "fn f() {\n}\n";

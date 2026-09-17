@@ -416,6 +416,7 @@ mod basic {
             list: true,
             session: None,
             apply: false,
+            path: Vec::new(),
         };
         let global = GlobalFlags::with_cwd_and_json(dir.path());
         let code = crate::cmd::undo::run(args, &global).unwrap();
@@ -427,6 +428,7 @@ mod basic {
             list: true,
             session: None,
             apply: false,
+            path: Vec::new(),
         };
         let code2 = crate::cmd::undo::run(args2, &global).unwrap();
         assert_eq!(code2, exit::SUCCESS);
@@ -448,6 +450,7 @@ mod basic {
             list: false,
             session: Some(ts),
             apply: false,
+            path: Vec::new(),
         };
         let global = GlobalFlags::with_cwd_and_json(dir.path());
         let code = crate::cmd::undo::run(args, &global).unwrap();
@@ -1209,6 +1212,8 @@ mod integrity {
             &deletions,
             &existed_before,
             true,
+            &HashSet::new(),
+            Some(dir.path()),
         );
         assert_eq!(
             fs::read_to_string(&f).unwrap(),

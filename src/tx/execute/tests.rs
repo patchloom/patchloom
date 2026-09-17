@@ -1200,3 +1200,266 @@ fn doc_set_missing_file_without_if_exists_errors() {
         "expected NotFound, got: {err:#}"
     );
 }
+
+fn apply_ops(dir: &std::path::Path, ops: serde_json::Value) -> crate::tx::TxOutput {
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": ops
+    }))
+    .expect("plan json");
+    crate::tx::execute_plan_direct(plan, dir, None).expect("plan returns output")
+}
+
+/// Delete dest then rename a binary source onto it. Commit must `fs::rename`
+/// the bytes, not write the soft-empty snapshot (#2497).
+#[test]
+fn delete_then_rename_binary_source_keeps_bytes() {
+    let dir = TempDir::new().unwrap();
+    let src_bytes: &[u8] = b"\x00\x01\x02BIN";
+    std::fs::write(dir.path().join("a.bin"), src_bytes).unwrap();
+    std::fs::write(dir.path().join("b.bin"), b"old").unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.delete", "path": "b.bin"},
+            {"op": "file.rename", "from": "a.bin", "to": "b.bin"}
+        ]),
+    );
+    assert!(
+        report.ok,
+        "delete-then-rename binary should succeed: {report:?}"
+    );
+    assert!(
+        !dir.path().join("a.bin").exists(),
+        "source must be gone after rename"
+    );
+    let dest = std::fs::read(dir.path().join("b.bin")).expect("dest must exist");
+    assert_eq!(
+        dest, src_bytes,
+        "dest must keep the original binary bytes, not a 0-byte rewrite"
+    );
+}
+
+/// Same as binary: a symlink source must stay a symlink at dest (#2497).
+#[cfg(unix)]
+#[test]
+fn delete_then_rename_symlink_source_keeps_link() {
+    let dir = TempDir::new().unwrap();
+    let target = dir.path().join("target.txt");
+    std::fs::write(&target, "pointee\n").unwrap();
+    std::os::unix::fs::symlink(&target, dir.path().join("a.link")).unwrap();
+    std::fs::write(dir.path().join("b.link"), b"old").unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.delete", "path": "b.link"},
+            {"op": "file.rename", "from": "a.link", "to": "b.link"}
+        ]),
+    );
+    assert!(
+        report.ok,
+        "delete-then-rename symlink should succeed: {report:?}"
+    );
+    assert!(
+        !dir.path().join("a.link").exists(),
+        "source link must be gone"
+    );
+    let dest = dir.path().join("b.link");
+    let meta = std::fs::symlink_metadata(&dest).expect("dest must exist");
+    assert!(
+        meta.file_type().is_symlink(),
+        "dest must remain a symlink, not a 0-byte regular file"
+    );
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "pointee\n");
+}
+
+/// Text delete-then-rename must move the inode (hardlinks stay with dest) (#2497).
+#[cfg(unix)]
+#[test]
+fn delete_then_rename_text_source_preserves_hardlink() {
+    use std::os::unix::fs::MetadataExt;
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    let sibling = dir.path().join("a_link.txt");
+    std::fs::write(&a, "hello text\n").unwrap();
+    std::fs::hard_link(&a, &sibling).unwrap();
+    let before_ino = std::fs::metadata(&a).unwrap().ino();
+    std::fs::write(dir.path().join("b.txt"), "old\n").unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.delete", "path": "b.txt"},
+            {"op": "file.rename", "from": "a.txt", "to": "b.txt"}
+        ]),
+    );
+    assert!(
+        report.ok,
+        "delete-then-rename text should succeed: {report:?}"
+    );
+    let dest = dir.path().join("b.txt");
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "hello text\n");
+    assert_eq!(
+        std::fs::metadata(&dest).unwrap().ino(),
+        before_ino,
+        "dest must keep the source inode so hardlink siblings stay shared"
+    );
+    assert_eq!(std::fs::read_to_string(&sibling).unwrap(), "hello text\n");
+}
+
+/// Rename a binary then create the source path. Dest must keep the original
+/// bytes; dropping the rename pair used to commit dest as empty (#2498).
+#[test]
+fn rename_then_create_binary_source_keeps_dest_bytes() {
+    let dir = TempDir::new().unwrap();
+    let src_bytes: &[u8] = b"\x00\x01\x02BIN";
+    std::fs::write(dir.path().join("a.bin"), src_bytes).unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.rename", "from": "a.bin", "to": "b.bin"},
+            {"op": "file.create", "path": "a.bin", "content": "new a\n"}
+        ]),
+    );
+    assert!(
+        report.ok,
+        "rename-then-create binary should succeed: {report:?}"
+    );
+    let dest = std::fs::read(dir.path().join("b.bin")).expect("dest must exist");
+    assert_eq!(
+        dest, src_bytes,
+        "dest must keep the original binary bytes after source resurrection"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.bin")).unwrap(),
+        "new a\n",
+        "resurrected source must hold create content"
+    );
+}
+
+/// Append on a renamed binary dest must refuse (not overwrite with text) (#2499).
+#[test]
+fn append_on_renamed_binary_dest_is_binary() {
+    let dir = TempDir::new().unwrap();
+    let src_bytes: &[u8] = b"\x00\x01\x02BIN";
+    std::fs::write(dir.path().join("a.bin"), src_bytes).unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.rename", "from": "a.bin", "to": "b.bin"},
+            {"op": "file.append", "path": "b.bin", "content": "hello\n"}
+        ]),
+    );
+    assert!(!report.ok, "append on renamed binary must fail: {report:?}");
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("binary"),
+        "expected binary error_kind, got {report:?}"
+    );
+    assert!(
+        dir.path().join("a.bin").exists(),
+        "failed plan must not apply the rename"
+    );
+    assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), src_bytes);
+}
+
+/// Replace on a renamed binary dest must refuse (#2499).
+#[test]
+fn replace_on_renamed_binary_dest_is_binary() {
+    let dir = TempDir::new().unwrap();
+    let src_bytes: &[u8] = b"\x00\x01\x02BIN";
+    std::fs::write(dir.path().join("a.bin"), src_bytes).unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.rename", "from": "a.bin", "to": "b.bin"},
+            {"op": "replace", "path": "b.bin", "old": "^", "new": "hello\n", "regex": true}
+        ]),
+    );
+    assert!(
+        !report.ok,
+        "replace on renamed binary must fail: {report:?}"
+    );
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("binary"),
+        "expected binary error_kind, got {report:?}"
+    );
+    assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), src_bytes);
+}
+
+/// Patch on a renamed binary dest must refuse (#2499).
+#[test]
+fn patch_on_renamed_binary_dest_is_binary() {
+    let dir = TempDir::new().unwrap();
+    let src_bytes: &[u8] = b"\x00\x01\x02BIN";
+    std::fs::write(dir.path().join("a.bin"), src_bytes).unwrap();
+    let diff = "--- a/b.bin\n+++ b/b.bin\n@@ -0,0 +1 @@\n+hello\n";
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.rename", "from": "a.bin", "to": "b.bin"},
+            {"op": "patch.apply", "diff": diff}
+        ]),
+    );
+    assert!(!report.ok, "patch on renamed binary must fail: {report:?}");
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("binary"),
+        "expected binary error_kind, got {report:?}"
+    );
+    assert_eq!(std::fs::read(dir.path().join("a.bin")).unwrap(), src_bytes);
+}
+
+/// Two-link chain (a->b->c) then delete c must not leave b on disk (#2500).
+#[test]
+fn delete_chained_rename_dest_two_link_removes_all() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "AAA\n").unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.rename", "from": "a.txt", "to": "b.txt"},
+            {"op": "file.rename", "from": "b.txt", "to": "c.txt"},
+            {"op": "file.delete", "path": "c.txt"}
+        ]),
+    );
+    assert!(report.ok, "two-link delete should succeed: {report:?}");
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        assert!(
+            !dir.path().join(name).exists(),
+            "{name} must not remain after deleting the chain dest"
+        );
+    }
+}
+
+/// Three-link chain a->b->c->d then delete d must not leave intermediates (#2500).
+#[test]
+fn delete_chained_rename_dest_three_link_removes_all() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "AAA\n").unwrap();
+
+    let report = apply_ops(
+        dir.path(),
+        serde_json::json!([
+            {"op": "file.rename", "from": "a.txt", "to": "b.txt"},
+            {"op": "file.rename", "from": "b.txt", "to": "c.txt"},
+            {"op": "file.rename", "from": "c.txt", "to": "d.txt"},
+            {"op": "file.delete", "path": "d.txt"}
+        ]),
+    );
+    assert!(report.ok, "three-link delete should succeed: {report:?}");
+    for name in ["a.txt", "b.txt", "c.txt", "d.txt"] {
+        assert!(
+            !dir.path().join(name).exists(),
+            "{name} must not remain after deleting the chain dest"
+        );
+    }
+}

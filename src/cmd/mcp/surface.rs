@@ -132,6 +132,16 @@ pub(super) const CUSTOM_MCP_TOOLS_CORE: &[CustomMcpTool] = &[
         why: "server/workspace metadata for agents",
         kind: CustomKind::Meta,
     },
+    CustomMcpTool {
+        name: "undo_list",
+        why: "list --apply backup sessions; not a write Operation (#2541)",
+        kind: CustomKind::Meta,
+    },
+    CustomMcpTool {
+        name: "undo_restore",
+        why: "preview/restore backup sessions; CLI undo has no plan op (#2541)",
+        kind: CustomKind::Meta,
+    },
 ];
 
 /// AST custom tools; only registered when the `ast` feature is enabled.
@@ -368,13 +378,13 @@ mod tests {
         // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
         let custom_n = custom_mcp_tools().count();
-        let expected_total = if cfg!(feature = "ast") { 58 } else { 38 };
+        let expected_total = if cfg!(feature = "ast") { 60 } else { 40 };
         assert_eq!(
             registry_n + custom_n,
             expected_total,
             "registry ({registry_n}) + custom ({custom_n}) must equal total MCP tools ({expected_total})"
         );
-        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 14, "core custom tool count");
+        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 16, "core custom tool count");
         #[cfg(feature = "ast")]
         assert_eq!(CUSTOM_MCP_TOOLS_AST.len(), 20, "ast custom tool count");
         #[cfg(not(feature = "ast"))]

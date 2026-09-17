@@ -32,12 +32,22 @@ pub fn append_content(existing: &str, append: &str) -> String {
     if append.is_empty() {
         return existing.to_string();
     }
-    let mut combined = existing.to_string();
+    let (bom, rest) = split_utf8_bom(existing);
+    let eol = preferred_line_ending(rest);
+    let append = crate::ops::replace::rewrite_line_endings(append, eol);
+    let mut combined = rest.to_string();
     if !combined.is_empty() && !ends_with_line_ending(&combined) {
-        combined.push_str(preferred_line_ending(existing));
+        combined.push_str(eol);
     }
-    combined.push_str(append);
-    combined
+    combined.push_str(&append);
+    if bom.is_empty() {
+        combined
+    } else {
+        let mut out = String::with_capacity(bom.len() + combined.len());
+        out.push_str(bom);
+        out.push_str(&combined);
+        out
+    }
 }
 
 /// Drop a leading UTF-8 BOM (`U+FEFF`). Windows Notepad, VS, and PowerShell
@@ -177,9 +187,10 @@ pub fn prepend_content(existing: &str, prepend: &str) -> String {
     }
     // Keep a leading BOM at byte 0 so the file stays UTF-8-with-BOM.
     let (bom, rest) = split_utf8_bom(existing);
-    let mut combined = prepend.to_string();
+    let eol = preferred_line_ending(rest);
+    let mut combined = crate::ops::replace::rewrite_line_endings(prepend, eol);
     if !ends_with_line_ending(&combined) && !rest.is_empty() {
-        combined.push_str(preferred_line_ending(rest));
+        combined.push_str(eol);
     }
     combined.push_str(rest);
     if bom.is_empty() {
@@ -1105,6 +1116,13 @@ mod tests {
     }
 
     #[test]
+    fn append_bom_only_does_not_insert_blank_line() {
+        // #2512: BOM-only is empty text after peel, not "needs a separator".
+        assert_eq!(append_content("\u{feff}", "hello"), "\u{feff}hello");
+        assert_eq!(append_content("\u{feff}body", "more"), "\u{feff}body\nmore");
+    }
+
+    #[test]
     fn split_utf8_bom_peels_leading_mark() {
         assert_eq!(split_utf8_bom("\u{feff}end"), ("\u{feff}", "end"));
         assert_eq!(split_utf8_bom("end"), ("", "end"));
@@ -1650,6 +1668,19 @@ mod tests {
     fn prepend_crlf_payload_uses_file_eol_when_payload_lacks_eol() {
         let out = prepend_content("body\r\n", "head");
         assert_eq!(out, "head\r\nbody\r\n");
+    }
+
+    /// #2510: multi-line LF payloads must not mix into a CRLF file.
+    #[test]
+    fn append_lf_multiline_payload_on_crlf_file() {
+        let out = append_content("a\r\nb\r\n", "h1\nh2");
+        assert_eq!(out, "a\r\nb\r\nh1\r\nh2");
+    }
+
+    #[test]
+    fn prepend_lf_multiline_payload_on_crlf_file() {
+        let out = prepend_content("a\r\nb\r\n", "h1\nh2");
+        assert_eq!(out, "h1\r\nh2\r\na\r\nb\r\n");
     }
 
     #[test]

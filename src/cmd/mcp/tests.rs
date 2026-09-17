@@ -147,6 +147,7 @@ mod basic {
             "batch_replace",
             "md_move_section",
             "apply_fragment",
+            "undo_restore",
         ] {
             let desc = descriptions.get(tool).copied().unwrap_or("");
             assert!(
@@ -155,6 +156,14 @@ mod basic {
             );
         }
         assert!(names.contains(&"git_status"), "missing git_status tool");
+        assert!(
+            names.contains(&"undo_list"),
+            "missing undo_list tool (#2541)"
+        );
+        assert!(
+            names.contains(&"undo_restore"),
+            "missing undo_restore tool (#2541)"
+        );
         assert!(names.contains(&"replace_text"), "missing replace_text tool");
         assert_eq!(
             descriptions.get("replace_text"),
@@ -1668,5 +1677,257 @@ mod registry_schema_sync {
                 tool.tool_name
             );
         }
+    }
+}
+
+// --- #2540: MCP honors .patchloom.toml [exclude] globs on walkers ---
+
+fn tool_result_text(result: &rmcp::model::CallToolResult) -> String {
+    match result.content.first() {
+        Some(rmcp::model::ContentBlock::Text(t)) => t.text.clone(),
+        _ => panic!("expected text content"),
+    }
+}
+
+fn tool_result_json(result: &rmcp::model::CallToolResult) -> serde_json::Value {
+    let text = tool_result_text(result);
+    serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({ "raw_text": text }))
+}
+
+async fn call_named_tool(
+    client: &rmcp::service::RunningService<rmcp::RoleClient, ()>,
+    name: &str,
+    args: serde_json::Value,
+) -> rmcp::model::CallToolResult {
+    let params = rmcp::model::CallToolRequestParams::new(name.to_string())
+        .with_arguments(serde_json::from_value(args).unwrap());
+    client.peer().call_tool(params).await.unwrap()
+}
+
+mod config_exclude_tests {
+    use super::*;
+
+    fn write_exclude_fixture(dir: &tempfile::TempDir) {
+        std::fs::write(
+            dir.path().join(".patchloom.toml"),
+            "[exclude]\nglobs = [\"*.log\"]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("a.txt"), "needle\n").unwrap();
+        std::fs::write(dir.path().join("a.log"), "needle\n").unwrap();
+        std::fs::write(dir.path().join("skip.tmp"), "needle\n").unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_files_honors_config_exclude_globs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_exclude_fixture(&dir);
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let result = call_named_tool(
+            &client,
+            "search_files",
+            serde_json::json!({
+                "pattern": "needle",
+                "literal": true
+            }),
+        )
+        .await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "search should succeed: {}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        let blob = val.to_string();
+        assert!(
+            blob.contains("a.txt"),
+            "config exclude must keep a.txt: {val}"
+        );
+        assert!(
+            !blob.contains("a.log"),
+            "config exclude *.log must drop a.log: {val}"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_files_merges_request_exclude_patterns_with_config() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_exclude_fixture(&dir);
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let result = call_named_tool(
+            &client,
+            "search_files",
+            serde_json::json!({
+                "pattern": "needle",
+                "literal": true,
+                "exclude_patterns": ["*.tmp"]
+            }),
+        )
+        .await;
+        let val = tool_result_json(&result);
+        let blob = val.to_string();
+        assert!(blob.contains("a.txt"), "must keep a.txt: {val}");
+        assert!(
+            !blob.contains("a.log"),
+            "config *.log must still apply: {val}"
+        );
+        assert!(
+            !blob.contains("skip.tmp"),
+            "request exclude_patterns *.tmp must still apply: {val}"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_files_honors_config_exclude_globs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        write_exclude_fixture(&dir);
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+
+        let result =
+            call_named_tool(&client, "list_files", serde_json::json!({ "path": "." })).await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "list_files should succeed: {}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        let paths = val["paths"]
+            .as_array()
+            .expect("paths array")
+            .iter()
+            .filter_map(|p| p.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            paths.iter().any(|p| p.ends_with("a.txt") || *p == "a.txt"),
+            "list_files must keep a.txt: {val}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.ends_with("a.log") || *p == "a.log"),
+            "list_files must drop a.log via config exclude: {val}"
+        );
+        client.cancel().await.unwrap();
+    }
+}
+
+// --- #2541: MCP undo_list / undo_restore ---
+
+mod undo_mcp_tests {
+    use super::*;
+
+    fn create_backup(dir: &std::path::Path, filename: &str, content: &str) -> String {
+        let file = dir.join(filename);
+        std::fs::write(&file, content).unwrap();
+        let mut session = crate::backup::BackupSession::new(dir).unwrap();
+        session.save_before_write(&file).unwrap();
+        session.finalize().unwrap().unwrap()
+    }
+
+    #[tokio::test]
+    async fn undo_list_empty_is_no_matches() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(&client, "undo_list", serde_json::json!({})).await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "empty list is an envelope, not a tool error: {}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["ok"], false);
+        assert_eq!(val["error_kind"], "no_matches");
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn undo_list_shows_session_after_backup() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let ts = create_backup(dir.path(), "a.txt", "orig");
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(&client, "undo_list", serde_json::json!({})).await;
+        let val = tool_result_json(&result);
+        let items = val["items"].as_array().expect("items");
+        assert_eq!(items.len(), 1, "{val}");
+        assert_eq!(items[0]["timestamp"], ts);
+        assert_eq!(items[0]["file_count"], 1);
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn undo_restore_dry_run_does_not_write() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let ts = create_backup(dir.path(), "a.txt", "orig");
+        std::fs::write(dir.path().join("a.txt"), "changed").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "undo_restore",
+            serde_json::json!({ "session": ts }),
+        )
+        .await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "{}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["applied"], false, "{val}");
+        assert_eq!(val["error_kind"], "changes_detected");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "changed"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn undo_restore_apply_restores_bytes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let ts = create_backup(dir.path(), "a.txt", "orig");
+        std::fs::write(dir.path().join("a.txt"), "changed").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "undo_restore",
+            serde_json::json!({ "session": ts, "apply": true }),
+        )
+        .await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "{}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["applied"], true, "{val}");
+        assert_eq!(val["ok"], true);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "orig"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn undo_restore_unknown_session_is_no_matches() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let params = rmcp::model::CallToolRequestParams::new("undo_restore").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "session": "no-such-session",
+                "apply": true
+            }))
+            .unwrap(),
+        );
+        let result = client.peer().call_tool(params).await;
+        let err = result.expect_err("unknown session must fail closed");
+        let text = err.to_string();
+        assert!(
+            text.contains("no-such-session") || text.contains("no backup"),
+            "{text}"
+        );
+        client.cancel().await.unwrap();
     }
 }
