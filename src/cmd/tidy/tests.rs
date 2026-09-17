@@ -65,6 +65,29 @@ fn detects_trailing_whitespace() {
 }
 
 #[test]
+fn detects_trailing_whitespace_on_cr_only_lines() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("cr.txt");
+    std::fs::write(&file, b"foo   \rbar\r").unwrap();
+
+    let issues = check_file(&file, true, None, true, crate::write::CharsetMode::Keep);
+    let trailing: Vec<_> = issues
+        .iter()
+        .filter(|i| i.issue == "trailing whitespace")
+        .collect();
+    assert_eq!(
+        trailing.len(),
+        1,
+        "CR-only trailing spaces must be reported, got {issues:?}"
+    );
+    assert_eq!(trailing[0].line, Some(1));
+    assert!(
+        !issues.iter().any(|i| i.issue == "missing final newline"),
+        "trailing CR is the file EOL, not a missing newline: {issues:?}"
+    );
+}
+
+#[test]
 fn clean_file_produces_no_issues_and_exit_zero() {
     let tmp = TempDir::new().unwrap();
     let file = tmp.path().join("clean.txt");

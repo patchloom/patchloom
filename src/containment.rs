@@ -502,12 +502,14 @@ impl PathGuard {
         path: &Path,
         allowed_roots: &[PathBuf],
     ) -> Result<PathBuf, ContainmentError> {
-        let normalized = normalize_lexical(path);
-        let Some(file_name) = normalized.file_name() else {
+        // Do not lexically collapse `..` before following an existing prefix
+        // (`link/../x` must resolve `link` first; #2466).
+        let openable = prefer_openable_path(path);
+        let Some(file_name) = openable.file_name() else {
             // No final component (e.g. `/` or `..`): fall back to follow check.
             return self.check_resolved_absolute(display, path, allowed_roots);
         };
-        let parent = normalized.parent().unwrap_or_else(|| Path::new("."));
+        let parent = openable.parent().unwrap_or_else(|| Path::new("."));
         let parent_canon =
             canonicalize_or_ancestor(parent).map_err(|e| ContainmentError::Canonicalize {
                 path: display.to_string(),
@@ -685,32 +687,6 @@ fn validate_relative_depth(path: &str, p: &Path, root: &Path) -> Result<(), Cont
     Ok(())
 }
 
-/// Lexically resolve `.` and `..` components without touching the filesystem.
-///
-/// This must run before the ancestor walk in [`canonicalize_or_ancestor`]
-/// because [`Path::file_name`] returns `None` for `..` components, which
-/// would silently drop them during reconstruction.
-fn normalize_lexical(path: &Path) -> PathBuf {
-    use std::path::Component;
-    let mut parts: Vec<Component<'_>> = Vec::new();
-    for c in path.components() {
-        match c {
-            Component::ParentDir => {
-                if matches!(parts.last(), Some(Component::Normal(_))) {
-                    parts.pop();
-                } else {
-                    // At root or beyond; keep the `..` so canonicalize()
-                    // can produce a proper I/O error if needed.
-                    parts.push(c);
-                }
-            }
-            Component::CurDir => { /* skip */ }
-            _ => parts.push(c),
-        }
-    }
-    parts.iter().collect()
-}
-
 /// Canonicalize a path, or if it doesn't exist, canonicalize the nearest
 /// existing ancestor and append the remaining components.
 ///
@@ -721,10 +697,11 @@ fn canonicalize_or_ancestor(path: &Path) -> std::io::Result<PathBuf> {
     // accepts that spelling but dunce/std canonicalize can leave a form
     // that does not start_with a drive-letter root (#2320).
     let openable = prefer_openable_path(path);
-    // Normalize `..` and `.` lexically first so the ancestor walk never
-    // encounters components that `file_name()` would silently skip.
-    let normalized = normalize_lexical(&openable);
-    let path = normalized.as_path();
+    // Follow existing prefixes before collapsing `..`. Lexical pop of
+    // `link/../x` would skip a symlink and let the kernel resolve `..`
+    // from the target (#2466).
+    let resolved = resolve_dotdot_following_existing(&openable)?;
+    let path = resolved.as_path();
 
     if path.exists() {
         return safe_canonicalize(path);
@@ -756,6 +733,40 @@ fn canonicalize_or_ancestor(path: &Path) -> std::io::Result<PathBuf> {
             None => return safe_canonicalize(path),
         }
     }
+}
+
+/// Collapse `.` / `..` while following existing prefixes (including symlinks).
+fn resolve_dotdot_following_existing(path: &Path) -> std::io::Result<PathBuf> {
+    let mut current = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::Prefix(_) | Component::RootDir => current.push(c),
+            Component::CurDir => {
+                if current.as_os_str().is_empty() {
+                    current.push(c);
+                }
+            }
+            Component::ParentDir => {
+                if current.as_os_str().is_empty() {
+                    current.push(c);
+                    continue;
+                }
+                if current.exists() {
+                    current = safe_canonicalize(&current)?;
+                    if let Some(parent) = current.parent() {
+                        current = parent.to_path_buf();
+                    }
+                } else if !current.pop() {
+                    current.push(c);
+                }
+            }
+            Component::Normal(_) => current.push(c),
+        }
+    }
+    if current.as_os_str().is_empty() {
+        current.push(".");
+    }
+    Ok(current)
 }
 
 // Static assertions: all public API types must be Send + Sync.

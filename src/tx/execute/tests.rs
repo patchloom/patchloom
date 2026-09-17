@@ -706,6 +706,80 @@ fn case_only_rename_plan_apply_preserves_content() {
     assert_eq!(content, "hello content\n");
 }
 
+/// On a case-sensitive volume, `Keep.txt` and `keep.txt` are two files.
+/// Rename without force must be `already_exists`, not a case-only overwrite (#2473).
+#[test]
+fn case_sibling_rename_without_force_is_already_exists() {
+    let dir = TempDir::new().unwrap();
+    let keep = dir.path().join("Keep.txt");
+    let lower = dir.path().join("keep.txt");
+    std::fs::write(&keep, "KEEP\n").unwrap();
+    if std::fs::write(&lower, "lower\n").is_err()
+        || std::fs::read(&keep).ok().as_deref() != Some(b"KEEP\n".as_ref())
+        || std::fs::read(&lower).ok().as_deref() != Some(b"lower\n".as_ref())
+    {
+        // Case-insensitive volume: the two names are one inode.
+        let _ = std::fs::remove_file(&keep);
+        let _ = std::fs::remove_file(&lower);
+        return;
+    }
+
+    let mut f = TxStateFixture::new();
+    let mut tx = f.state(dir.path());
+    let op = Operation::FileRename {
+        from: "Keep.txt".into(),
+        to: "keep.txt".into(),
+        force: false,
+    };
+    let err = execute_file_op(&op, &mut tx).expect_err("must not overwrite case sibling");
+    assert!(
+        crate::exit::is_already_exists(&err),
+        "expected already_exists, got: {err:#}"
+    );
+    assert_eq!(std::fs::read_to_string(&keep).unwrap(), "KEEP\n");
+    assert_eq!(std::fs::read_to_string(&lower).unwrap(), "lower\n");
+}
+
+/// Binary delete + empty create must not pair as a rename (#2469).
+#[test]
+fn binary_delete_plus_empty_create_does_not_rename_bytes() {
+    let dir = TempDir::new().unwrap();
+    let png = dir.path().join("image.png");
+    let notes = dir.path().join("notes.txt");
+    let png_bytes: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\0\0\0\0\0";
+    std::fs::write(&png, png_bytes).unwrap();
+
+    let plan = crate::plan::Plan {
+        version: crate::plan::SCHEMA_VERSION,
+        cwd: None,
+        operations: vec![
+            Operation::FileDelete {
+                path: "image.png".into(),
+                if_exists: false,
+            },
+            Operation::FileCreate {
+                path: "notes.txt".into(),
+                content: String::new(),
+                force: None,
+            },
+        ],
+        write_policy: None,
+        strict: None,
+        format: None,
+        validate: None,
+        verify: None,
+        for_each: None,
+    };
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+    assert!(report.ok, "plan should succeed: {report:?}");
+    assert!(!png.exists(), "binary source should be deleted");
+    let dest = std::fs::read(&notes).expect("empty dest should exist");
+    assert!(
+        dest.is_empty(),
+        "empty create must stay empty, not inherit binary bytes: {dest:?}"
+    );
+}
+
 /// Regression: files loaded for Read/Search operations should not be
 /// modified by write policy (e.g. ensure_final_newline) (#1108).
 #[test]

@@ -529,6 +529,45 @@ mod replace_tests {
         }
 
         #[test]
+        fn literal_case_insensitive_multiline_dollar_matches() {
+            let from = "price is $5\nnext";
+            let re = compile_replace_regex(from, false, true, false, false)
+                .unwrap()
+                .expect("literal -i compiles a regex");
+            let content = "PRICE IS $5\nNEXT\nkeep\n";
+            assert_eq!(count_content_matches(content, from, Some(&re)), 1);
+            let (out, count) = replace_content(content, from, "sold\nout", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*out, "sold\nout\nkeep\n");
+        }
+
+        #[test]
+        fn literal_word_boundary_multiline_dollar_matches() {
+            let from = "price is $5\nnext";
+            let re = compile_replace_regex(from, false, false, false, true)
+                .unwrap()
+                .expect("literal -w compiles a regex");
+            let content = "price is $5\nnext\nkeep\n";
+            assert_eq!(count_content_matches(content, from, Some(&re)), 1);
+            let (out, count) = replace_content(content, from, "sold\nout", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*out, "sold\nout\nkeep\n");
+        }
+
+        #[test]
+        fn literal_case_insensitive_multiline_caret_matches() {
+            let from = "^head\nbody";
+            let re = compile_replace_regex(from, false, true, false, false)
+                .unwrap()
+                .expect("literal -i compiles a regex");
+            let content = "^HEAD\nBODY\nkeep\n";
+            assert_eq!(count_content_matches(content, from, Some(&re)), 1);
+            let (out, count) = replace_content(content, from, "x\ny", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*out, "x\ny\nkeep\n");
+        }
+
+        #[test]
         fn regex_anchors_match_at_line_boundaries() {
             // ^$ should match empty lines within content, not just at the absolute
             // start/end of the string. This is the core fix for #1253.
@@ -623,6 +662,36 @@ mod replace_tests {
             let (result, count) = replace_content(content, "end$", "$0", Some(&re), None);
             assert_eq!(count, 1);
             assert_eq!(&*result, "end\r\n");
+        }
+
+        #[test]
+        fn regex_dollar_bracketed_group0_does_not_double_cr() {
+            let re = compile_replace_regex("e.d$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let (result, count) = replace_content("end\r\n", "e.d$", "[$0]", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "[end]\r\n");
+        }
+
+        #[test]
+        fn regex_dollar_group0_then_x_does_not_double_cr() {
+            let re = compile_replace_regex("e.d$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let (result, count) = replace_content("end\r\n", "e.d$", "${0}X", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "endX\r\n");
+        }
+
+        #[test]
+        fn regex_dollar_x_then_group0_does_not_double_cr() {
+            let re = compile_replace_regex("e.d$", true, false, false, false)
+                .unwrap()
+                .unwrap();
+            let (result, count) = replace_content("end\r\n", "e.d$", "X$0", Some(&re), None);
+            assert_eq!(count, 1);
+            assert_eq!(&*result, "Xend\r\n");
         }
 
         #[test]

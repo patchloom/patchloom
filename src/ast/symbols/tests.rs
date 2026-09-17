@@ -811,6 +811,60 @@ fn full_span_stops_at_unrelated_code() {
     assert_eq!(start, 3); // #[test] on line 3, not line 1
 }
 
+/// Plain `/* */` (not `/**`) must stay attached to the following symbol (#2471).
+#[test]
+fn full_span_includes_plain_block_comment_rust() {
+    let source = "/* keep with foo\n * body\n */\nfn foo() {}\n";
+    let symbols = extract_symbols(source, Language::Rust);
+    let foo = symbols.iter().find(|s| s.name == "foo").unwrap();
+    let (start, _) = full_symbol_span(source, foo, Language::Rust);
+    assert_eq!(
+        start, 1,
+        "plain /* */ above fn must be part of the span, got start={start}"
+    );
+}
+
+#[test]
+fn full_span_includes_plain_block_comment_typescript() {
+    let source = "/* keep with foo\n * body\n */\nfunction foo() {}\n";
+    let symbols = extract_symbols(source, Language::TypeScript);
+    let foo = symbols.iter().find(|s| s.name == "foo").unwrap();
+    let (start, _) = full_symbol_span(source, foo, Language::TypeScript);
+    assert_eq!(
+        start, 1,
+        "plain /* */ above TS function must be part of the span, got start={start}"
+    );
+}
+
+#[test]
+fn full_span_includes_plain_block_comment_java() {
+    let source = "class C {\n/* keep with foo\n * body\n */\nvoid foo() {}\n}\n";
+    let symbols = extract_symbols(source, Language::Java);
+    let foo = symbols
+        .iter()
+        .flat_map(|s| std::iter::once(s).chain(s.children.iter()))
+        .find(|s| s.name == "foo")
+        .unwrap();
+    let (start, _) = full_symbol_span(source, foo, Language::Java);
+    assert_eq!(
+        start, 2,
+        "plain /* */ above Java method must be part of the span, got start={start}"
+    );
+}
+
+/// A stray `*/` above a symbol must not be pulled in (#2471).
+#[test]
+fn full_span_does_not_attach_distant_block_closer() {
+    let source = "fn bar() {}\n */\nfn foo() {}\n";
+    let symbols = extract_symbols(source, Language::Rust);
+    let foo = symbols.iter().find(|s| s.name == "foo").unwrap();
+    let (start, _) = full_symbol_span(source, foo, Language::Rust);
+    assert_eq!(
+        start, foo.start_line,
+        "distant */ must not attach to foo, got start={start}"
+    );
+}
+
 // Regression: multiline Rust attributes like #[cfg_attr(\n  ...\n)]
 // were not recognized by the backward walk because is_annotation_line
 // only matches lines starting with #[.  The fix uses bracket depth

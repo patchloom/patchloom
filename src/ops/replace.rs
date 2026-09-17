@@ -141,6 +141,12 @@ fn pattern_has_line_anchor(pattern: &str) -> bool {
     pattern_has_unescaped_dollar(pattern) || pattern_has_unescaped_caret(pattern)
 }
 
+/// Line-anchor path is for user `--regex` `^`/`$` only. Literal `-i`/`-w`
+/// compile an escaped pattern; inspect that source, not the raw `from`.
+fn uses_line_anchor_path(from: &str, re: &Regex) -> bool {
+    pattern_has_line_anchor(re.as_str()) && !pattern_has_unescaped_dot(from)
+}
+
 fn pattern_has_unescaped_dot(pattern: &str) -> bool {
     let mut escaped = false;
     let mut in_class = false;
@@ -179,26 +185,25 @@ fn pattern_has_unescaped_dollar(pattern: &str) -> bool {
     false
 }
 
-/// `\r?$` eats the CR of CRLF. Put it back so `end$` -> `END` stays `END\r\n`.
-/// Only when the user pattern had unescaped `$`. Skip if the replacement
-/// already ends with CR (`$0` / `${0}` already include it).
+/// `\r?$` eats the CR of CRLF. Shrink that CR out of `$0` / `${0}` before
+/// the replacement is used, then append exactly one CR so `[$0]` / `${0}X`
+/// stay `...\r\n` instead of `...\r]\r\n`.
 fn keep_crlf_after_dollar_match(
     content: &str,
     from: &str,
     m: regex::Match<'_>,
-    mut replacement: String,
+    replacement: String,
 ) -> String {
     if !pattern_has_unescaped_dollar(from) {
         return replacement;
     }
-    if replacement.ends_with('\r') {
-        return replacement;
-    }
-    if m.end() > m.start()
-        && content.as_bytes()[m.end() - 1] == b'\r'
-        && content.as_bytes().get(m.end()) == Some(&b'\n')
-    {
-        replacement.push('\r');
+    let bytes = content.as_bytes();
+    if m.end() > m.start() && bytes[m.end() - 1] == b'\r' && bytes.get(m.end()) == Some(&b'\n') {
+        let with_cr = &content[m.start()..m.end()];
+        let without_cr = &content[m.start()..m.end() - 1];
+        let mut out = replacement.replace(with_cr, without_cr);
+        out.push('\r');
+        return out;
     }
     replacement
 }
@@ -725,11 +730,9 @@ fn expand_regex_replacement(caps: &regex::Captures<'_>, replacement: &str) -> St
 pub fn count_content_matches(content: &str, from: &str, compiled_re: Option<&Regex>) -> usize {
     let content = crate::ops::file::strip_utf8_bom(content);
     match compiled_re {
-        Some(re) if pattern_has_line_anchor(from) && !pattern_has_unescaped_dot(from) => {
-            crate::ops::file::text_lines(content)
-                .map(|line| re.find_iter(line).count())
-                .sum()
-        }
+        Some(re) if uses_line_anchor_path(from, re) => crate::ops::file::text_lines(content)
+            .map(|line| re.find_iter(line).count())
+            .sum(),
         Some(re) => {
             let content_len = content.len();
             re.find_iter(content)
@@ -828,8 +831,7 @@ pub fn replace_content<'a>(
     use std::borrow::Cow;
     apply_with_optional_bom(content, |content| {
         if let Some(re) = compiled_re
-            && pattern_has_line_anchor(from)
-            && !pattern_has_unescaped_dot(from)
+            && uses_line_anchor_path(from, re)
         {
             return replace_line_anchor_content(content, from, to, re, nth);
         }

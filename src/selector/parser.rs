@@ -82,7 +82,10 @@ fn parse_bracket_content(content: &str) -> Result<Segment, String> {
 }
 
 /// Split `key<op>value` if a comparison or equality operator is present.
-fn split_predicate(content: &str) -> Result<Option<(String, PredicateOp, String)>, String> {
+///
+/// Shared with `doc delete-where` so `!=` `>=` `<=` `>` `<` match the
+/// selector grammar (#2483).
+pub fn split_predicate(content: &str) -> Result<Option<(String, PredicateOp, String)>, String> {
     let Some((key_end, op, value_start)) = find_predicate_op(content) else {
         return Ok(None);
     };
@@ -219,6 +222,37 @@ pub fn parse(input: &str) -> Result<Selector, String> {
                 }
                 Err(e) => return Err(e),
             }
+        } else if bytes[i] == b'"' {
+            // Quoted key matching flatten (`"a.b"`, `\"` escape). #2482
+            i += 1;
+            let mut key = String::new();
+            let mut escaped = false;
+            let mut closed = false;
+            while i < len {
+                let ch = match input[i..].chars().next() {
+                    Some(c) => c,
+                    None => break,
+                };
+                i += ch.len_utf8();
+                if escaped {
+                    key.push(ch);
+                    escaped = false;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if ch == '"' {
+                    closed = true;
+                    break;
+                }
+                key.push(ch);
+            }
+            if escaped || !closed {
+                return Err("unclosed quoted key in selector".to_string());
+            }
+            segments.push(Segment::Key(key));
         } else {
             // Key segment: read until '.', '[', or end.
             let start = i;
@@ -594,6 +628,56 @@ mod tests {
                 pred("type", PredicateOp::Eq, "server"),
                 pred("port", PredicateOp::Gt, "8000"),
             ]
+        );
+    }
+
+    #[test]
+    fn parse_quoted_dot_key() {
+        assert_eq!(parse(r#""a.b""#).unwrap(), vec![Segment::Key("a.b".into())]);
+    }
+
+    #[test]
+    fn parse_quoted_key_nested() {
+        assert_eq!(
+            parse(r#"outer."a.b""#).unwrap(),
+            vec![Segment::Key("outer".into()), Segment::Key("a.b".into())]
+        );
+        assert_eq!(
+            parse(r#""a.b".inner"#).unwrap(),
+            vec![Segment::Key("a.b".into()), Segment::Key("inner".into())]
+        );
+    }
+
+    #[test]
+    fn parse_quoted_key_escaped_quote() {
+        assert_eq!(
+            parse(r#""has\"quote""#).unwrap(),
+            vec![Segment::Key(r#"has"quote"#.into())]
+        );
+    }
+
+    #[test]
+    fn parse_quoted_key_with_brackets() {
+        assert_eq!(
+            parse(r#""a[0]""#).unwrap(),
+            vec![Segment::Key("a[0]".into())]
+        );
+    }
+
+    #[test]
+    fn parse_unclosed_quoted_key_errors() {
+        let err = parse(r#""a.b"#).unwrap_err();
+        assert!(
+            err.contains("unclosed") && err.contains("quoted"),
+            "expected unclosed quoted key, got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_unquoted_dot_still_splits() {
+        assert_eq!(
+            parse("a.b").unwrap(),
+            vec![Segment::Key("a".into()), Segment::Key("b".into())]
         );
     }
 }

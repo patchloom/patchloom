@@ -103,25 +103,26 @@ pub fn reorder_symbols(
     // This ensures inter-symbol content moves with its preceding symbol (#1111.2).
 
     // Build original-order spans sorted by position for gap detection
-    let mut positional_spans: Vec<(usize, usize, &str)> = spans
-        .iter()
-        .map(|s| (s.start_0, s.end_0, s.name.as_str()))
-        .collect();
+    let mut positional_spans: Vec<(usize, usize)> =
+        spans.iter().map(|s| (s.start_0, s.end_0)).collect();
     positional_spans.sort_by_key(|s| s.0);
 
-    // Map each symbol name to its text (symbol + trailing inter-symbol gap)
-    let mut sym_text_map: HashMap<&str, String> = HashMap::new();
-    for (idx, &(start, _end, name)) in positional_spans.iter().enumerate() {
+    // Map each span (not name) to its text. `struct Foo` and `impl Foo`
+    // share a name; a name-keyed map would drop one of them (#2470).
+    let mut sym_text_map: HashMap<(usize, usize), String> = HashMap::new();
+    for (idx, &(start, end)) in positional_spans.iter().enumerate() {
         // Include lines from this symbol's start up to (but not including)
         // the next symbol's start. The last symbol keeps only its own lines.
-        let effective_end = positional_spans.get(idx + 1).map(|s| s.0).unwrap_or(_end);
+        let effective_end = positional_spans.get(idx + 1).map(|s| s.0).unwrap_or(end);
         let text: String = lines[start..effective_end].join(eol);
-        sym_text_map.insert(name, text);
+        sym_text_map.insert((start, end), text);
     }
 
     let mut sym_texts: Vec<(&str, String)> = Vec::new();
     for span in &spans {
-        let text = sym_text_map.remove(span.name.as_str()).unwrap_or_default();
+        let text = sym_text_map
+            .remove(&(span.start_0, span.end_0))
+            .unwrap_or_default();
         sym_texts.push((&span.name, text));
     }
 
@@ -565,5 +566,82 @@ mod tests {
         let a_pos = result.content.find("fn a").unwrap();
         let b_pos = result.content.find("fn b").unwrap();
         assert!(a_pos < b_pos, "a should come before b: {}", result.content);
+    }
+
+    /// `struct Foo` and `impl Foo` share `name == "Foo"`. Keying the
+    /// rebuild map by name dropped one of them (#2470).
+    #[test]
+    fn reorder_keeps_struct_and_impl_with_same_name() {
+        let source = "struct Bar {}\n\nstruct Foo {}\n\nimpl Foo {}\n";
+        let order = vec!["Foo".into(), "Bar".into()];
+        let result = reorder_symbols(
+            source,
+            None,
+            &ReorderStrategy::Custom(order),
+            Language::Rust,
+        )
+        .unwrap();
+        assert!(
+            result.content.contains("struct Foo"),
+            "struct Foo must survive reorder: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("impl Foo"),
+            "impl Foo must survive reorder: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("struct Bar"),
+            "struct Bar must survive reorder: {}",
+            result.content
+        );
+        let foo_struct = result.content.find("struct Foo").unwrap();
+        let foo_impl = result.content.find("impl Foo").unwrap();
+        let bar = result.content.find("struct Bar").unwrap();
+        assert!(
+            foo_struct < foo_impl,
+            "same-name symbols keep relative order: {}",
+            result.content
+        );
+        assert!(foo_impl < bar, "Foo group before Bar: {}", result.content);
+    }
+
+    /// Two `impl Trait for T` share the target type name. Both must remain.
+    #[test]
+    fn reorder_keeps_two_impls_for_same_type() {
+        let source = "impl Clone for Foo {}\n\nimpl Default for Foo {}\n\nstruct Bar {}\n";
+        let order = vec!["Bar".into(), "Foo".into()];
+        let result = reorder_symbols(
+            source,
+            None,
+            &ReorderStrategy::Custom(order),
+            Language::Rust,
+        )
+        .unwrap();
+        assert!(
+            result.content.contains("impl Clone for Foo"),
+            "first impl must survive: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("impl Default for Foo"),
+            "second impl must survive: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("struct Bar"),
+            "struct Bar must survive: {}",
+            result.content
+        );
+        let bar = result.content.find("struct Bar").unwrap();
+        let clone = result.content.find("impl Clone for Foo").unwrap();
+        let default = result.content.find("impl Default for Foo").unwrap();
+        assert!(bar < clone, "Bar first: {}", result.content);
+        assert!(
+            clone < default,
+            "same-name impls keep relative order: {}",
+            result.content
+        );
     }
 }

@@ -15,6 +15,9 @@ const IDENTIFIER_KINDS: &[&str] = &[
     "shorthand_field_identifier",
     // Shell/Bash: function names and command names are `word` nodes
     "word",
+    // PHP function/class names (`name`); Ruby class/module names (`constant`).
+    "name",
+    "constant",
 ];
 
 /// Node kinds whose subtrees should be skipped entirely during rename.
@@ -448,6 +451,59 @@ fn main() {
         );
         // Source should be unchanged
         assert_eq!(result.content, source);
+    }
+
+    /// PHP function names are `name` nodes. Without that kind, list reports
+    /// the symbol but rename is no_matches (#2484).
+    #[test]
+    fn rename_php_function_name() {
+        let source = r#"<?php
+function foo($x) {
+    return foo($x);
+}
+"#;
+        let result = rename_in_source(source, "foo", "bar", Language::Php)
+            .expect("php parse should succeed");
+        assert!(
+            result.replacements >= 2,
+            "definition + call should rename, got {}: {}",
+            result.replacements,
+            result.content
+        );
+        assert!(
+            result.content.contains("function bar"),
+            "definition should rename: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("function foo"),
+            "old name should be gone: {}",
+            result.content
+        );
+    }
+
+    /// Ruby class names are `constant` nodes (#2484).
+    #[test]
+    fn rename_ruby_constant() {
+        let source = "class Foo\n  def self.make\n    Foo.new\n  end\nend\n";
+        let result = rename_in_source(source, "Foo", "Bar", Language::Ruby)
+            .expect("ruby parse should succeed");
+        assert!(
+            result.replacements >= 2,
+            "class name + reference should rename, got {}: {}",
+            result.replacements,
+            result.content
+        );
+        assert!(
+            result.content.contains("class Bar"),
+            "class definition should rename: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("Foo"),
+            "old constant should be gone: {}",
+            result.content
+        );
     }
 
     #[test]

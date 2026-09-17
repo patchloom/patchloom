@@ -70,3 +70,75 @@ pub(super) fn validate_batch_size(field: &str, count: usize) -> Result<(), McpEr
     }
     Ok(())
 }
+
+/// Apply the same content / param / batch / json-depth limits as `handle_simple_op`.
+///
+/// MCP `execute_plan` is a custom handler and never walked inline ops (#2463).
+/// CLI `tx` does not call this.
+pub(super) fn validate_plan_ops_size_limits(
+    ops: &[crate::plan::Operation],
+) -> Result<(), McpError> {
+    validate_batch_size("operations", ops.len())?;
+    for op in ops {
+        validate_operation_size_limits(op)?;
+    }
+    Ok(())
+}
+
+fn validate_operation_size_limits(op: &crate::plan::Operation) -> Result<(), McpError> {
+    let value = serde_json::to_value(op).map_err(|e| {
+        McpError::invalid_params(format!("failed to serialize operation: {e}"), None)
+    })?;
+    let Some(obj) = value.as_object() else {
+        return Ok(());
+    };
+    const CONTENT_FIELDS: &[&str] = &[
+        "content",
+        "diff",
+        "fragment",
+        "new",
+        "insert_before",
+        "insert_after",
+        "before_context",
+        "after_context",
+        "replacement",
+        "prepend",
+        "source_suffix",
+        "preamble",
+        "wrapper",
+        "new_signature",
+    ];
+    const PARAM_FIELDS: &[&str] = &[
+        "old",
+        "selector",
+        "pattern",
+        "heading",
+        "predicate",
+        "from",
+        "to",
+        "after",
+        "before",
+        "instruction",
+        "bullet",
+        "row",
+        "symbol",
+        "query",
+    ];
+    for field in CONTENT_FIELDS {
+        if let Some(s) = obj.get(*field).and_then(|v| v.as_str()) {
+            validate_content_size(field, s)?;
+        }
+    }
+    for field in PARAM_FIELDS {
+        if let Some(s) = obj.get(*field).and_then(|v| v.as_str()) {
+            validate_param_size(field, s)?;
+        }
+    }
+    if let Some(val) = obj.get("value") {
+        validate_json_depth("value", val)?;
+    }
+    if let Some(arr) = obj.get("files").and_then(|v| v.as_array()) {
+        validate_batch_size("files", arr.len())?;
+    }
+    Ok(())
+}

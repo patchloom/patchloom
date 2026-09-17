@@ -254,7 +254,11 @@ impl BackupSession {
     pub fn save_before_write(&mut self, file_path: &Path) -> anyhow::Result<()> {
         let openable = crate::containment::prefer_openable_path(file_path);
         let file_path = openable.as_path();
-        let rel = sanitize_rel_path(file_path, &self.project_root);
+        // Content writes through a symlink rewrite the regular target (#1230).
+        // Record that target so undo restores the file, not the link (#2491).
+        let record_path =
+            regular_target_of_symlink(file_path).unwrap_or_else(|| file_path.to_path_buf());
+        let rel = sanitize_rel_path(&record_path, &self.project_root);
         let rel_str = rel.to_string_lossy().to_string();
 
         // Skip duplicates (same file modified twice in one session).
@@ -262,19 +266,16 @@ impl BackupSession {
             return Ok(());
         }
 
-        if file_path.exists() {
-            // Back up the original content.
+        if record_path.exists() {
             let backup_path = self.session_dir.join(&rel_str);
             if let Some(parent) = backup_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            // Same special-node rule as save_before_delete: never `fs::copy` a
-            // FIFO/socket/device (blocks forever) or symlink target (#2087).
-            if crate::ops::file::is_regular_file_for_backup(file_path) {
-                std::fs::copy(file_path, &backup_path).with_context(|| {
+            if crate::ops::file::is_regular_file_for_backup(&record_path) {
+                std::fs::copy(&record_path, &backup_path).with_context(|| {
                     format!(
                         "failed to back up {} to {}",
-                        file_path.display(),
+                        record_path.display(),
                         backup_path.display()
                     )
                 })?;
@@ -515,6 +516,14 @@ fn collect_listed_sessions(project_root: &Path) -> anyhow::Result<(Vec<Manifest>
     let mut sessions = Vec::new();
     for entry in entries {
         let session_dir = entry.path();
+        let dir_id = entry.file_name().to_string_lossy().into_owned();
+        if let Err(reason) = validate_session_id(&dir_id) {
+            warnings.push(format!(
+                "warning: backup session {} has an invalid directory name ({reason})",
+                session_dir.display()
+            ));
+            continue;
+        }
         let manifest_path = session_dir.join("manifest.json");
         if !manifest_path.exists() {
             warnings.push(missing_manifest_warning(&session_dir));
@@ -528,7 +537,16 @@ fn collect_listed_sessions(project_root: &Path) -> anyhow::Result<(Vec<Manifest>
             }
         };
         match serde_json::from_str::<Manifest>(&content) {
-            Ok(manifest) => sessions.push(manifest),
+            Ok(manifest) => {
+                if manifest.timestamp != dir_id {
+                    warnings.push(format!(
+                        "warning: backup session {dir_id} manifest timestamp {:?} does not match the directory name",
+                        manifest.timestamp
+                    ));
+                    continue;
+                }
+                sessions.push(manifest);
+            }
             Err(e) => warnings.push(corrupted_manifest_warning(&manifest_path, &e)),
         }
     }
@@ -745,7 +763,7 @@ pub fn restore_path_from_session_with_guard(
     path: &Path,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<bool> {
-    let session_dir = project_root.join(BACKUP_DIR).join(session_timestamp);
+    let session_dir = session_dir_under_backup(project_root, session_timestamp)?;
     let manifest_path = session_dir.join("manifest.json");
 
     let content = std::fs::read_to_string(&manifest_path).with_context(|| {
@@ -915,7 +933,7 @@ pub fn restore_session_with_guard(
     timestamp: &str,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<usize> {
-    let session_dir = project_root.join(BACKUP_DIR).join(timestamp);
+    let session_dir = session_dir_under_backup(project_root, timestamp)?;
     let manifest_path = session_dir.join("manifest.json");
 
     let content = std::fs::read_to_string(&manifest_path)
@@ -1021,12 +1039,69 @@ pub fn restore_session_with_guard(
 /// Remove a consumed backup session directory so subsequent `undo` calls
 /// reach older sessions instead of replaying the same one.
 pub fn remove_session(project_root: &Path, timestamp: &str) -> anyhow::Result<()> {
-    let session_dir = project_root.join(BACKUP_DIR).join(timestamp);
+    let session_dir = session_dir_under_backup(project_root, timestamp)?;
     if session_dir.is_dir() {
         std::fs::remove_dir_all(&session_dir)
             .with_context(|| format!("removing consumed backup session {timestamp}"))?;
     }
     Ok(())
+}
+
+/// Session directory names are the id. Reject path-shaped or mismatched ids
+/// so `join` cannot escape `.patchloom/backups/` (#2468).
+fn validate_session_id(timestamp: &str) -> Result<(), String> {
+    if timestamp.is_empty() || crate::containment::is_blank_path(timestamp) {
+        return Err("empty".into());
+    }
+    let path = Path::new(timestamp);
+    if path.is_absolute() {
+        return Err("absolute path".into());
+    }
+    if timestamp.contains('/') || timestamp.contains('\\') {
+        return Err("contains a path separator".into());
+    }
+    let mut comps = path.components();
+    match comps.next() {
+        Some(std::path::Component::Normal(_)) if comps.next().is_none() => Ok(()),
+        _ => Err("must be a single directory name".into()),
+    }
+}
+
+fn session_dir_under_backup(project_root: &Path, timestamp: &str) -> anyhow::Result<PathBuf> {
+    validate_session_id(timestamp).map_err(|reason| {
+        anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("invalid backup session id '{timestamp}': {reason}"),
+        })
+    })?;
+    let backup_dir = project_root.join(BACKUP_DIR);
+    let session_dir = backup_dir.join(timestamp);
+    if session_dir
+        .parent()
+        .is_none_or(|parent| parent != backup_dir.as_path())
+    {
+        return Err(crate::exit::InvalidInputError {
+            msg: format!(
+                "backup session '{timestamp}' is not under {}",
+                backup_dir.display()
+            ),
+        }
+        .into());
+    }
+    if session_dir.exists() {
+        let backup_canon = crate::containment::safe_canonicalize(&backup_dir).unwrap_or(backup_dir);
+        let session_canon =
+            crate::containment::safe_canonicalize(&session_dir).unwrap_or(session_dir.clone());
+        if session_canon == backup_canon
+            || !session_canon.starts_with(&backup_canon)
+            || session_canon == project_root
+        {
+            return Err(crate::exit::InvalidInputError {
+                msg: format!("backup session '{timestamp}' resolves outside the backup directory"),
+            }
+            .into());
+        }
+    }
+    Ok(session_dir)
 }
 
 /// Why `__external__*` restore must not trust this session.
@@ -1050,6 +1125,21 @@ fn session_origin_untrusted_reason(session_dir: &Path) -> Option<String> {
             Err(e) => Some(format!("unreadable {ORIGIN_SIDECAR}: {e}")),
         },
         Ok(_) => Some("not a regular file".to_string()),
+    }
+}
+
+/// If `path` is a symlink to a regular file, return the canonical target.
+/// Dangling links, symlink-to-dir, and FIFO stay `None` (#2491).
+fn regular_target_of_symlink(path: &Path) -> Option<PathBuf> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_symlink() {
+        return None;
+    }
+    let target = crate::containment::safe_canonicalize(path).ok()?;
+    if crate::ops::file::is_regular_file_for_backup(&target) {
+        Some(target)
+    } else {
+        None
     }
 }
 
@@ -1519,6 +1609,65 @@ mod tests {
             )),
             "corrupt list must name the file, got: {}",
             warnings[0]
+        );
+    }
+
+    #[test]
+    fn list_sessions_rejects_forged_dotdot_timestamp() {
+        let dir = TempDir::new().unwrap();
+        let session_dir = dir.path().join(BACKUP_DIR).join("1789_1_0");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        std::fs::write(
+            session_dir.join("manifest.json"),
+            r#"{"timestamp":"../..","entries":[]}"#,
+        )
+        .unwrap();
+
+        let (sessions, warnings) = collect_listed_sessions(dir.path()).unwrap();
+        assert!(
+            sessions.is_empty(),
+            "forged timestamp must not be listed as a session id: {sessions:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("timestamp") || w.contains("1789_1_0")),
+            "mismatch must be warned, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn remove_session_refuses_parent_escape() {
+        let dir = TempDir::new().unwrap();
+        let marker = dir.path().join("keep.txt");
+        std::fs::write(&marker, "keep").unwrap();
+        std::fs::create_dir_all(dir.path().join(BACKUP_DIR).join("real_session")).unwrap();
+
+        let err = remove_session(dir.path(), "../..").unwrap_err();
+        assert!(
+            marker.exists(),
+            "forged session id must not remove_dir_all the project root"
+        );
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
+        assert!(
+            err.to_string().contains("session") || crate::exit::is_invalid_input(&err),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn restore_session_refuses_parent_escape() {
+        let dir = TempDir::new().unwrap();
+        let marker = dir.path().join("keep.txt");
+        std::fs::write(&marker, "keep").unwrap();
+        std::fs::create_dir_all(dir.path().join(BACKUP_DIR)).unwrap();
+
+        let err = restore_session(dir.path(), "../..").unwrap_err();
+        assert!(marker.exists(), "restore must not target the project root");
+        assert_eq!(std::fs::read_to_string(&marker).unwrap(), "keep");
+        assert!(
+            crate::exit::is_invalid_input(&err) || err.to_string().contains("session"),
+            "got: {err}"
         );
     }
 
@@ -2769,6 +2918,67 @@ mod tests {
             "unreadable .origin must not look like a missing sidecar, got: {msg}"
         );
         assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "keep");
+    }
+
+    /// Write through a symlink must back up the regular target so undo works (#2491).
+    #[cfg(unix)]
+    #[test]
+    fn save_before_write_symlink_to_regular_restores_target() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("target.txt");
+        let link = dir.path().join("link.txt");
+        std::fs::write(&target, "orig").unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&link).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+
+        std::fs::write(&link, "x").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "x");
+
+        restore_session(dir.path(), &ts).unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "orig");
+        assert!(
+            link.symlink_metadata().unwrap().file_type().is_symlink(),
+            "link entry must remain a symlink"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_before_write_dangling_symlink_does_not_follow() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("dangling.txt");
+        std::os::unix::fs::symlink(dir.path().join("missing.txt"), &link).unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&link).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+        let sessions = list_sessions(dir.path()).unwrap();
+        assert_eq!(sessions[0].entries[0].path, "dangling.txt");
+        assert_eq!(sessions[0].entries[0].action, FileAction::Created);
+        let blob = dir.path().join(BACKUP_DIR).join(&ts).join("dangling.txt");
+        assert!(
+            !blob.exists() || std::fs::read(&blob).unwrap().is_empty(),
+            "dangling symlink must not invent target bytes"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_before_write_symlink_to_dir_stays_empty_marker() {
+        let dir = TempDir::new().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let link = dir.path().join("linkdir");
+        std::os::unix::fs::symlink(&sub, &link).unwrap();
+
+        let mut session = BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&link).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+        let blob = dir.path().join(BACKUP_DIR).join(&ts).join("linkdir");
+        assert_eq!(std::fs::read(&blob).unwrap(), b"");
     }
 
     /// Undo must not `fs::copy` through a dest that is now a symlink.

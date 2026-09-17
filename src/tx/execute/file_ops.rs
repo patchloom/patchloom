@@ -225,10 +225,9 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
 
             // If source and destination resolve to the same file, no-op.
             // Allow case-only renames on case-insensitive filesystems (#1167).
-            let case_only = src_path != dst_path
-                && src_path.parent() == dst_path.parent()
-                && src_path.file_name().map(|n| n.to_ascii_lowercase())
-                    == dst_path.file_name().map(|n| n.to_ascii_lowercase());
+            // Same-parent + case-fold is not enough: on a case-sensitive
+            // volume Keep.txt and keep.txt are two files (#2473).
+            let case_only = crate::ops::file::is_case_only_rename(&src_path, &dst_path);
             if !case_only
                 && (src_path == dst_path
                     || matches!(

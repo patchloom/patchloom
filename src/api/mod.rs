@@ -1112,6 +1112,19 @@ pub(crate) fn ensure_contained(guard: Option<&PathGuard>, path: &Path) -> anyhow
     Ok(())
 }
 
+/// Check a cwd-joined dest without feeding Reject an internally-absolute path.
+///
+/// `apply_begin_patch`, SEARCH/REPLACE, and `apply_patch_file` Write join the
+/// caller dest onto `cwd` first. Under `AbsolutePathPolicy::Reject` that
+/// spelling is rejected before containment is considered. If `path` sits
+/// under the guard root, check the relative suffix instead (#2461).
+pub(crate) fn ensure_contained_resolved(
+    guard: Option<&PathGuard>,
+    path: &Path,
+) -> anyhow::Result<()> {
+    ensure_contained(guard, dest_for_guard_check(guard, path))
+}
+
 /// Containment for directory-entry ops (delete / path-only rename): do not follow
 /// the final path component (#2115). See [`PathGuard::check_path_entry`].
 pub(crate) fn ensure_contained_entry(guard: Option<&PathGuard>, path: &Path) -> anyhow::Result<()> {
@@ -1120,6 +1133,30 @@ pub(crate) fn ensure_contained_entry(guard: Option<&PathGuard>, path: &Path) -> 
             .map_err(crate::fallback::EditError::guard_rejected)?;
     }
     Ok(())
+}
+
+/// Entry-mode counterpart of [`ensure_contained_resolved`].
+pub(crate) fn ensure_contained_entry_resolved(
+    guard: Option<&PathGuard>,
+    path: &Path,
+) -> anyhow::Result<()> {
+    ensure_contained_entry(guard, dest_for_guard_check(guard, path))
+}
+
+fn dest_for_guard_check<'a>(guard: Option<&PathGuard>, path: &'a Path) -> &'a Path {
+    let Some(g) = guard else {
+        return path;
+    };
+    if !path.is_absolute() {
+        return path;
+    }
+    if let Ok(rel) = path.strip_prefix(g.canon_root()) {
+        return rel;
+    }
+    if let Ok(rel) = path.strip_prefix(g.root()) {
+        return rel;
+    }
+    path
 }
 
 pub(crate) fn build_edit_result(

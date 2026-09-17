@@ -725,6 +725,8 @@ fn rewrite_rust_sig(
         .unwrap_or_else(|| extract_return_type(fn_node, source).unwrap_or(""));
 
     let qualifiers = extract_fn_qualifiers(fn_node, source);
+    let generics = child_text_by_kind(fn_node, "type_parameters", source).unwrap_or("");
+    let where_clause = child_text_by_kind(fn_node, "where_clause", source).unwrap_or("");
 
     let vis_part = if vis.is_empty() {
         String::new()
@@ -738,12 +740,19 @@ fn rewrite_rust_sig(
     };
     let ret_part = if ret.is_empty() {
         String::new()
+    } else if ret.starts_with("->") {
+        format!(" {ret}")
     } else {
-        format!(" {}", ret)
+        format!(" -> {ret}")
+    };
+    let where_part = if where_clause.is_empty() {
+        String::new()
+    } else {
+        format!(" {where_clause}")
     };
     let new_sig = format!(
-        "{}{}fn {}{}{}",
-        vis_part, qual_part, old_name, params, ret_part
+        "{}{}fn {}{}{}{}{}",
+        vis_part, qual_part, old_name, generics, params, ret_part, where_part
     );
 
     // Preserve body gap via shared splice (#1503).
@@ -1102,6 +1111,27 @@ mod tests {
         assert!(
             out.contains("pub async fn process(input: &str) -> Result<()>"),
             "async qualifier should be preserved: {out}"
+        );
+    }
+
+    /// Generics, `->`, and where-clause must survive a param-only rewrite (#2477).
+    #[test]
+    fn rewrite_rust_sig_keeps_generics_where_and_arrow() {
+        let src = "fn foo<T: Clone>(x: T) -> T where T: Default { x }";
+        let edit = FunctionSigEdit {
+            visibility: None,
+            parameters: Some("(y: T)".to_string()),
+            return_type: None,
+        };
+        let out = rewrite_function_signature(src, "foo", &edit, Language::Rust)
+            .expect("rewrite should succeed");
+        assert!(
+            out.contains("fn foo<T: Clone>(y: T) -> T where T: Default"),
+            "generics, arrow, and where must be kept: {out}"
+        );
+        assert!(
+            !out.contains("fn foo(y: T) T") && !out.contains("fn foo(x: T) T"),
+            "must not drop -> or generics: {out}"
         );
     }
 

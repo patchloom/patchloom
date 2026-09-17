@@ -42,7 +42,7 @@ The `cli` feature (clap + command implementations) is enabled by default. Use `d
 | `make embedder-smoke` | Pre-release host contracts (fuzzy token span with `--allow-absent-old`, nested undo list, plan `key` alias, `--contain` → `guard_rejected`, create/rename dest-exists → `already_exists`, delete missing → `not_found`, sole binary → `binary`, invalid UTF-8 → `invalid_encoding`, library `fuzzy_span_suspicious` #1981, buffer multi-op `refuse_batch_if_suspicious_fuzzy` #2064, path-only non-text rename/delete + `apply_fragment_to_file` + honesty constructors #2031-#2033, library `for_each` + lifecycle shell preflight #2168/#2169, patch dest helpers + git copy #2170-#2176, Codex Begin Patch + SEARCH/REPLACE unique apply #2219/#2220, public `*_or_timeout` deadline peels `parse_timeout` #2444/#2445/#2446/#2449). Not part of `check`; run before tagging a release |
 | `make semver-check` | `cargo-semver-checks` against the last crates.io release (public library API). Not part of `check`; CI runs it only on release-please PRs. Run before merging public API arity/signature changes, or when preparing a release |
 | `make windows-smoke` | PowerShell dogfood (`scripts/windows-smoke.ps1`: peels, tx, CRLF, rename force/binary path-only, hardlink sibling replace, readonly fail-restore `applied:false`; backslash paths on Windows, nested paths on macOS/Linux pwsh). Not part of `check`; CI `ci-windows`. Requires `pwsh` |
-| `make fuzz` | Run fuzz tests (11 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
+| `make fuzz` | Run fuzz tests (12 targets: selector parse, patch parse, patch apply, batch tokenize, selector eval, doc parse, containment_check, fallback_resolve, ast_parse, md_heading, replace_regex, shell_token). Requires nightly, not part of `check`. Use `FUZZ_TIME=N` for seconds per target |
 | `make bench-cli` | Run CLI benchmarks vs native tools (requires `hyperfine`, not part of `check`) |
 | `make bench-mcp` | Run MCP benchmarks: per-call latency vs CLI process spawn (not part of `check`) |
 | `make bench-agent` | Run LLM agent A/B benchmarks (requires API key, not part of `check`). Use `MODEL=X RUNS=N` to configure runs |
@@ -123,6 +123,9 @@ src/
   cmd/schema.rs        Export operation schemas with tier filtering and system prompt generation
   cmd/status.rs        Show uncommitted file changes vs git HEAD
   cmd/tx.rs            Thin CLI entry for `tx` / plan file; engine lives under `tx/`
+  cmd/output.rs        CLI write helpers (`run_write` / `stage_for_write`)
+  cmd/write_mode.rs    Write mode classify, finalize, and exit codes
+  cmd/write_dispatch.rs  Binary/case-only callback writes
   cmd/explain/         Parse a tx plan and print a human-readable summary
                          (mod + describe; JSON includes schema catalog blurb per op)
   cmd/undo.rs          Restore files from backup sessions created by --apply
@@ -205,10 +208,10 @@ All subcommands receive a `&GlobalFlags` reference. Read-only flags (`--json`, `
 - Use `tempfile::TempDir` for test fixtures that need a filesystem.
 - Use `GlobalFlags::default()` for test helpers. Override specific fields with struct update syntax: `GlobalFlags { apply: true, ..GlobalFlags::default() }`.
 - Test both the internal functions and the public `run()` function to verify exit codes.
-- When embedding file paths in YAML or TOML plan strings in integration tests, use `portable_path_str(&path)` (defined in `tests/integration.rs`) to convert backslashes to forward slashes. Windows paths like `C:\Users` contain `\U` which YAML and TOML parsers interpret as a unicode escape sequence.
+- When embedding file paths in YAML or TOML plan strings in integration tests, use `portable_path_str(&path)` (defined in `tests/integration/main.rs`) to convert backslashes to forward slashes. Windows paths like `C:\Users` contain `\U` which YAML and TOML parsers interpret as a unicode escape sequence.
 - For non-existent file paths in tests, use `nonexistent_path("name")` which returns a platform-appropriate path.
-- `cargo test --lib` runs tests in parallel (CI too). For test-only failure-injection hooks, use `thread_local!` plus an RAII guard (e.g. `RestoreFailGuard`, defined in `src/tx.rs` and re-exported via `cmd::tx` for CLI/test paths), not a process-global `static`. Verify hook-related unit tests with `cargo test --lib <filter> -- --test-threads=16` before push.
-- Integration tests that need `#[cfg(test)]` hooks on tx commit/rollback paths must call in-process helpers such as `execute_plan_direct()` in `tests/integration.rs`. `assert_cmd::cargo_bin` subprocesses load the release binary and cannot see library `cfg(test)` hooks.
+- `cargo test --lib` runs tests in parallel (CI too). For test-only failure-injection hooks, use `thread_local!` plus an RAII guard (e.g. `RestoreFailGuard`, defined in `src/tx/lifecycle/commit.rs` and re-exported via `cmd::tx` for CLI/test paths), not a process-global `static`. Verify hook-related unit tests with `cargo test --lib <filter> -- --test-threads=16` before push.
+- Integration tests that need `#[cfg(test)]` hooks on tx commit/rollback paths must call in-process helpers such as `execute_plan_direct()` in `tests/integration/main.rs`. `assert_cmd::cargo_bin` subprocesses load the release binary and cannot see library `cfg(test)` hooks.
 - **Permission-based tests (`chmod 000`) must include a root-skip guard.** Root bypasses UNIX permission checks, so `from_mode(0o000)` tests fail inside Docker containers and root CI runners. After setting mode 000, try to read the file; if the read succeeds, restore permissions and return early. This tests actual behavior rather than checking the UID:
 
 ```rust
@@ -347,7 +350,7 @@ When adding a field to the `Plan` struct in `src/plan/mod.rs`:
 
 4. Run `make sync-patchloom-md && make check`.
 
-**Note:** The same auto-inventory test pattern applies to `WriteFlags` (with `<!-- ref:write-flag:flagname -->` markers). When adding a new field to any struct that has reference doc auto-inventory coverage, grep `tests/integration.rs` for the struct name to find the corresponding inventory test and its expected marker format.
+**Note:** The same auto-inventory test pattern applies to `WriteFlags` (with `<!-- ref:write-flag:flagname -->` markers). When adding a new field to any struct that has reference doc auto-inventory coverage, grep `tests/integration/` for the struct name to find the corresponding inventory test and its expected marker format.
 
 ## Adding a new MCP tool
 
@@ -402,7 +405,7 @@ The tool description is built by `schema::mcp_tool_description(op_name, extra)`.
 
 2. **Remove the tool name** from the `mcp_lists_expected_tools` test and update the expected total (and surface tests).
 
-3. **Remove integration tests** for the tool from `tests/integration.rs`.
+3. **Remove integration tests** for the tool from `tests/integration/`.
 
 4. **Remove references** from all documentation that lists MCP tools:
    - `src/cmd/agent_rules/` (hand-written policy; inventory from schema)

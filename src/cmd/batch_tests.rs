@@ -313,6 +313,39 @@ mod basic {
     /// Plan-shaped `old=`/`new=` (no leading dashes) must peel, not search for
     /// literal `old=x` and soft-miss (fixrealloop 0.28).
     #[test]
+    fn parse_line_replace_does_not_peel_quoted_old_equals() {
+        let op = parse_line(r#"replace peel.txt "old=keep" "newval""#, 1).unwrap();
+        assert!(
+            matches!(
+                op,
+                Operation::Replace {
+                    path: Some(ref p),
+                    ref old,
+                    new_text: Some(ref t),
+                    ..
+                } if p == "peel.txt" && old == "old=keep" && t == "newval"
+            ),
+            "quoted old=keep must stay the search text, got {op:?}"
+        );
+    }
+
+    #[test]
+    fn parse_line_replace_does_not_peel_quoted_to_equals() {
+        let op = parse_line(r#"replace peel.txt old "to=2030""#, 1).unwrap();
+        assert!(
+            matches!(
+                op,
+                Operation::Replace {
+                    ref old,
+                    new_text: Some(ref t),
+                    ..
+                } if old == "old" && t == "to=2030"
+            ),
+            "quoted to=2030 must stay the replacement text, got {op:?}"
+        );
+    }
+
+    #[test]
     fn parse_line_replace_peels_old_new_kv_prefixes() {
         let op = parse_line(r#"replace hello.txt old="hi" new="hello""#, 1).unwrap();
         assert!(

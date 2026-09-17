@@ -894,9 +894,51 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
                 Ok(val)
             }
         }
-        FileFormat::Toml => toml_edit::de::from_str(&toml_source_for_parse(content))
-            .map_err(|e| anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })),
+        FileFormat::Toml => {
+            let mut val: serde_json::Value =
+                toml_edit::de::from_str(&toml_source_for_parse(content)).map_err(|e| {
+                    anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
+                })?;
+            unwrap_toml_datetimes(&mut val);
+            Ok(val)
+        }
     }
+}
+
+const TOML_PRIVATE_DATETIME: &str = "$__toml_private_datetime";
+
+/// Replace toml serde datetime newtype maps with the datetime string (#2481).
+fn unwrap_toml_datetimes(val: &mut serde_json::Value) {
+    match val {
+        serde_json::Value::Object(map) => {
+            if let Some(s) = toml_datetime_marker_string(map) {
+                *val = serde_json::Value::String(s);
+                return;
+            }
+            for child in map.values_mut() {
+                unwrap_toml_datetimes(child);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for child in arr {
+                unwrap_toml_datetimes(child);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn toml_datetime_marker_string(map: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    if map.len() != 1 {
+        return None;
+    }
+    let serde_json::Value::String(s) = map.get(TOML_PRIVATE_DATETIME)? else {
+        return None;
+    };
+    if s.parse::<toml_edit::Datetime>().is_err() {
+        return None;
+    }
+    Some(s.clone())
 }
 
 /// Parse for read-only queries (keys/len/get/has).

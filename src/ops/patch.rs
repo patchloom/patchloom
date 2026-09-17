@@ -510,6 +510,8 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                 let mut hunk_lines: Vec<PatchLine> = Vec::new();
                 let mut old_no_final_newline = false;
                 let mut new_no_final_newline = false;
+                let mut remaining_old = hunk.old_count;
+                let mut remaining_new = hunk.new_count;
                 i += 1;
 
                 while i < lines.len()
@@ -517,13 +519,20 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                     && !is_file_header(&lines, i)
                     && !lines[i].starts_with("diff ")
                 {
+                    if remaining_old == 0 && remaining_new == 0 {
+                        break;
+                    }
                     let line = lines[i];
                     if let Some(rest) = line.strip_prefix('+') {
                         hunk_lines.push(PatchLine::Add(rest.to_string()));
+                        remaining_new = remaining_new.saturating_sub(1);
                     } else if let Some(rest) = line.strip_prefix('-') {
                         hunk_lines.push(PatchLine::Remove(rest.to_string()));
+                        remaining_old = remaining_old.saturating_sub(1);
                     } else if let Some(rest) = line.strip_prefix(' ') {
                         hunk_lines.push(PatchLine::Context(rest.to_string()));
+                        remaining_old = remaining_old.saturating_sub(1);
+                        remaining_new = remaining_new.saturating_sub(1);
                     } else if line == "\\ No newline at end of file" {
                         // Marker applies to the previous hunk line (git format).
                         match hunk_lines.last() {
@@ -535,8 +544,31 @@ pub fn parse_patch(input: &str) -> Result<Vec<PatchFile>, String> {
                         }
                     } else {
                         hunk_lines.push(PatchLine::Context(line.to_string()));
+                        remaining_old = remaining_old.saturating_sub(1);
+                        remaining_new = remaining_new.saturating_sub(1);
                     }
                     i += 1;
+                }
+
+                if remaining_old == 0 && remaining_new == 0 {
+                    while i < lines.len() && lines[i] == "\\ No newline at end of file" {
+                        match hunk_lines.last() {
+                            Some(PatchLine::Add(_)) => new_no_final_newline = true,
+                            Some(PatchLine::Remove(_) | PatchLine::Context(_)) => {
+                                old_no_final_newline = true;
+                            }
+                            None => {}
+                        }
+                        i += 1;
+                    }
+                } else if i < lines.len()
+                    && (lines[i].starts_with("@@ ")
+                        || is_file_header(&lines, i)
+                        || lines[i].starts_with("diff "))
+                {
+                    return Err(format!(
+                        "incomplete hunk for {path}: remaining -{remaining_old} +{remaining_new} before next header"
+                    ));
                 }
 
                 hunks.push(Hunk {
@@ -827,22 +859,8 @@ pub fn apply_hunks(original: &str, hunks: &[Hunk]) -> Result<String, String> {
     let mut offset: isize = 0;
 
     for (hunk_idx, hunk) in hunks.iter().enumerate() {
-        let expected: isize = if hunk.old_start == 0 {
-            0
-        } else {
-            let Some(base) = isize::try_from(hunk.old_start)
-                .ok()
-                .and_then(|s| s.checked_sub(1))
-                .and_then(|s| s.checked_add(offset))
-            else {
-                return Err(format!(
-                    "hunk {} failed: line number {} out of range",
-                    hunk_idx + 1,
-                    hunk.old_start,
-                ));
-            };
-            base
-        };
+        let expected = hunk_expected_start(hunk, offset)
+            .map_err(|msg| format!("hunk {} failed: {msg}", hunk_idx + 1))?;
 
         // Collect &str refs directly, avoiding N string clones per hunk.
         let old_refs: Vec<&str> = hunk
@@ -1014,14 +1032,19 @@ pub fn merge_hunks(ours: &str, hunks: &[Hunk]) -> Result<MergeResult, MergeError
 
 fn hunk_expected_start(hunk: &Hunk, offset: isize) -> Result<isize, String> {
     if hunk.old_start == 0 {
-        Ok(0)
+        return Ok(0);
+    }
+    // Pure insertion `@@ -N,0` inserts after line N (index N). Other hunks
+    // use 1-based old_start converted to a 0-based index.
+    let base = if hunk.old_count == 0 {
+        isize::try_from(hunk.old_start).ok()
     } else {
         isize::try_from(hunk.old_start)
             .ok()
             .and_then(|s| s.checked_sub(1))
-            .and_then(|s| s.checked_add(offset))
-            .ok_or_else(|| format!("line number {} out of range", hunk.old_start))
-    }
+    };
+    base.and_then(|s| s.checked_add(offset))
+        .ok_or_else(|| format!("line number {} out of range", hunk.old_start))
 }
 fn hunk_old_refs(hunk: &Hunk) -> Vec<&str> {
     hunk.lines

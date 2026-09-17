@@ -1554,4 +1554,102 @@ mod integrity {
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::FAILURE);
     }
+
+    /// `--json --confirm` yes must emit one envelope, not preview then apply (#2476).
+    #[test]
+    fn json_confirm_yes_emits_one_envelope() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+        let plan_file = dir.path().join("plan.json");
+        fs::write(
+            &plan_file,
+            r#"{"operations":[{"op":"replace","path":"a.txt","old":"hello","new":"hi"}]}"#,
+        )
+        .unwrap();
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: true,
+            verify: Vec::new(),
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.json = true;
+        global.confirm = true;
+        let _yes = crate::cli::global::ConfirmAnswerGuard::force(true);
+        let _ = take_json_emit_count();
+        let code = run(args, &global).unwrap();
+        let emits = take_json_emit_count();
+        assert_eq!(
+            emits, 1,
+            "json+confirm yes must emit one envelope, got {emits}"
+        );
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "hi\n"
+        );
+    }
+
+    #[test]
+    fn json_confirm_no_emits_one_envelope() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+        let plan_file = dir.path().join("plan.json");
+        fs::write(
+            &plan_file,
+            r#"{"operations":[{"op":"replace","path":"a.txt","old":"hello","new":"hi"}]}"#,
+        )
+        .unwrap();
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: true,
+            verify: Vec::new(),
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.json = true;
+        global.confirm = true;
+        let _no = crate::cli::global::ConfirmAnswerGuard::force(false);
+        let _ = take_json_emit_count();
+        let code = run(args, &global).unwrap();
+        let emits = take_json_emit_count();
+        assert_eq!(
+            emits, 1,
+            "json+confirm no must emit one envelope, got {emits}"
+        );
+        assert_eq!(code, exit::CHANGES_DETECTED);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "hello\n"
+        );
+    }
+
+    #[test]
+    fn json_apply_still_emits_one_envelope() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "hello\n").unwrap();
+        let plan_file = dir.path().join("plan.json");
+        fs::write(
+            &plan_file,
+            r#"{"operations":[{"op":"replace","path":"a.txt","old":"hello","new":"hi"}]}"#,
+        )
+        .unwrap();
+        let args = TxArgs {
+            plan: plan_file.to_str().unwrap().to_string(),
+            plan_format: None,
+            no_strict: true,
+            verify: Vec::new(),
+            write: Default::default(),
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.json = true;
+        global.apply = true;
+        let _ = take_json_emit_count();
+        let code = run(args, &global).unwrap();
+        let emits = take_json_emit_count();
+        assert_eq!(emits, 1, "json+apply must stay one envelope, got {emits}");
+        assert_eq!(code, exit::SUCCESS);
+    }
 }

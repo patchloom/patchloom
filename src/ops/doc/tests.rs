@@ -171,6 +171,24 @@ mod basic {
     }
 
     #[test]
+    fn parse_toml_datetime_is_string_not_marker_map() {
+        let val = parse_doc("when = 2020-01-01T00:00:00Z\n", &FileFormat::Toml).unwrap();
+        assert_eq!(val["when"], json!("2020-01-01T00:00:00Z"));
+        assert!(
+            val.to_string().find("$__toml_private_datetime").is_none(),
+            "datetime must not leak the serde marker map: {val}"
+        );
+    }
+
+    #[test]
+    fn parse_toml_local_date_and_nested_datetime_are_strings() {
+        let toml = "[meta]\nday = 1979-05-27\nstamp = 1979-05-27T07:32:00\n";
+        let val = parse_doc(toml, &FileFormat::Toml).unwrap();
+        assert_eq!(val["meta"]["day"], json!("1979-05-27"));
+        assert_eq!(val["meta"]["stamp"], json!("1979-05-27T07:32:00"));
+    }
+
+    #[test]
     fn parse_toml_cr_only() {
         let val = parse_doc("a = 1\r", &FileFormat::Toml).unwrap();
         assert_eq!(val, json!({"a": 1}));
@@ -742,6 +760,11 @@ mod basic {
         );
         // Normal nested path should NOT be quoted
         assert!(paths.contains(&"normal.nested"));
+        // Flatten quotes must be parseable selectors (#2482).
+        let sel = selector::parse(r#""a.b""#).unwrap();
+        assert_eq!(sel, vec![selector::Segment::Key("a.b".into())]);
+        let hits = selector::eval(&val, &sel);
+        assert_eq!(hits, vec![&json!(1)]);
     }
 
     #[test]

@@ -118,6 +118,16 @@ fn split_last(segments: &[selector::Segment]) -> (&[selector::Segment], &selecto
     (parent, &last[0])
 }
 
+/// Array index from `Index(n)` or numeric `Key("n")`. Object key `"1"` stays
+/// a key unless the parent is an array (#2472).
+fn array_index_of(seg: &selector::Segment) -> Option<usize> {
+    match seg {
+        selector::Segment::Index(i) => Some(*i),
+        selector::Segment::Key(k) => k.parse::<usize>().ok(),
+        _ => None,
+    }
+}
+
 /// Set a value at the location described by `segments`.  Navigates to the
 /// parent (creating intermediate keys when needed) and inserts the value at
 /// the final Key or Index segment.
@@ -334,19 +344,20 @@ pub fn delete_where(
     segments: &[selector::Segment],
     predicate: &str,
 ) -> anyhow::Result<usize> {
-    let eq_pos = predicate.find('=').ok_or_else(|| {
-        anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: "predicate must be in key=value format".into(),
-        })
-    })?;
-    let pred_key = predicate[..eq_pos].trim();
+    let (raw_key, op, raw_val) = selector::split_predicate(predicate)
+        .map_err(|e| anyhow::Error::new(crate::exit::InvalidInputError { msg: e }))?
+        .ok_or_else(|| {
+            anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "predicate must be in key=value format".into(),
+            })
+        })?;
+    let pred_key = raw_key.trim();
     if pred_key.is_empty() {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "predicate key is empty; expected key=value format".into(),
         }));
     }
-    let raw_val = &predicate[eq_pos + 1..];
-    if raw_val.starts_with('=') {
+    if op == selector::PredicateOp::Eq && raw_val.starts_with('=') {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
             msg: "predicate uses '==' but only '=' is supported; use key=value format".into(),
         }));
@@ -363,28 +374,31 @@ pub fn delete_where(
     })?;
 
     let before_len = arr.len();
-    if pred_key == "_" || pred_key == "." {
-        // Simple value matching: compare the array item itself.
-        arr.retain(|item| !selector::value_matches_str(item, pred_val));
-    } else if pred_key == "value" {
-        // Agents often write value=X for scalar arrays. Prefer a real field
-        // named "value" on objects; fall back to element match for scalars.
-        arr.retain(|item| {
-            if let Some(field) = item.get("value") {
-                !selector::value_matches_str(field, pred_val)
-            } else if item.is_object() {
-                // Same as missing field: keep the item.
-                true
+    let hits: Result<Vec<bool>, _> = arr
+        .iter()
+        .map(|item| {
+            if pred_key == "_" || pred_key == "." {
+                selector::value_matches(item, op, pred_val)
+            } else if pred_key == "value" {
+                if let Some(field) = item.get("value") {
+                    selector::value_matches(field, op, pred_val)
+                } else if item.is_object() {
+                    Ok(false)
+                } else {
+                    selector::value_matches(item, op, pred_val)
+                }
             } else {
-                !selector::value_matches_str(item, pred_val)
+                selector::item_matches_predicate(item, pred_key, op, pred_val)
             }
-        });
-    } else {
-        arr.retain(|item| {
-            selector::get_nested(item, pred_key)
-                .is_none_or(|field| !selector::value_matches_str(field, pred_val))
-        });
-    }
+        })
+        .collect();
+    let hits = hits?;
+    let mut i = 0;
+    arr.retain(|_| {
+        let drop = hits[i];
+        i += 1;
+        !drop
+    });
     Ok(before_len - arr.len())
 }
 
@@ -423,29 +437,27 @@ pub fn move_at_path(
 
     // Intra-array move: source and destination share the same parent array.
     // Use remove-then-insert so index arithmetic stays correct (#1196).
+    // Numeric Key("1") is an index only when that parent is an array (#2472).
     if from_parent == to_parent
-        && let (selector::Segment::Index(fi), selector::Segment::Index(ti)) = (from_last, to_last)
+        && let (Some(fi), Some(ti)) = (array_index_of(from_last), array_index_of(to_last))
     {
         let parent = navigate_mut(root, from_parent, false, "doc.move")?;
-        let arr = parent.as_array_mut().ok_or_else(|| {
-            anyhow::Error::new(crate::exit::TypeErrorError {
-                msg: "parent is not an array".into(),
-            })
-        })?;
-        if *fi >= arr.len() {
-            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: format!("source index {fi} out of bounds"),
-            }));
+        if let Some(arr) = parent.as_array_mut() {
+            if fi >= arr.len() {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("source index {fi} out of bounds"),
+                }));
+            }
+            if ti >= arr.len() {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("target index {ti} out of bounds"),
+                }));
+            }
+            let val = arr.remove(fi);
+            let insert_at = ti.min(arr.len());
+            arr.insert(insert_at, val);
+            return Ok(());
         }
-        if *ti >= arr.len() {
-            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: format!("target index {ti} out of bounds"),
-            }));
-        }
-        let val = arr.remove(*fi);
-        let insert_at = (*ti).min(arr.len());
-        arr.insert(insert_at, val);
-        return Ok(());
     }
 
     // Cross-container move: clone-insert-remove so the tree is not mutated
@@ -1198,7 +1210,11 @@ mod tests {
         let mut root = json!({"items": []});
         let result = delete_where(&mut root, &segs("items"), "=val");
         assert!(result.is_err(), "expected error, got Ok: {result:?}");
-        assert!(result.unwrap_err().to_string().contains("key is empty"));
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("empty"),
+            "expected empty-key error, got: {err}"
+        );
     }
 
     #[test]
@@ -1211,6 +1227,47 @@ mod tests {
             err_msg.contains("predicate uses '=='"),
             "error should mention '==' predicate misuse: {err_msg}"
         );
+    }
+
+    #[test]
+    fn delete_where_ne_removes_non_matching() {
+        let mut root = json!({"items": [{"k": "a"}, {"k": "b"}, {"k": "a"}]});
+        let n = delete_where(&mut root, &segs("items"), "k!=a").unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(root["items"], json!([{"k": "a"}, {"k": "a"}]));
+    }
+
+    #[test]
+    fn delete_where_numeric_compares() {
+        let base = json!({"items": [{"n": 5}, {"n": 10}, {"n": 15}]});
+
+        let mut root = base.clone();
+        let n = delete_where(&mut root, &segs("items"), "n>=10").unwrap();
+        assert_eq!(n, 2, ">=10");
+        assert_eq!(root["items"], json!([{"n": 5}]));
+
+        let mut root = base.clone();
+        let n = delete_where(&mut root, &segs("items"), "n<=5").unwrap();
+        assert_eq!(n, 1, "<=5");
+        assert_eq!(root["items"], json!([{"n": 10}, {"n": 15}]));
+
+        let mut root = base.clone();
+        let n = delete_where(&mut root, &segs("items"), "n>10").unwrap();
+        assert_eq!(n, 1, ">10");
+        assert_eq!(root["items"], json!([{"n": 5}, {"n": 10}]));
+
+        let mut root = base;
+        let n = delete_where(&mut root, &segs("items"), "n<10").unwrap();
+        assert_eq!(n, 1, "<10");
+        assert_eq!(root["items"], json!([{"n": 10}, {"n": 15}]));
+    }
+
+    #[test]
+    fn delete_where_scalar_ne() {
+        let mut root = json!({"tags": ["a", "b", "a"]});
+        let n = delete_where(&mut root, &segs("tags"), "_!=a").unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(root["tags"], json!(["a", "a"]));
     }
 
     #[test]
@@ -1325,6 +1382,45 @@ mod tests {
         let mut root = json!({"arr": [10, 20, 30]});
         move_at_path(&mut root, &segs("arr[2]"), &segs("arr[0]")).unwrap();
         assert_eq!(root["arr"], json!([30, 10, 20]));
+    }
+
+    /// #2472: `items.1` is Key("1"), not Index. Same-array move must still
+    /// remove-then-insert for every dot/bracket pairing.
+    fn assert_same_array_move_1_to_0(from: &str, to: &str) {
+        let mut root = json!({"items": ["a", "b", "c"]});
+        move_at_path(&mut root, &segs(from), &segs(to)).unwrap();
+        assert_eq!(
+            root["items"],
+            json!(["b", "a", "c"]),
+            "from={from} to={to} produced {root}"
+        );
+    }
+
+    #[test]
+    fn move_at_path_same_array_bracket_to_bracket() {
+        assert_same_array_move_1_to_0("items[1]", "items[0]");
+    }
+
+    #[test]
+    fn move_at_path_same_array_dot_to_dot() {
+        assert_same_array_move_1_to_0("items.1", "items.0");
+    }
+
+    #[test]
+    fn move_at_path_same_array_bracket_to_dot() {
+        assert_same_array_move_1_to_0("items[1]", "items.0");
+    }
+
+    #[test]
+    fn move_at_path_same_array_dot_to_bracket() {
+        assert_same_array_move_1_to_0("items.1", "items[0]");
+    }
+
+    #[test]
+    fn move_at_path_numeric_object_key_is_not_array_index() {
+        let mut root = json!({"map": {"1": "a", "0": "b", "x": "c"}});
+        move_at_path(&mut root, &segs("map.1"), &segs("map.0")).unwrap();
+        assert_eq!(root["map"], json!({"0": "a", "x": "c"}));
     }
 
     // ── #1288: numeric dot-notation on arrays ──────────────────────

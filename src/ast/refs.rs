@@ -62,6 +62,8 @@ const IDENTIFIER_KINDS: &[&str] = &[
     "shorthand_field_identifier",
     "property_identifier",
     "simple_identifier",
+    "name",
+    "constant",
 ];
 
 /// Node kinds whose subtrees should be skipped (strings, comments).

@@ -175,8 +175,7 @@ fn parse_search_replace_inner(
 
         let block = &block[..end + end_marker_len];
 
-        let separator = block
-            .find("=======")
+        let separator = find_search_replace_separator(block)
             .ok_or_else(|| SearchReplaceParseError::malformed("missing ======= separator"))?;
 
         let search_section = &block["<<<<<<< SEARCH".len()..separator];
@@ -197,10 +196,7 @@ fn parse_search_replace_inner(
             (f, c)
         };
 
-        let replace_section = &block[separator + "=======".len()..];
-        let replace_section = replace_section
-            .strip_prefix('\n')
-            .unwrap_or(replace_section);
+        let replace_section = after_search_replace_separator(block, separator);
         let new_content = if let Some(stripped) = replace_section.strip_suffix("\n>>>>>>> REPLACE")
         {
             stripped.to_string()
@@ -224,6 +220,28 @@ fn parse_search_replace_inner(
     }
 
     Ok(actions)
+}
+
+/// Byte offset of a whole line that is exactly `=======` (optional trailing whitespace).
+fn find_search_replace_separator(block: &str) -> Option<usize> {
+    let mut offset = 0;
+    for line in block.split_inclusive('\n') {
+        let without_nl = line.strip_suffix('\n').unwrap_or(line);
+        let without_eol = without_nl.strip_suffix('\r').unwrap_or(without_nl);
+        if without_eol.trim_end() == "=======" {
+            return Some(offset);
+        }
+        offset += line.len();
+    }
+    None
+}
+
+fn after_search_replace_separator(block: &str, separator: usize) -> &str {
+    let rest = &block[separator..];
+    match rest.find('\n') {
+        Some(n) => &rest[n + 1..],
+        None => "",
+    }
 }
 
 fn strip_eos_tokens(response: &str) -> String {
@@ -450,5 +468,62 @@ the new text
         let blocks = parse_search_replace(input).expect("no dashes");
         assert_eq!(blocks[0].path, "only.rs");
         assert_eq!(blocks[0].old, "the old text");
+    }
+
+    #[test]
+    fn parse_search_replace_banner_equals_is_not_separator() {
+        let input = "\
+<<<<<<< SEARCH
+f.py
+-------
+# ==========
+title
+=======
+# ==========
+renamed
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("banner equals");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].path, "f.py");
+        assert_eq!(blocks[0].old, "# ==========\ntitle");
+        assert_eq!(blocks[0].new, "# ==========\nrenamed");
+    }
+
+    #[test]
+    fn parse_search_replace_setext_underline_is_not_separator() {
+        let input = "\
+<<<<<<< SEARCH
+doc.md
+-------
+Heading
+==========
+=======
+Heading
+==========
+updated
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("setext underline");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].path, "doc.md");
+        assert_eq!(blocks[0].old, "Heading\n==========");
+        assert_eq!(blocks[0].new, "Heading\n==========\nupdated");
+    }
+
+    #[test]
+    fn parse_search_replace_separator_allows_trailing_whitespace() {
+        let input = "\
+<<<<<<< SEARCH
+a.rs
+-------
+old
+=======  
+new
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("trailing ws on separator");
+        assert_eq!(blocks[0].old, "old");
+        assert_eq!(blocks[0].new, "new");
     }
 }

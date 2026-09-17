@@ -341,6 +341,12 @@ fn detect_pure_renames(
         if !new_content.is_empty() {
             continue;
         }
+        // Empty original is indistinguishable from a binary / FIFO /
+        // dangling-symlink soft-load. Pairing it with an empty create
+        // would rename those bytes onto the new dest (#2469).
+        if original.is_empty() {
+            continue;
+        }
         sources_by_content
             .entry(original.as_str())
             .or_default()
@@ -417,6 +423,27 @@ mod tests {
         assert!(
             pairs.is_empty(),
             "force-overwrite dest is not a pure rename"
+        );
+    }
+
+    /// Binary / FIFO / dangling-symlink deletes soft-load as empty original.
+    /// Pairing that empty body with an empty `file.create` would
+    /// `rename_or_copy` the binary onto the new path (#2469).
+    #[test]
+    fn detect_pure_renames_skips_empty_original_source() {
+        let from = PathBuf::from("/tmp/ws/image.png");
+        let to = PathBuf::from("/tmp/ws/notes.txt");
+        let changes = vec![
+            (to.clone(), String::new(), String::new()),
+            (from.clone(), String::new(), String::new()),
+        ];
+        let mut deletions = HashSet::new();
+        deletions.insert(from);
+        let existed = HashSet::new();
+        let pairs = detect_pure_renames(&changes, &deletions, &existed);
+        assert!(
+            pairs.is_empty(),
+            "empty original (binary/soft-load) must not pair with empty create"
         );
     }
 }

@@ -53,8 +53,10 @@ pub(super) fn check_file(
         _ => {}
     }
 
-    // Check missing final newline.
-    if !data.is_empty() && !data.ends_with(b"\n") {
+    // Check missing final newline. A trailing CR counts when that is the file EOL.
+    let eol = crate::write::detect_eol(&text);
+    let has_final_newline = data.ends_with(b"\n") || (eol == "\r" && data.ends_with(b"\r"));
+    if !data.is_empty() && !has_final_newline {
         issues.push(TidyIssue {
             path: path_str.clone(),
             issue: "missing final newline",
@@ -117,15 +119,11 @@ pub(super) fn check_file(
     if !check_trailing_ws {
         return issues;
     }
-    for (line_idx, raw_line) in data.split(|&b| b == b'\n').enumerate() {
-        // Strip trailing \r if present (from CRLF).
-        let content = raw_line.strip_suffix(b"\r").unwrap_or(raw_line);
-        // Skip completely empty lines and the phantom empty element after a
-        // trailing newline.
-        if content.is_empty() {
+    for (line_idx, line) in crate::ops::file::text_lines(&text).enumerate() {
+        if line.is_empty() {
             continue;
         }
-        if matches!(content.last(), Some(b' ' | b'\t')) {
+        if matches!(line.as_bytes().last(), Some(b' ' | b'\t')) {
             issues.push(TidyIssue {
                 path: path_str.clone(),
                 issue: "trailing whitespace",
