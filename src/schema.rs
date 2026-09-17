@@ -268,7 +268,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "tidy.fix",
-        description: "Normalize whitespace in a file. When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; normalize_eol stays keep). Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).",
+        description: "Normalize whitespace in a file or directory. A directory path expands with the same ignore-aware walker as CLI tidy fix (one write per text file). When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; normalize_eol stays keep). Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).",
         tier: Tier::Weak,
         examples: &[
             (
@@ -278,6 +278,10 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
             (
                 "Bare tidy.fix uses CLI tidy-fix defaults",
                 r###"{"op":"tidy.fix","path":"src/main.rs"}"###,
+            ),
+            (
+                "Directory path expands like CLI tidy fix",
+                r###"{"op":"tidy.fix","path":"docs/"}"###,
             ),
         ],
     },

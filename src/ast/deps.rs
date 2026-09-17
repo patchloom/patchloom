@@ -139,6 +139,9 @@ fn collect_imports(
         Language::C | Language::Cpp => collect_c_imports(node, source, imports),
         Language::Ruby => collect_ruby_imports(node, source, imports),
         Language::Php => collect_php_imports(node, source, imports),
+        Language::CSharp => collect_csharp_imports(node, source, imports),
+        Language::Shell => collect_shell_imports(node, source, imports),
+        Language::Hcl => collect_hcl_imports(node, source, imports),
         _ => collect_generic_imports(node, source, imports),
     }
 }
@@ -424,6 +427,87 @@ fn collect_php_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut 
     if cursor.goto_first_child() {
         loop {
             collect_php_imports(cursor.node(), source, imports);
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+fn collect_csharp_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut Vec<Import>) {
+    if node.kind() == "using_directive" {
+        if let Ok(text) = node.utf8_text(source.as_bytes()) {
+            let path = extract_path_from_text(text, &["using static ", "using "], &[';']);
+            imports.push(Import {
+                path,
+                line: node.start_position().row + 1,
+                raw: text.trim().to_string(),
+            });
+        }
+        return;
+    }
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            collect_csharp_imports(cursor.node(), source, imports);
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+fn collect_shell_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut Vec<Import>) {
+    if node.kind() == "command"
+        && let Ok(text) = node.utf8_text(source.as_bytes())
+    {
+        let trimmed = text.trim();
+        if trimmed.starts_with("source ") || trimmed.starts_with(". ") {
+            let path = extract_quoted_string(trimmed).unwrap_or_else(|| {
+                trimmed
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or(trimmed)
+                    .to_string()
+            });
+            imports.push(Import {
+                path,
+                line: node.start_position().row + 1,
+                raw: trimmed.to_string(),
+            });
+            return;
+        }
+    }
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            collect_shell_imports(cursor.node(), source, imports);
+            if !cursor.goto_next_sibling() {
+                break;
+            }
+        }
+    }
+}
+
+fn collect_hcl_imports(node: tree_sitter_lib::Node, source: &str, imports: &mut Vec<Import>) {
+    if node.kind() == "attribute"
+        && let Ok(text) = node.utf8_text(source.as_bytes())
+    {
+        let trimmed = text.trim();
+        if trimmed.starts_with("source ") || trimmed.starts_with("source=") {
+            let path = extract_quoted_string(trimmed).unwrap_or_else(|| trimmed.to_string());
+            imports.push(Import {
+                path,
+                line: node.start_position().row + 1,
+                raw: trimmed.to_string(),
+            });
+            return;
+        }
+    }
+    let mut cursor = node.walk();
+    if cursor.goto_first_child() {
+        loop {
+            collect_hcl_imports(cursor.node(), source, imports);
             if !cursor.goto_next_sibling() {
                 break;
             }
@@ -766,6 +850,53 @@ namespace app {
             paths.contains(&"os"),
             "plain import should extract 'os', got {:?}",
             paths
+        );
+    }
+
+    #[test]
+    fn csharp_using_directives() {
+        let source = "using System;\nusing System.IO;\nusing static System.Math;\n";
+        let imports = extract_imports(source, Language::CSharp);
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(
+            paths
+                .iter()
+                .any(|p| p.contains("System") && !p.contains("IO")),
+            "using System: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains("System.IO")),
+            "using System.IO: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains("System.Math")),
+            "using static System.Math: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn shell_source_and_dot() {
+        let source = "source ./lib.sh\n. /etc/profile\n";
+        let imports = extract_imports(source, Language::Shell);
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(
+            paths.iter().any(|p| p.contains("lib.sh")),
+            "source ./lib.sh: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|p| p.contains("/etc/profile")),
+            ". /etc/profile: {paths:?}"
+        );
+    }
+
+    #[test]
+    fn hcl_module_source() {
+        let source = "module \"vpc\" {\n  source = \"./modules/vpc\"\n}\n";
+        let imports = extract_imports(source, Language::Hcl);
+        let paths: Vec<&str> = imports.iter().map(|i| i.path.as_str()).collect();
+        assert!(
+            paths.iter().any(|p| p.contains("./modules/vpc")),
+            "module source: {paths:?}"
         );
     }
 
