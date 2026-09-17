@@ -158,7 +158,7 @@ fn contract_execute_via_engine_no_preview_diffs_delete() {
 }
 
 // ---------------------------------------------------------------------------
-// Path 2: execute_operations  (representative: tidy multi-file fix)
+// Path 2: execute_precomputed  (representative: tidy multi-file fix)
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -170,7 +170,7 @@ fn contract_execute_operations_tidy() {
     let clean = "line without final newline\n";
 
     assert_write_path_contract(
-        "execute_operations/tidy",
+        "execute_precomputed/tidy",
         &dir,
         |cmd| {
             cmd.arg("tidy")

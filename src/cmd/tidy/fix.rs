@@ -3,8 +3,7 @@
 use crate::cli::global::GlobalFlags;
 use crate::diff::render_diffs_colored;
 use crate::exit;
-use crate::plan::Operation;
-use crate::tx::engine::{ExecutionResult, WriteSource};
+use crate::tx::engine::{ExecuteOptions, ExecutionResult, WriteRequest, WriteSource};
 use crate::write::{apply_policy, policy_from_flags};
 use serde::Serialize;
 use std::path::Path;
@@ -38,6 +37,7 @@ struct TidyFixOutput {
 }
 
 /// Convert `EolMode` to the string format expected by `Operation::TidyFix`.
+#[cfg(test)]
 pub(super) fn eol_mode_to_str(mode: crate::cli::global::EolMode) -> &'static str {
     match mode {
         crate::cli::global::EolMode::Lf => "lf",
@@ -315,7 +315,7 @@ pub(super) fn run_fix(
     };
 
     let charset_err = std::sync::Mutex::new(None::<&'static str>);
-    let dirty_rel_paths: Vec<String> = crate::par_process_files(
+    let dirty: Vec<(String, String, String)> = crate::par_process_files(
         &fix_file_paths,
         glob_matcher.as_ref(),
         &glob_roots,
@@ -339,6 +339,12 @@ pub(super) fn run_fix(
                 fixed = crate::write::indent_content(&fixed, spec, line_range);
             }
             fixed = crate::write::apply_charset(&fixed, charset).into_owned();
+            // Charset on an empty file is only a BOM; apply efn after so
+            // utf-8-bom + insert_final_newline is BOM then EOL (#2373 / #2494).
+            if policy.ensure_final_newline {
+                fixed =
+                    crate::write::ensure_final_newline(&fixed, policy.normalize_eol).into_owned();
+            }
             if fixed == *original {
                 return None;
             }
@@ -347,17 +353,17 @@ pub(super) fn run_fix(
                 .unwrap_or(file_path)
                 .to_string_lossy()
                 .to_string();
-            Some(rel_path)
+            Some((rel_path, original, fixed))
         },
     );
 
-    crate::verbose!("tidy: {} file(s) need fixing", dirty_rel_paths.len());
+    crate::verbose!("tidy: {} file(s) need fixing", dirty.len());
     if let Some(name) = charset_err.into_inner().unwrap_or_else(|e| e.into_inner()) {
         let msg = format!("editorconfig charset '{name}' is not supported; use utf-8 or utf-8-bom");
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if dirty_rel_paths.is_empty() {
+    if dirty.is_empty() {
         let all_missing = if let Some(ref files) = files_from_list {
             crate::files::all_explicit_paths_missing(files, Some(&cwd))
         } else {
@@ -396,29 +402,14 @@ pub(super) fn run_fix(
         return Ok(exit::SUCCESS);
     }
 
-    let eol_str = policy_flags.normalize_eol.map(eol_mode_to_str);
-    let collapse = if policy_flags.collapse_blanks {
-        Some(true)
-    } else {
-        None
-    };
-    let ops: Vec<Operation> = dirty_rel_paths
-        .iter()
-        .map(|rel_path| Operation::TidyFix {
-            path: rel_path.clone(),
-            ensure_final_newline: Some(policy_flags.ensure_final_newline),
-            trim_trailing_whitespace: Some(policy_flags.trim_trailing_whitespace),
-            normalize_eol: eol_str.map(String::from),
-            collapse_blanks: collapse,
-            dedent: dedent.clone(),
-            indent: indent.clone(),
-            lines: lines.clone(),
-        })
-        .collect();
-
-    // Mode/apply still come from the caller's global flags; only the
-    // write-policy fields use the effective check-parity defaults above.
-    let (cwd, result) = crate::cmd::output::stage_for_write(WriteSource::Operations(ops), global)?;
+    let dirty_rel_paths: Vec<String> = dirty.iter().map(|(p, _, _)| p.clone()).collect();
+    let precomputed = dirty;
+    let guard = global.workspace_guard(&cwd)?;
+    let options = ExecuteOptions::from_global(&cwd, global, guard.as_ref()).skip_write_policy();
+    let result = crate::tx::engine::stage(WriteRequest {
+        source: WriteSource::Precomputed(precomputed),
+        options,
+    })?;
 
     let refuse_paths: &[String] = files_from_list.as_deref().unwrap_or(&paths);
     let refused = crate::ops::file::explicit_multi_path_non_text_refused(refuse_paths, &cwd);
