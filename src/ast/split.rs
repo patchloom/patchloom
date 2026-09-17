@@ -101,6 +101,26 @@ pub fn split_file(
         }
     }
 
+    // Fail closed on names that do not exist (targets and keep_in_source).
+    {
+        let found = collect_symbol_names(&all_symbols);
+        let mut missing: Vec<&str> = Vec::new();
+        for name in targets
+            .iter()
+            .flat_map(|t| t.symbols.iter())
+            .chain(keep_in_source.iter())
+        {
+            if !found.contains(name.as_str()) && !missing.contains(&name.as_str()) {
+                missing.push(name);
+            }
+        }
+        if !missing.is_empty() {
+            return Err(anyhow::Error::new(crate::exit::NoMatchError {
+                msg: format!("symbol(s) not found: {}", missing.join(", ")),
+            }));
+        }
+    }
+
     // Validate exhaustiveness
     if require_exhaustive {
         let mut unaccounted: Vec<&str> = Vec::new();
@@ -211,6 +231,21 @@ pub fn split_file(
         targets: result_targets,
         symbols_distributed,
     })
+}
+
+fn collect_symbol_names(symbols: &[super::symbols::SymbolDef]) -> std::collections::HashSet<&str> {
+    let mut names = std::collections::HashSet::new();
+    fn walk<'a>(
+        symbols: &'a [super::symbols::SymbolDef],
+        names: &mut std::collections::HashSet<&'a str>,
+    ) {
+        for sym in symbols {
+            names.insert(sym.name.as_str());
+            walk(&sym.children, names);
+        }
+    }
+    walk(symbols, &mut names);
+    names
 }
 
 #[cfg(test)]
@@ -700,6 +735,64 @@ mod tests {
                 "message must say must not be empty: {err}"
             );
         }
+    }
+
+    /// #2528: a typo'd target or keep_in_source name is no_matches, no write.
+    #[test]
+    fn split_missing_target_symbol_is_no_matches() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["nonexistent".into()],
+            prepend: Some("use super::*;".into()),
+        }];
+        let err = split_file(
+            source,
+            &targets,
+            &["alpha".into(), "beta".into()],
+            None,
+            None,
+            false,
+            Language::Rust,
+        )
+        .expect_err("missing target symbol must be no_matches");
+        assert!(
+            crate::exit::is_no_match(&err),
+            "missing target must classify as no_matches: {err}"
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("nonexistent"),
+            "must list the missing target name: {msg}"
+        );
+    }
+
+    #[test]
+    fn split_missing_keep_in_source_is_no_matches() {
+        let source = "fn alpha() {}\n\nfn beta() {}\n";
+        let targets = vec![SplitTarget {
+            path: "a.rs".into(),
+            symbols: vec!["alpha".into()],
+            prepend: None,
+        }];
+        let err = split_file(
+            source,
+            &targets,
+            &["betta".into()],
+            None,
+            None,
+            false,
+            Language::Rust,
+        )
+        .expect_err("typo in keep_in_source must be no_matches");
+        assert!(
+            crate::exit::is_no_match(&err),
+            "missing keep_in_source must classify as no_matches: {err}"
+        );
+        assert!(
+            err.to_string().contains("betta"),
+            "must list the missing keep_in_source name: {err}"
+        );
     }
 
     #[test]

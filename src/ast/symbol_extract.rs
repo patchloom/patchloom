@@ -176,6 +176,18 @@ fn extract_rust(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind
             let name = child_text_by_kind(node, "identifier", source)?;
             Some((SymbolKind::Module, name.to_string()))
         }
+        "static_item" => {
+            let name = child_text_by_kind(node, "identifier", source)?;
+            Some((SymbolKind::Const, name.to_string()))
+        }
+        "macro_definition" => {
+            let name = child_text_by_kind(node, "identifier", source)?;
+            Some((SymbolKind::Function, name.to_string()))
+        }
+        "union_item" => {
+            let name = child_text_by_kind(node, "type_identifier", source)?;
+            Some((SymbolKind::Struct, name.to_string()))
+        }
         _ => None,
     }
 }

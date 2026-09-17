@@ -74,11 +74,11 @@ pub fn wrap_code(
         ""
     };
 
+    let (wrapper_opening, closer) = wrap_delimiters(wrapper, lang)?;
+
     // Build the wrapped output
     let mut wrapped = String::new();
 
-    // Opening line: wrapper + opening brace
-    let wrapper_opening = format_wrapper_opening(wrapper);
     wrapped.push_str(base_indent);
     wrapped.push_str(&wrapper_opening);
     wrapped.push_str(eol);
@@ -109,10 +109,11 @@ pub fn wrap_code(
         }
     }
 
-    // Closing brace
-    wrapped.push_str(base_indent);
-    wrapped.push('}');
-    wrapped.push_str(eol);
+    if let Some(close) = closer {
+        wrapped.push_str(base_indent);
+        wrapped.push_str(close);
+        wrapped.push_str(eol);
+    }
 
     // Reconstruct the file
     let mut result = String::new();
@@ -134,19 +135,50 @@ pub fn wrap_code(
     Ok(WrapResult { content: result })
 }
 
-/// Format the wrapper opening line.
-///
-/// Handles patterns like:
-/// - "mod foo" -> "mod foo {"
-/// - "impl Bar" -> "impl Bar {"
-/// - "#[cfg(test)]" -> "#[cfg(test)] {"  (attribute-like)
-/// - "pub(crate) mod helpers" -> "pub(crate) mod helpers {"
-fn format_wrapper_opening(wrapper: &str) -> String {
+/// Opening line and optional closer for `lang`. Brace languages keep
+/// `{` / `}`; Python uses `:`; Ruby uses `end`. Other languages refuse.
+fn wrap_delimiters(
+    wrapper: &str,
+    lang: Language,
+) -> anyhow::Result<(String, Option<&'static str>)> {
     let trimmed = wrapper.trim();
-    if trimmed.ends_with('{') {
-        trimmed.to_string()
-    } else {
-        format!("{trimmed} {{")
+    match lang {
+        Language::Rust
+        | Language::TypeScript
+        | Language::JavaScript
+        | Language::Go
+        | Language::Java
+        | Language::CSharp
+        | Language::Php
+        | Language::Swift
+        | Language::Kotlin
+        | Language::Cpp
+        | Language::C
+        | Language::Hcl
+        | Language::Protobuf => {
+            let open = if trimmed.ends_with('{') {
+                trimmed.to_string()
+            } else {
+                format!("{trimmed} {{")
+            };
+            Ok((open, Some("}")))
+        }
+        Language::Python => {
+            let core = trimmed.trim_end_matches('{').trim_end();
+            let open = if core.ends_with(':') {
+                core.to_string()
+            } else {
+                format!("{core}:")
+            };
+            Ok((open, None))
+        }
+        Language::Ruby => {
+            let open = trimmed.trim_end_matches('{').trim_end().to_string();
+            Ok((open, Some("end")))
+        }
+        other => Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("ast wrap does not support {other} (no known wrapping form)"),
+        })),
     }
 }
 
@@ -533,6 +565,66 @@ mod tests {
         assert!(
             err.to_string().contains("must not be empty"),
             "message must say must not be empty: {err}"
+        );
+    }
+
+    /// #2527: Python wrap uses `wrapper:` and no closing brace.
+    #[test]
+    fn wrap_python_uses_colon_not_braces() {
+        let source = "def a():\n    return 1\n\ndef b():\n    return 2\n";
+        let result = wrap_code(
+            source,
+            Some(&["a".into(), "b".into()]),
+            None,
+            "class Util",
+            None,
+            Language::Python,
+        )
+        .unwrap();
+        assert_eq!(
+            result.content,
+            "class Util:\n    def a():\n        return 1\n\n    def b():\n        return 2\n"
+        );
+        assert!(
+            !result.content.contains('{') && !result.content.contains('}'),
+            "Python wrap must not emit braces: {}",
+            result.content
+        );
+    }
+
+    /// #2527: Ruby wrap uses `wrapper` / `end`, not braces.
+    #[test]
+    fn wrap_ruby_uses_end_not_braces() {
+        let source = "def a\n  1\nend\n\ndef b\n  2\nend\n";
+        let result = wrap_code(
+            source,
+            Some(&["a".into(), "b".into()]),
+            None,
+            "module Util",
+            None,
+            Language::Ruby,
+        )
+        .unwrap();
+        assert!(
+            result.content.starts_with("module Util\n"),
+            "Ruby wrap must open with the wrapper line: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("    def a") && result.content.contains("    def b"),
+            "wrapped methods must be indented: {}",
+            result.content
+        );
+        let trimmed = result.content.trim_end();
+        assert!(
+            trimmed.ends_with("\nend") || trimmed.ends_with("end"),
+            "Ruby wrap must close with end: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains('{') && !result.content.contains('}'),
+            "Ruby wrap must not emit braces: {}",
+            result.content
         );
     }
 

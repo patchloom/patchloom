@@ -150,16 +150,22 @@ fn insert_inside(
 
     match position {
         InsertPosition::End => {
-            // Insert before the closing brace of the container.
-            // The closing brace is typically on end_line (1-based), i.e. end_idx - 1 (0-based).
+            // Brace / `end` languages: insert before the closer. Brace-less
+            // languages (Python): insert after the last container line (#2526).
+            let insert_before_idx =
+                if is_closer_line(ctx.lines.get(close_line_idx).copied().unwrap_or("")) {
+                    close_line_idx
+                } else {
+                    end_idx.min(ctx.lines.len())
+                };
 
-            for line in &ctx.lines[..close_line_idx] {
+            for line in &ctx.lines[..insert_before_idx] {
                 result.push_str(line);
                 result.push_str(ctx.eol);
             }
 
             // Add a blank line before if the previous content doesn't end with one
-            if close_line_idx > 0 && !ctx.lines[close_line_idx - 1].trim().is_empty() {
+            if insert_before_idx > 0 && !ctx.lines[insert_before_idx - 1].trim().is_empty() {
                 result.push_str(ctx.eol);
             }
             result.push_str(&adjusted);
@@ -167,12 +173,12 @@ fn insert_inside(
                 result.push_str(ctx.eol);
             }
 
-            for line in &ctx.lines[close_line_idx..] {
+            for line in &ctx.lines[insert_before_idx..] {
                 result.push_str(line);
                 result.push_str(ctx.eol);
             }
 
-            let inserted_at = close_line_idx + 1; // 1-based
+            let inserted_at = insert_before_idx + 1; // 1-based
 
             // Preserve trailing newline behavior
             if !ctx.source.ends_with('\n') && result.ends_with('\n') {
@@ -295,6 +301,18 @@ fn insert_adjacent(
         content: result,
         inserted_at_line: inserted_at,
     })
+}
+
+/// True when a line is a block closer (`}` / Ruby `end`), not a statement.
+fn is_closer_line(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() {
+        return false;
+    }
+    if t.starts_with('}') {
+        return true;
+    }
+    t == "end" || t.starts_with("end ") || t.starts_with("end;") || t.starts_with("end#")
 }
 
 /// Find the line with the opening brace/colon of a container.
@@ -603,6 +621,27 @@ mod tests {
         )
         .unwrap();
         assert!(result.content.contains("def new_method"));
+    }
+
+    /// #2526: `position=end` must insert after the last class statement, not
+    /// splice before the last method's last line.
+    #[test]
+    fn insert_python_inside_end_is_after_last_statement() {
+        let source = "class Foo:\n    def a(self):\n        return 1\n";
+        let result = insert_code(
+            source,
+            "def b(self):\n    return 2",
+            Some("Foo"),
+            None,
+            None,
+            InsertPosition::End,
+            Language::Python,
+        )
+        .unwrap();
+        assert_eq!(
+            result.content,
+            "class Foo:\n    def a(self):\n        return 1\n\n    def b(self):\n        return 2\n"
+        );
     }
 
     #[test]
