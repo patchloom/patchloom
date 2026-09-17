@@ -222,7 +222,7 @@ fn editorconfig_check_props(_path: &Path) -> EditorconfigCheck {
 
 /// First walk plus issues. Remask reuses `scanned`; keep this off the
 /// public [`TidyIssue`] surface (crate-private, not a library type).
-pub(super) struct CollectedIssues {
+pub(crate) struct CollectedIssues {
     pub issues: Vec<TidyIssue>,
     pub scanned: Vec<std::path::PathBuf>,
 }
@@ -240,7 +240,7 @@ pub(super) fn collect_issues(
 
 /// Like [`collect_issues`], with a pre-read `--files-from` list (stdin once).
 /// Returns the first walk so empty-scan remask can reuse it.
-pub(super) fn collect_issues_with_list(
+pub(crate) fn collect_issues_with_list(
     paths: &[String],
     global: &GlobalFlags,
     files_from_preload: Option<&[String]>,

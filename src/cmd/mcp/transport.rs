@@ -74,7 +74,7 @@ fn full_server_instructions() -> String {
          - Markdown ops (by heading): md_replace_section, md_upsert_bullet, \
          md_table_append, md_insert_after_heading, md_insert_after_section, md_insert_before_heading, \
          md_move_section, md_dedupe_headings, md_lint\n\
-         - Text ops: replace_text, batch_replace, search_files, list_files, apply_fragment, apply_patch\n\
+         - Text ops: replace_text, batch_replace, search_files, list_files, apply_fragment, apply_patch, tidy_check\n\
          - File ops: create_file, read_file, delete_file, move_file, append_file, \
          prepend_file, fix_whitespace, batch_tidy, git_status, undo_list, undo_restore\n",
     );
@@ -88,7 +88,7 @@ fn full_server_instructions() -> String {
          ast_split, ast_map, ast_validate\n",
     );
     s.push_str(
-        "- Plan ops: execute_plan\n\
+        "- Plan ops: execute_plan, explain_plan\n\
          - Server: server_info\n\n\
          Use doc_* tools for parser-backed JSON/YAML/TOML mutations by selector path \
          (e.g. doc_set for setting values, doc_merge for merging objects). Use replace_text \

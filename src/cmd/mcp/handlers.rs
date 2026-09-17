@@ -119,6 +119,86 @@ fn map_undo_mcp_err(e: anyhow::Error) -> McpError {
     }
 }
 
+fn json_tool_result(value: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+}
+
+fn json_tool_error(value: &serde_json::Value) -> Result<CallToolResult, McpError> {
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    Ok(CallToolResult::error(vec![ContentBlock::text(json)]))
+}
+
+fn undo_no_matches_envelope(msg: &str) -> Result<CallToolResult, McpError> {
+    json_tool_result(&serde_json::json!({
+        "ok": false,
+        "error_kind": "no_matches",
+        "error": msg,
+        "applied": false,
+    }))
+}
+
+/// Check-only patch preview. Disk is unchanged (`ApplyMode::Preview`).
+fn preview_apply_patch(
+    svc: &PatchloomService,
+    p: &PatchParams,
+) -> Result<CallToolResult, McpError> {
+    let cwd = svc.cwd();
+    let guard = Some(&svc.path_guard);
+    let results = if crate::ops::begin_patch::looks_like_begin_patch(&p.diff) {
+        crate::api::apply_begin_patch(&p.diff, cwd, None, crate::api::ApplyMode::Preview, guard)
+    } else if crate::ops::search_replace::looks_like_search_replace(&p.diff) {
+        crate::api::apply_search_replace_document(
+            &p.diff,
+            cwd,
+            &crate::api::ApplySearchReplaceOptions {
+                replace_all: p.replace_all,
+                ..Default::default()
+            },
+            crate::api::ApplyMode::Preview,
+            guard,
+        )
+    } else {
+        crate::api::apply_patch_file(&p.diff, cwd, crate::api::ApplyMode::Preview, guard)
+    };
+    match results {
+        Ok(rs) => {
+            let files: Vec<serde_json::Value> = rs
+                .iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "path": r.path,
+                        "status": if r.changed { "would_change" } else { "unchanged" },
+                        "changed": r.changed,
+                    })
+                })
+                .collect();
+            let any = rs.iter().any(|r| r.changed);
+            let mut payload = serde_json::json!({
+                "ok": true,
+                "applied": false,
+                "files": files,
+            });
+            if any {
+                payload["error_kind"] = serde_json::json!("changes_detected");
+            }
+            json_tool_result(&payload)
+        }
+        Err(e) => {
+            let kind = crate::fallback::error_kind_str(&e).unwrap_or("parse_error");
+            let msg = crate::exit::agent_error_message(&e);
+            json_tool_error(&serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": kind,
+                "error": msg,
+            }))
+        }
+    }
+}
+
 /// Create a new tool router with all hand-written `#[tool]` handlers registered.
 ///
 /// This wraps the `#[tool_router]`-generated private `tool_router()` method
@@ -669,7 +749,7 @@ impl PatchloomService {
     }
 
     #[tool(
-        description = "Apply a unified diff, a Codex *** Begin Patch document, or an Aider SEARCH/REPLACE / DiffFenced document. The diff parameter is the full unified diff text, a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move), or <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks (path on the first line after SEARCH). SEARCH/REPLACE is unique by default (multi-match is ambiguous, no write); set replace_all=true to update every exact match. Empty-hunk +++ /dev/null (git deleted file mode, no hunks) unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview --diff). Stale minus lines are ambiguous and the file is not removed; regenerate minus lines or use file.delete for path-only unlink. Use on_stale=merge for three-way merge on stale unified-diff context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
+        description = "Apply a unified diff, a Codex *** Begin Patch document, or an Aider SEARCH/REPLACE / DiffFenced document. Default apply=true writes (same as CLI patch apply --apply). Set apply=false for check-only preview (CLI patch check; disk is unchanged). The diff parameter is the full unified diff text, a *** Begin Patch ... *** End Patch envelope (Add/Update/Delete/Move), or <<<<<<< SEARCH / ======= / >>>>>>> REPLACE blocks (path on the first line after SEARCH). SEARCH/REPLACE is unique by default (multi-match is ambiguous, no write); set replace_all=true to update every exact match. Empty-hunk +++ /dev/null (git deleted file mode, no hunks) unlinks. A hunked delete applies minus lines first; leftover bytes rewrite the file (preview --diff). Stale minus lines are ambiguous and the file is not removed; regenerate minus lines or use file.delete for path-only unlink. Use on_stale=merge for three-way merge on stale unified-diff context; allow_conflicts=true writes conflict markers. Never commit files containing conflict markers. IMPORTANT: do NOT issue concurrent patches/writes against the same files; use execute_plan for multi-op atomicity. Example: {\"diff\": \"--- a/file.txt\\n+++ b/file.txt\\n@@ -1 +1 @@\\n-old\\n+new\", \"on_stale\": \"fail\"}"
     )]
     async fn apply_patch(
         &self,
@@ -700,6 +780,9 @@ impl PatchloomService {
                         svc.check_path(&path)?;
                     }
                 }
+                if !p.apply {
+                    return preview_apply_patch(svc, &p);
+                }
                 let op = Operation::PatchApply {
                     diff: p.diff,
                     on_stale: p.on_stale,
@@ -715,6 +798,9 @@ impl PatchloomService {
                     })?;
                 for path in &paths {
                     svc.check_path(path)?;
+                }
+                if !p.apply {
+                    return preview_apply_patch(svc, &p);
                 }
                 let op = Operation::PatchApply {
                     diff: p.diff,
@@ -748,6 +834,9 @@ impl PatchloomService {
                     crate::ops::search_replace::REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE,
                     None,
                 ));
+            }
+            if !p.apply {
+                return preview_apply_patch(svc, &p);
             }
             let op = Operation::PatchApply {
                 diff: p.diff,
@@ -1101,6 +1190,118 @@ impl PatchloomService {
     }
 
     #[tool(
+        description = "Explain a tx plan in structured JSON (same as CLI `patchloom explain --json`). Provide inline plan text (`plan`) or a plan file (`path`). Format hint optional (json/yaml/toml). Read-only: does not execute the plan. Example: {\"plan\": \"{\\\"version\\\": 1, \\\"operations\\\": [{\\\"op\\\": \\\"file.create\\\", \\\"path\\\": \\\"a.txt\\\", \\\"content\\\": \\\"x\\\"}]}\"}"
+    )]
+    async fn explain_plan(
+        &self,
+        Parameters(p): Parameters<ExplainPlanParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| {
+            let plan_text = p.plan.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            let path = p.path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+            if plan_text.is_none() && path.is_none() {
+                return Err(McpError::invalid_params(
+                    "either 'plan' (inline text) or 'path' must be provided",
+                    None,
+                ));
+            }
+            let (input, display_path) = if let Some(text) = plan_text {
+                (text.to_string(), None)
+            } else {
+                let path = path.expect("path present when plan absent");
+                svc.check_path(path)?;
+                let abs = svc.cwd().join(path);
+                let content = crate::files::load_text_strict(&abs, path).map_err(|e| {
+                    if crate::exit::is_load_text_strict_fail(&e) || crate::exit::is_io_not_found(&e)
+                    {
+                        McpError::invalid_params(e.to_string(), None)
+                    } else {
+                        McpError::internal_error(e.to_string(), None)
+                    }
+                })?;
+                (content, Some(path.to_string()))
+            };
+            match crate::cmd::explain::prepare_explain_plan(
+                &input,
+                display_path.as_deref(),
+                p.format.as_deref(),
+                svc.cwd(),
+            ) {
+                Ok((plan, strict)) => {
+                    let summary = crate::cmd::explain::build_json_summary(&plan, strict);
+                    json_tool_result(&summary)
+                }
+                Err(e) => {
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("parse_error");
+                    let msg = crate::exit::agent_error_message(&e);
+                    json_tool_error(&serde_json::json!({
+                        "ok": false,
+                        "error_kind": kind,
+                        "error": msg,
+                    }))
+                }
+            }
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Scan files for missing final newline, mixed EOL, and trailing whitespace (CLI `tidy check`). Read-only: does not rewrite files. Canonical field is paths (array); singular path is accepted as an alias for one root. Empty issues is ok:true. Issues present still return a tool success with error_kind changes_detected. Example: {\"path\": \"src/\"}"
+    )]
+    async fn tidy_check(
+        &self,
+        Parameters(p): Parameters<TidyCheckParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| {
+            if p.path.as_ref().is_some_and(|s| s.trim().is_empty()) {
+                return Err(McpError::invalid_params(
+                    "path must not be empty or whitespace-only (use paths for multi-root, or omit for workspace root)",
+                    None,
+                ));
+            }
+            let roots = p.effective_paths();
+            for path in &roots {
+                svc.check_path(path)?;
+            }
+            if crate::files::all_explicit_paths_missing(&roots, Some(svc.cwd())) {
+                return json_tool_error(&serde_json::json!({
+                    "ok": false,
+                    "error_kind": "not_found",
+                    "error": format!("no such file or directory: {}", roots.join(", ")),
+                    "issues": [],
+                }));
+            }
+            let global = GlobalFlags::with_cwd_and_json(svc.cwd());
+            let collected = crate::cmd::tidy::collect_issues_with_list(&roots, &global, None)
+                .map_err(|e| {
+                    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                    let msg = crate::exit::agent_error_message(&e);
+                    if matches!(
+                        kind,
+                        "invalid_input" | "guard_rejected" | "not_found" | "binary" | "invalid_encoding"
+                    ) {
+                        McpError::invalid_params(msg, None)
+                    } else {
+                        McpError::internal_error(msg, None)
+                    }
+                })?;
+            let issues = collected.issues;
+            let dirty = !issues.is_empty();
+            let mut payload = serde_json::json!({
+                "ok": !dirty,
+                "issue_count": issues.len(),
+                "issues": issues,
+            });
+            if dirty {
+                payload["error_kind"] = serde_json::json!("changes_detected");
+                payload["status"] = serde_json::json!("changes_detected");
+            }
+            json_tool_result(&payload)
+        })
+        .await
+    }
+
+    #[tool(
         description = "List backup sessions created by --apply (including nested monorepo roots). Same as CLI `patchloom undo --list`. Returns items (timestamp, project_root, file_count, entries) plus warnings. Empty tree is error_kind no_matches. Example: {}"
     )]
     async fn undo_list(
@@ -1150,22 +1351,25 @@ impl PatchloomService {
     ) -> Result<CallToolResult, McpError> {
         self.blocking(move |svc| {
             let cwd = svc.cwd();
-            let resolved = crate::cmd::undo::resolve_session(cwd, p.session.as_deref())
-                .map_err(map_undo_mcp_err)?;
+            let resolved = match crate::cmd::undo::resolve_session(cwd, p.session.as_deref()) {
+                Ok(v) => v,
+                Err(e) if crate::exit::is_no_match(&e) => {
+                    return undo_no_matches_envelope(&crate::exit::agent_error_message(&e));
+                }
+                Err(e) => return Err(map_undo_mcp_err(e)),
+            };
             let Some((backup_root, timestamp, mut session)) = resolved else {
-                let payload = serde_json::json!({
-                    "ok": false,
-                    "error_kind": "no_matches",
-                    "error": "no backup sessions found",
-                    "applied": false,
-                });
-                let json = serde_json::to_string_pretty(&payload)
-                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-                return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
+                return undo_no_matches_envelope("no backup sessions found");
             };
             if !p.path.is_empty() {
-                session = crate::cmd::undo::filter_session_paths(&backup_root, &session, &p.path)
-                    .map_err(map_undo_mcp_err)?;
+                session =
+                    match crate::cmd::undo::filter_session_paths(&backup_root, &session, &p.path) {
+                        Ok(s) => s,
+                        Err(e) if crate::exit::is_no_match(&e) => {
+                            return undo_no_matches_envelope(&crate::exit::agent_error_message(&e));
+                        }
+                        Err(e) => return Err(map_undo_mcp_err(e)),
+                    };
             }
             if !p.apply {
                 if let Err(e) = crate::backup::classify_restore_write_dests(&backup_root, &session)

@@ -518,7 +518,7 @@ flowchart LR
 
 ## Status
 
-5400+ tests across 24 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
+5400+ tests across 25 commands. Tested with Grok 4.3, GPT-5.4, and Claude Opus 4.6.
 
 | Component | Status |
 |---|---|

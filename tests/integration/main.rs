@@ -723,6 +723,7 @@ mod doc_tests;
 mod explain_tests;
 mod file_ops_tests;
 mod init_tests;
+mod list_files_tests;
 mod mcp_tests;
 mod mcp_tool_tests;
 mod md_tests;

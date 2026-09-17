@@ -11,6 +11,23 @@ mod describe;
 use clap::Args;
 use describe::describe_operation;
 
+/// Parse, expand `for_each`, and compute effective strict for explain JSON.
+pub(crate) fn prepare_explain_plan(
+    input: &str,
+    path: Option<&str>,
+    format: Option<&str>,
+    cwd: &std::path::Path,
+) -> anyhow::Result<(Plan, bool)> {
+    let mut plan = crate::plan::parse_plan_auto(input, path, format)?;
+    if plan.for_each.is_some() {
+        crate::plan::expand_for_each(&mut plan, cwd)?;
+    }
+    let config_strict =
+        crate::config::find_and_load_strict(cwd)?.and_then(|(config, _)| config.tx.strict);
+    let strict = crate::plan::effective_strict(plan.strict, config_strict, false);
+    Ok((plan, strict))
+}
+
 #[derive(Debug, Args)]
 #[command(after_help = "\
 EXAMPLES:
@@ -81,9 +98,10 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         (content, Some(p.to_string()))
     };
 
-    let mut plan =
-        match crate::plan::parse_plan_auto(&input, path.as_deref(), args.format.as_deref()) {
-            Ok(p) => p,
+    let cwd = global.resolve_cwd()?;
+    let (plan, strict) =
+        match prepare_explain_plan(&input, path.as_deref(), args.format.as_deref(), &cwd) {
+            Ok(v) => v,
             Err(e) => {
                 if let Some((kind, code)) = crate::exit::classify_typed_error(&e) {
                     global.emit_error_json_kind(Some(kind), &e.to_string())?;
@@ -93,16 +111,6 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 return Ok(exit::PARSE_ERROR);
             }
         };
-    let cwd = global.resolve_cwd()?;
-
-    // Expand for_each before summarizing so the explain output shows all
-    // expanded operations (not the template).
-    if plan.for_each.is_some() {
-        crate::plan::expand_for_each(&mut plan, &cwd)?;
-    }
-    let config_strict =
-        crate::config::find_and_load_strict(&cwd)?.and_then(|(config, _)| config.tx.strict);
-    let strict = crate::plan::effective_strict(plan.strict, config_strict, false);
 
     if !global.emit_json(&build_json_summary(&plan, strict))? && !global.quiet {
         print_human_summary(&plan, strict);
@@ -197,7 +205,7 @@ pub(super) fn format_timeout(timeout: Option<u64>) -> String {
 ///
 /// Each operation includes the serde `op` name, the schema-registry catalog
 /// blurb (aligned with `patchloom schema` / MCP), and the rich field summary.
-pub(super) fn build_json_summary(plan: &Plan, strict: bool) -> serde_json::Value {
+pub(crate) fn build_json_summary(plan: &Plan, strict: bool) -> serde_json::Value {
     let ops: Vec<serde_json::Value> = plan
         .operations
         .iter()
