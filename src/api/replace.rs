@@ -1,5 +1,8 @@
 //! Text replacement operations for the public library API.
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). Host replace
+//! adapters, fuzzy honesty, and nth/span policy stay in one module.
+//!
 //! Delegates to the tx engine via `execute_as_edit_result`.
 
 use std::path::Path;

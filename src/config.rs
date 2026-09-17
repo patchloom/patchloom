@@ -1,5 +1,8 @@
 //! Project configuration file support (.patchloom.toml).
 //!
+//! size-waiver: accepted single-domain bulk (policy #1408). Walk, parse,
+//! merge, and fail-closed load of `.patchloom.toml` stay in one module.
+//!
 //! Searches from the working directory upward for a `.patchloom.toml` file and
 //! parses it into [`ProjectConfig`]. CLI flags override config file values.
 

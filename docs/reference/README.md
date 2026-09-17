@@ -195,6 +195,20 @@ These flags affect how Patchloom reports results or chooses which files to touch
 - **Use when:** You need to override the default terminal detection, for example forcing color into a pager or disabling it in a terminal that renders escape codes literally.
 - **Prefer instead:** Set the `NO_COLOR` environment variable when you want a global, tool-agnostic way to disable color across all CLI tools.
 
+<!-- ref:global-flag:color-explicit -->
+### `color_explicit` (internal)
+
+- **What it does:** True when `--color` was present on the command line (including `--color auto`). Distinguishes an explicit choice from the default so empty `NO_COLOR` does not override a user-set `--color`.
+- **Use when:** Dispatch needs to know whether color was requested. Not a CLI flag.
+- **Prefer instead:** Pass `--color always` or `--color never` when you want to override terminal detection.
+
+<!-- ref:global-flag:write-command -->
+### `write_command` (internal)
+
+- **What it does:** True after write flags are merged onto a write subcommand. Read-only commands leave this false so config `[defaults]` apply/check/diff cannot enable writes on search or read.
+- **Use when:** Config merge needs to know the command mutates files. Not a CLI flag.
+- **Prefer instead:** Use a write subcommand (`replace`, `tx`, `undo`) when you intend to mutate files.
+
 <!-- ref:global-flag:format-config -->
 ### `format_config` (internal)
 

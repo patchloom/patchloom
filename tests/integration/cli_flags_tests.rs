@@ -868,7 +868,7 @@ fn test_config_malformed_toml_warns_on_stderr() {
     .unwrap();
     fs::write(dir.path().join("test.txt"), "hello\n").unwrap();
 
-    // Running any command in a dir with malformed config should warn on stderr.
+    // #2515: malformed config is fail-closed (parse_error), not a warning.
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("search")
@@ -877,8 +877,10 @@ fn test_config_malformed_toml_warns_on_stderr() {
         .arg(dir.path())
         .arg(dir.path())
         .assert()
-        .success()
-        .stderr(predicate::str::contains("warning: malformed"));
+        .failure()
+        .code(4)
+        .stderr(predicate::str::contains("malformed"))
+        .stderr(predicate::str::contains("warning: malformed").not());
 }
 
 #[test]
@@ -897,7 +899,10 @@ fn test_config_malformed_toml_json_no_stderr_warning() {
         .arg(dir.path())
         .arg(dir.path())
         .assert()
-        .success()
+        .failure()
+        .code(4)
+        .stdout(predicate::str::contains("parse_error"))
+        .stdout(predicate::str::contains("malformed"))
         .stderr(predicate::str::contains("warning: malformed").not());
 }
 
