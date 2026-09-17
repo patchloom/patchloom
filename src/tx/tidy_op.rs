@@ -17,6 +17,31 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             lines,
         } => {
             let file_path = tx.cwd.join(path);
+            // #2534: a directory expands with the same walker as CLI tidy fix.
+            // Do not treat path globs as dest-glob; only a real directory.
+            if file_path.is_dir() {
+                let files = crate::files::collect_file_paths(&file_path, false)?;
+                let mut n = 0;
+                for file in files {
+                    let rel = file
+                        .strip_prefix(tx.cwd)
+                        .unwrap_or(file.as_path())
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    let child = Operation::TidyFix {
+                        path: rel,
+                        ensure_final_newline: *ensure_final_newline,
+                        trim_trailing_whitespace: *trim_trailing_whitespace,
+                        normalize_eol: normalize_eol.clone(),
+                        collapse_blanks: *collapse_blanks,
+                        dedent: dedent.clone(),
+                        indent: indent.clone(),
+                        lines: lines.clone(),
+                    };
+                    n += execute_tidy_op(&child, tx)?;
+                }
+                return Ok(n);
+            }
             mark_write_target(tx.write_targets, &file_path);
             let content = read_file_content(tx.pending, tx.existed_before, &file_path)?.to_owned();
             // Precedence (#1840): CLI tidy-fix defaults (trim + final newline)

@@ -3574,6 +3574,37 @@ fn test_tx_tidy_fix_in_plan() {
     assert_eq!(result, "line1\nline2\n");
 }
 
+/// #2534: plan tidy.fix on a directory expands like CLI tidy fix.
+#[test]
+fn test_tx_tidy_fix_directory_expands() {
+    let dir = TempDir::new().unwrap();
+    let docs = dir.path().join("docs");
+    fs::create_dir(&docs).unwrap();
+    fs::write(docs.join("a.md"), "a \n").unwrap();
+    fs::write(docs.join("b.md"), "b \n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "tidy.fix",
+            "path": "docs"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["tx", "plan.json", "--apply"])
+        .assert()
+        .code(0);
+
+    assert_eq!(fs::read_to_string(docs.join("a.md")).unwrap(), "a\n");
+    assert_eq!(fs::read_to_string(docs.join("b.md")).unwrap(), "b\n");
+}
+
 /// #1840: bare tidy.fix (no write-policy fields) must match CLI tidy fix defaults.
 #[test]
 fn test_tx_tidy_fix_defaults_trim_and_final_newline() {
