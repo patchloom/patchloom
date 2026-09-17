@@ -101,6 +101,8 @@ mod basic {
             for tool in [
                 "ast_rename",
                 "ast_replace",
+                "ast_replace_symbol",
+                "ast_delete_symbol",
                 "ast_rewrite_signature",
                 "ast_insert",
                 "ast_wrap",
@@ -230,6 +232,14 @@ mod basic {
         #[cfg(feature = "ast")]
         {
             assert!(names.contains(&"ast_insert"), "missing ast_insert tool");
+            assert!(
+                names.contains(&"ast_replace_symbol"),
+                "missing ast_replace_symbol tool"
+            );
+            assert!(
+                names.contains(&"ast_delete_symbol"),
+                "missing ast_delete_symbol tool"
+            );
             assert!(
                 names.contains(&"ast_rewrite_signature"),
                 "missing ast_rewrite_signature tool"

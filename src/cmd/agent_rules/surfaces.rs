@@ -47,7 +47,7 @@ pub(crate) fn append_surfaces(
          | Text/identifier before | `old` | CLI **replace**: positional `OLD` (not `--old`). CLI **ast rename/replace**: `--old`. Plans/MCP: `\"old\"`. |\n\
          | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `\"new\"`. |\n\
          | Doc path into a document | `selector` | CLI positional. Plans/MCP: `\"selector\"`. |\n\
-         | AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). |\n\
+         | AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). `ast replace-symbol PATH --symbol NAME --content TEXT`; `ast delete-symbol PATH --symbol NAME`. |\n\
          | AST refs / impact | symbol first | `ast refs SYMBOL PATH` / `ast impact SYMBOL PATH` (no `--name` flag; #1841). |\n\
          | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |\n\n\
          Replace example: `patchloom replace OLD --new NEW path` (positional OLD + `--new`; never `replace --old …`).\n\
@@ -83,7 +83,7 @@ pub(crate) fn append_surfaces(
                  plan-shaped lines do not write literal `content=…` bytes. The same peel applies to md \
                  `heading=`/`content=`/`bullet=`/`row=`, `md.move_section`/`md.dedupe_headings`/`md.lint_agents` \
                  `path=`/`heading=`/`before=`/`after=`, `file.rename` `from=`/`to=`, \
-                 `ast.rename`/`ast.replace`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`parameters=`/`return_type=`, \
+                 `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, \
                  doc `selector=`/`key=`/`value=`/`predicate=`, `tidy.fix` `path=`, and bare `path=` on \
                  single-path ops.\n\
                  Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). Optional \

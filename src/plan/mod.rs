@@ -400,6 +400,8 @@ pub(crate) fn declared_paths(op: &Operation) -> Vec<String> {
         #[cfg(feature = "ast")]
         Operation::AstRename { path, .. }
         | Operation::AstReplace { path, .. }
+        | Operation::AstReplaceSymbol { path, .. }
+        | Operation::AstDeleteSymbol { path, .. }
         | Operation::AstRewriteSignature { path, .. }
         | Operation::AstInsert { path, .. }
         | Operation::AstWrap { path, .. }
@@ -479,6 +481,9 @@ pub fn parse_plan_auto(
                 crate::ops::doc::FileFormat::Yaml => "yaml",
                 crate::ops::doc::FileFormat::Toml => "toml",
                 crate::ops::doc::FileFormat::Json => "json",
+                crate::ops::doc::FileFormat::Env
+                | crate::ops::doc::FileFormat::Ini
+                | crate::ops::doc::FileFormat::Properties => "json",
             })
         })
     });

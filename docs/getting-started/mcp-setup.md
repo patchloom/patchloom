@@ -253,6 +253,8 @@ AST tools so `list_tools` stays honest about what is callable.
 | `ast_diff` | Structural diff between two versions of a file. Shows added, removed, and modified symbols. |
 | `ast_impact` | Transitive impact analysis: trace the reference graph to find all dependents of a symbol. |
 | `ast_replace` | Replace text only within a specific symbol's body using AST scoping. |
+| `ast_replace_symbol` | Replace a whole symbol span, including leading docs and attributes, with new source. |
+| `ast_delete_symbol` | Delete a whole symbol span, including leading docs and attributes, and collapse surrounding blank lines. |
 | `ast_insert` | Insert code before/after a symbol or inside a container (module, class, impl block). |
 | `ast_wrap` | Wrap a symbol in a container (module, class, namespace, impl block, or custom wrapper). |
 | `ast_imports` | List, add, remove, or deduplicate import statements in source files. |

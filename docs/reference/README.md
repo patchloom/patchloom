@@ -351,11 +351,11 @@ These are the main entry points. If you are deciding between commands, start her
 ## `batch`
 
 - **What it does:** Executes multiple operations from a simple line-oriented format. Each line is one operation with positional arguments (e.g., `doc.set config.json version "2.0.0"`). Internally builds a tx plan and delegates to the tx engine.
-- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 28 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace with optional flags, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_after_section, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
+- **Use when:** Editing multiple files and the JSON tx plan format is too verbose. The line format covers 30 operations (doc.set, doc.delete, doc.merge, doc.ensure, doc.append, doc.prepend, doc.update, doc.move, doc.delete_where, replace with optional flags, file.append, file.prepend, file.create, file.delete, file.rename, md.upsert_bullet, md.table_append, md.replace_section, md.insert_after_heading, md.insert_after_section, md.insert_before_heading, md.move_section, md.dedupe_headings, md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.replace_symbol, ast.delete_symbol, ast.rewrite_signature) with minimal syntax. For AI agents, this is faster to generate than a full JSON plan.
 - **Paths:** A relative ops file path is resolved under `--cwd` (same as `tx` plan files). Paths *inside* ops lines are also resolved against `--cwd`.
 - **Replace order:** Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). CLI flag `--new` (and plan-shaped `--from`/`--to`) is rejected with a PATH OLD NEW hint; path-last positionals also fail with a parse hint when the third token is an existing file. Bare `old=`/`new=` (and `from=`/`to=`) prefixes on those tokens are peeled.
 - **`--if-exists`:** Optional on `replace`, `doc.set`, and `file.delete`. Soft-skips a missing file (and, for `doc.set`, a missing selector) so sibling lines still apply.
-- **Plan-shaped keys:** Optional `key=value` prefixes on positionals are peeled so pasted plan/MCP keys do not become file bytes: file `content=`/`body=`/`path=`, md `heading=`/`content=`/`bullet=`/`row=` plus `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`parameters=`/`return_type=`, doc `selector=`/`key=`/`value=`/`predicate=`, and `tidy.fix` `path=`.
+- **Plan-shaped keys:** Optional `key=value` prefixes on positionals are peeled so pasted plan/MCP keys do not become file bytes: file `content=`/`body=`/`path=`, md `heading=`/`content=`/`bullet=`/`row=` plus `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, doc `selector=`/`key=`/`value=`/`predicate=`, and `tidy.fix` `path=`.
 - **Quoting:** Double-quoted tokens allow only `\"` and `\\`. Sequences like `\n` are **literal** (not newlines). Prefer `tx` / MCP JSON for multi-line content, or put real newlines outside one-line quoted strings.
 - **Values (doc.set and friends):** After quote removal, each value token is parsed as JSON. Batch `doc.set f.json v "2.0"` still stores a **number** because the token text is `2.0`. Force a string with nested JSON quotes: `doc.set f.json v "\"2.0\""`, or use `tx` / MCP with `"value": "2.0"`. Same rule as CLI `doc set` (see agent-rules note).
 - **Failure behavior:** Line parse failures (unknown op, bad arity, bad quotes, CLI-order replace) exit `4` (`PARSE_ERROR`) with `error_kind: "parse_error"` and `applied: false` under `--json`/`--jsonl`. Too many operations (over the hard cap) exits `1` with `invalid_input`. Runtime op failures use the shared tx exit codes. Preview with changes uses the same `status: "changes_detected"` / exit `2` contract as `tx`.
@@ -480,8 +480,8 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 <!-- ref:command:ast -->
 ## `ast`
 
-- **What it does:** AST-aware operations on source code (20 languages). Subcommands: `list` (extract symbol definitions), `read` (read a symbol by name), `rename` (rename identifiers, skipping strings/comments), `validate` (syntax validation), `search` (structural queries), `refs` (find references), `deps` (extract imports), `map` (ranked repo map via PageRank), `diff` (structural diff vs git refs), `impact` (transitive impact analysis), `replace` (scoped text replacement within a symbol). `list`, `read`, `replace`, and `validate` use the same line numbering as `search` (LF, CRLF, and a lone CR).
-- **Use when:** You need to list, read, rename, validate, search, or analyze symbols with structural awareness (skip strings, comments, and documentation). Especially useful for rename operations where the old name appears inside strings that should not be changed, and for impact analysis before refactoring.
+- **What it does:** AST-aware operations on source code (20 languages). Subcommands: `list` (extract symbol definitions), `read` (read a symbol by name), `rename` (rename identifiers, skipping strings/comments), `validate` (syntax validation), `search` (structural queries), `refs` (find references), `deps` (extract imports), `map` (ranked repo map via PageRank), `diff` (structural diff vs git refs), `impact` (transitive impact analysis), `replace` (scoped text replacement within a symbol), `replace-symbol` (replace a whole symbol span including leading docs/attributes), `delete-symbol` (remove a whole symbol span and collapse surrounding blanks). `list`, `read`, `replace`, `replace-symbol`, `delete-symbol`, and `validate` use the same line numbering as `search` (LF, CRLF, and a lone CR).
+- **Use when:** You need to list, read, rename, validate, search, or analyze symbols with structural awareness (skip strings, comments, and documentation). Especially useful for rename operations where the old name appears inside strings that should not be changed, and for impact analysis before refactoring. Use `replace-symbol` / `delete-symbol` when the whole definition (not a text snippet inside it) is the edit.
 - **Prefer instead:** Use `replace --word-boundary` for quick identifier renames when AST precision is not required. Use a language server (LSP) when cross-file type-aware rename is needed.
 - **Related:** [`replace`](#replace), [`search`](#search)
 
@@ -751,6 +751,14 @@ These are meaningful command-specific modes that change how a top-level command 
 - **What it does:** Reads merge payload content from stdin for `doc merge`.
 - **Use when:** The object being merged is generated by another tool or is awkward to express inline.
 - **Prefer instead:** Use `doc merge --value` for short, self-contained object literals.
+
+<!-- ref:doc-mode:as -->
+### `doc --as`
+
+- **What it does:** Overrides path-based format detection for `doc` (`json`, `jsonc`, `yaml`, `toml`, `env`, `ini`, `properties`). `jsonc` uses the JSON parser with comments and trailing commas.
+- **Use when:** The file has no extension (for example `Makefile` as `.env`) or the extension does not match the contents.
+- **Prefer instead:** Rely on `.json` / `.jsonc` / `.ini` / `.properties` / `.env` detection when the name is enough.
+- **Note:** This is not write `--format`, which runs a post-write formatter command.
 
 <!-- ref:doc-mode:if-exists -->
 ### `doc set --if-exists`
@@ -1358,6 +1366,22 @@ The operations below are the building blocks inside `operations`.
 - **Use when:** You need to change a value, string, or expression inside a specific function or struct without affecting identically-named text in other symbols.
 - **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`.
 - **Related:** `replace` (file-level), `ast.rename` (identifier rename)
+
+<!-- ref:tx-op:ast.replace_symbol -->
+### `ast.replace_symbol`
+
+- **What it does:** Replaces a whole symbol span, including leading doc comments and attributes, with new source. `content` is re-indented to the symbol's column. Fields: `path`, `symbol`, `content`. CLI: `ast replace-symbol`. MCP: `ast_replace_symbol`.
+- **Use when:** You need to rewrite a function or type as a unit without sending the old body as `--old`.
+- **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`.
+- **Related:** `ast.replace` (text inside a symbol), `ast.delete_symbol`
+
+<!-- ref:tx-op:ast.delete_symbol -->
+### `ast.delete_symbol`
+
+- **What it does:** Removes a whole symbol span, including leading doc comments and attributes, and collapses surrounding blank lines to one. Fields: `path`, `symbol`. CLI: `ast delete-symbol`. MCP: `ast_delete_symbol`.
+- **Use when:** You want to delete a function or type without a text `--old` / empty `--new` round trip.
+- **Failure behavior:** Missing symbol exits **3** (`no_matches`) with `error_kind: "no_matches"`.
+- **Related:** `ast.replace_symbol`, `ast.replace`
 
 <!-- ref:tx-op:ast.rewrite_signature -->
 ### `ast.rewrite_signature`

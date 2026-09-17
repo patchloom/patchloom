@@ -35,6 +35,29 @@ mod basic {
     }
 
     #[test]
+    fn detect_format_jsonc_ini_env_properties() {
+        assert_eq!(detect_format("tsconfig.jsonc").unwrap(), FileFormat::Json);
+        assert_eq!(detect_format("c.ini").unwrap(), FileFormat::Ini);
+        assert_eq!(detect_format(".env").unwrap(), FileFormat::Env);
+        assert_eq!(detect_format(".env.local").unwrap(), FileFormat::Env);
+        assert_eq!(
+            detect_format("app.properties").unwrap(),
+            FileFormat::Properties
+        );
+        assert_eq!(
+            detect_format_with_override("Makefile", Some("env")).unwrap(),
+            FileFormat::Env
+        );
+    }
+
+    #[test]
+    fn parse_jsonc_tsconfig_comment() {
+        let src = "{\n  // c\n  \"compilerOptions\": {\"strict\": true}\n}\n";
+        let val = parse_doc(src, &FileFormat::Json).unwrap();
+        assert_eq!(val["compilerOptions"]["strict"], json!(true));
+    }
+
+    #[test]
     fn yaml_merge_keys_resolved() {
         let yaml = "defaults: &d\n  timeout: 30\n  retries: 3\nstaging:\n  <<: *d\n";
         let val = parse_doc(yaml, &crate::ops::doc::FileFormat::Yaml).unwrap();

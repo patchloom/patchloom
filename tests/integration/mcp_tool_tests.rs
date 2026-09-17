@@ -5439,6 +5439,79 @@ async fn test_mcp_ast_replace_within_symbol() {
     client.cancel().await.unwrap();
 }
 
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_replace_symbol() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn target() { let val = 42; }\nfn other() { let val = 99; }\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_replace_symbol",
+        serde_json::json!({
+            "path": "lib.rs",
+            "symbol": "target",
+            "content": "fn target() { let val = 100; }"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_replace_symbol should succeed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        content.contains("let val = 100"),
+        "target function should have 'let val = 100': {content}"
+    );
+    assert!(
+        content.contains("let val = 99"),
+        "other function should still have 'let val = 99': {content}"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+#[cfg(feature = "ast")]
+async fn test_mcp_ast_delete_symbol() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("lib.rs"),
+        "fn keep() {}\n\nfn victim() { let val = 1; }\n\nfn other() {}\n",
+    )
+    .unwrap();
+
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) = call_tool_value(
+        &client,
+        "ast_delete_symbol",
+        serde_json::json!({
+            "path": "lib.rs",
+            "symbol": "victim"
+        }),
+    )
+    .await;
+    assert!(!is_error, "ast_delete_symbol should succeed: {val}");
+
+    let content = fs::read_to_string(dir.path().join("lib.rs")).unwrap();
+    assert!(
+        !content.contains("fn victim"),
+        "victim should be gone: {content}"
+    );
+    assert!(content.contains("fn keep() {}"));
+    assert!(content.contains("fn other() {}"));
+    client.cancel().await.unwrap();
+}
+
 #[cfg(feature = "ast")]
 #[tokio::test]
 async fn test_mcp_ast_list_unsupported_file_names_language() {

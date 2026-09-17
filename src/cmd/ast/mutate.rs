@@ -1,4 +1,4 @@
-//! Mutating `patchloom ast` subcommands (rename, replace).
+//! Mutating `patchloom ast` subcommands (rename, replace, replace-symbol, delete-symbol).
 
 use super::common::setup_multi_file;
 use crate::ast::parse_lang_hint;
@@ -299,6 +299,191 @@ pub(super) fn run_replace(args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Re
     }
 }
 
+#[derive(Debug, Args)]
+pub struct ReplaceSymbolArgs {
+    /// File containing the symbol.
+    pub path: String,
+
+    /// Symbol name to replace.
+    #[arg(long)]
+    pub symbol: String,
+
+    /// Replacement source for the full symbol span.
+    #[arg(long)]
+    pub content: String,
+
+    /// Language hint.
+    #[arg(long)]
+    pub lang: Option<String>,
+
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
+}
+
+#[derive(Debug, Serialize)]
+struct AstReplaceSymbolOutput {
+    ok: bool,
+    symbol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
+}
+
+pub(super) fn run_replace_symbol(
+    args: ReplaceSymbolArgs,
+    global: &GlobalFlags,
+) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "ast replace-symbol: symbol={} path={}",
+        args.symbol,
+        args.path
+    );
+
+    let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [&args.path])?;
+    let target = cwd.join(&args.path);
+    if let Err(e) = crate::files::load_text_strict(&target, &args.path) {
+        if crate::exit::is_load_text_strict_fail(&e) {
+            let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+            let msg = crate::exit::agent_error_message(&e);
+            global.emit_error_json_kind(Some(kind), &msg)?;
+            return Ok(exit::FAILURE);
+        }
+        return Err(e);
+    }
+    if let Some(s) = args.lang.as_deref() {
+        let _ = parse_lang_hint(s)?;
+    }
+
+    let op = Operation::AstReplaceSymbol {
+        path: args.path.clone(),
+        symbol: args.symbol.clone(),
+        content: args.content.clone(),
+        lang: args.lang.clone(),
+    };
+
+    let symbol = args.symbol.clone();
+    let check_msg = format!("would replace symbol '{symbol}' in {}", args.path);
+    let apply_msg = format!("replaced symbol '{symbol}' in {}", args.path);
+
+    match run_write_op(
+        op,
+        global,
+        |phase, diff, backup| AstReplaceSymbolOutput {
+            ok: true,
+            symbol: symbol.clone(),
+            diff,
+            applied: phase.applied_flag(),
+            backup_session: backup,
+        },
+        &check_msg,
+        &apply_msg,
+    ) {
+        Ok(code) => Ok(code),
+        Err(e) => {
+            if exit::is_no_match(&e) {
+                global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
+                Ok(exit::NO_MATCHES)
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct DeleteSymbolArgs {
+    /// File containing the symbol.
+    pub path: String,
+
+    /// Symbol name to delete.
+    #[arg(long)]
+    pub symbol: String,
+
+    /// Language hint.
+    #[arg(long)]
+    pub lang: Option<String>,
+
+    #[command(flatten)]
+    pub write: crate::cli::global::WriteFlags,
+}
+
+#[derive(Debug, Serialize)]
+struct AstDeleteSymbolOutput {
+    ok: bool,
+    symbol: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    applied: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    backup_session: Option<String>,
+}
+
+pub(super) fn run_delete_symbol(
+    args: DeleteSymbolArgs,
+    global: &GlobalFlags,
+) -> anyhow::Result<u8> {
+    crate::verbose!(
+        "ast delete-symbol: symbol={} path={}",
+        args.symbol,
+        args.path
+    );
+
+    let cwd = global.resolve_cwd()?;
+    global.check_paths_contained(&cwd, [&args.path])?;
+    let target = cwd.join(&args.path);
+    if let Err(e) = crate::files::load_text_strict(&target, &args.path) {
+        if crate::exit::is_load_text_strict_fail(&e) {
+            let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+            let msg = crate::exit::agent_error_message(&e);
+            global.emit_error_json_kind(Some(kind), &msg)?;
+            return Ok(exit::FAILURE);
+        }
+        return Err(e);
+    }
+    if let Some(s) = args.lang.as_deref() {
+        let _ = parse_lang_hint(s)?;
+    }
+
+    let op = Operation::AstDeleteSymbol {
+        path: args.path.clone(),
+        symbol: args.symbol.clone(),
+        lang: args.lang.clone(),
+    };
+
+    let symbol = args.symbol.clone();
+    let check_msg = format!("would delete symbol '{symbol}' in {}", args.path);
+    let apply_msg = format!("deleted symbol '{symbol}' in {}", args.path);
+
+    match run_write_op(
+        op,
+        global,
+        |phase, diff, backup| AstDeleteSymbolOutput {
+            ok: true,
+            symbol: symbol.clone(),
+            diff,
+            applied: phase.applied_flag(),
+            backup_session: backup,
+        },
+        &check_msg,
+        &apply_msg,
+    ) {
+        Ok(code) => Ok(code),
+        Err(e) => {
+            if exit::is_no_match(&e) {
+                global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
+                Ok(exit::NO_MATCHES)
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -444,5 +629,101 @@ mod tests {
         );
         let after = fs::read_to_string(&path).unwrap();
         assert!(after.contains("fn bar()"), "rename must apply: {after}");
+    }
+
+    #[test]
+    fn replace_symbol_applies_full_span() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("mod.rs"),
+            "fn victim() { let x = 1; }\nfn keep() {}\n",
+        )
+        .unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_replace_symbol(
+            ReplaceSymbolArgs {
+                path: "mod.rs".into(),
+                symbol: "victim".into(),
+                content: "fn victim() { let x = 2; }".into(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let content = fs::read_to_string(dir.path().join("mod.rs")).unwrap();
+        assert!(content.contains("let x = 2"), "got: {content}");
+        assert!(!content.contains("let x = 1"));
+        assert!(content.contains("fn keep() {}"));
+    }
+
+    #[test]
+    fn replace_symbol_missing_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("mod.rs"), "fn real() {}\n").unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_replace_symbol(
+            ReplaceSymbolArgs {
+                path: "mod.rs".into(),
+                symbol: "missing".into(),
+                content: "fn missing() {}".into(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
+        let content = fs::read_to_string(dir.path().join("mod.rs")).unwrap();
+        assert_eq!(content, "fn real() {}\n");
+    }
+
+    #[test]
+    fn delete_symbol_applies() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("mod.rs"),
+            "fn keep() {}\n\nfn victim() {}\n\nfn other() {}\n",
+        )
+        .unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_delete_symbol(
+            DeleteSymbolArgs {
+                path: "mod.rs".into(),
+                symbol: "victim".into(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let content = fs::read_to_string(dir.path().join("mod.rs")).unwrap();
+        assert!(!content.contains("fn victim"));
+        assert!(content.contains("fn keep() {}"));
+        assert!(content.contains("fn other() {}"));
+    }
+
+    #[test]
+    fn delete_symbol_missing_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("mod.rs"), "fn real() {}\n").unwrap();
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_delete_symbol(
+            DeleteSymbolArgs {
+                path: "mod.rs".into(),
+                symbol: "missing".into(),
+                lang: None,
+                write: Default::default(),
+            },
+            &global,
+        )
+        .unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
     }
 }

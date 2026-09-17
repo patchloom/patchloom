@@ -329,6 +329,33 @@ pub(super) const MCP_TOOL_REGISTRY: &[McpToolMeta] = &[
         has_strict: false,
         validations: &[FieldValidation::Path("path")],
     },
+    #[cfg(feature = "ast")]
+    McpToolMeta {
+        tool_name: "ast_replace_symbol",
+        op_name: "ast.replace_symbol",
+        extra: Some(
+            "Replaces the full symbol span (docs and attributes included). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("symbol"),
+            FieldValidation::ContentSize("content"),
+        ],
+    },
+    #[cfg(feature = "ast")]
+    McpToolMeta {
+        tool_name: "ast_delete_symbol",
+        op_name: "ast.delete_symbol",
+        extra: Some(
+            "Deletes the full symbol span (docs and attributes included) and collapses surrounding blank lines. IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity.",
+        ),
+        has_strict: false,
+        validations: &[
+            FieldValidation::Path("path"),
+            FieldValidation::ParamSize("symbol"),
+        ],
+    },
     McpToolMeta {
         tool_name: "apply_fragment",
         op_name: "apply.fragment",

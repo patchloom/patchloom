@@ -15,6 +15,7 @@ fn run_doc(action: DocAction, global: &GlobalFlags) -> anyhow::Result<u8> {
     run(
         DocArgs {
             action,
+            as_format: None,
             write: Default::default(),
         },
         global,

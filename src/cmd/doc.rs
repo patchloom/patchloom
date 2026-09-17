@@ -16,6 +16,11 @@ EXAMPLES:
 pub struct DocArgs {
     #[command(subcommand)]
     pub action: DocAction,
+    // ref:doc-mode:as
+    /// Override format detection (`json`, `jsonc`, `yaml`, `toml`, `env`, `ini`, `properties`).
+    /// Distinct from write `--format`, which runs a post-write formatter.
+    #[arg(long = "as", global = true, value_name = "FORMAT")]
+    pub as_format: Option<String>,
     #[command(flatten)]
     pub write: crate::cli::global::WriteFlags,
 }
@@ -809,6 +814,18 @@ fn execute_with_mode_inner(
 
 pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!("doc: action={:?}", std::mem::discriminant(&args.action));
+
+    let override_fmt = match args.as_format.as_deref() {
+        Some(name) => match crate::ops::doc::parse_format_name(name) {
+            Ok(fmt) => Some(fmt),
+            Err(e) => {
+                global.emit_error_json_kind(Some("invalid_input"), &e.to_string())?;
+                return Ok(exit::FAILURE);
+            }
+        },
+        None => None,
+    };
+    let _format_guard = crate::ops::doc::FormatOverrideGuard::apply(override_fmt);
 
     if args.action.is_write() {
         let display_path = args.action.file_path().unwrap_or("").to_string();

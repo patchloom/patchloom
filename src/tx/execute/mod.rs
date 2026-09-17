@@ -805,6 +805,8 @@ pub(crate) fn execute_operation(op: &Operation, tx: &mut TxState<'_>) -> anyhow:
         #[cfg(feature = "ast")]
         Operation::AstRename { .. }
         | Operation::AstReplace { .. }
+        | Operation::AstReplaceSymbol { .. }
+        | Operation::AstDeleteSymbol { .. }
         | Operation::AstRewriteSignature { .. }
         | Operation::AstInsert { .. }
         | Operation::AstWrap { .. }

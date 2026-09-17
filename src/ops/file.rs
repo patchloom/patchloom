@@ -635,6 +635,11 @@ pub fn is_case_only_rename(src: &Path, dst: &Path) -> bool {
     }
 }
 
+/// True when `dst` is `src` or a path under `src` (directory-into-self).
+pub fn dest_is_inside_src(src: &Path, dst: &Path) -> bool {
+    dst == src || dst.starts_with(src)
+}
+
 /// Rename a path, falling back to copy+delete across devices.
 ///
 /// Shared by CLI direct-rename and tx commit (#2091 dedup). Force overwrite
@@ -1218,6 +1223,15 @@ mod tests {
         assert!(!is_regular_file_for_backup(&link));
         assert_eq!(classify_path_entry(&link), PathEntryKind::Special);
         ensure_unlinkable_not_directory(&link, "l").unwrap();
+    }
+
+    #[test]
+    fn dest_is_inside_src_same_and_child_not_sibling() {
+        let src = Path::new("/tmp/folder");
+        assert!(dest_is_inside_src(src, src));
+        assert!(dest_is_inside_src(src, Path::new("/tmp/folder/child")));
+        assert!(!dest_is_inside_src(src, Path::new("/tmp/folder-new")));
+        assert!(!dest_is_inside_src(src, Path::new("/tmp/other")));
     }
 
     #[test]

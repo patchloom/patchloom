@@ -606,7 +606,7 @@ pub fn validate_edit_nth(
     {
         let parse_err = match fmt {
             crate::ops::doc::FileFormat::Json => {
-                serde_json::from_str::<serde_json::Value>(&new_content)
+                crate::ops::doc::parse_doc(&new_content, &crate::ops::doc::FileFormat::Json)
                     .err()
                     .map(|e| format!("result would be invalid JSON: {e}"))
             }
@@ -619,6 +619,13 @@ pub fn validate_edit_nth(
                 toml_edit::de::from_str::<serde_json::Value>(&new_content)
                     .err()
                     .map(|e| format!("result would be invalid TOML: {e}"))
+            }
+            crate::ops::doc::FileFormat::Env
+            | crate::ops::doc::FileFormat::Ini
+            | crate::ops::doc::FileFormat::Properties => {
+                crate::ops::doc::parse_doc(&new_content, &fmt)
+                    .err()
+                    .map(|e| format!("result would be invalid document: {e}"))
             }
         };
         if let Some(msg) = parse_err {

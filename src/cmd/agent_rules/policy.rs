@@ -86,7 +86,7 @@ tool schema size, not the plan catalog. See docs/plans/mcp-surface-tiers.md.\n\n
              | Explain a tx plan without executing it | `explain_plan` |\n\
              | Scan whitespace issues without writing | `tidy_check` |\n\
              | Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE (`apply=false` is check-only) | `apply_patch` |\n\
-             | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |\n\
+             | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_replace_symbol`, `ast_delete_symbol`, `ast_rewrite_signature` |\n\
              | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |\n\
              | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |\n\
              | Extract or split files by symbol | `ast_extract_to_file`, `ast_split` |\n\

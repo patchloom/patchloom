@@ -8,9 +8,12 @@ use crate::selector;
 use anyhow::Context;
 use serde::Deserialize;
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::Path;
 
+mod jsonc;
+mod kv;
 mod navigate;
 mod preserve;
 pub mod query;
@@ -28,26 +31,97 @@ use yaml_cst::{apply_yaml_mapping_diff, apply_yaml_sequence_diff, try_remove_sub
 
 pub use yaml_splice::needs_yaml_quoting;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileFormat {
     Json,
     Yaml,
     Toml,
+    Env,
+    Ini,
+    Properties,
 }
 
-pub fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
-    match Path::new(path).extension().and_then(|e| e.to_str()) {
-        Some("json") => Ok(FileFormat::Json),
-        Some("yaml" | "yml") => Ok(FileFormat::Yaml),
-        Some("toml") => Ok(FileFormat::Toml),
-        Some(ext) => Err(crate::exit::InvalidInputError {
+thread_local! {
+    static FORMAT_OVERRIDE: Cell<Option<FileFormat>> = const { Cell::new(None) };
+}
+
+/// RAII CLI `--format` override so plan/tx `detect_format(path)` sees it.
+pub struct FormatOverrideGuard {
+    prev: Option<FileFormat>,
+}
+
+impl FormatOverrideGuard {
+    pub fn apply(fmt: Option<FileFormat>) -> Self {
+        let prev = FORMAT_OVERRIDE.get();
+        FORMAT_OVERRIDE.set(fmt);
+        Self { prev }
+    }
+}
+
+impl Drop for FormatOverrideGuard {
+    fn drop(&mut self) {
+        FORMAT_OVERRIDE.set(self.prev);
+    }
+}
+
+const SUPPORTED_DOC_FORMATS: &str = ".json, .jsonc, .yaml, .yml, .toml, .ini, .properties, .env";
+
+pub fn parse_format_name(name: &str) -> anyhow::Result<FileFormat> {
+    match name.to_ascii_lowercase().as_str() {
+        "json" | "jsonc" => Ok(FileFormat::Json),
+        "yaml" | "yml" => Ok(FileFormat::Yaml),
+        "toml" => Ok(FileFormat::Toml),
+        "env" => Ok(FileFormat::Env),
+        "ini" => Ok(FileFormat::Ini),
+        "properties" => Ok(FileFormat::Properties),
+        other => Err(crate::exit::InvalidInputError {
             msg: format!(
-                "unsupported file extension: .{ext} (supported: .json, .yaml, .yml, .toml)"
+                "unsupported format: {other} (supported: json, jsonc, yaml, toml, env, ini, properties)"
             ),
         }
         .into()),
+    }
+}
+
+pub fn detect_format(path: &str) -> anyhow::Result<FileFormat> {
+    if let Some(fmt) = FORMAT_OVERRIDE.get() {
+        return Ok(fmt);
+    }
+    detect_format_from_path(path)
+}
+
+pub fn detect_format_with_override(
+    path: &str,
+    override_name: Option<&str>,
+) -> anyhow::Result<FileFormat> {
+    if let Some(name) = override_name {
+        return parse_format_name(name);
+    }
+    detect_format_from_path(path)
+}
+
+pub fn detect_format_from_path(path: &str) -> anyhow::Result<FileFormat> {
+    let p = Path::new(path);
+    if let Some(name) = p.file_name().and_then(|n| n.to_str())
+        && (name == ".env" || name.starts_with(".env."))
+    {
+        return Ok(FileFormat::Env);
+    }
+    match p.extension().and_then(|e| e.to_str()) {
+        Some("json" | "jsonc") => Ok(FileFormat::Json),
+        Some("yaml" | "yml") => Ok(FileFormat::Yaml),
+        Some("toml") => Ok(FileFormat::Toml),
+        Some("ini") => Ok(FileFormat::Ini),
+        Some("properties") => Ok(FileFormat::Properties),
+        Some("env") => Ok(FileFormat::Env),
+        Some(ext) => Err(crate::exit::InvalidInputError {
+            msg: format!("unsupported file extension: .{ext} (supported: {SUPPORTED_DOC_FORMATS})"),
+        }
+        .into()),
         None => Err(crate::exit::InvalidInputError {
-            msg: "file has no extension; doc commands require .json, .yaml, .yml, or .toml".into(),
+            msg: format!(
+                "file has no extension; doc commands require {SUPPORTED_DOC_FORMATS} or --as"
+            ),
         }
         .into()),
     }
@@ -68,6 +142,9 @@ pub fn serialize_value(value: &serde_json::Value, format: &FileFormat) -> anyhow
                 })
             })?;
             Ok(s)
+        }
+        FileFormat::Env | FileFormat::Ini | FileFormat::Properties => {
+            kv::serialize_kv(value, *format)
         }
     }
 }
@@ -98,9 +175,11 @@ pub fn presentation_style_changed(original: &str, new_text: &str, format: &FileF
             yaml_block_sequence_style_marks(original) != yaml_block_sequence_style_marks(new_text)
                 || yaml_alias_identity_counts(original) != yaml_alias_identity_counts(new_text)
         }
-        // JSON/TOML pretty-print drift is not flagged here (comment/order
-        // preservation paths already minimize noise).
-        FileFormat::Json | FileFormat::Toml => false,
+        FileFormat::Json => jsonc::looks_like_jsonc(original) && !jsonc::looks_like_jsonc(new_text),
+        FileFormat::Toml => false,
+        FileFormat::Env | FileFormat::Ini | FileFormat::Properties => {
+            kv::kv_comments_dropped(original, new_text)
+        }
     }
 }
 
@@ -223,14 +302,19 @@ pub fn serialize_value_preserving(
                 Ok(preserve::hoist_comments(original_content, &body))
             }
         }
-        // JSON has no comments; return the original text when unchanged
-        // to avoid spurious formatting diffs (e.g. array compaction changes).
-        _ => {
+        FileFormat::Json => {
             if old_value == new_value {
                 Ok(original_content.to_string())
+            } else if let Some(spliced) =
+                jsonc::try_preserve_jsonc_leaf(original_content, old_value, new_value)
+            {
+                Ok(spliced)
             } else {
                 serialize_value(new_value, format)
             }
+        }
+        FileFormat::Env | FileFormat::Ini | FileFormat::Properties => {
+            kv::serialize_kv_preserving(original_content, old_value, new_value, *format)
         }
     }
 }
@@ -871,9 +955,17 @@ pub fn parse_doc(content: &str, format: &FileFormat) -> anyhow::Result<serde_jso
             if content.trim().is_empty() {
                 Ok(serde_json::json!({}))
             } else {
-                serde_json::from_str(content).map_err(|e| {
+                let stripped = jsonc::strip_jsonc(content);
+                serde_json::from_str(&stripped).map_err(|e| {
                     anyhow::Error::new(crate::exit::ParseErrorError { msg: e.to_string() })
                 })
+            }
+        }
+        FileFormat::Env | FileFormat::Ini | FileFormat::Properties => {
+            if content.trim().is_empty() {
+                Ok(serde_json::json!({}))
+            } else {
+                kv::parse_kv(content, *format)
             }
         }
         FileFormat::Yaml => {

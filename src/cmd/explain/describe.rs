@@ -381,6 +381,14 @@ pub(super) fn describe_operation(op: &Operation) -> String {
             format!("AST replace \"{old}\" with \"{new_text}\" in {symbol} in {path}")
         }
         #[cfg(feature = "ast")]
+        Operation::AstReplaceSymbol { path, symbol, .. } => {
+            format!("AST replace symbol \"{symbol}\" in {path}")
+        }
+        #[cfg(feature = "ast")]
+        Operation::AstDeleteSymbol { path, symbol, .. } => {
+            format!("AST delete symbol \"{symbol}\" in {path}")
+        }
+        #[cfg(feature = "ast")]
         Operation::AstRewriteSignature {
             path,
             old,

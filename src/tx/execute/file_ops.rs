@@ -212,10 +212,23 @@ pub(crate) fn execute_file_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             let src_kind = classify_path_entry(&src_path);
             let dst_kind = classify_path_entry(&dst_path);
             if src_kind == PathEntryKind::RealDirectory {
-                return Err(crate::exit::InvalidInputError {
-                    msg: format!("source is not a file: {from}"),
+                if crate::ops::file::dest_is_inside_src(&src_path, &dst_path) {
+                    return Err(crate::exit::InvalidInputError {
+                        msg: format!("cannot rename directory into itself: {from} -> {to}"),
+                    }
+                    .into());
                 }
-                .into());
+                if dst_kind.exists() {
+                    return Err(crate::exit::AlreadyExistsError {
+                        msg: format!(
+                            "destination already exists: {to} (directory rename does not overwrite)"
+                        ),
+                    }
+                    .into());
+                }
+                crate::ops::file::ensure_parent_components_are_directories(&dst_path)?;
+                tx.renames.push((src_path.clone(), dst_path.clone()));
+                return Ok(0);
             }
             if dst_kind == PathEntryKind::RealDirectory {
                 return Err(crate::exit::InvalidInputError {
