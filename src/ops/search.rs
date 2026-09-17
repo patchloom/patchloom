@@ -171,13 +171,30 @@ fn stop_after_first_hit(params: &SearchFileParams) -> bool {
     (params.files_with_matches || params.files_without_match) && params.assert_count.is_none()
 }
 
+/// Whole-buffer memmem is equivalent to the per-line loop only when the
+/// needle cannot contain a line end. A `\n` / `\r` needle is a hit in the
+/// raw file and never in `text_lines` (newlines are stripped).
+fn literal_needle_is_line_safe(matcher: &Matcher) -> bool {
+    match matcher {
+        Matcher::Literal(finder) => {
+            let needle = finder.needle();
+            !needle.contains(&b'\n') && !needle.contains(&b'\r')
+        }
+        Matcher::Regex(_) => false,
+    }
+}
+
 /// Cheap membership probe so zero-match files skip `Arc` + line split (#2550).
 ///
-/// Literal: one memmem over the buffer. Regex: scan lines without collecting
-/// them (`$` on a CR-only line is line-oriented, not a whole-buffer `$`).
+/// Literal: one memmem over the buffer when the needle is line-safe.
+/// Regex: scan lines without collecting them (`$` on a CR-only line is
+/// line-oriented, not a whole-buffer `$`).
 fn forward_buffer_has_hit(matcher: &Matcher, content: &str) -> bool {
     match matcher {
-        Matcher::Literal(_) => matcher.find(content).is_some(),
+        Matcher::Literal(_) if literal_needle_is_line_safe(matcher) => {
+            matcher.find(content).is_some()
+        }
+        Matcher::Literal(_) => false,
         Matcher::Regex(_) => {
             crate::ops::file::text_lines(content).any(|line| matcher.find(line).is_some())
         }
@@ -282,7 +299,11 @@ pub fn search_one_file(
     if params.count_only {
         let count = match matcher {
             // Literal: one memmem over the file, not per line (#2550).
-            Matcher::Literal(_) => matcher.count_matches(content, stop_after_first_hit(params)),
+            // A CR/LF needle is never a line-oriented hit (same as listing).
+            Matcher::Literal(_) if literal_needle_is_line_safe(matcher) => {
+                matcher.count_matches(content, stop_after_first_hit(params))
+            }
+            Matcher::Literal(_) => 0,
             Matcher::Regex(_) => {
                 let mut count = 0usize;
                 for line in crate::ops::file::text_lines(content) {
@@ -900,5 +921,56 @@ mod tests {
         let counted = search_one_file(&file, &matcher, &params, dir.path()).unwrap();
         assert_eq!(counted.count, 4);
         assert!(counted.matches.is_empty());
+    }
+
+    #[test]
+    fn search_one_file_literal_newline_needle_is_not_a_line_hit() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("lines.txt");
+        std::fs::write(&file, "alpha\nbeta\n").unwrap();
+        let matcher = build_matcher("\n", true, false, false).unwrap();
+        assert!(
+            search_one_file(&file, &matcher, &params_with_cap(None), dir.path()).is_none(),
+            "newline needle must stay no_matches in line-oriented search"
+        );
+
+        let mut count_params = params_with_cap(None);
+        count_params.count_only = true;
+        assert!(
+            search_one_file(&file, &matcher, &count_params, dir.path()).is_none(),
+            "count-only newline needle must stay no_matches"
+        );
+
+        let mut list_params = params_with_cap(None);
+        list_params.files_with_matches = true;
+        assert!(
+            search_one_file(&file, &matcher, &list_params, dir.path()).is_none(),
+            "-l must not list files for a newline needle"
+        );
+
+        let mut without = params_with_cap(None);
+        without.files_without_match = true;
+        let result = search_one_file(&file, &matcher, &without, dir.path())
+            .expect("-L must list a file with no line-oriented hit");
+        assert_eq!(result.count, 0);
+    }
+
+    #[test]
+    fn search_one_file_literal_crlf_span_needle_is_not_a_line_hit() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("span.txt");
+        std::fs::write(&file, "foo\nbar\n").unwrap();
+        let matcher = build_matcher("foo\nbar", true, false, false).unwrap();
+        assert!(
+            search_one_file(&file, &matcher, &params_with_cap(None), dir.path()).is_none(),
+            "cross-line literal must stay no_matches without --multiline"
+        );
+
+        let mut count_params = params_with_cap(None);
+        count_params.count_only = true;
+        assert!(
+            search_one_file(&file, &matcher, &count_params, dir.path()).is_none(),
+            "count-only must not count a CR/LF-spanning literal"
+        );
     }
 }
