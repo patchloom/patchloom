@@ -2,7 +2,7 @@ pub mod eval;
 pub mod parser;
 
 pub use eval::{eval, eval_result};
-pub use parser::{PredicateOp, Segment, Selector, parse};
+pub use parser::{PredicateOp, Segment, Selector, parse, split_predicate};
 
 /// Parse a selector string, mapping parse errors to `anyhow::Error` with
 /// a "selector error:" prefix for consistent error formatting.

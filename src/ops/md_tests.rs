@@ -720,6 +720,30 @@ mod edge_cases {
     }
 
     #[test]
+    fn parse_headings_setext_rejected_after_list_table_quote_atx_code() {
+        let cases = [
+            ("- step one\n---\n", "list"),
+            ("| a | b |\n---\n", "table"),
+            ("> quoted\n---\n", "blockquote"),
+            ("## Install\n---\n", "atx"),
+            ("    code line\n---\n", "indented code"),
+        ];
+        for (content, kind) in cases {
+            let headings = parse_headings(content);
+            assert!(
+                !headings
+                    .iter()
+                    .any(|h| h.line_start == 0 && h.body_line == 2),
+                "{kind} must not become a setext heading: {headings:?}"
+            );
+        }
+        let atx = parse_headings("## Install\n---\n");
+        assert_eq!(atx.len(), 1);
+        assert_eq!(atx[0].text, "Install");
+        assert_eq!(atx[0].level, 2);
+    }
+
+    #[test]
     fn parse_headings_ignores_invalid() {
         let content = "#nospace\n##also\n# Valid\n###### Six\n####### Seven\n";
         let headings = parse_headings(content);
@@ -1099,6 +1123,30 @@ mod edge_cases {
         let content = "# A\nexisting";
         let result = insert_after_heading_in(content, "A", "inserted\n").unwrap();
         assert_eq!(result, "# A\ninserted\nexisting");
+    }
+
+    #[test]
+    fn insert_after_heading_last_line_without_trailing_newline() {
+        let result = insert_after_heading_in("## B", "B", "new body").unwrap();
+        assert_eq!(result, "## B\nnew body\n");
+    }
+
+    #[test]
+    fn replace_section_last_line_without_trailing_newline() {
+        let result = replace_section_in("## B", "B", "new body").unwrap();
+        assert_eq!(result, "## B\nnew body\n");
+    }
+
+    #[test]
+    fn insert_after_heading_last_line_without_trailing_newline_crlf() {
+        let result = insert_after_heading_in("# A\r\n## B", "B", "new body").unwrap();
+        assert_eq!(result, "# A\r\n## B\r\nnew body\r\n");
+    }
+
+    #[test]
+    fn replace_section_last_line_without_trailing_newline_crlf() {
+        let result = replace_section_in("# A\r\n## B", "B", "new body").unwrap();
+        assert_eq!(result, "# A\r\n## B\r\nnew body\r\n");
     }
 
     #[test]
@@ -1560,6 +1608,18 @@ body text
     // -----------------------------------------------------------------------
     // YAML frontmatter (#1102)
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn upsert_bullet_does_not_insert_above_list_item_before_thematic_break() {
+        let content = "## Install\n- step one\n---\n";
+        let result = upsert_bullet_in(content, "Install", "- step two").unwrap();
+        let one = result.find("- step one").expect("existing list item");
+        let two = result.find("- step two").expect("new bullet");
+        assert!(
+            one < two,
+            "new bullet must not sit above - step one: {result}"
+        );
+    }
 
     #[test]
     fn yaml_frontmatter_not_misinterpreted_as_setext_heading() {

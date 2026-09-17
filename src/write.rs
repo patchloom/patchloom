@@ -975,11 +975,26 @@ pub(crate) fn atomic_write(path: &Path, content: &str, policy: &WritePolicy) -> 
         std::fs::set_permissions(tmp.path(), perms)
             .with_context(|| format!("failed to set permissions on {}", tmp.path().display()))?;
     }
+    // Best-effort owner restore. A sudo apply would otherwise leave
+    // root:root on a deploy:deploy file (#2493). EPERM/EACCES are ignored.
+    #[cfg(unix)]
+    preserve_unix_owner(tmp.path(), original_meta.as_ref());
 
     tmp.persist(&dest)
         .with_context(|| format!("failed to persist tempfile to {}", write_path.display()))?;
 
     Ok(())
+}
+
+/// Copy uid/gid from `original` onto `path`. Failures (including EPERM)
+/// must not fail the write.
+#[cfg(unix)]
+fn preserve_unix_owner(path: &Path, original: Option<&std::fs::Metadata>) {
+    use std::os::unix::fs::{MetadataExt, chown};
+    let Some(meta) = original else {
+        return;
+    };
+    let _ = chown(path, Some(meta.uid()), Some(meta.gid()));
 }
 
 /// Dest path for tempfile persist. On Windows, long dests need the `\\?\`

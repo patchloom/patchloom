@@ -657,6 +657,48 @@ mod basic {
         assert_eq!(entry["ok"], false);
     }
 
+    /// A hung `--log` path must not pin the tokio runtime (#2464).
+    #[cfg(unix)]
+    #[test]
+    fn log_tool_call_does_not_block_runtime_on_hung_fifo() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let fifo = dir.path().join("hung.jsonl");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo available on unix CI");
+        assert!(status.success(), "mkfifo {fifo:?}");
+        let svc = PatchloomService::new(
+            dir.path().to_path_buf(),
+            Some(fifo.to_string_lossy().into_owned()),
+        )
+        .unwrap();
+        let ok_result: Result<rmcp::model::CallToolResponse, McpError> = Ok(
+            rmcp::model::CallToolResponse::Complete(CallToolResult::success(vec![])),
+        );
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .unwrap();
+            let yielded = rt.block_on(async {
+                tokio::select! {
+                    _ = svc.log_tool_call("server_info", 1, &ok_result) => false,
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(80)) => true,
+                }
+            });
+            let _ = tx.send(yielded);
+        });
+        let yielded = rx
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .expect("runtime stayed blocked on log write");
+        assert!(
+            yielded,
+            "sleep arm must win; log write must not pin the runtime"
+        );
+    }
+
     #[test]
     fn validate_content_size_accepts_small() {
         validate_content_size("field", "hello").unwrap();
@@ -873,6 +915,121 @@ mod security {
         );
         let result = client.peer().call_tool(params).await;
         assert!(result.is_err(), "oversized batch should be rejected");
+        client.cancel().await.unwrap();
+    }
+
+    #[test]
+    fn execute_plan_validated_rejects_oversized_file_create() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let big = "x".repeat(MAX_CONTENT_BYTES + 1);
+        let plan = make_plan_strict(
+            vec![Operation::FileCreate {
+                path: "big.txt".into(),
+                content: big,
+                force: None,
+            }],
+            Some(true),
+        );
+        let err = execute_plan_validated(plan, dir.path(), None).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("exceeds"),
+            "oversized plan file.create must hit the same content limit as create_file, got: {msg}"
+        );
+        assert!(
+            !dir.path().join("big.txt").exists(),
+            "oversized plan must not write"
+        );
+    }
+
+    #[test]
+    fn execute_plan_validated_rejects_oversized_operations() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let ops: Vec<Operation> = (0..MAX_BATCH_FILES + 1)
+            .map(|i| Operation::FileCreate {
+                path: format!("f{i}.txt"),
+                content: "x".into(),
+                force: None,
+            })
+            .collect();
+        let plan = make_plan_strict(ops, Some(true));
+        let err = execute_plan_validated(plan, dir.path(), None).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("exceeds"),
+            "oversized plan operations must hit the batch limit, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn execute_plan_validated_rejects_deep_doc_value() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut val = serde_json::json!("leaf");
+        for _ in 0..MAX_JSON_DEPTH + 1 {
+            val = serde_json::json!([val]);
+        }
+        let plan = make_plan_strict(
+            vec![Operation::DocSet {
+                path: "data.json".into(),
+                selector: "a".into(),
+                value: val,
+                if_exists: false,
+            }],
+            Some(true),
+        );
+        let err = execute_plan_validated(plan, dir.path(), None).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("nesting depth") || msg.contains("exceeds"),
+            "deep plan doc.set must hit the json-depth limit, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn execute_plan_validated_rejects_oversized_selector() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let plan = make_plan_strict(
+            vec![Operation::DocSet {
+                path: "data.json".into(),
+                selector: "x".repeat(MAX_PARAM_BYTES + 1),
+                value: serde_json::json!(1),
+                if_exists: false,
+            }],
+            Some(true),
+        );
+        let err = execute_plan_validated(plan, dir.path(), None).unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("exceeds"),
+            "oversized plan selector must hit the param limit, got: {msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_execute_plan_rejects_oversized_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let big_content = "x".repeat(MAX_CONTENT_BYTES + 1);
+        let plan_json = serde_json::json!({
+            "version": 1,
+            "operations": [{
+                "op": "file.create",
+                "path": "big.txt",
+                "content": big_content,
+            }]
+        });
+        let params = rmcp::model::CallToolRequestParams::new("execute_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({ "plan": plan_json })).unwrap(),
+        );
+        let result = client.peer().call_tool(params).await;
+        assert!(
+            result.is_err(),
+            "execute_plan oversized file.create should be rejected like create_file"
+        );
+        assert!(
+            !dir.path().join("big.txt").exists(),
+            "oversized execute_plan must not write"
+        );
         client.cancel().await.unwrap();
     }
 

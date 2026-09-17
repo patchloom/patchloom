@@ -311,6 +311,42 @@ fn check_path_entry_rejects_intermediate_parent_symlink_escape() {
     );
 }
 
+/// `link/../pwned.txt` must not collapse `link` away before following it.
+/// A link to `.` makes the kernel resolve `..` as the workspace parent (#2466).
+#[cfg(unix)]
+#[test]
+fn symlink_parent_dotdot_escape_is_rejected() {
+    let parent = tempfile::TempDir::new().unwrap();
+    let ws = parent.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    std::os::unix::fs::symlink(".", ws.join("link")).unwrap();
+    let guard = PathGuard::new(ws, AbsolutePathPolicy::AllowIfContained).unwrap();
+    let err = guard
+        .check_path("link/../pwned.txt")
+        .expect_err("symlink/.. must not collapse before follow");
+    assert!(
+        matches!(err, ContainmentError::Escaped { .. }),
+        "expected Escaped, got {err:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_parent_dotdot_escape_is_rejected_entry() {
+    let parent = tempfile::TempDir::new().unwrap();
+    let ws = parent.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    std::os::unix::fs::symlink(".", ws.join("link")).unwrap();
+    let guard = PathGuard::new(ws, AbsolutePathPolicy::AllowIfContained).unwrap();
+    let err = guard
+        .check_path_entry("link/../pwned.txt")
+        .expect_err("entry mode must also refuse symlink/.. escape");
+    assert!(
+        matches!(err, ContainmentError::Escaped { .. }),
+        "expected Escaped, got {err:?}"
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_safe_canonicalize_preserves_drive_letter() {

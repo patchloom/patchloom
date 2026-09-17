@@ -507,7 +507,7 @@ pub(crate) fn format_results(
                 "{path_c}{}{reset}{sep_c}:{reset}{ln_c}{}{reset}{sep_c}:{reset}{}{sep_c}:{reset}{}",
                 m.path, m.line, m.column, m.text
             );
-            if has_ctx {
+            if has_ctx && m.line > emitted_up_to {
                 emitted_up_to = m.line;
             }
             if let Some(ref after) = m.context_after {
@@ -515,6 +515,9 @@ pub(crate) fn format_results(
                     let ln = m.line + 1 + j;
                     // Skip context-after lines that will be printed as a
                     // subsequent match line to avoid duplicates (#1182).
+                    if has_ctx && ln <= emitted_up_to {
+                        continue;
+                    }
                     let is_future_match = results.matches[mi + 1..]
                         .iter()
                         .take_while(|next| *next.path == *m.path)
@@ -1493,5 +1496,25 @@ mod tests {
             count, 1,
             "match_b should appear once, got {count}: {output}"
         );
+    }
+
+    #[test]
+    fn after_context_not_printed_twice_when_matches_share_window() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("hits.txt");
+        fs::write(&file, "HIT\nHIT\nkeep\nmore\n").unwrap();
+        let mut args = make_args("HIT", vec![file.to_string_lossy().into_owned()]);
+        args.after_context = Some(2);
+        let global = GlobalFlags::test_default();
+        let output = format_results(
+            collect_matches(&args, &global).unwrap(),
+            &args,
+            &global,
+            None,
+            None,
+        )
+        .unwrap();
+        let count = output.matches("keep").count();
+        assert_eq!(count, 1, "keep should appear once, got {count}: {output}");
     }
 }

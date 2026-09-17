@@ -179,6 +179,34 @@ fn test_agents_doc_project_inventory_matches_repo_state() {
         agents.contains("40 operation types (doc/md/replace/tidy/file/patch/read/search/ast/…)."),
         "AGENTS.md should describe the current tx operation count"
     );
+    assert!(
+        !agents.contains("tests/integration.rs"),
+        "AGENTS.md must not claim tests/integration.rs (crate is tests/integration/)"
+    );
+    assert!(
+        !agents.contains("src/tx.rs"),
+        "AGENTS.md must not claim src/tx.rs (engine lives under src/tx/)"
+    );
+    assert!(
+        agents.contains("tests/integration/main.rs"),
+        "AGENTS.md should point portable_path_str / in-process helpers at tests/integration/main.rs"
+    );
+    assert!(
+        agents.contains("src/tx/lifecycle/commit.rs"),
+        "AGENTS.md should point RestoreFailGuard at src/tx/lifecycle/commit.rs"
+    );
+    assert!(
+        agents.contains("cmd/write_mode.rs"),
+        "AGENTS.md structure tree should list write_mode"
+    );
+    assert!(
+        agents.contains("cmd/output.rs"),
+        "AGENTS.md structure tree should list output"
+    );
+    assert!(
+        agents.contains("cmd/write_dispatch.rs"),
+        "AGENTS.md structure tree should list write_dispatch"
+    );
 }
 
 // ── binary file handling ─────────────────────────────────────────────

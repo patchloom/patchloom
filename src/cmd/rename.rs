@@ -85,10 +85,7 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // canonicalize treats case differences as identical. Allow the rename
     // when only the case differs so users can change filename casing (#1167).
     // Use safe_canonicalize (dunce) so Windows UNC prefixes do not diverge.
-    let is_case_only_change = src != dst
-        && src.parent() == dst.parent()
-        && src.file_name().map(|n| n.to_ascii_lowercase())
-            == dst.file_name().map(|n| n.to_ascii_lowercase());
+    let is_case_only_change = crate::ops::file::is_case_only_rename(&src, &dst);
     if !is_case_only_change
         && (src == dst
             || matches!(

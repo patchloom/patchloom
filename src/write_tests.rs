@@ -1174,6 +1174,32 @@ mod symlink_handling {
         let meta = std::fs::metadata(&target).unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o755);
     }
+
+    #[test]
+    fn atomic_write_preserves_owner_uid_gid() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("owned.txt");
+        fs::write(&path, "old\n").unwrap();
+        let before = fs::metadata(&path).unwrap();
+        atomic_write(&path, "new\n", &WritePolicy::default()).unwrap();
+        let after = fs::metadata(&path).unwrap();
+        assert_eq!(before.uid(), after.uid(), "uid must survive atomic_write");
+        assert_eq!(before.gid(), after.gid(), "gid must survive atomic_write");
+    }
+
+    #[test]
+    fn atomic_write_attempts_unix_chown() {
+        let src = include_str!("write.rs");
+        let prod = src
+            .split("#[path = \"write_tests.rs\"]")
+            .next()
+            .expect("tests");
+        assert!(
+            prod.contains("chown"),
+            "atomic_write must chown the tempfile from original metadata"
+        );
+    }
 }
 
 #[cfg(windows)]

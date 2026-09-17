@@ -676,6 +676,9 @@ pub(crate) fn collect_file_paths_opts_with_list(
         paths.extend(collect_files_from_walk_builder(dest_builder));
     }
 
+    paths.sort();
+    paths.dedup();
+
     if let Some(ref matcher) = dest_glob_matcher {
         // Root-relative only. Filename fallback would make `*.txt` match
         // `sub/a.txt`, but Unix shells and `dir *.txt` stay in cwd.
@@ -2791,6 +2794,37 @@ mod tests {
         assert!(
             !rels.iter().any(|r| r.contains("deep")),
             "deep under each root pruned: {rels:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "cli")]
+    fn collect_file_paths_opts_dedups_overlapping_roots() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("d")).unwrap();
+        fs::write(root.join("d/a.txt"), "hit\n").unwrap();
+        let global = GlobalFlags::test_with_cwd(root);
+        let paths =
+            collect_file_paths_opts(&[".".into(), "d".into()], &global, false, Some(root)).unwrap();
+        let rels: Vec<_> = paths
+            .iter()
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        let hits: Vec<_> = rels
+            .iter()
+            .filter(|r| r.ends_with("d/a.txt") || *r == "d/a.txt")
+            .collect();
+        assert_eq!(
+            hits.len(),
+            1,
+            "overlapping . and d must yield d/a.txt once, got {rels:?}"
         );
     }
 

@@ -17,7 +17,15 @@ pub fn read(
     match (start_line, end_line) {
         (None, None) => Ok(content),
         (start, end) => {
-            let start = start.unwrap_or(1).saturating_sub(1); // convert to 0-based
+            let start_1 = start.unwrap_or(1);
+            if let Some(end_1) = end
+                && start_1 > end_1
+            {
+                return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                    msg: format!("end line {end_1} is before start line {start_1}"),
+                }));
+            }
+            let start = start_1.saturating_sub(1); // convert to 0-based
             let lines: Vec<&str> = crate::ops::file::text_lines(&content).collect();
             let end = end.unwrap_or(lines.len()).min(lines.len());
             if start >= lines.len() {

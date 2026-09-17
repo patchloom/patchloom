@@ -87,6 +87,9 @@ pub struct TxOutput {
     /// (fixrealloop 2026-07-16). Parity with CLI `replace` `refused[]`.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub refused: Vec<TxRefused>,
+    /// Unknown plan keys (warn-only; extra metadata still applies) (#2486).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub warnings: Vec<String>,
 }
 
 /// One soft-refuse path in a plan/tx report (fuzzy fail-closed without a write).
@@ -559,6 +562,7 @@ pub(crate) fn build_tx_output_with_meta(
         // `changes[].matched_text` / `old` at the plan layer.
         matched_text: top_matched_text,
         refused,
+        warnings: crate::plan::unknown_plan_key_warnings(),
     }
 }
 
@@ -697,6 +701,7 @@ pub(crate) fn build_error_output_with_suggested_op(
         match_count: None,
         matched_text: None,
         refused: Vec::new(),
+        warnings: crate::plan::unknown_plan_key_warnings(),
     }
 }
 
@@ -880,6 +885,7 @@ mod tests {
             match_count: None,
             matched_text: None,
             refused: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
@@ -908,6 +914,7 @@ mod tests {
             match_count: None,
             matched_text: None,
             refused: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 

@@ -208,9 +208,12 @@ pub(crate) fn refuse_lifecycle_if_guarded(
 }
 
 mod operation;
+mod unknown_keys;
 pub use operation::Operation;
 #[cfg(feature = "ast")]
 pub use operation::SplitTargetSpec;
+use unknown_keys::{map_yaml_plan_parse_error, note_unknown_keys_from_json_value};
+pub use unknown_keys::{take_unknown_plan_key_warnings, unknown_plan_key_warnings};
 
 /// Convert a doc-family `Operation` into a `(path, DocMutation)` pair.
 ///
@@ -437,43 +440,30 @@ pub struct ValidationStep {
 /// Parse a plan from a JSON string.
 pub fn parse_plan(input: &str) -> anyhow::Result<Plan> {
     let input = crate::ops::file::strip_utf8_bom(input);
-    let plan: Plan = serde_json::from_str(input)?;
+    let value: serde_json::Value = serde_json::from_str(input)?;
+    let plan: Plan = serde_json::from_value(value.clone())?;
+    note_unknown_keys_from_json_value(&value);
     Ok(plan)
 }
 
 /// Parse a plan from a YAML string.
 pub fn parse_plan_yaml(input: &str) -> anyhow::Result<Plan> {
     let input = crate::ops::file::strip_utf8_bom(input);
-    serde_yaml_ng::from_str(input).map_err(|err| map_yaml_plan_parse_error(input, err))
-}
-
-/// Quoted `C:\Users` is invalid YAML (`\U` escape). Peel invalid_input (#2352).
-fn map_yaml_plan_parse_error(input: &str, err: serde_yaml_ng::Error) -> anyhow::Error {
-    let msg = err.to_string();
-    let win_path = input
-        .as_bytes()
-        .windows(3)
-        .any(|w| w[0].is_ascii_alphabetic() && w[1] == b':' && w[2] == b'\\');
-    let l = msg.to_ascii_lowercase();
-    let escape = l.contains("hexadecimal number") || l.contains("unknown escape");
-    if win_path && escape {
-        return crate::exit::InvalidInputError {
-            msg: format!(
-                "quoted YAML path looks like a Windows path with single backslashes \
-                 (YAML treats \\U in C:\\Users as a unicode escape). \
-                 Use forward slashes (C:/Users/...) or doubled backslashes \
-                 (C:\\\\Users\\\\...): {msg}"
-            ),
-        }
-        .into();
+    let plan: Plan =
+        serde_yaml_ng::from_str(input).map_err(|err| map_yaml_plan_parse_error(input, err))?;
+    if let Ok(value) = serde_yaml_ng::from_str::<serde_json::Value>(input) {
+        note_unknown_keys_from_json_value(&value);
     }
-    err.into()
+    Ok(plan)
 }
 
 /// Parse a plan from a TOML string.
 pub fn parse_plan_toml(input: &str) -> anyhow::Result<Plan> {
     let input = crate::ops::file::strip_utf8_bom(input);
     let plan: Plan = toml_edit::de::from_str(input)?;
+    if let Ok(value) = toml_edit::de::from_str::<serde_json::Value>(input) {
+        note_unknown_keys_from_json_value(&value);
+    }
     Ok(plan)
 }
 

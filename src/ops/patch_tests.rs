@@ -600,6 +600,54 @@ mod edge_cases {
     }
 
     #[test]
+    fn apply_hunks_pure_insertion_after_line_one() {
+        let original = "line1\nline2\n";
+        let hunks = vec![Hunk {
+            old_start: 1,
+            old_count: 0,
+            new_start: 2,
+            new_count: 1,
+            lines: vec![PatchLine::Add("inserted".into())],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
+        }];
+        let result = apply_hunks(original, &hunks).unwrap();
+        assert_eq!(result, "line1\ninserted\nline2\n");
+    }
+
+    #[test]
+    fn apply_hunks_pure_insertion_after_line_two() {
+        let original = "line1\nline2\n";
+        let hunks = vec![Hunk {
+            old_start: 2,
+            old_count: 0,
+            new_start: 3,
+            new_count: 1,
+            lines: vec![PatchLine::Add("inserted".into())],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
+        }];
+        let result = apply_hunks(original, &hunks).unwrap();
+        assert_eq!(result, "line1\nline2\ninserted\n");
+    }
+
+    #[test]
+    fn apply_hunks_pure_insertion_zero_zero_stays_start_of_file() {
+        let original = "line1\n";
+        let hunks = vec![Hunk {
+            old_start: 0,
+            old_count: 0,
+            new_start: 1,
+            new_count: 1,
+            lines: vec![PatchLine::Add("inserted".into())],
+            old_no_final_newline: false,
+            new_no_final_newline: false,
+        }];
+        let result = apply_hunks(original, &hunks).unwrap();
+        assert_eq!(result, "inserted\nline1\n");
+    }
+
+    #[test]
     fn merge_three_way_lines_all_unchanged() {
         // all three identical → no change, no conflict
         let base = s(&["A", "B"]);
@@ -932,6 +980,70 @@ mod format_preservation {
 
 mod regression {
     use super::*;
+
+    #[test]
+    fn parse_patch_stops_hunk_before_format_patch_trailer() {
+        let diff = "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,2 +1,2 @@
+ line1
+-old
++new
+-- 
+2.39.0
+";
+        let files = parse_patch(diff).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].hunks.len(), 1);
+        assert_eq!(
+            files[0].hunks[0].lines,
+            vec![
+                PatchLine::Context("line1".into()),
+                PatchLine::Remove("old".into()),
+                PatchLine::Add("new".into()),
+            ]
+        );
+        let result = apply_hunks("line1\nold\n", &files[0].hunks).unwrap();
+        assert_eq!(result, "line1\nnew\n");
+    }
+
+    #[test]
+    fn parse_patch_keeps_no_newline_after_complete_hunk_then_ignores_trailer() {
+        let diff = "\
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,2 +1,2 @@
+ line1
+-old
++new
+\\ No newline at end of file
+-- 
+2.39.0
+";
+        let files = parse_patch(diff).unwrap();
+        assert_eq!(files[0].hunks[0].lines.len(), 3);
+        assert!(files[0].hunks[0].new_no_final_newline);
+        assert_eq!(files[0].hunks[0].lines[2], PatchLine::Add("new".into()));
+    }
+
+    #[test]
+    fn parse_patch_incomplete_hunk_before_next_file_header_fails_closed() {
+        let diff = "\
+--- a/a.txt
++++ b/a.txt
+@@ -1,3 +1,3 @@
+ line1
+-old
+--- a/b.txt
++++ b/b.txt
+@@ -1 +1 @@
+-foo
++bar
+";
+        parse_patch(diff)
+            .expect_err("incomplete first hunk before next file header must fail closed");
+    }
 
     /// Regression: apply_hunks must not panic on huge old_start values
     /// that would overflow isize when cast from usize. Found by fuzzing.

@@ -166,7 +166,7 @@ fn resolve_search_replace_path(
             ),
         }));
     }
-    super::ensure_contained(guard, &joined)?;
+    super::ensure_contained_resolved(guard, &joined)?;
     Ok(joined)
 }
 
@@ -298,6 +298,29 @@ mod tests {
         )
         .expect_err("missing");
         assert!(is_not_found(&err));
+    }
+
+    #[test]
+    fn apply_search_replace_reject_guard_allows_in_root_write() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("in.rs"), "old\n").unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .build()
+            .unwrap();
+        let results = apply_search_replace_blocks(
+            &[sr_block("in.rs", "old", "new")],
+            dir.path(),
+            &ApplySearchReplaceOptions::default(),
+            ApplyMode::Apply,
+            Some(&guard),
+        )
+        .expect("in-root dest under builder-default Reject must apply");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].applied);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("in.rs")).unwrap(),
+            "new\n"
+        );
     }
 
     #[test]

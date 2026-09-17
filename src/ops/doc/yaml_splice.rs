@@ -428,6 +428,10 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
     if s.parse::<f64>().is_ok() {
         return true;
     }
+    // YAML 1.1 type-flips these unquoted strings (#2487).
+    if is_yaml11_underscore_int(s) || is_yaml11_sexagesimal(s) || is_yaml11_timestamp(s) {
+        return true;
+    }
     // Trailing colon makes the value look like a mapping key (e.g., "host:").
     if s.ends_with(':') {
         return true;
@@ -443,6 +447,129 @@ pub fn needs_yaml_quoting(s: &str) -> bool {
         || s.contains(": ")
         || s.contains(" #")
         || s.contains('\n')
+}
+
+fn is_yaml11_underscore_int(s: &str) -> bool {
+    let t = s.strip_prefix(['+', '-']).unwrap_or(s);
+    if !t.contains('_') {
+        return false;
+    }
+    let mut chars = t.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_digit())
+        && chars.all(|c| c.is_ascii_digit() || c == '_')
+}
+
+fn is_yaml11_sexagesimal(s: &str) -> bool {
+    let t = s.strip_prefix(['+', '-']).unwrap_or(s);
+    let mut parts = t.split(':');
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    if first.is_empty() || !first.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    let mut n = 0usize;
+    for part in parts {
+        if !matches!(part.len(), 1 | 2) || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+        let Ok(v) = part.parse::<u8>() else {
+            return false;
+        };
+        if v > 59 {
+            return false;
+        }
+        n += 1;
+    }
+    n >= 1
+}
+
+fn is_yaml11_timestamp(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() < 10 || b[4] != b'-' || b[7] != b'-' {
+        return false;
+    }
+    if !b[..4].iter().all(u8::is_ascii_digit)
+        || !b[5..7].iter().all(u8::is_ascii_digit)
+        || !b[8..10].iter().all(u8::is_ascii_digit)
+    {
+        return false;
+    }
+    if b.len() == 10 {
+        return true;
+    }
+    let rest = match b[10] {
+        b'T' | b't' => &s[11..],
+        b' ' | b'\t' => s[10..].trim_start(),
+        _ => return false,
+    };
+    is_yaml11_time_suffix(rest)
+}
+
+fn is_yaml11_time_suffix(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = 0;
+    let h0 = i;
+    while i < b.len() && b[i].is_ascii_digit() {
+        i += 1;
+    }
+    if !matches!(i - h0, 1 | 2) {
+        return false;
+    }
+    if i >= b.len() || b[i] != b':' {
+        return false;
+    }
+    i += 1;
+    if i + 2 > b.len() || !b[i].is_ascii_digit() || !b[i + 1].is_ascii_digit() {
+        return false;
+    }
+    i += 2;
+    if i >= b.len() || b[i] != b':' {
+        return false;
+    }
+    i += 1;
+    if i + 2 > b.len() || !b[i].is_ascii_digit() || !b[i + 1].is_ascii_digit() {
+        return false;
+    }
+    i += 2;
+    if i < b.len() && b[i] == b'.' {
+        i += 1;
+        let frac = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == frac {
+            return false;
+        }
+    }
+    if i == b.len() {
+        return true;
+    }
+    while i < b.len() && (b[i] == b' ' || b[i] == b'\t') {
+        i += 1;
+    }
+    if i < b.len() && (b[i] == b'Z' || b[i] == b'z') {
+        return i + 1 == b.len();
+    }
+    if i < b.len() && (b[i] == b'+' || b[i] == b'-') {
+        i += 1;
+        let off = i;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if !matches!(i - off, 1 | 2) {
+            return false;
+        }
+        if i < b.len() && b[i] == b':' {
+            i += 1;
+            if i + 2 > b.len() || !b[i].is_ascii_digit() || !b[i + 1].is_ascii_digit() {
+                return false;
+            }
+            i += 2;
+        }
+        return i == b.len();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -475,6 +602,36 @@ mod tests {
             !needs_yaml_quoting("hello"),
             "plain string does not need quoting"
         );
+    }
+
+    #[test]
+    fn needs_yaml_quoting_underscore_ints() {
+        assert!(needs_yaml_quoting("1_000"));
+        assert!(needs_yaml_quoting("1_000_000"));
+        assert!(needs_yaml_quoting("-12_345"));
+        assert!(needs_yaml_quoting("+1_000"));
+        assert!(!needs_yaml_quoting("some_value_123"));
+        assert!(!needs_yaml_quoting("foo_bar"));
+    }
+
+    #[test]
+    fn needs_yaml_quoting_sexagesimal() {
+        assert!(needs_yaml_quoting("12:30"));
+        assert!(needs_yaml_quoting("1:23:45"));
+        assert!(needs_yaml_quoting("190:20:30"));
+        assert!(!needs_yaml_quoting("http://example.com:8080/path"));
+        assert!(!needs_yaml_quoting("foo:bar"));
+    }
+
+    #[test]
+    fn needs_yaml_quoting_iso_date_and_timestamp() {
+        assert!(needs_yaml_quoting("2020-01-01"));
+        assert!(needs_yaml_quoting("2020-01-01T00:00:00Z"));
+        assert!(needs_yaml_quoting("2020-01-01T00:00:00"));
+        assert!(needs_yaml_quoting("2020-01-01t07:32:00-07:00"));
+        assert!(!needs_yaml_quoting("foo-bar"));
+        assert!(!needs_yaml_quoting("v1.2.3"));
+        assert!(!needs_yaml_quoting("2020-1-1"));
     }
 
     // -----------------------------------------------------------------------

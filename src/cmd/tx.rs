@@ -19,7 +19,19 @@ use std::path::{Path, PathBuf};
 /// succeeded. On failure, prints a non-empty fallback envelope and callers
 /// must map exit to [`exit::FAILURE`] (#1651).
 fn emit_output_json(output: &TxOutput, compact: bool) -> bool {
+    #[cfg(test)]
+    JSON_EMIT_COUNT.with(|c| c.set(c.get() + 1));
     crate::json_emit::print_structured(output, compact)
+}
+
+#[cfg(test)]
+thread_local! {
+    static JSON_EMIT_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn take_json_emit_count() -> usize {
+    JSON_EMIT_COUNT.with(|c| c.replace(0))
 }
 
 fn emit_error_json(
@@ -389,7 +401,14 @@ pub fn run(args: TxArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     };
     let plan = match plan::parse_plan_auto(&plan_text, plan_path_hint, args.plan_format.as_deref())
     {
-        Ok(p) => p,
+        Ok(p) => {
+            if !global.quiet {
+                for w in plan::unknown_plan_key_warnings() {
+                    eprintln!("tx: warning: {w}");
+                }
+            }
+            p
+        }
         Err(e) => {
             if let Some((kind, code)) = crate::exit::classify_typed_error(&e) {
                 if structured {
@@ -758,18 +777,25 @@ pub(crate) fn run_parsed_plan(
         "changes_detected"
     };
     if structured {
+        // `--json --confirm`: one envelope (accept or decline). Do not print
+        // a preview and then a second applied document (#2476).
+        // `--json --apply` is handled above and is unchanged.
+        if global.confirm {
+            if !result.no_effective_changes && global.should_apply() {
+                return commit_and_finalize(&ctx, &mut result, global, false);
+            }
+            let output = build_full_tx_output(preview_status, &mut result, &cwd);
+            let ok = emit_output_json(&output, compact);
+            if !ok {
+                return Ok(exit::FAILURE);
+            }
+            return Ok(exit_code_from_tx_output(&output));
+        }
         let output = build_full_tx_output(preview_status, &mut result, &cwd);
         let ok = emit_output_json(&output, compact);
         let planned = exit_code_from_tx_output(&output);
-        // Continue into confirm path only when primary emit succeeded and
-        // should_apply; otherwise return planned/failure exit now.
         if !ok {
             return Ok(exit::FAILURE);
-        }
-        // Structured preview already printed; handle apply/confirm below
-        // without re-emitting. Fall through with code via planned if no apply.
-        if !result.no_effective_changes && global.should_apply() {
-            return commit_and_finalize(&ctx, &mut result, global, false);
         }
         return Ok(planned);
     } else if !result.changes.is_empty() {

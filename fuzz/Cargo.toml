@@ -74,3 +74,8 @@ doc = false
 name = "fuzz_replace_regex"
 path = "fuzz_targets/fuzz_replace_regex.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_shell_token"
+path = "fuzz_targets/fuzz_shell_token.rs"
+doc = false

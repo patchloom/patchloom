@@ -1771,6 +1771,49 @@ fn apply_patch_file_applies_multi_file_patch() {
     assert_eq!(sessions[0], sessions[1], "both files share one session");
 }
 
+#[test]
+fn apply_patch_file_reject_guard_allows_in_root_write() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("a.txt");
+    fs::write(&a, "aaa\n").unwrap();
+    let guard = PathGuard::builder(dir.path().to_path_buf())
+        .build()
+        .unwrap();
+    let patch = "\
+--- a/a.txt\n\
++++ b/a.txt\n\
+@@ -1 +1 @@\n\
+-aaa\n\
++AAA\n";
+    let results = apply_patch_file(patch, dir.path(), ApplyMode::Apply, Some(&guard))
+        .expect("in-root dest under builder-default Reject must apply");
+    assert_eq!(results.len(), 1);
+    assert!(results[0].applied);
+    assert_eq!(fs::read_to_string(&a).unwrap(), "AAA\n");
+}
+
+#[test]
+fn apply_patch_file_reject_guard_blocks_parent_escape() {
+    let parent = TempDir::new().unwrap();
+    let ws = parent.path().join("ws");
+    fs::create_dir(&ws).unwrap();
+    let outside = parent.path().join("outside.txt");
+    fs::write(&outside, "aaa\n").unwrap();
+    let guard = PathGuard::builder(ws.clone()).build().unwrap();
+    let patch = "\
+--- a/../outside.txt\n\
++++ b/../outside.txt\n\
+@@ -1 +1 @@\n\
+-aaa\n\
++PWNED\n";
+    let err = apply_patch_file(patch, &ws, ApplyMode::Apply, Some(&guard)).unwrap_err();
+    assert!(
+        crate::api::is_guard_rejected(&err),
+        "../ dest must peel guard_rejected, got {err}"
+    );
+    assert_eq!(fs::read_to_string(&outside).unwrap(), "aaa\n");
+}
+
 /// Patch rename must not overwrite an existing destination (file.rename parity).
 #[test]
 fn apply_patch_file_rename_refuses_existing_dest() {
@@ -4619,6 +4662,33 @@ fn read_mixed_cr_lf_line_three_is_c() {
 
     let content = read(&file, Some(3), Some(3)).unwrap();
     assert_eq!(content, "c\n");
+}
+
+#[test]
+fn read_start_after_end_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("hello.txt");
+    fs::write(&file, "a\nb\nc\nd\n").unwrap();
+
+    let err = read(&file, Some(3), Some(1)).unwrap_err();
+    assert!(
+        crate::exit::is_invalid_input(&err),
+        "start_line > end_line must be InvalidInput, got: {err}"
+    );
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::InvalidInput)
+    );
+}
+
+#[test]
+fn read_start_equals_end_returns_that_line() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("hello.txt");
+    fs::write(&file, "a\nb\nc\n").unwrap();
+
+    let content = read(&file, Some(2), Some(2)).unwrap();
+    assert_eq!(content, "b\n");
 }
 
 #[test]

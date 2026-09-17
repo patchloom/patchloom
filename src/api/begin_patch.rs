@@ -76,7 +76,7 @@ pub(crate) fn apply_begin_patch_ops(
         match op {
             BeginPatchOp::Add { path, content } => {
                 let dest = resolve_begin_patch_dest(cwd, path, file_hint);
-                super::ensure_contained(guard, &dest)?;
+                super::ensure_contained_resolved(guard, &dest)?;
                 if dest.is_dir() {
                     return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                         msg: format!(
@@ -102,7 +102,7 @@ pub(crate) fn apply_begin_patch_ops(
             }
             BeginPatchOp::Delete { path } => {
                 let dest = resolve_begin_patch_dest(cwd, path, file_hint);
-                super::ensure_contained_entry(guard, &dest)?;
+                super::ensure_contained_entry_resolved(guard, &dest)?;
                 if dest.is_dir() {
                     return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                         msg: format!("{} is a directory, not a file", dest.display()),
@@ -138,7 +138,7 @@ pub(crate) fn apply_begin_patch_ops(
                 move_to,
             } => {
                 let dest = resolve_begin_patch_dest(cwd, path, file_hint);
-                super::ensure_contained(guard, &dest)?;
+                super::ensure_contained_resolved(guard, &dest)?;
                 if dest.is_dir() {
                     return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                         msg: format!(
@@ -162,7 +162,7 @@ pub(crate) fn apply_begin_patch_ops(
                 let updated = apply_codex_hunks(&original, hunks)?;
                 if let Some(new_path) = move_to {
                     let new_dest = resolve_begin_patch_dest(cwd, new_path, None);
-                    super::ensure_contained_entry(guard, &new_dest)?;
+                    super::ensure_contained_entry_resolved(guard, &new_dest)?;
                     if staged_exists(&new_dest, &created, &deleted) {
                         return Err(anyhow::Error::new(crate::exit::AlreadyExistsError {
                             msg: format!(
@@ -202,11 +202,15 @@ pub(crate) fn apply_begin_patch_ops(
     let (applied, backup_session) = if mode == ApplyMode::Apply {
         for op in &staged {
             match op {
-                StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
-                StageOp::Delete { path, .. } => super::ensure_contained_entry(guard, path)?,
+                StageOp::Write { write_path, .. } => {
+                    super::ensure_contained_resolved(guard, write_path)?;
+                }
+                StageOp::Delete { path, .. } => {
+                    super::ensure_contained_entry_resolved(guard, path)?;
+                }
                 StageOp::Rename { from, to, .. } => {
-                    super::ensure_contained_entry(guard, from)?;
-                    super::ensure_contained_entry(guard, to)?;
+                    super::ensure_contained_entry_resolved(guard, from)?;
+                    super::ensure_contained_entry_resolved(guard, to)?;
                 }
             }
         }
@@ -583,6 +587,30 @@ mod tests {
         apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None)
             .expect("apply add-then-delete");
         assert!(!dir.path().join("brand.rs").exists());
+    }
+
+    #[test]
+    fn apply_begin_patch_reject_guard_allows_in_root_write() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("in.rs"), "fn old() {}\n").unwrap();
+        let guard = PathGuard::builder(dir.path().to_path_buf())
+            .build()
+            .unwrap();
+        let patch = update_patch("in.rs", "fn old() {}", "fn new() {}");
+        let results = apply_begin_patch(
+            patch.as_str(),
+            dir.path(),
+            None,
+            ApplyMode::Apply,
+            Some(&guard),
+        )
+        .expect("in-root dest under builder-default Reject must apply");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].applied);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("in.rs")).unwrap(),
+            "fn new() {}\n"
+        );
     }
 
     #[test]

@@ -135,7 +135,7 @@ impl ServerHandler for PatchloomService {
             "mcp: {tool_name} completed in {duration_ms}ms (ok={})",
             result.is_ok()
         );
-        self.log_tool_call(&tool_name, duration_ms, &result);
+        self.log_tool_call(&tool_name, duration_ms, &result).await;
         result
     }
 }
@@ -184,6 +184,36 @@ pub(crate) fn check_unauthenticated_http_bind(
     })
 }
 
+/// Parse `--host` + `--port` into a bind address.
+///
+/// Accepts hostnames (`localhost`), bare IPv6 (`::1`), bracketed IPv6
+/// (`[::1]`), and dotted IPv4. `SocketAddr` parse alone rejects the first two.
+#[cfg(feature = "mcp-http")]
+pub(crate) fn parse_http_bind_addr(
+    host: &str,
+    port: u16,
+) -> Result<std::net::SocketAddr, crate::exit::InvalidInputError> {
+    use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+
+    let host = host.trim();
+    let host = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(SocketAddr::new(ip, port));
+    }
+    (host, port)
+        .to_socket_addrs()
+        .map_err(|e| crate::exit::InvalidInputError {
+            msg: format!("invalid bind address: {e}"),
+        })?
+        .next()
+        .ok_or_else(|| crate::exit::InvalidInputError {
+            msg: format!("invalid bind address: no addresses for {host}:{port}"),
+        })
+}
+
 /// Run the MCP server over Streamable HTTP (optionally with TLS).
 #[cfg(feature = "mcp-http")]
 pub(crate) fn run_mcp_http_server(
@@ -220,11 +250,7 @@ pub(crate) fn run_mcp_http_server(
     );
 
     let app = axum::Router::new().nest_service("/mcp", service);
-    let addr: std::net::SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
-        anyhow::Error::new(crate::exit::InvalidInputError {
-            msg: format!("invalid bind address: {e}"),
-        })
-    })?;
+    let addr = parse_http_bind_addr(host, port).map_err(anyhow::Error::new)?;
     let show_banner = !global.quiet && !global.json && !global.jsonl;
 
     let rt = tokio::runtime::Runtime::new()?;
@@ -316,7 +342,46 @@ pub(crate) fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyho
 
 #[cfg(all(test, feature = "mcp-http"))]
 mod bind_host_tests {
-    use super::{check_unauthenticated_http_bind, is_loopback_http_bind_host};
+    use super::{
+        check_unauthenticated_http_bind, is_loopback_http_bind_host, parse_http_bind_addr,
+    };
+
+    #[test]
+    fn parse_http_bind_addr_accepts_localhost() {
+        let addr = parse_http_bind_addr("localhost", 8377).expect("localhost");
+        assert!(
+            addr.ip().is_loopback(),
+            "localhost must resolve to loopback"
+        );
+        assert_eq!(addr.port(), 8377);
+    }
+
+    #[test]
+    fn parse_http_bind_addr_accepts_bare_ipv6() {
+        let addr = parse_http_bind_addr("::1", 8377).expect("::1");
+        assert_eq!(
+            addr,
+            std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 8377))
+        );
+    }
+
+    #[test]
+    fn parse_http_bind_addr_accepts_bracketed_ipv6() {
+        let addr = parse_http_bind_addr("[::1]", 8377).expect("[::1]");
+        assert_eq!(
+            addr,
+            std::net::SocketAddr::from((std::net::Ipv6Addr::LOCALHOST, 8377))
+        );
+    }
+
+    #[test]
+    fn parse_http_bind_addr_accepts_ipv4() {
+        let addr = parse_http_bind_addr("127.0.0.1", 8377).expect("127.0.0.1");
+        assert_eq!(
+            addr,
+            std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, 8377))
+        );
+    }
 
     #[test]
     fn loopback_hosts_are_loopback() {

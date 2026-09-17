@@ -141,7 +141,7 @@ fn parse_line(line: &str, line_num: usize) -> anyhow::Result<Operation> {
 }
 
 fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Result<Operation> {
-    let tokens = tokenize(line).map_err(|e| {
+    let tokens = tokenize_tokens(line).map_err(|e| {
         anyhow::Error::new(crate::exit::ParseErrorError {
             msg: format!("line {line_num}: {e}"),
         })
@@ -260,16 +260,17 @@ fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Res
         "file.rename" => {
             // Peel optional --force (CLI-shaped batch lines).
             let mut force = false;
-            let mut path_args: Vec<String> = Vec::new();
+            let mut path_args: Vec<BatchToken> = Vec::new();
             for tok in args {
-                if tok == "--force" {
+                if tok.as_str() == "--force" {
                     force = true;
                     continue;
                 }
                 if tok.starts_with("--") {
                     return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                         msg: format!(
-                            "line {line_num}: 'file.rename' unknown flag {tok}; only --force is supported"
+                            "line {line_num}: 'file.rename' unknown flag {}; only --force is supported",
+                            tok.as_str()
                         ),
                     }));
                 }
@@ -300,7 +301,7 @@ fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Res
 
         "md.move_section" => {
             if args.len() == 4 {
-                let (before, after) = parse_position_keyword(&args[2], line_num)?;
+                let (before, after) = parse_position_keyword(args[2].as_str(), line_num)?;
                 Ok(Operation::MdMoveSection {
                     path: peel_owned(&args[0], &["path"]),
                     heading: peel_owned(&args[1], &["heading"]),
@@ -309,7 +310,7 @@ fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Res
                     after: after.map(|_| peel_owned(&args[3], &["after", "target", "heading"])),
                 })
             } else if args.len() == 5 {
-                let (before, after) = parse_position_keyword(&args[3], line_num)?;
+                let (before, after) = parse_position_keyword(args[3].as_str(), line_num)?;
                 Ok(Operation::MdMoveSection {
                     path: peel_owned(&args[0], &["path"]),
                     heading: peel_owned(&args[1], &["heading"]),
@@ -537,20 +538,21 @@ fn parse_position_keyword(
 /// Optional trailing `--if-exists` (same meaning as replace / plan).
 fn peel_if_exists_flag(
     op: &str,
-    args: &[String],
+    args: &[BatchToken],
     line_num: usize,
-) -> anyhow::Result<(Vec<String>, bool)> {
+) -> anyhow::Result<(Vec<BatchToken>, bool)> {
     let mut if_exists = false;
     let mut out = Vec::with_capacity(args.len());
     for tok in args {
-        if tok == "--if-exists" {
+        if tok.as_str() == "--if-exists" {
             if_exists = true;
             continue;
         }
         if tok.starts_with("--") {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: format!(
-                    "line {line_num}: '{op}' unknown flag {tok}; only --if-exists is supported"
+                    "line {line_num}: '{op}' unknown flag {}; only --if-exists is supported",
+                    tok.as_str()
                 ),
             }));
         }
@@ -559,7 +561,12 @@ fn peel_if_exists_flag(
     Ok((out, if_exists))
 }
 
-fn require_args(op: &str, args: &[String], expected: usize, line_num: usize) -> anyhow::Result<()> {
+fn require_args(
+    op: &str,
+    args: &[BatchToken],
+    expected: usize,
+    line_num: usize,
+) -> anyhow::Result<()> {
     if args.len() != expected {
         let s = if expected == 1 { "" } else { "s" };
         return Err(anyhow::Error::new(crate::exit::ParseErrorError {
@@ -613,7 +620,7 @@ fn path_is_file_under_cwd(p: &str, cwd: Option<&Path>) -> bool {
 /// First three non-flag tokens are path/old/new. Remaining tokens are optional
 /// CLI-style flags shared with `patchloom replace`.
 fn parse_replace_line(
-    args: &[String],
+    args: &[BatchToken],
     line_num: usize,
     cwd: Option<&Path>,
 ) -> anyhow::Result<Operation> {
@@ -676,13 +683,15 @@ fn parse_replace_line(
                         v.to_string()
                     } else {
                         i += 1;
-                        args.get(i).cloned().ok_or_else(|| {
-                            anyhow::Error::new(crate::exit::ParseErrorError {
-                                msg: format!(
-                                    "line {line_num}: --min-fuzzy-score requires a value (0.0..=1.0)"
-                                ),
-                            })
-                        })?
+                        args.get(i)
+                            .map(|t| t.value.clone())
+                            .ok_or_else(|| {
+                                anyhow::Error::new(crate::exit::ParseErrorError {
+                                    msg: format!(
+                                        "line {line_num}: --min-fuzzy-score requires a value (0.0..=1.0)"
+                                    ),
+                                })
+                            })?
                     };
                     let score: f64 = raw.parse().map_err(|_| {
                         anyhow::Error::new(crate::exit::ParseErrorError {
@@ -861,34 +870,47 @@ fn peel_named_kv_prefix<'a>(tok: &'a str, keys: &[&str]) -> Option<&'a str> {
 }
 
 /// Peel a plan-shaped `key=value` prefix, or return the token unchanged.
-fn peel_owned(tok: &str, keys: &[&str]) -> String {
-    peel_named_kv_prefix(tok, keys)
+/// Fully quoted tokens (`"old=keep"`) are left intact.
+fn peel_owned(tok: &BatchToken, keys: &[&str]) -> String {
+    if tok.quoted {
+        return tok.value.clone();
+    }
+    peel_named_kv_prefix(&tok.value, keys)
         .map(str::to_string)
-        .unwrap_or_else(|| tok.to_string())
+        .unwrap_or_else(|| tok.value.clone())
 }
 
 /// Join free-form content tokens, peeling a leading `content=` (or `body=`) key.
-fn join_content_tokens(parts: &[&str]) -> String {
+fn join_content_tokens(parts: &[BatchToken]) -> String {
     if parts.is_empty() {
         return String::new();
     }
     if parts.len() == 1 {
-        if let Some(rest) = peel_named_kv_prefix(parts[0], &["content", "body"]) {
+        if !parts[0].quoted
+            && let Some(rest) = peel_named_kv_prefix(&parts[0].value, &["content", "body"])
+        {
             return expand_content_escapes(rest);
         }
-        return expand_content_escapes(parts[0]);
+        return expand_content_escapes(&parts[0].value);
     }
     // Multi-token: peel only when the first token is a bare key= form so
     // `content=hello world` (unquoted multi-word) still works.
-    if let Some(rest) = peel_named_kv_prefix(parts[0], &["content", "body"]) {
+    if !parts[0].quoted
+        && let Some(rest) = peel_named_kv_prefix(&parts[0].value, &["content", "body"])
+    {
         let mut joined = rest.to_string();
         for p in &parts[1..] {
             joined.push(' ');
-            joined.push_str(p);
+            joined.push_str(&p.value);
         }
         return expand_content_escapes(&joined);
     }
-    expand_content_escapes(&parts.join(" "))
+    let joined = parts
+        .iter()
+        .map(|t| t.value.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    expand_content_escapes(&joined)
 }
 
 /// Path + free-form content for file.create/append/prepend.
@@ -902,7 +924,7 @@ fn join_content_tokens(parts: &[&str]) -> String {
 /// key=value agents paste into batch).
 fn path_and_joined_content(
     op: &str,
-    args: &[String],
+    args: &[BatchToken],
     line_num: usize,
 ) -> anyhow::Result<(String, String)> {
     if args.is_empty() {
@@ -911,15 +933,14 @@ fn path_and_joined_content(
         }));
     }
     let path = peel_owned(&args[0], &["path"]);
-    let parts: Vec<&str> = args[1..].iter().map(String::as_str).collect();
-    Ok((path, join_content_tokens(&parts)))
+    Ok((path, join_content_tokens(&args[1..])))
 }
 
 /// Like [`path_and_joined_content`], but peels optional `--force` so CLI-shaped
 /// batch lines do not write the flag into file content.
 fn path_and_joined_content_create(
     op: &str,
-    args: &[String],
+    args: &[BatchToken],
     line_num: usize,
 ) -> anyhow::Result<(String, String, bool)> {
     if args.is_empty() {
@@ -929,20 +950,21 @@ fn path_and_joined_content_create(
     }
     let path = peel_owned(&args[0], &["path"]);
     let mut force = false;
-    let mut content_parts: Vec<&str> = Vec::new();
+    let mut content_parts: Vec<BatchToken> = Vec::new();
     for tok in args.iter().skip(1) {
-        if tok == "--force" {
+        if tok.as_str() == "--force" {
             force = true;
             continue;
         }
         if tok.starts_with("--") {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
                 msg: format!(
-                    "line {line_num}: '{op}' unknown flag {tok}; only --force is supported before content"
+                    "line {line_num}: '{op}' unknown flag {}; only --force is supported before content",
+                    tok.as_str()
                 ),
             }));
         }
-        content_parts.push(tok.as_str());
+        content_parts.push(tok.clone());
     }
     Ok((path, join_content_tokens(&content_parts), force))
 }
@@ -972,12 +994,45 @@ fn expand_content_escapes(s: &str) -> String {
     out
 }
 
+/// One batch token plus whether it was a fully quoted string (`"old=keep"`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BatchToken {
+    value: String,
+    quoted: bool,
+}
+
+impl BatchToken {
+    fn as_str(&self) -> &str {
+        &self.value
+    }
+}
+
+impl std::ops::Deref for BatchToken {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.value
+    }
+}
+
+impl std::fmt::Display for BatchToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.value)
+    }
+}
+
 /// Tokenize a line using shell-like quoting rules.
 /// - Whitespace separates tokens
 /// - Double-quoted strings preserve spaces and allow escapes (\", \\)
 /// - Unquoted `{...}` / `[...]` are brace-balanced (JSON objects/arrays) so
 ///   agents can write `file.create f.json {"x":1}` without silent quote stripping
 pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
+    Ok(tokenize_tokens(line)?
+        .into_iter()
+        .map(|t| t.value)
+        .collect())
+}
+
+fn tokenize_tokens(line: &str) -> anyhow::Result<Vec<BatchToken>> {
     let mut tokens = Vec::new();
     let mut chars = line.chars().peekable();
     let mut current = String::new();
@@ -985,15 +1040,23 @@ pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
     // This ensures empty quoted strings like "" produce an empty-string token
     // instead of being silently dropped.
     let mut in_token = false;
+    let mut quoted = false;
 
     while let Some(&ch) = chars.peek() {
         if ch.is_whitespace() {
             if in_token {
-                tokens.push(std::mem::take(&mut current));
+                tokens.push(BatchToken {
+                    value: std::mem::take(&mut current),
+                    quoted,
+                });
                 in_token = false;
+                quoted = false;
             }
             chars.next();
         } else if ch == '"' {
+            if !in_token {
+                quoted = true;
+            }
             in_token = true;
             chars.next(); // consume opening quote
             loop {
@@ -1061,7 +1124,10 @@ pub fn tokenize(line: &str) -> anyhow::Result<Vec<String>> {
         }
     }
     if in_token {
-        tokens.push(current);
+        tokens.push(BatchToken {
+            value: current,
+            quoted,
+        });
     }
     Ok(tokens)
 }

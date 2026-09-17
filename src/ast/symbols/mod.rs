@@ -301,6 +301,22 @@ pub fn full_symbol_span(source: &str, sym: &SymbolDef, lang: Language) -> (usize
         }
     }
 
+    // `*` / `*/` interiors are only annotations when a `/*` opener was
+    // reached. A stray closer must not attach to the next symbol (#2471).
+    if !lines[first_line_0..sym_start_0]
+        .iter()
+        .any(|l| is_block_comment_opener(l.trim()))
+    {
+        while first_line_0 < sym_start_0 {
+            let trimmed = lines[first_line_0].trim();
+            if trimmed.is_empty() || is_block_comment_interior(trimmed) {
+                first_line_0 += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
     (first_line_0 + 1, sym.end_line) // back to 1-based
 }
 
@@ -354,31 +370,35 @@ pub fn check_no_overlapping_spans(spans: &[(usize, usize)], names: &[&str]) -> a
     }
 }
 
+/// `/*` or `/**` opener for a block comment used as an annotation.
+fn is_block_comment_opener(trimmed: &str) -> bool {
+    trimmed.starts_with("/*")
+}
+
+/// Interior or closer of a `/* ... */` annotation (`*`, `* text`, `*/`).
+fn is_block_comment_interior(trimmed: &str) -> bool {
+    trimmed == "*/" || trimmed == "*" || trimmed.starts_with("* ")
+}
+
 /// Check if a line is an annotation/attribute/decorator/doc-comment for a symbol.
 fn is_annotation_line(trimmed: &str, lang: Language) -> bool {
     match lang {
         Language::Rust => {
             trimmed.starts_with("#[")
                 || trimmed.starts_with("///")
-                || trimmed.starts_with("/**")
-                || trimmed.starts_with("* ")
-                || trimmed == "*/"
-                || trimmed == "*"
+                || is_block_comment_opener(trimmed)
+                || is_block_comment_interior(trimmed)
         }
         Language::Python => trimmed.starts_with('@'),
         Language::TypeScript | Language::JavaScript => {
             trimmed.starts_with('@')
-                || trimmed.starts_with("/**")
-                || trimmed.starts_with("* ")
-                || trimmed == "*/"
-                || trimmed == "*"
+                || is_block_comment_opener(trimmed)
+                || is_block_comment_interior(trimmed)
         }
         Language::Java | Language::Kotlin => {
             trimmed.starts_with('@')
-                || trimmed.starts_with("/**")
-                || trimmed.starts_with("* ")
-                || trimmed == "*/"
-                || trimmed == "*"
+                || is_block_comment_opener(trimmed)
+                || is_block_comment_interior(trimmed)
         }
         Language::Go => {
             // Go doc comments are // lines immediately preceding a declaration

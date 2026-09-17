@@ -117,6 +117,62 @@ pub fn non_fenced_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
 /// Returns `Some(level)` if the line is a valid setext underline.
 /// CommonMark: the underline must be at least one `=` or `-` character,
 /// optionally preceded by up to 3 spaces and followed by trailing spaces.
+fn cannot_be_setext_text(line: &str) -> bool {
+    if line.starts_with('\t') {
+        return true;
+    }
+    let stripped = line.trim_start_matches(' ');
+    let indent = line.len() - stripped.len();
+    if indent >= 4 {
+        return true;
+    }
+    let t = stripped.trim_end();
+    if t.starts_with('>') {
+        return true;
+    }
+    if is_table_row(line) || t.starts_with('|') {
+        return true;
+    }
+    if looks_like_list_marker(t) {
+        return true;
+    }
+    looks_like_atx_heading(stripped)
+}
+
+fn looks_like_list_marker(t: &str) -> bool {
+    if t.starts_with("- ")
+        || t.starts_with("* ")
+        || t.starts_with("+ ")
+        || t.starts_with("-\t")
+        || t.starts_with("*\t")
+        || t.starts_with("+\t")
+    {
+        return true;
+    }
+    let bytes = t.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 || i > 9 || i >= bytes.len() {
+        return false;
+    }
+    if bytes[i] != b'.' && bytes[i] != b')' {
+        return false;
+    }
+    i + 1 == bytes.len() || bytes[i + 1] == b' ' || bytes[i + 1] == b'\t'
+}
+
+fn looks_like_atx_heading(stripped: &str) -> bool {
+    let hashes = stripped.bytes().take_while(|&b| b == b'#').count();
+    if !(1..=6).contains(&hashes) {
+        return false;
+    }
+    hashes == stripped.len()
+        || stripped.as_bytes()[hashes] == b' '
+        || stripped.as_bytes()[hashes] == b'\t'
+}
+
 fn setext_underline_level(line: &str) -> Option<usize> {
     let stripped = line.trim_start_matches(' ');
     let indent = line.len() - stripped.len();
@@ -215,7 +271,7 @@ pub fn parse_headings(content: &str) -> Vec<HeadingInfo> {
                 // Avoid treating the underline's text line as a
                 // heading if it was already parsed as an ATX heading.
                 let already_atx = headings.last().is_some_and(|h| h.line_start == prev_idx);
-                if !already_atx {
+                if !already_atx && !cannot_be_setext_text(prev_line) {
                     headings.push(HeadingInfo {
                         level,
                         text: prev_trimmed.to_string(),
@@ -534,6 +590,7 @@ pub fn replace_section_in(
     let mut out = String::with_capacity(content.len());
     out.push_str(&content[..body_start]);
     if !replacement.is_empty() {
+        ensure_eol_before_payload(&mut out, eol);
         out.push_str(replacement);
         if !ends_with_eol(replacement) {
             out.push_str(eol);
@@ -550,6 +607,12 @@ pub fn replace_section_in(
 
 fn ends_with_eol(s: &str) -> bool {
     s.ends_with('\n') || s.ends_with('\r')
+}
+
+fn ensure_eol_before_payload(out: &mut String, eol: &str) {
+    if !out.is_empty() && !ends_with_eol(out) {
+        out.push_str(eol);
+    }
 }
 
 fn ends_with_blank_line(s: &str) -> bool {
@@ -588,6 +651,9 @@ pub fn insert_after_heading_in(
     let (body_start, _) = find_section(content, heading)?;
     let mut out = String::with_capacity(content.len() + insertion.len());
     out.push_str(&content[..body_start]);
+    if !insertion.is_empty() {
+        ensure_eol_before_payload(&mut out, eol);
+    }
     out.push_str(insertion);
     if !insertion.is_empty() && !ends_with_eol(insertion) {
         out.push_str(eol);

@@ -53,6 +53,10 @@ pub(crate) fn affected_file_paths(plan: &crate::plan::Plan, cwd: &Path) -> Vec<P
             let full = cwd.join(&p);
             if full.is_file() {
                 paths.insert(full);
+            } else if !full.exists() && !is_glob_pattern(&p) {
+                // Rename dest / create dest is not on disk yet. Still
+                // include it so post-snapshot can read pending content (#2474).
+                paths.insert(full);
             } else if full.is_dir() {
                 // For directory targets (e.g. glob replace), scan for source files
                 #[cfg(all(feature = "ast", feature = "cli"))]
@@ -747,6 +751,83 @@ mod tests {
                 .all(|p| p.file_name().is_none_or(|n| n != "secret.rs")),
             "outside secret.rs must not appear, got: {affected:?}"
         );
+    }
+
+    /// FileRename dest is not on disk yet; verify must still snapshot it (#2474).
+    #[test]
+    fn affected_file_paths_includes_rename_dest() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("from.rs"), "fn foo() {}\n").unwrap();
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![crate::plan::Operation::FileRename {
+                from: "from.rs".into(),
+                to: "to.rs".into(),
+                force: false,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: None,
+            for_each: None,
+        };
+        let affected = affected_file_paths(&plan, dir.path());
+        let names: Vec<String> = affected
+            .iter()
+            .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        assert!(
+            names.contains(&"from.rs".to_string()),
+            "source must be listed: {names:?}"
+        );
+        assert!(
+            names.contains(&"to.rs".to_string()),
+            "rename dest must be listed even when not on disk: {names:?}"
+        );
+    }
+
+    /// Lossless FileRename must not fail symbol-count verify (#2474).
+    #[test]
+    #[cfg(feature = "ast")]
+    fn lossless_rename_passes_function_verify() {
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("from.rs"), "fn foo() {}\n").unwrap();
+        let plan = crate::plan::Plan {
+            version: crate::plan::SCHEMA_VERSION,
+            cwd: None,
+            operations: vec![crate::plan::Operation::FileRename {
+                from: "from.rs".into(),
+                to: "to.rs".into(),
+                force: false,
+            }],
+            write_policy: None,
+            strict: None,
+            format: None,
+            validate: None,
+            verify: Some(vec![crate::plan::VerifyCheck::SymbolCount {
+                kind: "function".into(),
+                attr: None,
+            }]),
+            for_each: None,
+        };
+        let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("plan ok");
+        assert!(
+            report.ok,
+            "lossless rename must not fail verify: {report:?}"
+        );
+        assert_ne!(
+            report.error_kind.as_deref(),
+            Some("verification_failed"),
+            "rename dest must be in the post-snapshot: {report:?}"
+        );
+        assert!(dir.path().join("to.rs").is_file());
+        assert!(!dir.path().join("from.rs").exists());
     }
 
     #[test]

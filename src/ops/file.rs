@@ -601,6 +601,29 @@ pub fn is_regular_file_for_backup(path: &Path) -> bool {
     classify_path_entry(path).is_regular_file()
 }
 
+/// True when `src` and `dst` are a same-directory case-only name change.
+///
+/// Dest missing: still case-only (`readme.md` -> `README.md` on Linux).
+/// Dest present: only when both paths are the same inode (case-insensitive
+/// volume). Two distinct files `Keep.txt` / `keep.txt` stay false (#2473).
+pub fn is_case_only_rename(src: &Path, dst: &Path) -> bool {
+    if src == dst
+        || src.parent() != dst.parent()
+        || src.file_name().map(|n| n.to_ascii_lowercase())
+            != dst.file_name().map(|n| n.to_ascii_lowercase())
+    {
+        return false;
+    }
+    match (
+        crate::containment::safe_canonicalize(src),
+        crate::containment::safe_canonicalize(dst),
+    ) {
+        (Ok(ref s), Ok(ref d)) => s == d,
+        (Ok(_), Err(_)) => !path_entry_exists(dst),
+        _ => false,
+    }
+}
+
 /// Rename a path, falling back to copy+delete across devices.
 ///
 /// Shared by CLI direct-rename and tx commit (#2091 dedup). Force overwrite
@@ -2002,5 +2025,39 @@ mod tests {
         assert_eq!(refused.len(), 1, "{refused:?}");
         assert_eq!(refused[0].path, "p.fifo");
         assert_eq!(refused[0].reason, "not_regular_file");
+    }
+
+    #[test]
+    fn case_only_rename_false_for_distinct_case_siblings() {
+        let dir = TempDir::new().unwrap();
+        let keep = dir.path().join("Keep.txt");
+        let lower = dir.path().join("keep.txt");
+        fs::write(&keep, "KEEP\n").unwrap();
+        if fs::write(&lower, "lower\n").is_err()
+            || fs::read(&keep).ok().as_deref() != Some(b"KEEP\n".as_ref())
+            || fs::read(&lower).ok().as_deref() != Some(b"lower\n".as_ref())
+        {
+            assert!(
+                is_case_only_rename(&keep, &lower),
+                "same inode on a case-insensitive volume is case-only"
+            );
+            return;
+        }
+        assert!(
+            !is_case_only_rename(&keep, &lower),
+            "two files must not be treated as case-only"
+        );
+    }
+
+    #[test]
+    fn case_only_rename_true_when_dest_missing() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("readme.md");
+        let dst = dir.path().join("README.md");
+        fs::write(&src, "hello\n").unwrap();
+        assert!(
+            is_case_only_rename(&src, &dst),
+            "dest-missing case change is case-only on every volume"
+        );
     }
 }

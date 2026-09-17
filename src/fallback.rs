@@ -1097,11 +1097,13 @@ fn best_line_similarity(content: &str, target: &str) -> Option<AnchorMatchResult
     let mut best_offset = 0usize;
     let mut offset = 0usize;
     for line in content.lines() {
-        let score = strsim::jaro_winkler(line.trim(), target);
+        let trimmed = line.trim();
+        let score = strsim::jaro_winkler(trimmed, target);
         if score > best_score {
             best_score = score;
-            best_match = line.to_string();
-            best_offset = offset;
+            let lead = line.len() - line.trim_start().len();
+            best_match = trimmed.to_string();
+            best_offset = offset + lead;
         }
         offset = advance_line_offset(content, offset, line);
     }
@@ -1789,6 +1791,34 @@ mod tests {
             r.matched_text.contains("const") && r.matched_text.contains("FOO"),
             "line match: {:?}",
             r.matched_text
+        );
+    }
+
+    #[test]
+    fn line_similarity_span_excludes_space_indent() {
+        let content = "    foo(x);\n";
+        let r = resolve_with_fallback(content, "foo(x) ;", None, None)
+            .expect("indented snippet should fuzzy-match");
+        assert_eq!(r.strategy, MatchStrategy::Similarity);
+        assert_eq!(r.matched_text, "foo(x);");
+        assert_eq!(r.start_offset, 4);
+        assert_eq!(
+            &content[r.start_offset..r.start_offset + r.matched_text.len()],
+            "foo(x);"
+        );
+    }
+
+    #[test]
+    fn line_similarity_span_excludes_tab_indent() {
+        let content = "\tfoo(x);\n";
+        let r = resolve_with_fallback(content, "foo(x) ;", None, None)
+            .expect("tab-indented snippet should fuzzy-match");
+        assert_eq!(r.strategy, MatchStrategy::Similarity);
+        assert_eq!(r.matched_text, "foo(x);");
+        assert_eq!(r.start_offset, 1);
+        assert_eq!(
+            &content[r.start_offset..r.start_offset + r.matched_text.len()],
+            "foo(x);"
         );
     }
 

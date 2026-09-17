@@ -282,7 +282,7 @@ impl PatchloomService {
     }
 
     /// Write a JSONL log entry for a tool call if logging is enabled.
-    fn log_tool_call(
+    async fn log_tool_call(
         &self,
         tool: &str,
         duration_ms: u64,
@@ -313,14 +313,19 @@ impl PatchloomService {
         if let Some(err_msg) = error {
             entry["error"] = serde_json::Value::String(err_msg);
         }
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-        {
-            use std::io::Write;
-            let _ = writeln!(f, "{entry}");
-        }
+        let log_path = log_path.clone();
+        let line = entry.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+            {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
+        })
+        .await;
     }
 
     /// Helper to execute one or more operations as a plan.
@@ -420,6 +425,7 @@ fn execute_plan_validated(
     cwd: &std::path::Path,
     guard: Option<&PathGuard>,
 ) -> Result<CallToolResult, McpError> {
+    validate_plan_ops_size_limits(&plan.operations)?;
     let (code, json) = crate::cmd::tx::execute_plan_direct(plan, cwd, guard)
         .map_err(|e| McpError::internal_error(format!("plan execution failed: {e}"), None))?;
 

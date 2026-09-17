@@ -170,7 +170,7 @@ fn patch_write(
             // apply_patch_with_loader is cfg-gated; this is the no-default path.
             // Guard before exists so an escaped missing dest is guard_rejected,
             // not not_found (parity with apply_patch / CLI).
-            super::ensure_contained_entry(guard, &load_path)?;
+            super::ensure_contained_entry_resolved(guard, &load_path)?;
             match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
                 HunkedDeleteOutcome::Delete { original } => {
                     let (applied, backup_session) = if mode == ApplyMode::Apply {
@@ -209,7 +209,7 @@ fn patch_write(
                 } => {
                     // Leftover is a content write: follow dest-deny in all
                     // modes so Preview cannot leak an outside target.
-                    super::ensure_contained(guard, &write_path)?;
+                    super::ensure_contained_resolved(guard, &write_path)?;
                     let policy = crate::write::WritePolicy::default();
                     let (applied, backup_session) =
                         super::write_if_apply(&write_path, &new_content, mode, &policy, guard)?;
@@ -240,7 +240,7 @@ fn patch_write(
             .map_err(|e| map_apply_hunks_err(&pf.path, e))?;
 
         let policy = crate::write::WritePolicy::default();
-        super::ensure_contained(guard, &write_path)?;
+        super::ensure_contained_resolved(guard, &write_path)?;
         let (applied, backup_session) =
             super::write_if_apply(&write_path, &new_content, mode, &policy, guard)?;
         if applied {
@@ -480,7 +480,7 @@ pub fn apply_patch_file(
             // apply; leftover bytes become a rewrite, not an unlink.
             // Guard before exists so an escaped missing dest is
             // guard_rejected, not not_found (parity with apply_patch / CLI).
-            super::ensure_contained_entry(guard, &load_path)?;
+            super::ensure_contained_entry_resolved(guard, &load_path)?;
             match deletion_after_hunks(&load_path, load_rel, &pf.hunks, &pf.path)? {
                 HunkedDeleteOutcome::Delete { original } => {
                     staged.push(StageOp::Delete {
@@ -562,16 +562,20 @@ pub fn apply_patch_file(
     // (follow). Preview must not leak outside payload when dest-deny fires.
     for op in &staged {
         match op {
-            StageOp::Write { write_path, .. } => super::ensure_contained(guard, write_path)?,
+            StageOp::Write { write_path, .. } => {
+                super::ensure_contained_resolved(guard, write_path)?;
+            }
             // Path-only delete/rename: entry containment (#2115).
-            StageOp::Delete { path, .. } => super::ensure_contained_entry(guard, path)?,
+            StageOp::Delete { path, .. } => {
+                super::ensure_contained_entry_resolved(guard, path)?;
+            }
             StageOp::Rename { from, to, .. } => {
-                super::ensure_contained_entry(guard, from)?;
-                super::ensure_contained_entry(guard, to)?;
+                super::ensure_contained_entry_resolved(guard, from)?;
+                super::ensure_contained_entry_resolved(guard, to)?;
             }
             StageOp::CopyFile { from, to, .. } => {
-                super::ensure_contained(guard, from)?;
-                super::ensure_contained(guard, to)?;
+                super::ensure_contained_resolved(guard, from)?;
+                super::ensure_contained_resolved(guard, to)?;
             }
         }
     }

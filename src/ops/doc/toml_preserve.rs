@@ -101,7 +101,13 @@ pub(crate) fn apply_value_diff(
 /// Convert a `serde_json::Value` to a `toml_edit::Value` (scalar/array/inline-table).
 fn json_to_toml_value(val: &serde_json::Value) -> toml_edit::Value {
     match val {
-        serde_json::Value::String(s) => toml_edit::Value::from(s.as_str()),
+        serde_json::Value::String(s) => {
+            if let Ok(dt) = s.parse::<toml_edit::Datetime>() {
+                toml_edit::Value::from(dt)
+            } else {
+                toml_edit::Value::from(s.as_str())
+            }
+        }
         serde_json::Value::Bool(b) => toml_edit::Value::from(*b),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
@@ -303,6 +309,43 @@ mod tests {
     fn json_to_toml_value_null_maps_to_empty_string() {
         let val = json_to_toml_value(&serde_json::Value::Null);
         assert_eq!(val.as_str(), Some(""), "null should map to empty string");
+    }
+
+    #[test]
+    fn json_to_toml_value_datetime_string_emits_datetime() {
+        let val = json_to_toml_value(&serde_json::json!("2020-01-01T00:00:00Z"));
+        assert!(
+            val.is_datetime(),
+            "RFC3339/TOML datetime string must emit Datetime, got {val}"
+        );
+        assert_eq!(
+            val.as_datetime().unwrap().to_string(),
+            "2020-01-01T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn json_to_toml_value_plain_string_stays_string() {
+        let val = json_to_toml_value(&serde_json::json!("hello"));
+        assert_eq!(val.as_str(), Some("hello"));
+        assert!(!val.is_datetime());
+    }
+
+    #[test]
+    fn apply_value_diff_writes_unquoted_datetime() {
+        let mut doc = parse_toml("when = 1979-05-27T07:32:00Z\n");
+        let old = json(r#"{"when": "1979-05-27T07:32:00Z"}"#);
+        let new = json(r#"{"when": "2020-01-01T00:00:00Z"}"#);
+        apply_value_diff(doc.as_item_mut(), &old, &new);
+        let result = doc.to_string();
+        assert!(
+            result.contains("when = 2020-01-01T00:00:00Z"),
+            "datetime must be unquoted TOML: {result}"
+        );
+        assert!(
+            !result.contains("\"2020-01-01T00:00:00Z\""),
+            "datetime must not be a quoted string: {result}"
+        );
     }
 
     #[test]

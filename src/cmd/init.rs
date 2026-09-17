@@ -101,16 +101,15 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 }
                 content.push('\n');
                 content.push_str(&rules);
-                match std::fs::write(&target_path, content) {
+                match init_atomic_write(&target_path, &content) {
                     Ok(()) => {
                         report.agent_rules = "appended".into();
                         status!("appended patchloom rules to {rel_target}");
                     }
                     Err(e) => {
                         status!("could not write {rel_target}: {e}");
-                        let err = anyhow::Error::from(e);
-                        let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
-                        let msg = crate::exit::agent_error_message(&err);
+                        let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                        let msg = crate::exit::agent_error_message(&e);
                         report.agent_rules = format!("error:{msg}");
                         if report.hard_error_kind.is_none() {
                             report.hard_error_kind = Some(kind.to_string());
@@ -128,16 +127,15 @@ pub fn run(args: InitArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
     } else if auto_agent_rules || confirm(&format!("Create {rel_target}?")) {
-        match std::fs::write(&target_path, &rules) {
+        match init_atomic_write(&target_path, &rules) {
             Ok(()) => {
                 report.agent_rules = "created".into();
                 status!("created {rel_target}");
             }
             Err(e) => {
                 status!("could not write {rel_target}: {e}");
-                let err = anyhow::Error::from(e);
-                let kind = crate::fallback::error_kind_str(&err).unwrap_or("invalid_input");
-                let msg = crate::exit::agent_error_message(&err);
+                let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+                let msg = crate::exit::agent_error_message(&e);
                 report.agent_rules = format!("error:{msg}");
                 if report.hard_error_kind.is_none() {
                     report.hard_error_kind = Some(kind.to_string());
@@ -338,12 +336,12 @@ fn ensure_gitignore_patchloom(cwd: &Path) -> anyhow::Result<GitignorePatchloom> 
         }
         next.push_str(GITIGNORE_PATCHLOOM_LINE);
         next.push('\n');
-        std::fs::write(&path, next).with_context(|| format!("writing {}", path.display()))?;
+        init_atomic_write(&path, &next)?;
         return Ok(GitignorePatchloom::Appended);
     }
     let body =
         format!("# Patchloom undo sessions (created by --apply)\n{GITIGNORE_PATCHLOOM_LINE}\n");
-    std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;
+    init_atomic_write(&path, &body)?;
     Ok(GitignorePatchloom::Created)
 }
 
@@ -433,9 +431,15 @@ fn generate_completions(shell: &str, target: &Path) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating directory {}", parent.display()))?;
     }
-    std::fs::write(target, buf)
-        .with_context(|| format!("writing completions to {}", target.display()))?;
+    let text = String::from_utf8(buf)
+        .with_context(|| format!("completions for {shell} are not valid UTF-8"))?;
+    init_atomic_write(target, &text)?;
     Ok(())
+}
+
+fn init_atomic_write(path: &Path, content: &str) -> anyhow::Result<()> {
+    crate::write::atomic_write(path, content, &crate::write::WritePolicy::default())
+        .with_context(|| format!("writing {}", path.display()))
 }
 
 fn home_file_exists(rel: &str) -> bool {
@@ -452,6 +456,21 @@ fn confirm(prompt: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn init_production_writes_use_atomic_write() {
+        let src = include_str!("init.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("tests module");
+        let writes = prod.matches("std::fs::write").count();
+        assert_eq!(
+            writes, 0,
+            "init production writes must use atomic_write, found {writes}"
+        );
+        assert!(
+            prod.contains("atomic_write"),
+            "init production path must call atomic_write"
+        );
+    }
 
     #[test]
     fn detect_shell_from_env() {

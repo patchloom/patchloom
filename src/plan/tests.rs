@@ -886,6 +886,66 @@ fn parse_plan_auto_defaults_to_json() {
     assert_eq!(plan.operations.len(), 1);
 }
 
+/// Misspelled / extra op keys must warn, not fail parse (#2486).
+#[test]
+fn parse_plan_collects_unknown_keys_without_failing() {
+    let json = r#"{
+        "operations": [
+            {"op":"replace","path":"a.txt","old":"hello","new":"hi","regexp":true,"ignore_case":true},
+            {"op":"file.create","path":"b.txt","content":"x","agent_note":"meta"}
+        ]
+    }"#;
+    let plan = parse_plan(json).expect("extra keys must not fail parse");
+    assert_eq!(plan.operations.len(), 2);
+    match &plan.operations[0] {
+        Operation::Replace {
+            regex,
+            case_insensitive,
+            ..
+        } => {
+            assert!(
+                !*regex && !*case_insensitive,
+                "unknown keys must not be treated as real fields"
+            );
+        }
+        other => panic!("expected replace, got {other:?}"),
+    }
+    let warns = take_unknown_plan_key_warnings();
+    assert!(
+        warns.iter().any(|w| w.contains("regexp")),
+        "must warn on regexp: {warns:?}"
+    );
+    assert!(
+        warns.iter().any(|w| w.contains("ignore_case")),
+        "must warn on ignore_case: {warns:?}"
+    );
+    assert!(
+        warns.iter().any(|w| w.contains("agent_note")),
+        "must warn on agent_note: {warns:?}"
+    );
+}
+
+/// Extra metadata must still apply; --check / apply stay successful (#2486).
+/// Needs the tx engine (`cli` or `files`); parse-only lock is the sibling above.
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn extra_plan_metadata_still_applies() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let json = r#"{"operations":[{"op":"file.create","path":"notes.txt","content":"hi\n","agent_note":"keep"}]}"#;
+    let plan = parse_plan(json).expect("extra key must not fail parse");
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).expect("apply");
+    assert!(report.ok, "extra metadata must still apply: {report:?}");
+    assert!(
+        report.warnings.iter().any(|w| w.contains("agent_note")),
+        "JSON must surface warnings: {:?}",
+        report.warnings
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("notes.txt")).unwrap(),
+        "hi\n"
+    );
+}
+
 #[test]
 fn parse_plan_json_strips_leading_utf8_bom() {
     // Windows Notepad / VS / Out-File often prefix JSON with U+FEFF.
