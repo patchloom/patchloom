@@ -64,7 +64,10 @@ pub(crate) fn resolve_write_targets(
                 }
                 .into());
             }
-            out.push(global.rewrite_user_path_arg(cwd, p)?);
+            // Keep the user spelling. Engine PathGuard / load still
+            // classify missing dests (`not_found`) and Windows
+            // drive-relative paths the same as pre-#2533 single-file writes.
+            out.push(p.clone());
         }
         return Ok(out);
     }
