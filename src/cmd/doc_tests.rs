@@ -312,6 +312,7 @@ mod basic {
             file: path.clone(),
             selector: "age".into(),
             value: "42".into(),
+            if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -330,6 +331,7 @@ mod basic {
             file: path.clone(),
             selector: "name".into(),
             value: "world".into(),
+            if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -338,6 +340,62 @@ mod basic {
         let val: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(val["name"], serde_json::json!("world"));
+    }
+
+    #[test]
+    fn set_if_exists_missing_file_is_success_no_create() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("absent.json");
+        let action = DocAction::Set {
+            file: path.to_string_lossy().into_owned(),
+            selector: "a".into(),
+            value: "2".into(),
+            if_exists: true,
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_doc(action, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!path.exists(), "if_exists must not create the file");
+    }
+
+    #[test]
+    fn set_if_exists_missing_key_does_not_create() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"keep":1}"#);
+        let action = DocAction::Set {
+            file: path.clone(),
+            selector: "missing".into(),
+            value: "9".into(),
+            if_exists: true,
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_doc(action, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let val: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(val.get("missing").is_none(), "{val}");
+        assert_eq!(val["keep"], 1);
+    }
+
+    #[test]
+    fn set_if_exists_existing_key_writes() {
+        let dir = TempDir::new().unwrap();
+        let path = write_file(&dir, "test.json", r#"{"a":1}"#);
+        let action = DocAction::Set {
+            file: path.clone(),
+            selector: "a".into(),
+            value: "2".into(),
+            if_exists: true,
+        };
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
+        let code = run_doc(action, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        let val: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(val["a"], 2, "{val}");
     }
 
     #[test]
@@ -587,6 +645,7 @@ mod basic {
             file: path.clone(),
             selector: "name".into(),
             value: "world".into(),
+            if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;
@@ -607,6 +666,7 @@ mod basic {
             file: path,
             selector: "name".into(),
             value: "world".into(),
+            if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.check = true;
@@ -668,6 +728,7 @@ mod basic {
             file: path.clone(),
             selector: "version".into(),
             value: "\"2.0\"".into(),
+            if_exists: false,
         };
         let mut global = GlobalFlags::test_with_cwd(dir.path());
         global.apply = true;

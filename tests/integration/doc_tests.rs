@@ -4589,6 +4589,104 @@ fn test_doc_set_preview_applied_false() {
     assert_eq!(fs::read_to_string(dir.path().join("c.json")).unwrap(), "{}");
 }
 
+/// #2537: CLI `doc set --if-exists` matches plan/MCP/batch semantics.
+#[test]
+fn test_doc_set_if_exists_missing_file_apply_exits_0() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("absent.json");
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "absent.json",
+            "a",
+            "2",
+            "--if-exists",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["ok"], true, "{v}");
+    assert_eq!(v["applied"], false, "{v}");
+    assert_eq!(v["changed"], false, "{v}");
+    assert!(
+        !missing.exists(),
+        "if_exists must not create a missing file"
+    );
+}
+
+#[test]
+fn test_doc_set_if_exists_missing_key_does_not_create() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("c.json");
+    fs::write(&path, r#"{"keep":1}"#).unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "c.json",
+            "missing",
+            "9",
+            "--if-exists",
+            "--apply",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let on_disk = fs::read_to_string(&path).unwrap();
+    assert!(
+        !on_disk.contains("missing"),
+        "if_exists must not create a missing key: {on_disk}"
+    );
+    assert!(
+        on_disk.contains("keep"),
+        "existing keys must stay: {on_disk}"
+    );
+}
+
+#[test]
+fn test_doc_set_if_exists_existing_key_writes() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("c.json");
+    fs::write(&path, r#"{"a":1}"#).unwrap();
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["doc", "set", "c.json", "a", "2", "--if-exists", "--apply"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr={} stdout={}",
+        String::from_utf8_lossy(&out.stderr),
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let val: serde_json::Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(val["a"], 2, "{val}");
+}
+
 /// Multi-doc merge into document 0 via --selector (fixrealloop gap).
 #[test]
 fn test_doc_merge_multi_doc_selector() {

@@ -10,6 +10,7 @@ use serde::Serialize;
 EXAMPLES:
   patchloom doc get package.json version
   patchloom doc set config.yaml database.port 5433 --apply
+  patchloom doc set d.json a 2 --if-exists --apply
   patchloom doc keys config.toml
   patchloom doc merge config.json '{\"debug\": true}' --apply")]
 pub struct DocArgs {
@@ -65,6 +66,11 @@ pub enum DocAction {
         selector: String,
         /// Value (JSON literal or bare string).
         value: String,
+        // ref:doc-mode:if-exists
+        /// Soft-skip when the file is missing or the selector is not present
+        /// (do not create the key). Same as plan/MCP/batch `if_exists`.
+        #[arg(long)]
+        if_exists: bool,
     },
     /// Remove a value at a selector path.
     Delete {
@@ -296,18 +302,20 @@ fn action_to_operation(action: &DocAction) -> anyhow::Result<Operation> {
             file,
             selector,
             value,
+            if_exists,
         } => {
             crate::verbose!(
-                "doc: set file={}, selector={:?}, value={:?}",
+                "doc: set file={}, selector={:?}, value={:?}, if_exists={}",
                 file,
                 selector,
-                value
+                value,
+                if_exists
             );
             Ok(Operation::DocSet {
                 path: file.clone(),
                 selector: selector.clone(),
                 value: parse_value(value),
-                if_exists: false,
+                if_exists: *if_exists,
             })
         }
         DocAction::Delete { file, selector } => {
