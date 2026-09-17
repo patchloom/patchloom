@@ -106,6 +106,19 @@ fn validate_op_paths_under_plan_cwd(
     Ok(())
 }
 
+fn map_undo_mcp_err(e: anyhow::Error) -> McpError {
+    let kind = crate::fallback::error_kind_str(&e).unwrap_or("invalid_input");
+    let msg = crate::exit::agent_error_message(&e);
+    if matches!(
+        kind,
+        "invalid_input" | "guard_rejected" | "not_found" | "no_matches"
+    ) {
+        McpError::invalid_params(msg, None)
+    } else {
+        McpError::internal_error(msg, None)
+    }
+}
+
 /// Create a new tool router with all hand-written `#[tool]` handlers registered.
 ///
 /// This wraps the `#[tool_router]`-generated private `tool_router()` method
@@ -293,7 +306,7 @@ impl PatchloomService {
             };
             let mut global = GlobalFlags::with_cwd_and_json(svc.cwd());
             global.glob = p.globs;
-            global.exclude = p.exclude_patterns;
+            global.exclude = svc.walker_excludes(p.exclude_patterns);
             global.ignore_file = p.custom_ignore_filenames;
             let results = crate::cmd::search::collect_matches(&search_args, &global).map_err(
                 |e| {
@@ -915,6 +928,17 @@ impl PatchloomService {
 
             // Expand for_each (glob-driven batch) before path validation.
             // Globs resolve from the server root (cwd is mutually exclusive above).
+            if let Some(ref mut fe) = plan.for_each {
+                fe.exclude = svc.walker_excludes(std::mem::take(&mut fe.exclude));
+            }
+            for op in &mut plan.operations {
+                if let Operation::Search {
+                    exclude_patterns, ..
+                } = op
+                {
+                    *exclude_patterns = svc.walker_excludes(std::mem::take(exclude_patterns));
+                }
+            }
             if plan.for_each.is_some() {
                 crate::plan::expand_for_each(&mut plan, svc.cwd()).map_err(|e| {
                     McpError::invalid_params(format!("for_each expansion failed: {e}"), None)
@@ -987,7 +1011,7 @@ impl PatchloomService {
             }
             let mut global = GlobalFlags::with_cwd_and_json(svc.cwd());
             global.glob = p.globs;
-            global.exclude = p.exclude_patterns;
+            global.exclude = svc.walker_excludes(p.exclude_patterns);
             global.ignore_file = p.custom_ignore_filenames;
             let report = super::list_files::collect_list_files(
                 &roots,
@@ -1062,6 +1086,7 @@ impl PatchloomService {
             "tool_count": tool_count,
             "version": env!("CARGO_PKG_VERSION"),
             "protocol_version": handshake.protocol_version.to_string(),
+            "exclude": self.config_exclude,
         });
         // Full inventory is large: nudge coding agents toward core without
         // changing the product default (#2070 / #1994).
@@ -1073,6 +1098,151 @@ impl PatchloomService {
         let json = serde_json::to_string_pretty(&info)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+    }
+
+    #[tool(
+        description = "List backup sessions created by --apply (including nested monorepo roots). Same as CLI `patchloom undo --list`. Returns items (timestamp, project_root, file_count, entries) plus warnings. Empty tree is error_kind no_matches. Example: {}"
+    )]
+    async fn undo_list(
+        &self,
+        Parameters(_p): Parameters<EmptyParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| {
+            let cwd = svc.cwd();
+            let (sessions, warnings) =
+                crate::cmd::undo::collect_sessions(cwd).map_err(map_undo_mcp_err)?;
+            if sessions.is_empty() {
+                let (kind, msg, _) = crate::cmd::undo::list_no_usable_sessions(&warnings);
+                let payload = serde_json::json!({
+                    "ok": false,
+                    "error_kind": kind,
+                    "error": msg,
+                    "items": [],
+                    "warnings": warnings,
+                });
+                let json = serde_json::to_string_pretty(&payload)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+                return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
+            }
+            let items: Vec<crate::cmd::undo::UndoListEntry> = sessions
+                .iter()
+                .map(|(root, manifest)| crate::cmd::undo::UndoListEntry {
+                    timestamp: manifest.timestamp.clone(),
+                    project_root: crate::cmd::undo::display_root(cwd, root),
+                    file_count: manifest.entries.len(),
+                    entries: manifest.entries.clone(),
+                })
+                .collect();
+            let output = crate::cmd::undo::UndoListOutput { items, warnings };
+            let json = serde_json::to_string_pretty(&output)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Preview or restore files from a --apply backup session. Default is dry-run (applied:false, error_kind:changes_detected). Set apply=true to restore. Omit session to use the newest. Optional path[] restores only those session files (unknown path is no_matches). Paths stay inside the MCP workspace (AllowIfContained). IMPORTANT: do NOT issue concurrent calls targeting the same file; use execute_plan for multi-op atomicity. Example: {\"session\": \"<id-from-undo_list>\", \"apply\": true}"
+    )]
+    async fn undo_restore(
+        &self,
+        Parameters(p): Parameters<UndoRestoreParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.blocking(move |svc| {
+            let cwd = svc.cwd();
+            let resolved = crate::cmd::undo::resolve_session(cwd, p.session.as_deref())
+                .map_err(map_undo_mcp_err)?;
+            let Some((backup_root, timestamp, mut session)) = resolved else {
+                let payload = serde_json::json!({
+                    "ok": false,
+                    "error_kind": "no_matches",
+                    "error": "no backup sessions found",
+                    "applied": false,
+                });
+                let json = serde_json::to_string_pretty(&payload)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+                return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
+            };
+            if !p.path.is_empty() {
+                session = crate::cmd::undo::filter_session_paths(&backup_root, &session, &p.path)
+                    .map_err(map_undo_mcp_err)?;
+            }
+            if !p.apply {
+                if let Err(e) = crate::backup::classify_restore_write_dests(&backup_root, &session)
+                {
+                    return Err(McpError::invalid_params(e.msg, None));
+                }
+                let entries: Vec<crate::cmd::undo::UndoPreviewEntry> = session
+                    .entries
+                    .iter()
+                    .map(|entry| crate::cmd::undo::UndoPreviewEntry {
+                        path: entry.path.clone(),
+                        action: match entry.action {
+                            crate::backup::FileAction::Modified => "restore original".to_string(),
+                            crate::backup::FileAction::Created => {
+                                "delete (was created by apply)".to_string()
+                            }
+                            crate::backup::FileAction::Deleted => {
+                                "recreate (was deleted by apply)".to_string()
+                            }
+                        },
+                    })
+                    .collect();
+                let output = crate::cmd::undo::UndoPreviewOutput {
+                    ok: true,
+                    status: "changes_detected",
+                    error_kind: Some("changes_detected"),
+                    hint: crate::cmd::undo::UNDO_DRY_RUN_HINT,
+                    applied: false,
+                    session: timestamp,
+                    project_root: crate::cmd::undo::display_root(cwd, &backup_root),
+                    file_count: entries.len(),
+                    entries,
+                };
+                let json = serde_json::to_string_pretty(&output)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+                return Ok(CallToolResult::success(vec![ContentBlock::text(json)]));
+            }
+            let restored = if p.path.is_empty() {
+                let n = crate::backup::restore_session_with_guard(
+                    &backup_root,
+                    &timestamp,
+                    Some(&svc.path_guard),
+                )
+                .map_err(map_undo_mcp_err)?;
+                crate::backup::remove_session(&backup_root, &timestamp)
+                    .map_err(map_undo_mcp_err)?;
+                n
+            } else {
+                let mut n = 0usize;
+                for rel in &p.path {
+                    if crate::backup::restore_path_from_session_with_guard(
+                        &backup_root,
+                        &timestamp,
+                        std::path::Path::new(rel),
+                        Some(&svc.path_guard),
+                    )
+                    .map_err(map_undo_mcp_err)?
+                    {
+                        n += 1;
+                    }
+                }
+                n
+            };
+            let applied = restored > 0;
+            let payload = serde_json::json!({
+                "ok": true,
+                "status": if applied { "restored" } else { "noop" },
+                "applied": applied,
+                "session": timestamp,
+                "project_root": crate::cmd::undo::display_root(cwd, &backup_root),
+                "file_count": restored,
+            });
+            let json = serde_json::to_string_pretty(&payload)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            Ok(CallToolResult::success(vec![ContentBlock::text(json)]))
+        })
+        .await
     }
 
     // move_file, append_file, create_file, and delete_file are auto-generated

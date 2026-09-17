@@ -216,6 +216,8 @@ AST tools so `list_tools` stays honest about what is callable.
 | `list_files` | Bounded directory inventory with the same ignore/exclude/glob rules as search (read-only). Prefer this over a second generic filesystem MCP for list/tree. Optional `max_depth` prunes the walk per root (does not enter deeper dirs). `max_results` (default 500) still counts all in-depth matches then truncates and sets `truncated` / `total_matched` |
 | `git_status` | Show uncommitted file changes vs git HEAD (read-only) |
 | `server_info` | Return server identity and workspace root: `cwd`, `surface` (`full`\|`core`), `tool_count`, package `version`, and MCP `protocol_version` (read-only). Use `cwd` before relative path ops |
+| `undo_list` | List `--apply` backup sessions (including nested monorepo roots). Empty tree is `error_kind: no_matches` |
+| `undo_restore` | Preview (default) or restore (`apply: true`) a backup session. Optional `path` restores only those files. Same PathGuard as other MCP writes |
 | `read_file` | Read file contents with optional line range |
 | `replace_text` | Replace text in a text file (literal or regex). Binary and invalid UTF-8 files are skipped |
 | `apply_fragment` | Freeform fragment at a required after/before/old anchor; strips Morph-style `// ... existing code ...` markers (no cloud merge). Prefer when the agent has a snippet plus a known placement |

@@ -238,6 +238,22 @@ pub(crate) struct ListFilesParams {
     pub include_hidden: bool,
 }
 
+/// Parameters for MCP `undo_restore` (#2541). `undo_list` takes no fields.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct UndoRestoreParams {
+    /// Session timestamp from `undo_list`. Omit to use the newest session.
+    pub session: Option<String>,
+    /// When true, restore files. Default false is a dry-run preview
+    /// (`applied: false`, `error_kind: changes_detected`).
+    #[serde(default)]
+    pub apply: bool,
+    /// Restore only these session paths (same as CLI `--path`). Unknown
+    /// path is `no_matches` and does not restore the rest of the session.
+    #[serde(default)]
+    pub path: Vec<String>,
+}
+
 impl ListFilesParams {
     pub(crate) fn effective_paths(&self) -> Vec<String> {
         if !self.paths.is_empty() {

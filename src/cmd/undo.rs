@@ -38,6 +38,11 @@ pub struct UndoArgs {
     #[arg(long)]
     pub session: Option<String>,
 
+    /// Restore only these session paths (repeatable). Unknown path is
+    /// `no_matches` and does not restore the rest of the session.
+    #[arg(long)]
+    pub path: Vec<String>,
+
     /// Actually restore files. Without this flag, undo only previews
     /// (exit 2) and does not change the working tree.
     #[arg(long)]
@@ -45,53 +50,54 @@ pub struct UndoArgs {
 }
 
 #[derive(Debug, Serialize)]
-struct UndoListEntry {
-    timestamp: String,
+pub(crate) struct UndoListEntry {
+    pub(crate) timestamp: String,
     /// Backup project root relative to cwd when possible (#1695).
-    project_root: String,
-    file_count: usize,
-    entries: Vec<backup::ManifestEntry>,
+    pub(crate) project_root: String,
+    pub(crate) file_count: usize,
+    pub(crate) entries: Vec<backup::ManifestEntry>,
 }
 
 /// `--json` list payload: items plus listing warnings (emit_json_items is
 /// an array and cannot carry a sibling `warnings` field).
 #[derive(Debug, Serialize)]
-struct UndoListOutput {
-    items: Vec<UndoListEntry>,
-    warnings: Vec<String>,
+pub(crate) struct UndoListOutput {
+    pub(crate) items: Vec<UndoListEntry>,
+    pub(crate) warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct UndoPreviewEntry {
-    path: String,
-    action: String,
+pub(crate) struct UndoPreviewEntry {
+    pub(crate) path: String,
+    pub(crate) action: String,
 }
 
 #[derive(Debug, Serialize)]
-struct UndoPreviewOutput {
-    ok: bool,
-    status: &'static str,
+pub(crate) struct UndoPreviewOutput {
+    pub(crate) ok: bool,
+    pub(crate) status: &'static str,
     /// Same kind as tidy check / status when a dry-run would restore.
     #[serde(skip_serializing_if = "Option::is_none")]
-    error_kind: Option<&'static str>,
+    pub(crate) error_kind: Option<&'static str>,
     /// Always set on dry-run so agents do not treat exit 2 as a completed restore.
-    hint: &'static str,
+    pub(crate) hint: &'static str,
     /// False on dry-run: matches write mutators (#1830 / #1788). Agents that
     /// only branch on `ok` + `applied` must not treat preview as a restore.
-    applied: bool,
-    session: String,
-    project_root: String,
-    file_count: usize,
-    entries: Vec<UndoPreviewEntry>,
+    pub(crate) applied: bool,
+    pub(crate) session: String,
+    pub(crate) project_root: String,
+    pub(crate) file_count: usize,
+    pub(crate) entries: Vec<UndoPreviewEntry>,
 }
 
-const UNDO_DRY_RUN_HINT: &str = "pass --apply to restore files (default is dry-run preview; exit 2 means changes would be made)";
+pub(crate) const UNDO_DRY_RUN_HINT: &str = "pass --apply to restore files (default is dry-run preview; exit 2 means changes would be made)";
 
 pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     crate::verbose!(
-        "undo: list={}, session={:?}, apply={}",
+        "undo: list={}, session={:?}, path={}, apply={}",
         args.list,
         args.session,
+        args.path.len(),
         args.apply
     );
     let cwd = global.resolve_cwd()?;
@@ -174,6 +180,18 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         Err(e) => return Err(e),
     };
 
+    let mut session = session;
+    if !args.path.is_empty() {
+        match filter_session_paths(&backup_root, &session, &args.path) {
+            Ok(filtered) => session = filtered,
+            Err(e) if crate::exit::is_no_match(&e) => {
+                global.emit_error_json_kind(Some("no_matches"), &e.to_string())?;
+                return Ok(exit::NO_MATCHES);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
     if !args.apply {
         if let Err(e) = backup::classify_restore_write_dests(&backup_root, &session) {
             global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
@@ -228,12 +246,28 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         backup_root.display()
     );
     let guard = global.workspace_guard(&cwd)?;
-    let restored = backup::restore_session_with_guard(&backup_root, &timestamp, guard.as_ref())?;
-    // Remove the consumed session so subsequent `undo` calls advance to
-    // the next-oldest session instead of replaying the same one.
-    // Even when restored == 0 (e.g. create-only session, files already gone),
-    // the session is complete and safe to drop; do not claim applied:true.
-    backup::remove_session(&backup_root, &timestamp)?;
+    let restored = if args.path.is_empty() {
+        let n = backup::restore_session_with_guard(&backup_root, &timestamp, guard.as_ref())?;
+        // Remove the consumed session so subsequent `undo` calls advance to
+        // the next-oldest session instead of replaying the same one.
+        // Even when restored == 0 (e.g. create-only session, files already gone),
+        // the session is complete and safe to drop; do not claim applied:true.
+        backup::remove_session(&backup_root, &timestamp)?;
+        n
+    } else {
+        let mut n = 0usize;
+        for rel in &args.path {
+            if backup::restore_path_from_session_with_guard(
+                &backup_root,
+                &timestamp,
+                std::path::Path::new(rel),
+                guard.as_ref(),
+            )? {
+                n += 1;
+            }
+        }
+        n
+    };
     crate::verbose!("undo: restored {} file(s)", restored);
     let applied = restored > 0;
     let status = if applied { "restored" } else { "noop" };
@@ -248,9 +282,13 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     {
         if applied {
             eprintln!("restored {restored} file(s) from session {timestamp}");
-        } else {
+        } else if args.path.is_empty() {
             eprintln!(
                 "session {timestamp}: nothing to restore (already undone or files gone); session removed"
+            );
+        } else {
+            eprintln!(
+                "session {timestamp}: nothing to restore (already undone or files gone); session kept"
             );
         }
     }
@@ -262,7 +300,9 @@ type ListedSessions = Vec<(std::path::PathBuf, backup::Manifest)>;
 
 /// Sessions under `cwd` and nested monorepo roots, newest first (#1695),
 /// plus listing warnings from missing/corrupt/unreadable manifests.
-fn collect_sessions(cwd: &std::path::Path) -> anyhow::Result<(ListedSessions, Vec<String>)> {
+pub(crate) fn collect_sessions(
+    cwd: &std::path::Path,
+) -> anyhow::Result<(ListedSessions, Vec<String>)> {
     let listings = backup::list_sessions_under(
         cwd,
         &backup::ListSessionsOptions {
@@ -290,7 +330,7 @@ fn collect_sessions(cwd: &std::path::Path) -> anyhow::Result<(ListedSessions, Ve
 
 /// `--list` with zero usable sessions: empty tree is `no_matches`;
 /// session dirs that exist but have no readable manifest are `invalid_input`.
-fn list_no_usable_sessions(warnings: &[String]) -> (&'static str, String, u8) {
+pub(crate) fn list_no_usable_sessions(warnings: &[String]) -> (&'static str, String, u8) {
     if warnings.is_empty() {
         (
             "no_matches",
@@ -309,7 +349,7 @@ fn list_no_usable_sessions(warnings: &[String]) -> (&'static str, String, u8) {
     }
 }
 
-fn resolve_session(
+pub(crate) fn resolve_session(
     cwd: &std::path::Path,
     wanted: Option<&str>,
 ) -> anyhow::Result<Option<(std::path::PathBuf, String, backup::Manifest)>> {
@@ -342,7 +382,7 @@ fn resolve_session(
     Ok(Some((root, ts, manifest)))
 }
 
-fn display_root(cwd: &std::path::Path, root: &std::path::Path) -> String {
+pub(crate) fn display_root(cwd: &std::path::Path, root: &std::path::Path) -> String {
     root.strip_prefix(cwd)
         .map(|p| {
             let s = p.to_string_lossy();
@@ -353,6 +393,52 @@ fn display_root(cwd: &std::path::Path, root: &std::path::Path) -> String {
             }
         })
         .unwrap_or_else(|_| root.to_string_lossy().into_owned())
+}
+
+pub(crate) fn filter_session_paths(
+    backup_root: &std::path::Path,
+    session: &backup::Manifest,
+    wanted: &[String],
+) -> anyhow::Result<backup::Manifest> {
+    let mut kept = Vec::new();
+    for raw in wanted {
+        let path = std::path::Path::new(raw);
+        let rel = if path.is_absolute() {
+            path.strip_prefix(backup_root).unwrap_or(path).to_path_buf()
+        } else {
+            path.to_path_buf()
+        };
+        let rel_str = rel.to_string_lossy();
+        let abs_str = backup_root.join(&rel).to_string_lossy().into_owned();
+        match session
+            .entries
+            .iter()
+            .find(|e| e.path == rel_str || e.path == abs_str || e.path == *raw)
+        {
+            Some(entry) => {
+                if !kept
+                    .iter()
+                    .any(|k: &backup::ManifestEntry| k.path == entry.path)
+                {
+                    kept.push(entry.clone());
+                }
+            }
+            None => {
+                return Err(crate::exit::NoMatchError {
+                    msg: format!(
+                        "no backup entry for path {raw} in session {}",
+                        session.timestamp
+                    ),
+                }
+                .into());
+            }
+        }
+    }
+    Ok(backup::Manifest {
+        timestamp: session.timestamp.clone(),
+        entries: kept,
+        created_dirs: session.created_dirs.clone(),
+    })
 }
 
 fn action_label(action: &backup::FileAction) -> &'static str {
@@ -387,6 +473,7 @@ mod tests {
             list: true,
             session: None,
             apply: false,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
@@ -403,6 +490,7 @@ mod tests {
             list: true,
             session: None,
             apply: false,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -430,6 +518,7 @@ mod tests {
                 list: true,
                 session: None,
                 apply: false,
+                path: Vec::new(),
             },
             &global,
         )
@@ -443,6 +532,7 @@ mod tests {
                 list: false,
                 session: Some(ts.clone()),
                 apply: true,
+                path: Vec::new(),
             },
             &global,
         )
@@ -466,6 +556,7 @@ mod tests {
             list: false,
             session: Some(ts),
             apply: false,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::CHANGES_DETECTED);
@@ -551,6 +642,7 @@ mod tests {
             list: false,
             session: Some(ts.to_string()),
             apply: true,
+            path: Vec::new(),
         };
         let err = run(args, &global).unwrap_err();
         assert!(
@@ -573,10 +665,61 @@ mod tests {
             list: false,
             session: Some(ts),
             apply: true,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "original");
+    }
+
+    #[test]
+    fn apply_path_restores_only_that_file() {
+        let dir = TempDir::new().unwrap();
+        let keep = dir.path().join("keep.txt");
+        let change = dir.path().join("change.txt");
+        std::fs::write(&keep, "keep-orig").unwrap();
+        std::fs::write(&change, "change-orig").unwrap();
+        let mut session = backup::BackupSession::new(dir.path()).unwrap();
+        session.save_before_write(&keep).unwrap();
+        session.save_before_write(&change).unwrap();
+        let ts = session.finalize().unwrap().unwrap();
+        std::fs::write(&keep, "keep-new").unwrap();
+        std::fs::write(&change, "change-new").unwrap();
+
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: Some(ts.clone()),
+            apply: true,
+            path: vec!["change.txt".into()],
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert_eq!(std::fs::read_to_string(&change).unwrap(), "change-orig");
+        assert_eq!(
+            std::fs::read_to_string(&keep).unwrap(),
+            "keep-new",
+            "unlisted path must stay modified"
+        );
+    }
+
+    #[test]
+    fn apply_unknown_path_is_no_matches() {
+        let dir = TempDir::new().unwrap();
+        let ts = create_backup(dir.path(), "c.txt", "original");
+        let mut global = GlobalFlags::test_default();
+        global.quiet = true;
+        global.cwd = Some(dir.path().to_string_lossy().to_string());
+        let args = UndoArgs {
+            list: false,
+            session: Some(ts),
+            apply: true,
+            path: vec!["missing.txt".into()],
+        };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::NO_MATCHES);
     }
 
     #[test]
@@ -595,6 +738,7 @@ mod tests {
             list: false,
             session: None,
             apply: true,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);
@@ -612,6 +756,7 @@ mod tests {
             list: false,
             session: Some("99999999".to_string()),
             apply: false,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
@@ -627,6 +772,7 @@ mod tests {
             list: false,
             session: None,
             apply: false,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
@@ -642,6 +788,7 @@ mod tests {
             list: false,
             session: None,
             apply: false,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
@@ -661,6 +808,7 @@ mod tests {
             list: true,
             session: None,
             apply: false,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::NO_MATCHES);
@@ -685,6 +833,7 @@ mod tests {
                 list: true,
                 session: None,
                 apply: false,
+                path: Vec::new(),
             },
             &global,
         )
@@ -737,6 +886,7 @@ mod tests {
                 list: false,
                 session: None,
                 apply: false,
+                path: Vec::new(),
             },
             &global,
         )
@@ -759,6 +909,7 @@ mod tests {
                 list: true,
                 session: None,
                 apply: false,
+                path: Vec::new(),
             },
             &global,
         )
@@ -805,6 +956,7 @@ mod tests {
             list: false,
             session: Some(ts),
             apply: true,
+            path: Vec::new(),
         };
         let code = run(args, &global).unwrap();
         assert_eq!(code, exit::SUCCESS);

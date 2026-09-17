@@ -380,6 +380,7 @@ Patchloom can be used as a Rust library (disable default `cli` feature for small
 - **Notable flags:**
   - `--list` shows available backup sessions. `--json` emits `{ "items": [...], "warnings": [...] }` (each item still has `timestamp`, `project_root`, `file_count`, `entries`). `--jsonl` emits one session object per line, then a `type: warnings` trailer when listing warnings exist (no stderr).
   - `--session <timestamp>` targets a specific session (defaults to most recent).
+  - `--path <rel>` (repeatable) restores only those session files. An unknown path is `no_matches` and does not restore the rest. The session is kept (not removed) when `--path` is set.
   - `--apply` actually restores files (required for a real restore; omitted = preview only).
 - **Failure behavior:** No backup sessions (`--list` empty, or restore with no sessions) exits `3` (`NO_MATCHES`) with `error_kind: "no_matches"`. If session directories exist but none have a readable `manifest.json`, `--list` exits `1` with `error_kind: "invalid_input"` (not `no_matches`) and the warning text (including the path) in the error message.
 - **Agent trap:** Do not treat exit `2` from bare `undo` as a completed restore. Re-run with `--apply`.

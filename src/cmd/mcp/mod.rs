@@ -122,6 +122,9 @@ pub struct PatchloomService {
     call_log: Option<PathBuf>,
     /// Active tool inventory (`PATCHLOOM_MCP_SURFACE`).
     surface: surface::McpSurface,
+    /// `[exclude] globs` from `.patchloom.toml` at the server root (#2540).
+    /// Merged ahead of per-request `exclude_patterns` on walker tools.
+    config_exclude: Vec<String>,
 }
 
 impl PatchloomService {
@@ -154,6 +157,10 @@ impl PatchloomService {
                 msg: format!("failed to initialize path guard: {e}"),
             })
         })?;
+        let config_exclude = match crate::config::find_and_load_strict(&cwd)? {
+            Some((config, _)) => config.exclude.globs,
+            None => Vec::new(),
+        };
         // --log flag takes precedence over PATCHLOOM_MCP_LOG env var.
         let call_log = log_flag
             .map(PathBuf::from)
@@ -224,7 +231,15 @@ impl PatchloomService {
             path_guard,
             call_log,
             surface,
+            config_exclude,
         })
+    }
+
+    /// Config `[exclude] globs` first, then the request `exclude_patterns`.
+    fn walker_excludes(&self, request: Vec<String>) -> Vec<String> {
+        let mut merged = self.config_exclude.clone();
+        merged.extend(request);
+        merged
     }
 
     /// Active MCP tool surface (`full` or `core`).
