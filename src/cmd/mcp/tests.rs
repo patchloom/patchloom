@@ -533,7 +533,7 @@ mod basic {
             Check {
                 op_name: "patch.apply",
                 mcp_keys: schema_keys_for::<PatchParams>(),
-                mcp_only_allowed: &["strict"],
+                mcp_only_allowed: &["strict", "apply"],
                 op_only_allowed: &[],
             },
             Check {
