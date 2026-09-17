@@ -314,8 +314,8 @@ impl GlobalFlags {
             ColorMode::Always => true,
             ColorMode::Never => false,
             ColorMode::Auto => {
-                // Respect NO_COLOR (https://no-color.org)
-                if std::env::var_os("NO_COLOR").is_some() {
+                // Respect NO_COLOR (https://no-color.org): present and non-empty.
+                if no_color_disables(std::env::var_os("NO_COLOR").as_deref()) {
                     return false;
                 }
                 #[cfg(feature = "cli")]
@@ -365,7 +365,14 @@ impl GlobalFlags {
                 }
                 .into());
             }
-            Ok(path)
+            // Config discovery walks with PathBuf::pop. A relative --cwd
+            // must be absolute first or `..` / `sub` load the wrong tree (#2514).
+            let abs = if path.is_absolute() {
+                path
+            } else {
+                std::env::current_dir()?.join(path)
+            };
+            Ok(normalize_cwd_lexically(abs))
         } else {
             std::env::current_dir().map_err(Into::into)
         }
@@ -727,6 +734,28 @@ impl GlobalFlags {
             Some(_) => self.read_files_from(),
         }
     }
+}
+
+/// `NO_COLOR` disables color only when the variable is present and non-empty
+/// (https://no-color.org). Empty `NO_COLOR=` is ignored (#2518).
+fn no_color_disables(val: Option<&std::ffi::OsStr>) -> bool {
+    val.is_some_and(|v| !v.is_empty())
+}
+
+/// Drop `.` and resolve `..` without touching the filesystem (no symlink follow).
+fn normalize_cwd_lexically(path: std::path::PathBuf) -> std::path::PathBuf {
+    use std::path::{Component, PathBuf};
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let _ = out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// UTF-16 LE without a BOM is valid UTF-8 (embedded NULs). Those "paths"
@@ -1120,6 +1149,26 @@ mod tests {
         };
         let err = g.resolve_cwd().unwrap_err().to_string();
         assert!(err.contains("not a directory"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn resolve_cwd_lexically_normalizes_parent_dir() {
+        let root = tempfile::tempdir().unwrap();
+        let sub = root.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let g = GlobalFlags {
+            cwd: Some(sub.join("..").to_string_lossy().into_owned()),
+            ..GlobalFlags::default()
+        };
+        let got = g.resolve_cwd().unwrap();
+        assert_eq!(got, normalize_cwd_lexically(root.path().to_path_buf()));
+    }
+
+    #[test]
+    fn no_color_empty_does_not_disable() {
+        assert!(!no_color_disables(None));
+        assert!(!no_color_disables(Some(std::ffi::OsStr::new(""))));
+        assert!(no_color_disables(Some(std::ffi::OsStr::new("1"))));
     }
 
     #[test]
