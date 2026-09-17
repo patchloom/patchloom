@@ -32,12 +32,20 @@ pub fn append_content(existing: &str, append: &str) -> String {
     if append.is_empty() {
         return existing.to_string();
     }
-    let mut combined = existing.to_string();
+    let (bom, rest) = split_utf8_bom(existing);
+    let mut combined = rest.to_string();
     if !combined.is_empty() && !ends_with_line_ending(&combined) {
-        combined.push_str(preferred_line_ending(existing));
+        combined.push_str(preferred_line_ending(rest));
     }
     combined.push_str(append);
-    combined
+    if bom.is_empty() {
+        combined
+    } else {
+        let mut out = String::with_capacity(bom.len() + combined.len());
+        out.push_str(bom);
+        out.push_str(&combined);
+        out
+    }
 }
 
 /// Drop a leading UTF-8 BOM (`U+FEFF`). Windows Notepad, VS, and PowerShell
@@ -1102,6 +1110,13 @@ mod tests {
         let existing = "\u{feff}body\n";
         let out = prepend_content(existing, "HEAD\n");
         assert_eq!(out, "\u{feff}HEAD\nbody\n");
+    }
+
+    #[test]
+    fn append_bom_only_does_not_insert_blank_line() {
+        // #2512: BOM-only is empty text after peel, not "needs a separator".
+        assert_eq!(append_content("\u{feff}", "hello"), "\u{feff}hello");
+        assert_eq!(append_content("\u{feff}body", "more"), "\u{feff}body\nmore");
     }
 
     #[test]
