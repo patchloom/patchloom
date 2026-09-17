@@ -10,7 +10,7 @@
 | structured single path | `doc set` | `doc.set` | `doc_set` |
 | structured multi-match (predicate/wildcard) | `doc update` | `doc.update` | `doc_update` |
 | search | `search` | n/a | `search_files` |
-| list files | n/a (MCP) | n/a | `list_files` |
+| list files | `list-files` | n/a | `list_files` |
 | read | `read` | n/a | `read_file` |
 
 Host meta-tools (for example a host `search_tool` catalog lookup) are **not** patchloom MCP tools. Only list registered MCP tool names when summarizing patchloom usage.
@@ -92,7 +92,9 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 | Find/replace text in a file | `replace_text` (one file) or `batch_replace` (same replacement across multiple files) |
 | Search across files | `search_files` |
 | List/inventory files (ignore-aware; max_depth prunes walk; prefer over FS MCP) | `list_files` |
-| Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE | `apply_patch` |
+| Explain a tx plan without executing it | `explain_plan` |
+| Scan whitespace issues without writing | `tidy_check` |
+| Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE (`apply=false` is check-only) | `apply_patch` |
 | List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |
 | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
 | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |

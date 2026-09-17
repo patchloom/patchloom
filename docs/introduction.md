@@ -28,7 +28,7 @@ replace README.md "1.0.0" "2.0.0"
 EOF
 ```
 
-## 24 commands
+## 25 commands
 
 | Category | Command | Description |
 |----------|---------|-------------|
@@ -44,6 +44,7 @@ EOF
 | | `create` | Create a new file with content |
 | | `delete` | Delete a file |
 | | `rename` | Rename or move a file |
+| | `list-files` | Ignore-aware directory inventory (same walk as search) |
 | | `read` | Read file contents with optional line range |
 | | `status` | Show uncommitted file changes |
 | Batch | `tx` | Execute a multi-operation plan atomically |

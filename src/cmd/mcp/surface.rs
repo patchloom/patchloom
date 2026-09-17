@@ -121,6 +121,16 @@ pub(super) const CUSTOM_MCP_TOOLS_CORE: &[CustomMcpTool] = &[
         why: "unified-diff apply with stale/conflict exit mapping",
         kind: CustomKind::Patch,
     },
+    CustomMcpTool {
+        name: "explain_plan",
+        why: "readonly plan summary; CLI explain has no write Operation (#2541)",
+        kind: CustomKind::MultiOp,
+    },
+    CustomMcpTool {
+        name: "tidy_check",
+        why: "readonly tidy scan; does not write (CLI tidy check) (#2541)",
+        kind: CustomKind::MultiFileOrScan,
+    },
     // --- Meta ---
     CustomMcpTool {
         name: "git_status",
@@ -378,13 +388,13 @@ mod tests {
         // Core tools always; AST tools only with `ast` (matches list_tools registration).
         let registry_n = MCP_TOOL_REGISTRY.len();
         let custom_n = custom_mcp_tools().count();
-        let expected_total = if cfg!(feature = "ast") { 60 } else { 40 };
+        let expected_total = if cfg!(feature = "ast") { 62 } else { 42 };
         assert_eq!(
             registry_n + custom_n,
             expected_total,
             "registry ({registry_n}) + custom ({custom_n}) must equal total MCP tools ({expected_total})"
         );
-        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 16, "core custom tool count");
+        assert_eq!(CUSTOM_MCP_TOOLS_CORE.len(), 18, "core custom tool count");
         #[cfg(feature = "ast")]
         assert_eq!(CUSTOM_MCP_TOOLS_AST.len(), 20, "ast custom tool count");
         #[cfg(not(feature = "ast"))]
@@ -458,6 +468,128 @@ mod tests {
         assert!(
             McpSurface::Core.expected_tool_count() < McpSurface::Full.expected_tool_count(),
             "core pack must be a strict subset of full"
+        );
+    }
+
+    /// CLI write subcommands and the MCP tool (or family) that covers them.
+    const CLI_WRITE_TO_MCP: &[(&str, &str)] = &[
+        ("append", "append_file"),
+        ("create", "create_file"),
+        ("delete", "delete_file"),
+        ("prepend", "prepend_file"),
+        ("rename", "move_file"),
+        ("replace", "replace_text"),
+        ("apply-fragment", "apply_fragment"),
+        ("patch", "apply_patch"),
+        ("md", "md_* family"),
+        ("doc", "doc_* family"),
+        ("ast", "ast_* family"),
+        ("tidy", "fix_whitespace / tidy_check / batch_tidy"),
+        ("batch", "batch_replace / batch_tidy"),
+        ("tx", "execute_plan"),
+        ("undo", "undo_restore"),
+    ];
+
+    /// MCP-only or read-only tools that are not CLI write subcommands.
+    const MCP_NON_WRITE_OR_ALIASED: &[(&str, &str)] = &[
+        ("server_info", "MCP-only server metadata"),
+        ("list_files", "CLI list-files (read-only)"),
+        ("search_files", "CLI search"),
+        ("read_file", "CLI read"),
+        ("doc_get", "CLI doc get"),
+        ("doc_query", "CLI doc query"),
+        ("doc_diff", "CLI doc diff"),
+        ("md_lint", "CLI md lint-agents"),
+        ("git_status", "CLI status"),
+        ("undo_list", "CLI undo --list"),
+        ("explain_plan", "CLI explain"),
+        ("tidy_check", "CLI tidy check"),
+    ];
+
+    /// CLI commands with no MCP tool (process / docs / setup).
+    const CLI_ONLY_ALLOWLIST: &[(&str, &str)] = &[
+        ("mcp-server", "MCP server process; no tool equivalent"),
+        ("completions", "shell completions"),
+        ("init", "project setup"),
+        ("agent-rules", "docs generator"),
+        ("schema", "schema export"),
+    ];
+
+    fn mcp_write_has_cli(name: &str) -> bool {
+        if name.starts_with("doc_") || name.starts_with("md_") || name.starts_with("ast_") {
+            return true;
+        }
+        CLI_WRITE_TO_MCP.iter().any(|(_, mcp)| *mcp == name)
+            || matches!(
+                name,
+                "fix_whitespace"
+                    | "batch_tidy"
+                    | "batch_replace"
+                    | "execute_plan"
+                    | "undo_restore"
+                    | "replace_text"
+                    | "apply_patch"
+            )
+    }
+
+    #[test]
+    fn mcp_cli_write_parity_allowlist() {
+        let inventory: BTreeSet<&str> = MCP_TOOL_REGISTRY
+            .iter()
+            .map(|t| t.tool_name)
+            .chain(custom_tool_names())
+            .collect();
+
+        for (cli, mcp) in CLI_WRITE_TO_MCP {
+            assert!(!mcp.is_empty(), "CLI write `{cli}` needs an MCP mapping");
+            if mcp.contains("family") || mcp.contains('/') {
+                continue;
+            }
+            assert!(
+                inventory.contains(mcp),
+                "CLI write `{cli}` maps to missing MCP tool `{mcp}`"
+            );
+        }
+
+        for meta in MCP_TOOL_REGISTRY {
+            if meta.tool_name == "read_file" {
+                continue;
+            }
+            assert!(
+                mcp_write_has_cli(meta.tool_name),
+                "registry write `{}` needs a CLI command or allowlist",
+                meta.tool_name
+            );
+        }
+        for t in custom_mcp_tools() {
+            if MCP_NON_WRITE_OR_ALIASED
+                .iter()
+                .any(|(n, why)| *n == t.name && !why.is_empty())
+            {
+                continue;
+            }
+            if matches!(t.kind, CustomKind::DocReadonly | CustomKind::Meta)
+                && t.name != "undo_restore"
+            {
+                continue;
+            }
+            assert!(
+                mcp_write_has_cli(t.name),
+                "custom write `{}` needs a CLI command or MCP_NON_WRITE_OR_ALIASED why",
+                t.name
+            );
+        }
+
+        for (name, why) in CLI_ONLY_ALLOWLIST {
+            assert!(!why.is_empty(), "CLI-only `{name}` needs a why");
+            assert!(
+                !inventory.contains(name),
+                "CLI-only `{name}` must not be an MCP tool"
+            );
+        }
+        assert!(
+            inventory.contains("list_files") && inventory.contains("explain_plan"),
+            "list_files and explain_plan must be registered after #2541"
         );
     }
 

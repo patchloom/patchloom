@@ -10,6 +10,7 @@ pub mod delete;
 pub mod doc;
 pub mod explain;
 pub mod init;
+pub mod list_files;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod md;
@@ -52,6 +53,9 @@ pub enum Command {
     /// Rename (move) a file.
     #[command(display_order = 14)]
     Rename(rename::RenameArgs),
+    /// List files under the workspace with the same ignore/exclude/glob rules as search.
+    #[command(display_order = 15, name = "list-files")]
+    ListFiles(list_files::ListFilesArgs),
 
     // -- Text Operations (display_order 20-29) --
     /// Fast literal or regex search across text files.
@@ -247,6 +251,10 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         Command::Status(args) => {
             load_project_config(&mut global)?;
             status::run(args, &global)
+        }
+        Command::ListFiles(args) => {
+            load_project_config(&mut global)?;
+            list_files::run(args, &global)
         }
         Command::Append(args) => {
             global.merge_write(&args.write);

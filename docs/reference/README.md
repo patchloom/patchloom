@@ -362,6 +362,14 @@ These are the main entry points. If you are deciding between commands, start her
 - **Prefer instead:** Use `tx` when you need format/validate lifecycle steps, strict mode, multi-line content, or operations not supported by the line format (patch.apply, replace with regex/nth, search, read).
 - **Related:** `tx`
 
+<!-- ref:command:list-files -->
+## `list-files`
+
+- **What it does:** Lists files under one or more roots using the same ignore, `--exclude`, and `--glob` rules as `search`. Caps results (`--max-results`, default 500) and reports `truncated` / `total_matched` when capped. `--max-depth` prunes the walk at each root. `--include-hidden` includes dotfiles (still never walks `.git` / `.patchloom`). `--json` / `--jsonl` emit the same report shape as MCP `list_files`.
+- **Use when:** An agent needs a bounded directory inventory without a second filesystem MCP, or a human wants the same ignore-aware listing as MCP `list_files`.
+- **Failure behavior:** A missing explicit root exits `1` with `error_kind: "not_found"`. Empty or whitespace-only paths and `--max-depth 0` exit `1` with `error_kind: "invalid_input"`.
+- **Related:** `search`, `status`
+
 <!-- ref:command:read -->
 ## `read`
 

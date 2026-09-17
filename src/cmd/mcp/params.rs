@@ -10,6 +10,10 @@
 use super::*;
 use serde::Deserialize;
 
+fn default_apply_true() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ReplaceParams {
@@ -130,6 +134,10 @@ pub(crate) struct PatchParams {
     /// SEARCH/REPLACE only: update every exact match. Default unique.
     #[serde(default)]
     pub replace_all: bool,
+    /// When true (default), apply the patch. Set `apply=false` for check-only
+    /// preview (CLI `patch check`; disk is unchanged).
+    #[serde(default = "default_apply_true")]
+    pub apply: bool,
     /// Roll back all writes when format/validate lifecycle steps fail.
     #[serde(default = "default_strict_true")]
     pub strict: bool,
@@ -236,6 +244,45 @@ pub(crate) struct ListFilesParams {
     /// Include hidden files (still never walks `.git` / `.patchloom`).
     #[serde(default)]
     pub include_hidden: bool,
+}
+
+/// Parameters for MCP `explain_plan` (#2541). Inline `plan` or `path`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExplainPlanParams {
+    /// Inline plan text (JSON, YAML, or TOML). Same document as CLI `explain`.
+    #[serde(default)]
+    pub plan: Option<String>,
+    /// Path to a plan file (relative to working directory).
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Format hint: json, yaml, or toml (auto-detected from path extension).
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// Parameters for MCP `tidy_check` (#2541). `paths` / `path` alias like list_files.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TidyCheckParams {
+    /// Scan roots relative to working directory (defaults to workspace root).
+    #[serde(default)]
+    pub paths: Vec<String>,
+    /// Single scan root. Equivalent to `paths: [path]` when `paths` is empty.
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+impl TidyCheckParams {
+    pub(crate) fn effective_paths(&self) -> Vec<String> {
+        if !self.paths.is_empty() {
+            self.paths.clone()
+        } else if let Some(ref path) = self.path {
+            vec![path.clone()]
+        } else {
+            vec![".".into()]
+        }
+    }
 }
 
 /// Parameters for MCP `undo_restore` (#2541). `undo_list` takes no fields.

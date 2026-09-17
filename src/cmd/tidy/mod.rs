@@ -7,6 +7,8 @@ mod check;
 mod fix;
 
 pub use check::TidyIssue;
+#[cfg(feature = "mcp")]
+pub(crate) use check::collect_issues_with_list;
 
 use crate::cli::global::GlobalFlags;
 use clap::Args;

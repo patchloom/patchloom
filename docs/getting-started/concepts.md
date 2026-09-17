@@ -2,7 +2,7 @@
 
 ## Commands
 
-Patchloom has 24 commands:
+Patchloom has 25 commands:
 
 - **search** / **replace** -- text-level find and replace across files
 - **apply-fragment** -- freeform fragment with required anchors ([MorphLLM](https://www.morphllm.com/)-style `// ... existing code ...` markers stripped; no cloud model merge)
@@ -12,6 +12,7 @@ Patchloom has 24 commands:
 - **tidy** -- whitespace and line-ending normalization
 - **append** / **prepend** -- append or prepend content to an existing file
 - **create** / **delete** / **rename** -- file lifecycle
+- **list-files** -- ignore-aware directory inventory (same walk as search / MCP `list_files`)
 - **read** -- file content inspection with optional line range (supports multiple files)
 - **status** -- uncommitted change summary from git
 - **tx** -- atomic multi-operation transactions

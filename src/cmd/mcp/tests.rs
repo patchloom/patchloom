@@ -164,6 +164,14 @@ mod basic {
             names.contains(&"undo_restore"),
             "missing undo_restore tool (#2541)"
         );
+        assert!(
+            names.contains(&"explain_plan"),
+            "missing explain_plan tool (#2541)"
+        );
+        assert!(
+            names.contains(&"tidy_check"),
+            "missing tidy_check tool (#2541)"
+        );
         assert!(names.contains(&"replace_text"), "missing replace_text tool");
         assert_eq!(
             descriptions.get("replace_text"),
@@ -1914,19 +1922,242 @@ mod undo_mcp_tests {
     async fn undo_restore_unknown_session_is_no_matches() {
         let dir = tempfile::TempDir::new().unwrap();
         let client = spawn_test_client(dir.path().to_path_buf()).await;
-        let params = rmcp::model::CallToolRequestParams::new("undo_restore").with_arguments(
-            serde_json::from_value(serde_json::json!({
+        let result = call_named_tool(
+            &client,
+            "undo_restore",
+            serde_json::json!({
                 "session": "no-such-session",
                 "apply": true
+            }),
+        )
+        .await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "unknown session is an envelope, not a tool error: {}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["ok"], false, "{val}");
+        assert_eq!(val["error_kind"], "no_matches", "{val}");
+        assert_eq!(val["applied"], false, "{val}");
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn undo_restore_unknown_path_is_no_matches() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let ts = create_backup(dir.path(), "a.txt", "orig");
+        std::fs::write(dir.path().join("a.txt"), "changed").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "undo_restore",
+            serde_json::json!({
+                "session": ts,
+                "apply": true,
+                "path": ["missing.txt"]
+            }),
+        )
+        .await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "unknown path is an envelope, not a tool error: {}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["ok"], false, "{val}");
+        assert_eq!(val["error_kind"], "no_matches", "{val}");
+        assert_eq!(val["applied"], false, "{val}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "changed"
+        );
+        client.cancel().await.unwrap();
+    }
+}
+
+mod explain_plan_mcp_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn explain_plan_inline_one_op_returns_description() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let plan =
+            r#"{"version":1,"operations":[{"op":"file.create","path":"a.txt","content":"x"}]}"#;
+        let result =
+            call_named_tool(&client, "explain_plan", serde_json::json!({ "plan": plan })).await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "{}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["ok"], true, "{val}");
+        assert_eq!(val["operation_count"], 1, "{val}");
+        let desc = val["operations"][0]["description"].as_str().unwrap_or("");
+        assert!(
+            desc.contains("create") || desc.contains("a.txt"),
+            "expected op description, got: {desc}"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn explain_plan_missing_path_is_not_found() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let params = rmcp::model::CallToolRequestParams::new("explain_plan").with_arguments(
+            serde_json::from_value(serde_json::json!({
+                "path": "no-such-plan.json"
             }))
             .unwrap(),
         );
         let result = client.peer().call_tool(params).await;
-        let err = result.expect_err("unknown session must fail closed");
-        let text = err.to_string();
+        match result {
+            Ok(ok) => {
+                let val = tool_result_json(&ok);
+                let kind = val["error_kind"].as_str().unwrap_or("");
+                assert!(
+                    kind == "not_found" || kind == "invalid_input" || ok.is_error.unwrap_or(false),
+                    "missing path must peel not_found/invalid_params: {val}"
+                );
+            }
+            Err(err) => {
+                let text = err.to_string();
+                assert!(
+                    text.contains("no-such-plan")
+                        || text.contains("not found")
+                        || text.contains("invalid"),
+                    "{text}"
+                );
+            }
+        }
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn explain_plan_malformed_is_parse_error() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "explain_plan",
+            serde_json::json!({ "plan": "not a plan {{" }),
+        )
+        .await;
+        let val = tool_result_json(&result);
+        assert_eq!(val["error_kind"], "parse_error", "{val}");
+        client.cancel().await.unwrap();
+    }
+}
+
+mod tidy_check_mcp_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn tidy_check_reports_missing_final_newline_without_rewrite() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("dirty.txt");
+        std::fs::write(&path, "no-nl").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "tidy_check",
+            serde_json::json!({ "path": "dirty.txt" }),
+        )
+        .await;
         assert!(
-            text.contains("no-such-session") || text.contains("no backup"),
-            "{text}"
+            !result.is_error.unwrap_or(false),
+            "{}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["ok"], false, "{val}");
+        assert_eq!(val["error_kind"], "changes_detected", "{val}");
+        let issues = val["issues"].as_array().expect("issues");
+        assert!(
+            issues.iter().any(|i| {
+                i["issue"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("missing final newline"))
+            }),
+            "{val}"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "no-nl");
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn tidy_check_clean_file_is_empty_issues() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("clean.txt"), "ok\n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "tidy_check",
+            serde_json::json!({ "path": "clean.txt" }),
+        )
+        .await;
+        let val = tool_result_json(&result);
+        assert_eq!(val["ok"], true, "{val}");
+        let issues = val["issues"].as_array().expect("issues");
+        assert!(issues.is_empty(), "{val}");
+        client.cancel().await.unwrap();
+    }
+}
+
+mod apply_patch_check_mcp_tests {
+    use super::*;
+
+    fn unified_diff() -> String {
+        "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n".to_string()
+    }
+
+    #[tokio::test]
+    async fn apply_patch_false_does_not_change_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "apply_patch",
+            serde_json::json!({ "diff": unified_diff(), "apply": false }),
+        )
+        .await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "{}",
+            tool_result_text(&result)
+        );
+        let val = tool_result_json(&result);
+        assert_eq!(val["applied"], false, "{val}");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "old\n"
+        );
+        client.cancel().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn apply_patch_true_still_writes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "old\n").unwrap();
+        let client = spawn_test_client(dir.path().to_path_buf()).await;
+        let result = call_named_tool(
+            &client,
+            "apply_patch",
+            serde_json::json!({ "diff": unified_diff(), "apply": true }),
+        )
+        .await;
+        assert!(
+            !result.is_error.unwrap_or(false),
+            "{}",
+            tool_result_text(&result)
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "new\n"
         );
         client.cancel().await.unwrap();
     }
