@@ -4,10 +4,13 @@
 //! [`crate::api::apply_patch`] / [`crate::api::apply_patch_file`]. Do not copy
 //! this parser.
 
-/// True when any line trims to `*** Begin Patch`.
+/// True when the first non-blank line trims to `*** Begin Patch`.
+///
+/// Mid-document or unified-diff context/`+` lines that mention the marker
+/// stay unified (#2505).
 #[must_use]
 pub fn looks_like_begin_patch(patch: &str) -> bool {
-    patch.lines().any(|l| l.trim() == "*** Begin Patch")
+    patch.lines().map(str::trim).find(|l| !l.is_empty()) == Some("*** Begin Patch")
 }
 
 /// True when Begin Patch markers appear with unified-diff file headers.
@@ -90,22 +93,20 @@ pub fn parse_begin_patch(patch: &str) -> anyhow::Result<Vec<BeginPatchOp>> {
 
     for line in patch.lines() {
         let trimmed = line.trim_end_matches('\r');
-        if trimmed.trim() == "*** Begin Patch" {
+        // Markers must start at column 0. Do not left-trim (#2503).
+        if is_col0_marker(trimmed, "*** Begin Patch") {
             seen_begin = true;
             continue;
         }
         if !seen_begin {
             continue;
         }
-        if trimmed.trim() == "*** End Patch" {
+        if is_col0_marker(trimmed, "*** End Patch") {
             finish_op(&mut current, &mut ops)?;
             seen_end = true;
             break;
         }
-        if trimmed.trim() == "*** End of File" {
-            finish_op(&mut current, &mut ops)?;
-            continue;
-        }
+        // `*** End of File` is a hunk EOF-anchor, not an op terminator (#2504).
         if let Some(path) = strip_marker(trimmed, "*** Add File:") {
             finish_op(&mut current, &mut ops)?;
             current = Some(OpBuilder::Add {
@@ -190,7 +191,7 @@ pub fn apply_codex_hunks(source: &str, hunks: &str) -> anyhow::Result<String> {
     if body.trim().is_empty() {
         return Ok(source.to_owned());
     }
-    let hunk_chunks = split_hunks(body);
+    let hunk_chunks = parse_codex_hunks(body)?;
     if hunk_chunks.is_empty() {
         return Err(invalid_err("Begin Patch Update File has no @@ hunks"));
     }
@@ -200,18 +201,7 @@ pub fn apply_codex_hunks(source: &str, hunks: &str) -> anyhow::Result<String> {
     let mut src_lines: Vec<String> = source.lines().map(String::from).collect();
 
     for chunk in hunk_chunks {
-        let (old_lines, new_lines) = hunk_old_new_lines(&chunk)?;
-        if old_lines.is_empty() {
-            if src_lines.is_empty() {
-                src_lines = new_lines;
-                continue;
-            }
-            return Err(invalid_err(
-                "Begin Patch hunk has no context/delete lines to match",
-            ));
-        }
-        let pos = find_unique_line_span(&src_lines, &old_lines)?;
-        src_lines.splice(pos..pos + old_lines.len(), new_lines);
+        apply_one_hunk(&mut src_lines, &chunk)?;
     }
 
     let mut out = src_lines.join(eol);
@@ -285,9 +275,12 @@ enum OpBuilder {
     },
 }
 
+fn is_col0_marker(line: &str, marker: &str) -> bool {
+    line.trim_end() == marker
+}
+
 fn strip_marker<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
-    line.trim()
-        .strip_prefix(marker)
+    line.strip_prefix(marker)
         .map(str::trim)
         .filter(|s| !s.is_empty())
 }
@@ -321,17 +314,45 @@ fn finish_op(current: &mut Option<OpBuilder>, ops: &mut Vec<BeginPatchOp>) -> an
     Ok(())
 }
 
-fn split_hunks(body: &str) -> Vec<String> {
+struct CodexHunk {
+    hint: Option<String>,
+    old_lines: Vec<String>,
+    new_lines: Vec<String>,
+    eof_anchored: bool,
+}
+
+fn parse_codex_hunks(body: &str) -> anyhow::Result<Vec<CodexHunk>> {
     let mut hunks = Vec::new();
     let mut current = Vec::new();
+    let mut hint = None;
     let mut started = false;
+    let mut eof_anchored = false;
+
     for line in body.lines() {
+        let line = line.trim_end_matches('\r');
+        if is_col0_marker(line, "*** End of File") {
+            eof_anchored = true;
+            continue;
+        }
         if line.starts_with("@@") {
-            if started && !current.is_empty() {
-                hunks.push(current.join("\n"));
+            if started {
+                let (old_lines, new_lines) = hunk_old_new_lines(&current.join("\n"))?;
+                hunks.push(CodexHunk {
+                    hint,
+                    old_lines,
+                    new_lines,
+                    eof_anchored,
+                });
                 current.clear();
+                eof_anchored = false;
             }
             started = true;
+            let rest = line.get(2..).unwrap_or("").trim();
+            hint = if rest.is_empty() {
+                None
+            } else {
+                Some(rest.to_owned())
+            };
             continue;
         }
         if started {
@@ -341,10 +362,108 @@ fn split_hunks(body: &str) -> Vec<String> {
             current.push(line.to_owned());
         }
     }
-    if !current.is_empty() {
-        hunks.push(current.join("\n"));
+    if started {
+        let (old_lines, new_lines) = hunk_old_new_lines(&current.join("\n"))?;
+        hunks.push(CodexHunk {
+            hint,
+            old_lines,
+            new_lines,
+            eof_anchored,
+        });
     }
-    hunks
+    Ok(hunks)
+}
+
+fn apply_one_hunk(src: &mut Vec<String>, chunk: &CodexHunk) -> anyhow::Result<()> {
+    let (search_start, search_end) = if let Some(hint) = &chunk.hint {
+        let hint_idx = find_unique_hint(src, hint)?;
+        let start = hint_idx + 1;
+        let end = scope_end(src, start, leading_indent(&src[hint_idx]));
+        (start, end)
+    } else {
+        (0, src.len())
+    };
+
+    if chunk.old_lines.is_empty() {
+        if src.is_empty() {
+            *src = chunk.new_lines.clone();
+            return Ok(());
+        }
+        if chunk.hint.is_some() {
+            src.splice(search_start..search_start, chunk.new_lines.iter().cloned());
+            return Ok(());
+        }
+        return Err(invalid_err(
+            "Begin Patch hunk has no context/delete lines to match",
+        ));
+    }
+
+    let window = &src[search_start..search_end];
+    let rel = find_line_span(window, &chunk.old_lines, chunk.eof_anchored)?;
+    let pos = search_start + rel;
+    src.splice(
+        pos..pos + chunk.old_lines.len(),
+        chunk.new_lines.iter().cloned(),
+    );
+    Ok(())
+}
+
+fn normalize_ws(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn line_matches_hint(line: &str, hint: &str) -> bool {
+    let n_line = normalize_ws(line);
+    let n_hint = normalize_ws(hint);
+    !n_hint.is_empty() && (n_line == n_hint || n_line.contains(&n_hint))
+}
+
+fn find_unique_hint(src: &[String], hint: &str) -> anyhow::Result<usize> {
+    let mut found = None;
+    for (i, line) in src.iter().enumerate() {
+        if line_matches_hint(line, hint) {
+            match found {
+                None => found = Some(i),
+                Some(_) => {
+                    return Err(crate::fallback::EditError::new(
+                        crate::fallback::EditErrorKind::AmbiguousTarget,
+                        "Begin Patch @@ scope matched 2+ times; make the context unique",
+                    )
+                    .into());
+                }
+            }
+        }
+    }
+    found.ok_or_else(|| {
+        crate::fallback::EditError::new(
+            crate::fallback::EditErrorKind::NoMatch,
+            format!("Begin Patch @@ scope did not match file content: {hint:?}"),
+        )
+        .into()
+    })
+}
+
+fn leading_indent(s: &str) -> usize {
+    s.chars().take_while(|c| *c == ' ' || *c == '\t').count()
+}
+
+fn scope_end(src: &[String], after: usize, hint_indent: usize) -> usize {
+    src.iter()
+        .enumerate()
+        .skip(after)
+        .find(|(_, line)| !line.trim().is_empty() && leading_indent(line) <= hint_indent)
+        .map(|(i, _)| i)
+        .unwrap_or(src.len())
+}
+
+fn find_line_span(src: &[String], needle: &[String], eof: bool) -> anyhow::Result<usize> {
+    if eof && !needle.is_empty() && needle.len() <= src.len() {
+        let at = src.len() - needle.len();
+        if src[at..] == needle[..] {
+            return Ok(at);
+        }
+    }
+    find_unique_line_span(src, needle)
 }
 
 fn hunk_old_new_lines(hunk: &str) -> anyhow::Result<(Vec<String>, Vec<String>)> {
@@ -415,7 +534,26 @@ mod tests {
     fn looks_like_begin_patch_detects_marker() {
         assert!(looks_like_begin_patch("*** Begin Patch\n*** End Patch\n"));
         assert!(looks_like_begin_patch("  *** Begin Patch  \n"));
+        assert!(looks_like_begin_patch(
+            "\n\n*** Begin Patch\n*** End Patch\n"
+        ));
         assert!(!looks_like_begin_patch("--- a/x\n+++ b/x\n"));
+        // Mid-document trimmed match is not an envelope (#2505).
+        assert!(!looks_like_begin_patch(
+            "preamble\n*** Begin Patch\n*** End Patch\n"
+        ));
+        assert!(
+            !looks_like_begin_patch(
+                "--- a/u.txt\n+++ b/u.txt\n@@ -1,3 +1,3 @@\n-x\n+X\n *** Begin Patch\n y\n"
+            ),
+            "unified context line must stay unified"
+        );
+        assert!(
+            !looks_like_begin_patch(
+                "--- a/u.txt\n+++ b/u.txt\n@@ -1,2 +1,3 @@\n x\n+*** Begin Patch\n y\n"
+            ),
+            "unified + line must stay unified"
+        );
     }
 
     #[test]
@@ -551,5 +689,155 @@ mod tests {
         let src = "fn old() {}\r\nfn keep() {}\r\n";
         let out = apply_codex_hunks(src, "-fn old() {}\n+fn new() {}\n").expect("crlf");
         assert_eq!(out, "fn new() {}\r\nfn keep() {}\r\n");
+    }
+
+    #[test]
+    fn context_end_patch_does_not_drop_later_update() {
+        let patch = "\
+*** Begin Patch
+*** Update File: g.md
+@@
+ *** End Patch
+-old
++new
+*** Update File: b.rs
+@@
+-x
++y
+*** End Patch
+";
+        let ops = parse_begin_patch(patch).expect("parse");
+        assert_eq!(
+            ops.len(),
+            2,
+            "context End Patch must not finish the document"
+        );
+        match &ops[0] {
+            BeginPatchOp::Update { path, hunks, .. } => {
+                assert_eq!(path, "g.md");
+                assert!(
+                    hunks.contains(" *** End Patch"),
+                    "space-prefixed marker is hunk context: {hunks:?}"
+                );
+                let out = apply_codex_hunks("*** End Patch\nold\n", hunks).expect("g.md");
+                assert_eq!(out, "*** End Patch\nnew\n");
+            }
+            other => panic!("expected first Update, got {other:?}"),
+        }
+        match &ops[1] {
+            BeginPatchOp::Update { path, hunks, .. } => {
+                assert_eq!(path, "b.rs");
+                let out = apply_codex_hunks("x\n", hunks).expect("b.rs");
+                assert_eq!(out, "y\n");
+            }
+            other => panic!("expected second Update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn context_add_file_does_not_start_an_op() {
+        let patch = "\
+*** Begin Patch
+*** Update File: g.md
+@@
+ *** Add File: sneaky.rs
+-old
++new
+*** End Patch
+";
+        let ops = parse_begin_patch(patch).expect("parse");
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
+            BeginPatchOp::Update { path, hunks, .. } => {
+                assert_eq!(path, "g.md");
+                assert!(hunks.contains(" *** Add File: sneaky.rs"), "{hunks:?}");
+            }
+            other => panic!("expected Update, got {other:?}"),
+        }
+        let paths = begin_patch_declared_paths(patch).expect("paths");
+        assert_eq!(paths, vec!["g.md"]);
+    }
+
+    #[test]
+    fn end_of_file_keeps_following_hunk_and_applies_both() {
+        let patch = "\
+*** Begin Patch
+*** Update File: a2.rs
+@@
+-a
++b
+*** End of File
+@@
+-c
++d
+*** End Patch
+";
+        let ops = parse_begin_patch(patch).expect("parse");
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
+            BeginPatchOp::Update { path, hunks, .. } => {
+                assert_eq!(path, "a2.rs");
+                let out = apply_codex_hunks("a\nc\n", hunks).expect("both hunks");
+                assert_eq!(out, "b\nd\n");
+            }
+            other => panic!("expected Update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn end_of_file_anchors_last_occurrence() {
+        let out = apply_codex_hunks("x\nx\n", "-x\n+y\n*** End of File\n").expect("eof");
+        assert_eq!(out, "x\ny\n");
+    }
+
+    fn two_fn_fixture() -> &'static str {
+        "\
+fn a() {
+    x
+}
+fn b() {
+    x
+}
+"
+    }
+
+    #[test]
+    fn at_at_scope_hint_disambiguates_identical_bodies() {
+        let out =
+            apply_codex_hunks(two_fn_fixture(), "@@ fn b()\n-    x\n+    y\n").expect("scope");
+        assert_eq!(
+            out,
+            "\
+fn a() {
+    x
+}
+fn b() {
+    y
+}
+"
+        );
+    }
+
+    #[test]
+    fn at_at_insert_only_hunk_valid_with_hint() {
+        let out = apply_codex_hunks(two_fn_fixture(), "@@ fn b()\n+    z\n").expect("insert");
+        assert_eq!(
+            out,
+            "\
+fn a() {
+    x
+}
+fn b() {
+    z
+    x
+}
+"
+        );
+    }
+
+    #[test]
+    fn bare_at_at_stays_global_unique_match() {
+        let err = apply_codex_hunks(two_fn_fixture(), "@@\n-    x\n+    y\n").expect_err("bare");
+        assert!(crate::fallback::is_ambiguous(&err));
     }
 }
