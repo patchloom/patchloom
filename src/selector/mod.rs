@@ -131,15 +131,15 @@ fn number_eq(n: &serde_json::Number, pred_val: &str) -> bool {
 }
 
 fn cmp_numeric(field: &serde_json::Value, pred_val: &str) -> Option<std::cmp::Ordering> {
-    if let Some(lhs) = as_i64(field) {
-        if let Ok(rhs) = pred_val.parse::<i64>() {
-            return Some(lhs.cmp(&rhs));
-        }
+    if let Some(lhs) = as_i64(field)
+        && let Ok(rhs) = pred_val.parse::<i64>()
+    {
+        return Some(lhs.cmp(&rhs));
     }
-    if let Some(lhs) = as_u64(field) {
-        if let Ok(rhs) = pred_val.parse::<u64>() {
-            return Some(lhs.cmp(&rhs));
-        }
+    if let Some(lhs) = as_u64(field)
+        && let Ok(rhs) = pred_val.parse::<u64>()
+    {
+        return Some(lhs.cmp(&rhs));
     }
     let lhs = as_f64(field)?;
     let rhs = parse_finite_f64(pred_val)?;

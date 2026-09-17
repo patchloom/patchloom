@@ -207,12 +207,12 @@ fn find_node_for_span<'a>(
 fn body_inner_text<'a>(source: &'a str, body: tree_sitter_lib::Node<'a>) -> &'a str {
     let text = &source[body.start_byte()..body.end_byte()];
     let trimmed = text.trim();
-    if trimmed.starts_with('{') && trimmed.ends_with('}') {
-        if let (Some(open), Some(close)) = (text.find('{'), text.rfind('}'))
-            && close > open
-        {
-            return &text[open + 1..close];
-        }
+    if trimmed.starts_with('{')
+        && trimmed.ends_with('}')
+        && let (Some(open), Some(close)) = (text.find('{'), text.rfind('}'))
+        && close > open
+    {
+        return &text[open + 1..close];
     }
     text
 }

@@ -274,6 +274,7 @@ pub(crate) fn restore_collateral_files(
 /// collateral restore both succeed. Callers must emit `rollback_failed`
 /// on `Err` and must not claim that all changes were reverted.
 #[cfg(any(feature = "cli", feature = "files"))]
+#[allow(clippy::too_many_arguments)] // rollback sets plus backup session + cwd
 pub(crate) fn revert_strict_lifecycle(
     cwd: &Path,
     changes: &[(PathBuf, String, String)],

@@ -185,10 +185,10 @@ fn preamble_line_count(source: &str, lang: Language) -> usize {
                 i += 1;
             }
             i = skip_blank_lines(&lines, i);
-            if i < lines.len() {
-                if let Some(after_doc) = skip_python_string_literal(&lines, i) {
-                    i = skip_blank_lines(&lines, after_doc);
-                }
+            if i < lines.len()
+                && let Some(after_doc) = skip_python_string_literal(&lines, i)
+            {
+                i = skip_blank_lines(&lines, after_doc);
             }
             while i < lines.len() && is_python_future_import(lines[i]) {
                 i += 1;
