@@ -1,4 +1,4 @@
-//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps|map|replace|impact|diff`.
+//! AST-aware subcommands: `patchloom ast list|read|rename|validate|search|refs|deps|map|replace|replace-symbol|delete-symbol|impact|diff`.
 
 mod common;
 mod mutate;
@@ -33,6 +33,10 @@ pub enum AstCommand {
     Map(query::MapArgs),
     /// Replace text only within a specific symbol's body.
     Replace(mutate::ReplaceArgs),
+    /// Replace a whole symbol span (including leading docs and attributes).
+    ReplaceSymbol(mutate::ReplaceSymbolArgs),
+    /// Delete a whole symbol span (including leading docs and attributes).
+    DeleteSymbol(mutate::DeleteSymbolArgs),
     /// Transitive impact analysis of changing a symbol.
     Impact(query::ImpactArgs),
     /// Structural diff between two versions of a file.
@@ -56,6 +60,8 @@ pub fn run(args: AstArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         AstCommand::Deps(a) => query::run_deps(a, global),
         AstCommand::Map(a) => query::run_map(a, global),
         AstCommand::Replace(a) => mutate::run_replace(a, global),
+        AstCommand::ReplaceSymbol(a) => mutate::run_replace_symbol(a, global),
+        AstCommand::DeleteSymbol(a) => mutate::run_delete_symbol(a, global),
         AstCommand::Impact(a) => query::run_impact(a, global),
         AstCommand::Diff(a) => query::run_diff(a, global),
     }

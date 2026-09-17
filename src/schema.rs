@@ -503,6 +503,24 @@ const AST_OPERATION_REGISTRY: &[OpMeta] = &[
         )],
     },
     OpMeta {
+        name: "ast.replace_symbol",
+        description: "Replace a whole symbol span, including leading doc comments and attributes, with new source re-indented to the symbol column.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Replace a function including its docs",
+            r###"{"op":"ast.replace_symbol","path":"src/lib.rs","symbol":"default_timeout","content":"fn default_timeout() -> u64 { 60 }"}"###,
+        )],
+    },
+    OpMeta {
+        name: "ast.delete_symbol",
+        description: "Delete a whole symbol span, including leading doc comments and attributes, and collapse surrounding blank lines to one.",
+        tier: Tier::Medium,
+        examples: &[(
+            "Delete a function",
+            r###"{"op":"ast.delete_symbol","path":"src/lib.rs","symbol":"unused_helper"}"###,
+        )],
+    },
+    OpMeta {
         name: "ast.rewrite_signature",
         description: "Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter.",
         tier: Tier::Medium,

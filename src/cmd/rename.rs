@@ -62,16 +62,30 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         global.emit_error_json_kind(Some("not_found"), &msg)?;
         return Ok(crate::exit::FAILURE);
     }
-    if src_kind == PathEntryKind::RealDirectory {
-        let msg = format!("source is not a file: {}", args.from);
-        global.emit_error_json_kind(Some("invalid_input"), &msg)?;
-        return Ok(crate::exit::FAILURE);
-    }
     if let Err(e) = crate::ops::file::ensure_parent_components_are_directories(&dst) {
         global.emit_error_json_kind(Some("invalid_input"), &e.msg)?;
         return Ok(crate::exit::FAILURE);
     }
     let dst_kind = classify_path_entry(&dst);
+    if src_kind == PathEntryKind::RealDirectory {
+        if crate::ops::file::dest_is_inside_src(&src, &dst) {
+            let msg = format!(
+                "cannot rename directory into itself: {} -> {}",
+                args.from, args.to
+            );
+            global.emit_error_json_kind(Some("invalid_input"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
+        if dst_kind.exists() {
+            let msg = format!(
+                "destination already exists: {} (directory rename does not overwrite)",
+                args.to
+            );
+            global.emit_error_json_kind(Some("already_exists"), &msg)?;
+            return Ok(crate::exit::FAILURE);
+        }
+        return run_direct_rename(&args, global, &cwd, &src, &dst, DirectRenameKind::Directory);
+    }
     if dst_kind == PathEntryKind::RealDirectory {
         let msg = format!("destination is not a file: {}", args.to);
         global.emit_error_json_kind(Some("invalid_input"), &msg)?;
@@ -200,6 +214,8 @@ enum DirectRenameKind {
     CaseOnly,
     /// UTF-8 text with no write-policy transforms; keeps hardlink inodes.
     Plain,
+    /// Directory tree move via `fs::rename` (#2538).
+    Directory,
 }
 
 impl DirectRenameKind {
@@ -208,6 +224,7 @@ impl DirectRenameKind {
             DirectRenameKind::Binary => "binary",
             DirectRenameKind::CaseOnly => "case-only",
             DirectRenameKind::Plain => "plain",
+            DirectRenameKind::Directory => "directory",
         }
     }
 }
@@ -253,6 +270,10 @@ fn run_direct_rename(
             ),
             DirectRenameKind::Plain => format!(
                 "cannot apply write policy on plain rename (content is unchanged): {}",
+                src.display()
+            ),
+            DirectRenameKind::Directory => format!(
+                "cannot apply write policy on directory rename (content is unchanged): {}",
                 src.display()
             ),
         };
@@ -310,8 +331,12 @@ fn run_direct_rename(
         }),
         || {
             let mut backup = crate::backup::BackupSession::new(cwd)?;
-            backup.save_before_delete(src)?;
-            backup.save_before_write(dst)?;
+            if matches!(kind, DirectRenameKind::Directory) {
+                backup.save_before_dir_rename(src, dst)?;
+            } else {
+                backup.save_before_delete(src)?;
+                backup.save_before_write(dst)?;
+            }
             if let Some(parent) = dst.parent()
                 && !parent.as_os_str().is_empty()
                 && !parent.exists()
@@ -899,21 +924,59 @@ mod tests {
     }
 
     #[test]
-    fn rename_fails_if_src_is_directory() {
+    fn rename_moves_directory() {
         let dir = TempDir::new().unwrap();
         let src = dir.path().join("folder");
-        let dst = dir.path().join("new.txt");
+        let dst = dir.path().join("moved");
         fs::create_dir(&src).unwrap();
+        fs::write(src.join("a.txt"), "hi\n").unwrap();
 
+        let mut global = GlobalFlags::test_with_cwd(dir.path());
+        global.apply = true;
         let args = RenameArgs {
             from: src.to_string_lossy().into_owned(),
             to: dst.to_string_lossy().into_owned(),
             force: false,
             write: Default::default(),
         };
+        let code = run(args, &global).unwrap();
+        assert_eq!(code, exit::SUCCESS);
+        assert!(!src.exists());
+        assert_eq!(fs::read_to_string(dst.join("a.txt")).unwrap(), "hi\n");
+    }
 
+    #[test]
+    fn rename_directory_refuses_existing_dest() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("folder");
+        let dst = dir.path().join("moved");
+        fs::create_dir(&src).unwrap();
+        fs::create_dir(&dst).unwrap();
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: dst.to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
         let code = run(args, &GlobalFlags::test_with_cwd(dir.path())).unwrap();
         assert_eq!(code, exit::FAILURE);
+        assert!(src.exists());
+    }
+
+    #[test]
+    fn rename_directory_refuses_dest_inside_src() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("folder");
+        fs::create_dir(&src).unwrap();
+        let args = RenameArgs {
+            from: src.to_string_lossy().into_owned(),
+            to: src.join("nested").to_string_lossy().into_owned(),
+            force: false,
+            write: Default::default(),
+        };
+        let code = run(args, &GlobalFlags::test_with_cwd(dir.path())).unwrap();
+        assert_eq!(code, exit::FAILURE);
+        assert!(src.exists());
     }
 
     #[test]

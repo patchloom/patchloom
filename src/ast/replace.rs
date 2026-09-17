@@ -3,7 +3,10 @@
 use std::path::Path;
 
 use super::Language;
-use super::symbols::{find_symbol, try_extract_symbols};
+use super::insert::indent_content;
+use super::symbols::{
+    extract_symbols_or_timeout, find_symbol, full_symbol_span, try_extract_symbols,
+};
 
 /// Result of a symbol-scoped replacement.
 #[derive(Debug)]
@@ -139,6 +142,124 @@ pub fn replace_in_symbol_file(
     // Strict sole-path (#1894): binary / invalid UTF-8 → Binary / InvalidEncoding.
     let source = crate::files::load_text_strict(path, &path.display().to_string())?;
     replace_in_symbol(&source, symbol_name, from, to, regex, lang)
+}
+
+fn reject_empty_symbol_name(symbol_name: &str, op: &str) -> anyhow::Result<()> {
+    if symbol_name.trim().is_empty() {
+        return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+            msg: format!("{op} symbol must not be empty"),
+        }));
+    }
+    Ok(())
+}
+
+struct ResolvedSymbolSpan<'a> {
+    lines: Vec<&'a str>,
+    start_0: usize,
+    end_0: usize,
+    indent: String,
+    eol: &'a str,
+}
+
+fn resolve_symbol_span<'a>(
+    source: &'a str,
+    symbol_name: &str,
+    lang: Language,
+    op: &str,
+) -> anyhow::Result<ResolvedSymbolSpan<'a>> {
+    reject_empty_symbol_name(symbol_name, op)?;
+    let symbols = extract_symbols_or_timeout(source, lang)?;
+    let sym = find_symbol(&symbols, symbol_name).ok_or_else(|| {
+        anyhow::Error::new(crate::exit::NoMatchError {
+            msg: format!("symbol '{symbol_name}' not found"),
+        })
+    })?;
+    let (full_start, full_end) = full_symbol_span(source, sym, lang);
+    let lines: Vec<&str> = crate::ops::file::text_lines(source).collect();
+    let start_0 = full_start.saturating_sub(1);
+    let end_0 = full_end.min(lines.len());
+    let indent = symbol_column_indent(&lines, sym.start_line.saturating_sub(1));
+    Ok(ResolvedSymbolSpan {
+        lines,
+        start_0,
+        end_0,
+        indent,
+        eol: crate::write::detect_eol(source),
+    })
+}
+
+fn symbol_column_indent(lines: &[&str], start_idx: usize) -> String {
+    if start_idx < lines.len() {
+        let line = lines[start_idx];
+        let trimmed = line.trim_start();
+        line[..line.len() - trimmed.len()].to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn join_source_lines(lines: &[String], eol: &str, source: &str) -> String {
+    let mut out = lines.join(eol);
+    if (source.ends_with('\n') || source.ends_with('\r')) && !out.ends_with(eol) {
+        out.push_str(eol);
+    }
+    out
+}
+
+/// After removing a span at `hole`, keep at most one surrounding blank line.
+fn collapse_surrounding_blanks(lines: &mut Vec<String>, hole: usize) {
+    let mut before = 0usize;
+    while hole > before && lines[hole - 1 - before].trim().is_empty() {
+        before += 1;
+    }
+    let mut after = 0usize;
+    while hole + after < lines.len() && lines[hole + after].trim().is_empty() {
+        after += 1;
+    }
+    let total = before.saturating_add(after);
+    if total > 1 {
+        let blank_start = hole - before;
+        lines.drain(blank_start + 1..blank_start + total);
+    }
+}
+
+/// Replace a whole symbol span, including leading docs and attributes.
+///
+/// `content` is re-indented to the symbol's column. A missing symbol is
+/// [`crate::exit::NoMatchError`].
+pub fn replace_symbol(
+    source: &str,
+    symbol_name: &str,
+    content: &str,
+    lang: Language,
+) -> anyhow::Result<String> {
+    let span = resolve_symbol_span(source, symbol_name, lang, "ast.replace_symbol")?;
+    let mut lines: Vec<String> = span.lines.iter().map(|l| (*l).to_string()).collect();
+    lines.drain(span.start_0..span.end_0);
+    if content.is_empty() {
+        collapse_surrounding_blanks(&mut lines, span.start_0);
+    } else {
+        let adjusted = indent_content(content, &span.indent, span.eol);
+        let new_lines: Vec<String> = crate::ops::file::text_lines(&adjusted)
+            .map(str::to_string)
+            .collect();
+        for (i, line) in new_lines.into_iter().enumerate() {
+            lines.insert(span.start_0 + i, line);
+        }
+    }
+    Ok(join_source_lines(&lines, span.eol, source))
+}
+
+/// Delete a whole symbol span, including leading docs and attributes.
+///
+/// Surrounding blank lines collapse to at most one. A missing symbol is
+/// [`crate::exit::NoMatchError`].
+pub fn delete_symbol(source: &str, symbol_name: &str, lang: Language) -> anyhow::Result<String> {
+    let span = resolve_symbol_span(source, symbol_name, lang, "ast.delete_symbol")?;
+    let mut lines: Vec<String> = span.lines.iter().map(|l| (*l).to_string()).collect();
+    lines.drain(span.start_0..span.end_0);
+    collapse_surrounding_blanks(&mut lines, span.start_0);
+    Ok(join_source_lines(&lines, span.eol, source))
 }
 
 #[cfg(test)]
@@ -285,5 +406,94 @@ fn bar() {
             .unwrap()
             .unwrap();
         assert_eq!(result.replacements, 0);
+    }
+
+    #[test]
+    fn replace_symbol_rewrites_function_span() {
+        let source = "fn keep() {}\n\nfn victim() {\n    let x = 1;\n}\n\nfn other() {}\n";
+        let out = replace_symbol(
+            source,
+            "victim",
+            "fn victim() {\n    let x = 2;\n}",
+            Language::Rust,
+        )
+        .unwrap();
+        assert!(out.contains("fn victim() {\n    let x = 2;\n}"));
+        assert!(!out.contains("let x = 1"));
+        assert!(out.contains("fn keep() {}"));
+        assert!(out.contains("fn other() {}"));
+    }
+
+    #[test]
+    fn replace_symbol_includes_leading_docs_and_attrs() {
+        let source = "/// old docs\n#[allow(dead_code)]\nfn victim() {}\n\nfn keep() {}\n";
+        let out = replace_symbol(source, "victim", "fn victim() { 1 }", Language::Rust).unwrap();
+        assert!(
+            !out.contains("old docs") && !out.contains("allow(dead_code)"),
+            "full span must include docs/attrs: {out}"
+        );
+        assert!(out.contains("fn victim() { 1 }"));
+        assert!(out.contains("fn keep() {}"));
+    }
+
+    #[test]
+    fn replace_symbol_reindents_to_symbol_column() {
+        let source = "impl Foo {\n    fn victim() {\n        let x = 1;\n    }\n}\n";
+        let out = replace_symbol(
+            source,
+            "victim",
+            "fn victim() {\n    let x = 2;\n}",
+            Language::Rust,
+        )
+        .unwrap();
+        assert!(
+            out.contains("    fn victim() {\n        let x = 2;\n    }"),
+            "replacement must match impl column: {out}"
+        );
+    }
+
+    #[test]
+    fn delete_symbol_removes_function_and_collapses_blanks() {
+        let source = "fn keep() {}\n\nfn victim() {\n    let x = 1;\n}\n\nfn other() {}\n";
+        let out = delete_symbol(source, "victim", Language::Rust).unwrap();
+        assert!(!out.contains("fn victim"));
+        assert!(!out.contains("let x = 1"));
+        assert!(out.contains("fn keep() {}"));
+        assert!(out.contains("fn other() {}"));
+        assert!(
+            !out.contains("\n\n\n"),
+            "surrounding blanks must collapse to one: {out:?}"
+        );
+        assert!(out.contains("fn keep() {}\n\nfn other() {}"));
+    }
+
+    #[test]
+    fn missing_symbol_is_no_matches() {
+        let source = "fn foo() {}\n";
+        let err = replace_symbol(source, "missing", "fn missing() {}", Language::Rust).unwrap_err();
+        assert!(
+            crate::exit::is_no_match(&err),
+            "replace missing symbol must be no_matches, got {err}"
+        );
+        let err = delete_symbol(source, "missing", Language::Rust).unwrap_err();
+        assert!(
+            crate::exit::is_no_match(&err),
+            "delete missing symbol must be no_matches, got {err}"
+        );
+    }
+
+    #[test]
+    fn empty_symbol_name_is_invalid_input() {
+        let source = "fn foo() {}\n";
+        let err = replace_symbol(source, "  ", "fn x() {}", Language::Rust).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty replace symbol must be invalid_input, got {err}"
+        );
+        let err = delete_symbol(source, "", Language::Rust).unwrap_err();
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty delete symbol must be invalid_input, got {err}"
+        );
     }
 }

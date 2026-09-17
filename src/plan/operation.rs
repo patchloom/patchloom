@@ -387,6 +387,32 @@ pub enum Operation {
         #[serde(default)]
         lang: Option<String>,
     },
+    /// Replace a whole symbol span (including leading docs and attributes).
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.replace_symbol")]
+    AstReplaceSymbol {
+        /// File containing the symbol.
+        path: String,
+        /// Symbol name to replace (qualified names like `Impl::method` accepted).
+        symbol: String,
+        /// Replacement source for the full symbol span.
+        content: String,
+        /// Language hint (e.g. "rust", "go"). Overrides extension-based detection.
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    /// Delete a whole symbol span (including leading docs and attributes).
+    #[cfg(feature = "ast")]
+    #[serde(rename = "ast.delete_symbol")]
+    AstDeleteSymbol {
+        /// File containing the symbol.
+        path: String,
+        /// Symbol name to delete (qualified names like `Impl::method` accepted).
+        symbol: String,
+        /// Language hint (e.g. "rust", "go"). Overrides extension-based detection.
+        #[serde(default)]
+        lang: Option<String>,
+    },
     /// Rewrite a function signature (structured fields and/or full signature text).
     ///
     /// Prefer structured `visibility` / `parameters` / `return_type` for multi-language
@@ -639,6 +665,10 @@ impl Operation {
             #[cfg(feature = "ast")]
             Operation::AstReplace { .. } => "ast.replace",
             #[cfg(feature = "ast")]
+            Operation::AstReplaceSymbol { .. } => "ast.replace_symbol",
+            #[cfg(feature = "ast")]
+            Operation::AstDeleteSymbol { .. } => "ast.delete_symbol",
+            #[cfg(feature = "ast")]
             Operation::AstRewriteSignature { .. } => "ast.rewrite_signature",
             #[cfg(feature = "ast")]
             Operation::AstInsert { .. } => "ast.insert",
@@ -694,6 +724,8 @@ impl Operation {
                     self,
                     Operation::AstRename { .. }
                         | Operation::AstReplace { .. }
+                        | Operation::AstReplaceSymbol { .. }
+                        | Operation::AstDeleteSymbol { .. }
                         | Operation::AstInsert { .. }
                         | Operation::AstWrap { .. }
                         | Operation::AstImports { .. }

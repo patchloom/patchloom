@@ -1250,14 +1250,15 @@ fn test_tx_file_delete_empty_file() {
 }
 
 #[test]
-fn test_tx_file_rename_directory_source_fails() {
+fn test_tx_file_rename_directory_source_moves() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("folder");
     let dst = dir.path().join("new-name");
     fs::create_dir(&src).unwrap();
+    fs::write(src.join("a.txt"), "hi\n").unwrap();
 
     let plan = serde_json::json!({
-            "version": 1,
+        "version": 1,
         "operations": [
             {"op": "file.rename", "from": "folder", "to": "new-name"}
         ]
@@ -1271,12 +1272,12 @@ fn test_tx_file_rename_directory_source_fails() {
         .arg(dir.path())
         .arg("tx")
         .arg(&plan_file)
+        .arg("--apply")
         .assert()
-        .code(1) // invalid_input
-        .stderr(predicate::str::contains("source is not a file"));
+        .code(0);
 
-    assert!(src.is_dir(), "source directory should remain in place");
-    assert!(!dst.exists(), "destination should not be created");
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(dst.join("a.txt")).unwrap(), "hi\n");
 }
 
 #[test]
@@ -7934,6 +7935,75 @@ fn test_tx_ast_replace_in_plan() {
         !content.contains("let x = 42;"),
         "old value 42 should be gone: {content}"
     );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_replace_symbol_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.rs");
+    fs::write(&file, "fn compute() {\n    let x = 42;\n}\nfn keep() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.replace_symbol",
+            "path": portable_path_str(&file),
+            "symbol": "compute",
+            "content": "fn compute() {\n    let x = 99;\n}"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("let x = 99;"),
+        "ast.replace_symbol should rewrite compute: {content}"
+    );
+    assert!(!content.contains("let x = 42;"));
+    assert!(content.contains("fn keep() {}"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_tx_ast_delete_symbol_in_plan() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.rs");
+    fs::write(&file, "fn keep() {}\n\nfn victim() {}\n\nfn other() {}\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "ast.delete_symbol",
+            "path": portable_path_str(&file),
+            "symbol": "victim"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    patchloom_in(dir.path())
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        !content.contains("fn victim"),
+        "ast.delete_symbol should remove victim: {content}"
+    );
+    assert!(content.contains("fn keep() {}"));
+    assert!(content.contains("fn other() {}"));
 }
 
 /// Multi-surface (#2054): plan `ast.insert` apply path (cargo-bin).

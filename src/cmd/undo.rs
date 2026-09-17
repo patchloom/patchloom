@@ -620,6 +620,7 @@ mod tests {
             entries: vec![backup::ManifestEntry {
                 path: ext_path,
                 action: backup::FileAction::Modified,
+                renamed_from: None,
             }],
             created_dirs: Vec::new(),
         };

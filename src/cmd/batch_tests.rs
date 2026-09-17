@@ -1002,9 +1002,9 @@ mod error_handling {
 
     #[test]
     fn known_batch_ops_inventory_stable() {
-        // docs/reference and clap after_help list 28 batch ops; keep the
+        // docs/reference and clap after_help list 30 batch ops; keep the
         // suggestion table in lockstep so bare-name hints stay accurate.
-        assert_eq!(KNOWN_BATCH_OPS.len(), 28);
+        assert_eq!(KNOWN_BATCH_OPS.len(), 30);
         let mut sorted = KNOWN_BATCH_OPS.to_vec();
         sorted.sort_unstable();
         sorted.dedup();

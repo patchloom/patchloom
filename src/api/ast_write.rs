@@ -192,6 +192,68 @@ pub fn ast_rename(
     Ok(result)
 }
 
+/// Replace a whole symbol span on disk, including leading docs and attributes.
+///
+/// Missing symbol → `NoMatch`. Available with `features = ["ast"]` and `files`
+/// or `cli` for the write path.
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+pub fn ast_replace_symbol(
+    path: &Path,
+    symbol: &str,
+    content: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    let abs = super::library_abs_path(path, guard)?;
+    let op = Operation::AstReplaceSymbol {
+        path: super::library_op_path(path, &abs, guard),
+        symbol: symbol.into(),
+        content: content.into(),
+        lang: None,
+    };
+    let cwd = super::library_project_root(&abs, guard);
+    let display = path.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd,
+        guard,
+        "ast.replace_symbol",
+        None,
+        Some(display.as_ref()),
+    )
+}
+
+/// Delete a whole symbol span on disk, including leading docs and attributes.
+///
+/// Missing symbol → `NoMatch`. Surrounding blank lines collapse to one.
+/// Available with `features = ["ast"]` and `files` or `cli` for the write path.
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+pub fn ast_delete_symbol(
+    path: &Path,
+    symbol: &str,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    let abs = super::library_abs_path(path, guard)?;
+    let op = Operation::AstDeleteSymbol {
+        path: super::library_op_path(path, &abs, guard),
+        symbol: symbol.into(),
+        lang: None,
+    };
+    let cwd = super::library_project_root(&abs, guard);
+    let display = path.to_string_lossy();
+    super::execute_as_edit_result_with_path(
+        op,
+        mode,
+        cwd,
+        guard,
+        "ast.delete_symbol",
+        None,
+        Some(display.as_ref()),
+    )
+}
+
 /// Options for [`ast_replace_in_symbol`] (#1658).
 #[derive(Debug, Clone, Default)]
 pub struct AstReplaceInSymbolOptions {

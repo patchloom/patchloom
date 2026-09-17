@@ -7695,6 +7695,53 @@ fn ast_replace_in_symbol_missing_symbol_vs_pattern() {
     );
 }
 
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_replace_symbol_api() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn victim() { let x = 1; }\nfn keep() {}\n").unwrap();
+    let result = ast_replace_symbol(
+        &file,
+        "victim",
+        "fn victim() { let x = 2; }",
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(result.applied);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("let x = 2"), "got: {on_disk}");
+    assert!(on_disk.contains("fn keep() {}"));
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_delete_symbol_api_missing_is_no_match() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("lib.rs");
+    fs::write(&file, "fn real() {}\n").unwrap();
+    let err = ast_delete_symbol(&file, "missing", ApplyMode::Preview, None).unwrap_err();
+    assert_eq!(
+        crate::fallback::edit_error_kind(&err),
+        Some(EditErrorKind::NoMatch)
+    );
+}
+
+#[cfg(all(feature = "ast", any(feature = "cli", feature = "files")))]
+#[test]
+fn ast_replace_symbol_parse_timeout_is_parse_timeout() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("deep.rs");
+    fs::write(&file, crate::ast::nested_rust_source_for_timeout(80_000)).unwrap();
+    let _guard = crate::ast::ParseTimeoutGuard::set(std::time::Duration::from_millis(1));
+    let err = ast_replace_symbol(&file, "x", "fn x() {}", ApplyMode::Preview, None).unwrap_err();
+    assert!(
+        crate::exit::is_parse_timeout(&err),
+        "library ast_replace_symbol timeout must peel ParseTimeout, got {err}"
+    );
+}
+
 #[test]
 fn classify_error_without_anyhow() {
     use crate::fallback::{classify_error, classify_error_ref};

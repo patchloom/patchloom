@@ -105,6 +105,8 @@ pub(crate) fn validate_operation(op: &Operation) -> anyhow::Result<()> {
         #[cfg(feature = "ast")]
         Operation::AstRename { .. }
         | Operation::AstReplace { .. }
+        | Operation::AstReplaceSymbol { .. }
+        | Operation::AstDeleteSymbol { .. }
         | Operation::AstRewriteSignature { .. }
         | Operation::AstInsert { .. }
         | Operation::AstWrap { .. }

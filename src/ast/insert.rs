@@ -362,7 +362,7 @@ fn detect_indent(lines: &[&str], start_idx: usize, end_idx: usize) -> String {
 ///
 /// Strips the common leading whitespace from the content, then prepends
 /// the target indentation to each line.
-fn indent_content(content: &str, target_indent: &str, eol: &str) -> String {
+pub(crate) fn indent_content(content: &str, target_indent: &str, eol: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     if lines.is_empty() {
         return String::new();

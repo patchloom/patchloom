@@ -1334,6 +1334,92 @@ fn test_ast_replace_missing_symbol_exits_3() {
 
 #[test]
 #[cfg(feature = "ast")]
+fn test_ast_replace_symbol_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.rs");
+    fs::write(
+        &file,
+        "fn greet() {\n    println!(\"hello\");\n}\nfn keep() {}\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "replace-symbol",
+            "test.rs",
+            "--symbol",
+            "greet",
+            "--content",
+            "fn greet() {\n    println!(\"world\");\n}",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("world"),
+        "ast replace-symbol --apply should modify file: {content}"
+    );
+    assert!(
+        !content.contains("hello"),
+        "old body should be gone: {content}"
+    );
+    assert!(content.contains("fn keep() {}"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_delete_symbol_apply() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.rs");
+    fs::write(&file, "fn keep() {}\n\nfn victim() {}\n\nfn other() {}\n").unwrap();
+
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "delete-symbol",
+            "test.rs",
+            "--symbol",
+            "victim",
+            "--apply",
+        ])
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        !content.contains("fn victim"),
+        "symbol should be gone: {content}"
+    );
+    assert!(content.contains("fn keep() {}"));
+    assert!(content.contains("fn other() {}"));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_replace_symbol_missing_exits_3() {
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("test.rs");
+    fs::write(&f, "fn real() {}\n").unwrap();
+    patchloom_in(dir.path())
+        .args([
+            "ast",
+            "replace-symbol",
+            "test.rs",
+            "--symbol",
+            "nonexistent",
+            "--content",
+            "fn nonexistent() {}",
+            "--apply",
+        ])
+        .assert()
+        .code(3);
+}
+
+#[test]
+#[cfg(feature = "ast")]
 fn test_ast_impact_no_refs_exits_3() {
     let dir = TempDir::new().unwrap();
     let f = dir.path().join("i.rs");

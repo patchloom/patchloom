@@ -1012,7 +1012,7 @@ fn test_smoke_readme_command_examples() {
         "launch announcement CLI command count drifted"
     );
     assert!(
-        launch.contains("62 structured tool calls"),
+        launch.contains("64 structured tool calls"),
         "launch announcement MCP tool count drifted"
     );
     let merge_value = r#"{"settings": {"debug": true}}"#;

@@ -323,10 +323,12 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
         }
         #[cfg(feature = "ast")]
         Command::Ast(args) => {
-            // ast rename and ast replace have write flags; others are read-only
+            // ast rename/replace/replace-symbol/delete-symbol have write flags
             match args.command {
                 ast::AstCommand::Rename(ref a) => global.merge_write(&a.write),
                 ast::AstCommand::Replace(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::ReplaceSymbol(ref a) => global.merge_write(&a.write),
+                ast::AstCommand::DeleteSymbol(ref a) => global.merge_write(&a.write),
                 _ => {}
             }
             load_project_config(&mut global)?;

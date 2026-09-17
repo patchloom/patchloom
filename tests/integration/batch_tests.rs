@@ -1148,6 +1148,59 @@ fn test_batch_ast_replace() {
 }
 
 #[test]
+#[cfg(feature = "ast")]
+fn test_batch_ast_replace_symbol() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("main.rs");
+    fs::write(&file, "fn run() {\n    let val = 100;\n}\n").unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(
+        &ops,
+        "ast.replace_symbol main.rs run \"fn run() { let val = 200; }\"\n",
+    )
+    .unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        content.contains("200"),
+        "batch ast.replace_symbol should replace: {content}"
+    );
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_batch_ast_delete_symbol() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("main.rs");
+    fs::write(&file, "fn keep() {}\n\nfn run() {}\n").unwrap();
+
+    let ops = dir.path().join("ops.txt");
+    fs::write(&ops, "ast.delete_symbol main.rs run\n").unwrap();
+
+    patchloom_in(dir.path())
+        .arg("batch")
+        .arg(&ops)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let content = fs::read_to_string(&file).unwrap();
+    assert!(
+        !content.contains("fn run"),
+        "batch ast.delete_symbol should delete: {content}"
+    );
+    assert!(content.contains("fn keep() {}"));
+}
+
+#[test]
 fn test_batch_file_append() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("data.txt");

@@ -658,6 +658,23 @@ mod basic {
                 },
             ));
             ops.push((
+                "ast.replace_symbol",
+                Operation::AstReplaceSymbol {
+                    path: "f.rs".into(),
+                    symbol: "s".into(),
+                    content: "fn s() {}".into(),
+                    lang: None,
+                },
+            ));
+            ops.push((
+                "ast.delete_symbol",
+                Operation::AstDeleteSymbol {
+                    path: "f.rs".into(),
+                    symbol: "s".into(),
+                    lang: None,
+                },
+            ));
+            ops.push((
                 "ast.insert",
                 Operation::AstInsert {
                     path: "f.rs".into(),

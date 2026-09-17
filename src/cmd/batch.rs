@@ -50,6 +50,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
 /// tidy.fix <path>
 /// ast.rename <path> <old> <new>
 /// ast.replace <path> <symbol> <old> <new>
+/// ast.replace_symbol <path> <symbol> <content>
+/// ast.delete_symbol <path> <symbol>
 /// ast.rewrite_signature <path> <old> <parameters> [return_type]
 /// ```
 ///
@@ -63,7 +65,8 @@ pub const MAX_BATCH_OPERATIONS: usize = 10_000;
   md.table_append, md.replace_section, md.insert_after_heading,
   md.insert_after_section, md.insert_before_heading (alias md.insert_before_section),
   md.move_section, md.dedupe_headings,
-  md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.rewrite_signature
+  md.lint_agents, tidy.fix, ast.rename, ast.replace, ast.replace_symbol,
+  ast.delete_symbol, ast.rewrite_signature
 
 REPLACE SHAPE:
   Batch:  replace PATH OLD NEW [--fuzzy …]
@@ -378,6 +381,25 @@ fn parse_line_at(line: &str, line_num: usize, cwd: Option<&Path>) -> anyhow::Res
             })
         }
         #[cfg(feature = "ast")]
+        "ast.replace_symbol" => {
+            require_args(op, args, 3, line_num)?;
+            op!(AstReplaceSymbol {
+                path: peel_owned(&args[0], &["path"]),
+                symbol: peel_owned(&args[1], &["symbol"]),
+                content: peel_owned(&args[2], &["content"]),
+                lang: None
+            })
+        }
+        #[cfg(feature = "ast")]
+        "ast.delete_symbol" => {
+            require_args(op, args, 2, line_num)?;
+            op!(AstDeleteSymbol {
+                path: peel_owned(&args[0], &["path"]),
+                symbol: peel_owned(&args[1], &["symbol"]),
+                lang: None
+            })
+        }
+        #[cfg(feature = "ast")]
         "ast.rewrite_signature" => {
             // path old parameters [return_type]
             if args.len() < 3 || args.len() > 4 {
@@ -437,6 +459,8 @@ const KNOWN_BATCH_OPS: &[&str] = &[
     "tidy.fix",
     "ast.rename",
     "ast.replace",
+    "ast.replace_symbol",
+    "ast.delete_symbol",
     "ast.rewrite_signature",
 ];
 

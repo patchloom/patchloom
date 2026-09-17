@@ -181,11 +181,20 @@ pub(crate) fn commit_changes(
     // Force rename overwrite: dest may be soft-empty non-text and absent from
     // `changes` (original == final == ""), so it would not be backed up above.
     // `rename_or_copy` still overwrites dest; keep prior dest bytes for undo.
-    for (_, to) in renames {
+    for (from, to) in renames {
         // path_entry_exists: dangling dest / special nodes still need backup.
         if crate::ops::file::path_entry_exists(to) {
             backup.save_before_write(to).map_err(|e| {
                 commit_error(format!("backing up rename dest {}: {e}", to.display()))
+            })?;
+        }
+        if from.is_dir() {
+            backup.save_before_dir_rename(from, to).map_err(|e| {
+                commit_error(format!(
+                    "backing up directory rename {} -> {}: {e}",
+                    from.display(),
+                    to.display()
+                ))
             })?;
         }
     }

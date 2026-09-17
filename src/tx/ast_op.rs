@@ -205,6 +205,52 @@ pub(crate) fn execute_ast_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             }
         }
 
+        Operation::AstReplaceSymbol {
+            path,
+            symbol,
+            content,
+            lang,
+        } => {
+            let abs = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
+            let new_content =
+                crate::ast::replace::replace_symbol(file_content, symbol, content, lang_val)
+                    .map_err(|e| {
+                        if crate::exit::is_no_match(&e) {
+                            anyhow::Error::new(crate::exit::NoMatchError {
+                                msg: format!("symbol '{symbol}' not found in {path}"),
+                            })
+                        } else {
+                            e
+                        }
+                    })?;
+            if new_content != file_content {
+                tx.write_file(&abs, new_content);
+            }
+            Ok(1)
+        }
+
+        Operation::AstDeleteSymbol { path, symbol, lang } => {
+            let abs = tx.cwd.join(path);
+            let file_content = read_file_content(tx.pending, tx.existed_before, &abs)?;
+            let lang_val = resolve_op_lang(lang.as_deref(), &abs)?;
+            let new_content = crate::ast::replace::delete_symbol(file_content, symbol, lang_val)
+                .map_err(|e| {
+                    if crate::exit::is_no_match(&e) {
+                        anyhow::Error::new(crate::exit::NoMatchError {
+                            msg: format!("symbol '{symbol}' not found in {path}"),
+                        })
+                    } else {
+                        e
+                    }
+                })?;
+            if new_content != file_content {
+                tx.write_file(&abs, new_content);
+            }
+            Ok(1)
+        }
+
         Operation::AstRewriteSignature {
             path,
             old,

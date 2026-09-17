@@ -363,6 +363,50 @@ fn test_explain_ast_replace_description() {
         ));
 }
 
+#[test]
+#[cfg(feature = "ast")]
+fn test_explain_ast_replace_symbol_description() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": 1, "operations": [{"op": "ast.replace_symbol", "path": "app.rs", "symbol": "main", "content": "fn main() {}"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "AST replace symbol \"main\" in app.rs",
+        ));
+}
+
+#[test]
+#[cfg(feature = "ast")]
+fn test_explain_ast_delete_symbol_description() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version": 1, "operations": [{"op": "ast.delete_symbol", "path": "app.rs", "symbol": "main"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["explain"])
+        .arg(&plan)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains(
+            "AST delete symbol \"main\" in app.rs",
+        ));
+}
+
 // --- AST subcommand integration coverage (for #694) ---
 
 #[test]

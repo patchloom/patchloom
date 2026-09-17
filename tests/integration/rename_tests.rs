@@ -221,7 +221,7 @@ fn test_rename_missing_source_fails() {
 }
 
 #[test]
-fn test_rename_check_directory_source_fails() {
+fn test_rename_check_directory_source_reports_change() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("folder");
     let dst = dir.path().join("moved-folder");
@@ -234,11 +234,10 @@ fn test_rename_check_directory_source_fails() {
         .arg(&dst)
         .arg("--check")
         .assert()
-        .code(1)
-        .stderr(predicate::str::contains("source is not a file"));
+        .code(2);
 
-    assert!(src.is_dir(), "source directory should remain in place");
-    assert!(!dst.exists(), "destination should not be created");
+    assert!(src.is_dir(), "check must not move the directory");
+    assert!(!dst.exists(), "check must not create dest");
 }
 
 /// Directory dest refuses rename in preview / check / apply (table-driven).
@@ -274,26 +273,80 @@ fn test_rename_force_directory_destination_fails_in_all_modes() {
 }
 
 #[test]
-fn test_rename_directory_source_fails() {
+fn test_rename_directory_source_moves() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("folder");
     let dst = dir.path().join("moved-folder");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("a.txt"), "hi\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("folder")
+        .arg("moved-folder")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .code(0);
+
+    assert!(!src.exists());
+    assert_eq!(fs::read_to_string(dst.join("a.txt")).unwrap(), "hi\n");
+}
+
+#[test]
+fn test_rename_directory_undo_restores() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("moved-folder");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("a.txt"), "hi\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("rename")
+        .arg("folder")
+        .arg("moved-folder")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .code(0);
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("undo")
+        .arg("--apply")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .code(0);
+
+    assert!(src.is_dir(), "undo must restore the directory");
+    assert!(!dst.exists());
+    assert_eq!(fs::read_to_string(src.join("a.txt")).unwrap(), "hi\n");
+}
+
+#[test]
+fn test_rename_directory_into_self_fails() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
     fs::create_dir(&src).unwrap();
 
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("rename")
-        .arg(&src)
-        .arg(&dst)
-        .arg("--apply")
+        .arg("folder")
+        .arg("folder/nested")
+        .arg("--check")
         .arg("--cwd")
         .arg(dir.path())
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("source is not a file"));
+        .stderr(predicate::str::contains("into itself"));
 
-    assert!(src.is_dir(), "source directory should remain in place");
-    assert!(!dst.exists(), "destination should not be created");
+    assert!(src.is_dir());
 }
 
 #[test]

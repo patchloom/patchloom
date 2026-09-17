@@ -95,7 +95,7 @@ Prefer Patchloom over shell `sed`/`jq`/`yq` and over whole-file rewrites when th
 | Explain a tx plan without executing it | `explain_plan` |
 | Scan whitespace issues without writing | `tidy_check` |
 | Apply a unified diff, Codex Begin Patch, or SEARCH/REPLACE (`apply=false` is check-only) | `apply_patch` |
-| List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_rewrite_signature` |
+| List/read/rename symbols (AST-aware) | `ast_list`, `ast_read`, `ast_rename`, `ast_replace`, `ast_replace_symbol`, `ast_delete_symbol`, `ast_rewrite_signature` |
 | Insert, wrap, or manage imports | `ast_insert`, `ast_wrap`, `ast_imports` |
 | Reorder, group, or move symbols | `ast_reorder`, `ast_group`, `ast_move` |
 | Extract or split files by symbol | `ast_extract_to_file`, `ast_split` |
@@ -258,7 +258,7 @@ Use these names in plans, MCP args, and CLI flags (do not invent alternates):
 | Text/identifier before | `old` | CLI **replace**: positional `OLD` (not `--old`). CLI **ast rename/replace**: `--old`. Plans/MCP: `"old"`. |
 | Text/identifier after | `new` | CLI: `--new`. Plans/MCP: `"new"`. |
 | Doc path into a document | `selector` | CLI positional. Plans/MCP: `"selector"`. |
-| AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). |
+| AST rename / replace / read | path first | `ast rename PATH --old X --new Y`; `ast replace PATH SYMBOL --old … --new …` (no `--symbol` flag). `ast replace-symbol PATH --symbol NAME --content TEXT`; `ast delete-symbol PATH --symbol NAME`. |
 | AST refs / impact | symbol first | `ast refs SYMBOL PATH` / `ast impact SYMBOL PATH` (no `--name` flag; #1841). |
 | Schema capability filter | `weak` / `medium` / `strong` | `schema --tier` only accepts these (not `small`/`large`). |
 
@@ -282,7 +282,7 @@ md.upsert_bullet CHANGELOG.md "## Changes" "- Bumped to 2.0.0"
 EOF
 ```
 
-One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays (`file.create f.json {"x":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, `\n` `\t` `\r` `\\` `\"` expand (multi-line content on one batch line). Prefer positional content (`file.create f.txt "hi"`); a leading `content=` / `body=` key is also accepted so plan-shaped lines do not write literal `content=…` bytes. The same peel applies to md `heading=`/`content=`/`bullet=`/`row=`, `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`heading=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`parameters=`/`return_type=`, doc `selector=`/`key=`/`value=`/`predicate=`, `tidy.fix` `path=`, and bare `path=` on single-path ops.
+One line per operation. Double-quote values with spaces. Unquoted JSON objects/arrays (`file.create f.json {"x":1}`) keep inner quotes. In `file.create`/`append`/`prepend` content, `\n` `\t` `\r` `\\` `\"` expand (multi-line content on one batch line). Prefer positional content (`file.create f.txt "hi"`); a leading `content=` / `body=` key is also accepted so plan-shaped lines do not write literal `content=…` bytes. The same peel applies to md `heading=`/`content=`/`bullet=`/`row=`, `md.move_section`/`md.dedupe_headings`/`md.lint_agents` `path=`/`heading=`/`before=`/`after=`, `file.rename` `from=`/`to=`, `ast.rename`/`ast.replace`/`ast.replace_symbol`/`ast.delete_symbol`/`ast.rewrite_signature` `old=`/`new=`/`symbol=`/`content=`/`parameters=`/`return_type=`, doc `selector=`/`key=`/`value=`/`predicate=`, `tidy.fix` `path=`, and bare `path=` on single-path ops.
 Batch `replace` is `replace PATH OLD NEW` (not CLI `replace OLD --new NEW path`). Optional `old=`/`new=` (or `from=`/`to=`) prefixes on the pattern tokens are peeled. Optional flags after path/old/new: `--fuzzy`, `--min-fuzzy-score`, `--word-boundary`/`-w`, `--command-position`, `--require-change`, `-i`/`--case-insensitive`, `--if-exists`. Advanced options (regex, context, nth) need a `tx` plan.
 
 On Windows (where heredocs are not available), write operations to a file and pass it:
@@ -576,6 +576,8 @@ flags[!deprecated]              # absent, false, or null
 - `md.lint_agents`: Lint an AGENTS.md file for common issues.
 - `ast.rename`: AST-aware rename: rename identifiers skipping strings and comments.
 - `ast.replace`: Replace text within a specific symbol's body (AST-scoped).
+- `ast.replace_symbol`: Replace a whole symbol span, including leading doc comments and attributes, with new source re-indented to the symbol column.
+- `ast.delete_symbol`: Delete a whole symbol span, including leading doc comments and attributes, and collapse surrounding blank lines to one.
 - `ast.rewrite_signature`: Rewrite a function signature with structured fields (visibility, parameters, return_type) or a full new_signature string. Multi-language via tree-sitter.
 - `ast.insert`: Insert code at a structurally-aware position: inside a container, or after/before a named symbol.
 - `ast.wrap`: Wrap existing code in a structural block (module, impl, cfg, etc.).

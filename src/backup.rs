@@ -109,6 +109,10 @@ pub struct ManifestEntry {
     pub path: String,
     /// What happened to this file.
     pub action: FileAction,
+    /// When set, `path` is a rename dest and undo is `fs::rename` back to this
+    /// source (directory rename; #2538). Old manifests omit the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renamed_from: Option<String>,
 }
 
 /// What the apply operation did to a file.
@@ -319,11 +323,13 @@ impl BackupSession {
             self.entries.push(ManifestEntry {
                 path: rel_str,
                 action: FileAction::Modified,
+                renamed_from: None,
             });
         } else {
             self.entries.push(ManifestEntry {
                 path: rel_str,
                 action: FileAction::Created,
+                renamed_from: None,
             });
         }
 
@@ -364,6 +370,26 @@ impl BackupSession {
         self.entries.push(ManifestEntry {
             path: rel_str,
             action: FileAction::Deleted,
+            renamed_from: None,
+        });
+        Ok(())
+    }
+
+    /// Record a directory rename so undo is `fs::rename` dest back to source (#2538).
+    pub fn save_before_dir_rename(&mut self, src: &Path, dst: &Path) -> anyhow::Result<()> {
+        let src_rel = sanitize_rel_path(src, &self.project_root)
+            .to_string_lossy()
+            .into_owned();
+        let dst_rel = sanitize_rel_path(dst, &self.project_root)
+            .to_string_lossy()
+            .into_owned();
+        if self.entries.iter().any(|e| e.path == dst_rel) {
+            return Ok(());
+        }
+        self.entries.push(ManifestEntry {
+            path: dst_rel,
+            action: FileAction::Created,
+            renamed_from: Some(src_rel),
         });
         Ok(())
     }
@@ -816,7 +842,13 @@ pub fn restore_path_from_session_with_guard(
         return Ok(false);
     };
 
-    check_restore_policy(project_root, &session_dir, &entry.path, guard)?;
+    check_restore_policy(
+        project_root,
+        &session_dir,
+        &entry.path,
+        entry.renamed_from.is_some(),
+        guard,
+    )?;
     if let Some((deleted, other)) = case_only_partner_entries(&manifest.entries, entry)
         && restore_live_case_only_pair(project_root, &session_dir, deleted, other)?
     {
@@ -844,6 +876,16 @@ pub fn restore_path_from_session_with_guard(
             Ok(true)
         }
         FileAction::Created => {
+            if let Some(from) = entry.renamed_from.as_deref() {
+                let src = resolve_restore_path(project_root, from);
+                if target.exists() && !src.exists() {
+                    std::fs::rename(&target, &src).with_context(|| {
+                        format!("undo directory rename {} -> {}", entry.path, from)
+                    })?;
+                    return Ok(true);
+                }
+                return Ok(false);
+            }
             refuse_restore_onto_non_regular(&target, &entry.path)?;
             if target.exists() {
                 std::fs::remove_file(&target)
@@ -975,7 +1017,13 @@ pub fn restore_session_with_guard(
     // a missing blob cannot leave a half-undone tree.
     let mut missing: Vec<String> = Vec::new();
     for entry in &manifest.entries {
-        check_restore_policy(project_root, &session_dir, &entry.path, guard)?;
+        check_restore_policy(
+            project_root,
+            &session_dir,
+            &entry.path,
+            entry.renamed_from.is_some(),
+            guard,
+        )?;
         match entry.action {
             FileAction::Modified | FileAction::Deleted => {
                 let backup = session_dir.join(&entry.path);
@@ -1042,6 +1090,16 @@ pub fn restore_session_with_guard(
                 restored += 1;
             }
             FileAction::Created => {
+                if let Some(from) = entry.renamed_from.as_deref() {
+                    let src = resolve_restore_path(project_root, from);
+                    if target.exists() && !src.exists() {
+                        std::fs::rename(&target, &src).with_context(|| {
+                            format!("undo directory rename {} -> {}", entry.path, from)
+                        })?;
+                        restored += 1;
+                    }
+                    continue;
+                }
                 // File was newly created by the apply; remove it if still present.
                 // Already gone is fine (idempotent undo of create).
                 refuse_restore_onto_non_regular(&target, &entry.path)?;
@@ -1229,6 +1287,7 @@ fn check_restore_policy(
     project_root: &Path,
     session_dir: &Path,
     entry_path: &str,
+    skip_dest_kind: bool,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<()> {
     validate_restore_path(entry_path)?;
@@ -1251,7 +1310,9 @@ fn check_restore_policy(
         g.check_path(&target.to_string_lossy())
             .map_err(crate::fallback::EditError::guard_rejected)?;
     }
-    refuse_restore_onto_non_regular(&target, entry_path)?;
+    if !skip_dest_kind {
+        refuse_restore_onto_non_regular(&target, entry_path)?;
+    }
     Ok(())
 }
 
@@ -1295,6 +1356,9 @@ pub(crate) fn classify_restore_write_dests(
     manifest: &Manifest,
 ) -> Result<(), crate::exit::InvalidInputError> {
     for entry in &manifest.entries {
+        if entry.renamed_from.is_some() {
+            continue;
+        }
         let target = resolve_restore_path(project_root, &entry.path);
         refuse_restore_onto_non_regular(&target, &entry.path)?;
     }
@@ -2110,6 +2174,7 @@ mod tests {
             entries: vec![ManifestEntry {
                 path: "../../etc/passwd".to_string(),
                 action: FileAction::Modified,
+                renamed_from: None,
             }],
             created_dirs: Vec::new(),
         };
@@ -2140,6 +2205,7 @@ mod tests {
             entries: vec![ManifestEntry {
                 path: "__external__/../../../etc/shadow".to_string(),
                 action: FileAction::Modified,
+                renamed_from: None,
             }],
             created_dirs: Vec::new(),
         };
@@ -2719,6 +2785,7 @@ mod tests {
             entries: vec![ManifestEntry {
                 path: entry_path.to_string(),
                 action,
+                renamed_from: None,
             }],
             created_dirs: Vec::new(),
         };

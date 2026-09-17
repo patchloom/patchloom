@@ -2821,7 +2821,7 @@ fn test_doc_get_nonexistent_file_fails() {
 #[test]
 fn test_doc_get_unsupported_extension_fails() {
     let dir = TempDir::new().unwrap();
-    let file = dir.path().join("data.ini");
+    let file = dir.path().join("data.txt");
     fs::write(&file, "key=value\n").unwrap();
 
     Command::cargo_bin("patchloom")
@@ -2894,7 +2894,7 @@ fn test_doc_set_nonexistent_file_json_envelope() {
 #[test]
 fn test_doc_get_unsupported_extension_json_envelope() {
     let dir = TempDir::new().unwrap();
-    let file = dir.path().join("data.ini");
+    let file = dir.path().join("data.txt");
     fs::write(&file, "key=value\n").unwrap();
 
     let out = Command::cargo_bin("patchloom")
@@ -5016,4 +5016,129 @@ fn test_doc_get_equality_predicate_still_works() {
     assert_eq!(v["ok"], true, "{v}");
     assert_eq!(v["value"]["name"], "b", "{v}");
     assert_eq!(v["value"]["v"], 2, "{v}");
+}
+
+#[test]
+fn test_doc_get_jsonc_tsconfig_comment() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("tsconfig.json");
+    fs::write(
+        &file,
+        "{\n  // c\n  \"compilerOptions\": {\"strict\": true}\n}\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get"])
+        .arg(&file)
+        .arg("compilerOptions.strict")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("true"));
+}
+
+#[test]
+fn test_doc_get_ini_and_env() {
+    let dir = TempDir::new().unwrap();
+    let ini = dir.path().join("c.ini");
+    fs::write(&ini, "a=1\n").unwrap();
+    let env = dir.path().join(".env");
+    fs::write(&env, "A=1\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get"])
+        .arg(&ini)
+        .arg("a")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1"));
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["doc", "get", ".env", "A"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1"));
+}
+
+#[test]
+fn test_doc_get_format_override_env() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("Makefile");
+    fs::write(&file, "A=1\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get", "--as", "env"])
+        .arg(&file)
+        .arg("A")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1"));
+}
+
+#[test]
+fn test_doc_set_env_keeps_comment() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join(".env");
+    fs::write(&file, "# keep\nA=1\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["doc", "set", ".env", "A", "2", "--apply"])
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&file).unwrap();
+    assert!(body.contains("# keep"), "{body}");
+    assert!(body.contains("A=2"), "{body}");
+}
+
+#[test]
+fn test_doc_format_nope_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("c.json");
+    fs::write(&file, "{\"a\":1}\n").unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["doc", "get", "--as", "nope"])
+        .arg(&file)
+        .arg("a")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("unsupported format"));
+}
+
+#[test]
+fn test_tx_doc_set_ini() {
+    let dir = TempDir::new().unwrap();
+    let ini = dir.path().join("c.ini");
+    fs::write(&ini, "[server]\nport=80\n").unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version":1,"operations":[{"op":"doc.set","path":"c.ini","selector":"server.port","value":"443"}]}"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args(["tx"])
+        .arg(&plan)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&ini).unwrap();
+    assert!(body.contains("[server]"), "{body}");
+    assert!(body.contains("port=443"), "{body}");
 }
