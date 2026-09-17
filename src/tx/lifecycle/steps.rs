@@ -282,6 +282,7 @@ pub(crate) fn revert_strict_lifecycle(
     existed_before: &HashSet<PathBuf>,
     backup_session: Option<&str>,
     collateral: &HashMap<PathBuf, String>,
+    soft_non_text: &HashSet<PathBuf>,
 ) -> Result<(), String> {
     let mut errors: Vec<String> = Vec::new();
     if let Some(ts) = backup_session {
@@ -299,6 +300,8 @@ pub(crate) fn revert_strict_lifecycle(
             deletions,
             existed_before,
             true,
+            soft_non_text,
+            Some(cwd),
         ));
     }
     if let Err(failed) = restore_collateral_files(collateral) {
@@ -322,6 +325,8 @@ pub(crate) fn rollback_strict(
     deletions: &HashSet<PathBuf>,
     existed_before: &HashSet<PathBuf>,
     quiet: bool,
+    soft_non_text: &HashSet<PathBuf>,
+    cwd: Option<&Path>,
 ) -> Vec<String> {
     let noop_policy = WritePolicy::default();
     let mut errors = Vec::new();
@@ -366,8 +371,9 @@ pub(crate) fn rollback_strict(
             && existed_before.contains(path)
         {
             // Soft-empty snapshots are binary / special-node deletes. Do not
-            // recreate them as 0-byte regular files (#2502).
-            if orig.is_empty() {
+            // recreate them as 0-byte regular files (#2502). An empty text
+            // file delete is not in soft_non_text and must be restored.
+            if orig.is_empty() && soft_non_text.contains(path) {
                 continue;
             }
             // Ensure parent directory exists before restoring; the directory
@@ -394,16 +400,22 @@ pub(crate) fn rollback_strict(
         }
     }
     // Best-effort: drop empty parents of tx-created files (no-backup path).
-    for path in created_files {
-        let mut parent = path.parent().map(Path::to_path_buf);
-        while let Some(dir) = parent {
-            if dir.as_os_str().is_empty() || !dir.is_dir() {
-                break;
+    // Never remove cwd or anything outside it (#2501 reviewer).
+    if let Some(root) = cwd {
+        for path in created_files {
+            let mut parent = path.parent().map(Path::to_path_buf);
+            while let Some(dir) = parent {
+                if dir == root || !dir.starts_with(root) {
+                    break;
+                }
+                if dir.as_os_str().is_empty() || !dir.is_dir() {
+                    break;
+                }
+                if std::fs::remove_dir(&dir).is_err() {
+                    break;
+                }
+                parent = dir.parent().map(Path::to_path_buf);
             }
-            if std::fs::remove_dir(&dir).is_err() {
-                break;
-            }
-            parent = dir.parent().map(Path::to_path_buf);
         }
     }
     errors

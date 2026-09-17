@@ -221,6 +221,9 @@ pub(crate) struct TxExecResult {
     /// Explicit `file.rename` pairs `(from, to)` for hardlink-preserving
     /// commit via `fs::rename` (including rename-then-edit in one plan).
     pub(crate) renames: Vec<(PathBuf, PathBuf)>,
+    /// Paths whose pending snapshot is a path-only non-text load. Rollback
+    /// must not recreate these as empty regular files (#2502).
+    pub(crate) soft_non_text: HashSet<PathBuf>,
 }
 
 /// Per-path replace match honesty recorded during plan execution.
@@ -1387,6 +1390,7 @@ mod tests {
             ),
             replace_match_meta: HashMap::new(),
             renames: vec![],
+            soft_non_text: HashSet::new(),
         };
         let out = build_full_tx_output("no_matches", &mut result, cwd);
         assert_eq!(out.status, "no_matches");
@@ -1436,6 +1440,7 @@ mod tests {
             replace_hint: Some("exact old absent; best fuzzy candidate".into()),
             replace_match_meta: meta,
             renames: vec![],
+            soft_non_text: HashSet::new(),
         };
         let out = build_full_tx_output("no_matches", &mut result, cwd);
         assert_eq!(out.status, "no_matches");
@@ -1491,6 +1496,7 @@ mod tests {
             replace_hint: Some("exact old absent".into()),
             replace_match_meta: meta,
             renames: vec![],
+            soft_non_text: HashSet::new(),
         };
         let out = build_full_tx_output("success", &mut result, cwd);
         assert_eq!(out.status, "success");
@@ -1540,6 +1546,7 @@ mod tests {
             replace_hint: None,
             replace_match_meta: meta,
             renames: vec![],
+            soft_non_text: HashSet::new(),
         };
         let out = build_applied_with_error_output(
             "format_failed",
@@ -1596,6 +1603,7 @@ mod tests {
             replace_hint: Some("no matches for 'missing' in f.txt".into()),
             replace_match_meta: meta,
             renames: vec![],
+            soft_non_text: HashSet::new(),
         };
         let out = build_full_tx_output("success", &mut result, cwd);
         assert_eq!(out.status, "success");

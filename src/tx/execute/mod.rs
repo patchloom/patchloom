@@ -1082,5 +1082,6 @@ pub(crate) fn execute_and_collect(
         replace_hint,
         replace_match_meta,
         renames,
+        soft_non_text,
     })
 }

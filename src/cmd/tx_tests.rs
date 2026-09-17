@@ -1209,6 +1209,8 @@ mod integrity {
             &deletions,
             &existed_before,
             true,
+            &HashSet::new(),
+            Some(dir.path()),
         );
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
