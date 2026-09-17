@@ -601,21 +601,27 @@ pub fn is_regular_file_for_backup(path: &Path) -> bool {
     classify_path_entry(path).is_regular_file()
 }
 
-/// True when `src` and `dst` are the same directory entry spelled with
-/// different case (case-insensitive volume). On a case-sensitive volume,
-/// `Keep.txt` and `keep.txt` are two files and this is false (#2473).
+/// True when `src` and `dst` are a same-directory case-only name change.
+///
+/// Dest missing: still case-only (`readme.md` -> `README.md` on Linux).
+/// Dest present: only when both paths are the same inode (case-insensitive
+/// volume). Two distinct files `Keep.txt` / `keep.txt` stay false (#2473).
 pub fn is_case_only_rename(src: &Path, dst: &Path) -> bool {
-    src != dst
-        && src.parent() == dst.parent()
-        && src.file_name().map(|n| n.to_ascii_lowercase())
-            == dst.file_name().map(|n| n.to_ascii_lowercase())
-        && matches!(
-            (
-                crate::containment::safe_canonicalize(src),
-                crate::containment::safe_canonicalize(dst)
-            ),
-            (Ok(ref s), Ok(ref d)) if s == d
-        )
+    if src == dst
+        || src.parent() != dst.parent()
+        || src.file_name().map(|n| n.to_ascii_lowercase())
+            != dst.file_name().map(|n| n.to_ascii_lowercase())
+    {
+        return false;
+    }
+    match (
+        crate::containment::safe_canonicalize(src),
+        crate::containment::safe_canonicalize(dst),
+    ) {
+        (Ok(ref s), Ok(ref d)) => s == d,
+        (Ok(_), Err(_)) => !path_entry_exists(dst),
+        _ => false,
+    }
 }
 
 /// Rename a path, falling back to copy+delete across devices.
@@ -2040,6 +2046,18 @@ mod tests {
         assert!(
             !is_case_only_rename(&keep, &lower),
             "two files must not be treated as case-only"
+        );
+    }
+
+    #[test]
+    fn case_only_rename_true_when_dest_missing() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("readme.md");
+        let dst = dir.path().join("README.md");
+        fs::write(&src, "hello\n").unwrap();
+        assert!(
+            is_case_only_rename(&src, &dst),
+            "dest-missing case change is case-only on every volume"
         );
     }
 }

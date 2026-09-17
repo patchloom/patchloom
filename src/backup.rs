@@ -143,9 +143,22 @@ pub(crate) fn sanitize_rel_path(file_path: &Path, project_root: &Path) -> PathBu
     // Strip Windows \\?\ so strip_prefix and drive-letter parsing work
     // when the caller passed a std::fs::canonicalize path (#1931).
     let file_path = dunce::simplified(&openable);
-    let project_root = dunce::simplified(project_root);
-    if let Ok(rel) = file_path.strip_prefix(project_root) {
+    let project_root_simple = dunce::simplified(project_root);
+    if let Ok(rel) = file_path.strip_prefix(project_root_simple) {
         return rel.to_path_buf();
+    }
+    // 8.3 TEMP vs long path: canonicalize both so a followed symlink
+    // target still strips (GHA Windows `C:\Users\RUNNER~1` vs
+    // `C:\Users\runneradmin`).
+    if let (Ok(file_c), Ok(root_c)) = (
+        crate::containment::safe_canonicalize(&openable),
+        crate::containment::safe_canonicalize(project_root),
+    ) {
+        let file_c = dunce::simplified(&file_c);
+        let root_c = dunce::simplified(&root_c);
+        if let Ok(rel) = file_c.strip_prefix(root_c) {
+            return rel.to_path_buf();
+        }
     }
     // File is outside the project root. Place it under __external__/ with
     // enough information to reconstruct the original absolute path on restore.
@@ -1922,10 +1935,11 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&blob).unwrap(), "orig\n");
     }
 
-    /// Canonicalize-first would follow the link and copy target bytes.
+    /// `//?/` symlink-to-file backs up the regular target (#2491), not
+    /// `__external_C__*` (8.3 TEMP vs long path after canonicalize).
     #[cfg(windows)]
     #[test]
-    fn save_before_write_forward_extended_symlink_is_empty_marker() {
+    fn save_before_write_forward_extended_symlink_backs_up_target() {
         let dir = TempDir::new().unwrap();
         let target = dir.path().join("target.txt");
         let link = dir.path().join("link.txt");
@@ -1944,15 +1958,15 @@ mod tests {
         let sessions = list_sessions(dir.path()).unwrap();
         assert_eq!(
             sessions[0].entries[0].path.replace('\\', "/"),
-            "link.txt",
+            "target.txt",
             "got {}",
             sessions[0].entries[0].path
         );
-        let blob = dir.path().join(BACKUP_DIR).join(&ts).join("link.txt");
+        let blob = dir.path().join(BACKUP_DIR).join(&ts).join("target.txt");
         assert_eq!(
-            std::fs::read(&blob).unwrap(),
-            b"",
-            "symlink dest must be #2087 empty marker, not target bytes"
+            std::fs::read_to_string(&blob).unwrap(),
+            "secret\n",
+            "regular target bytes must be backed up"
         );
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "secret\n");
     }
