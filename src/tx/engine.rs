@@ -24,12 +24,26 @@ pub struct ExecuteOptions<'a> {
     pub context: EngineContext,
     /// Optional path guard for containment validation.
     pub guard: Option<&'a crate::containment::PathGuard>,
+    /// When true, stage precomputed `new` bytes as-is (CLI tidy scan already
+    /// applied per-file policy). Replace keeps the default overlay.
+    pub(crate) skip_write_policy: bool,
 }
 
 impl<'a> ExecuteOptions<'a> {
     /// Construct options from an owned [`EngineContext`].
     pub fn new(context: EngineContext, guard: Option<&'a crate::containment::PathGuard>) -> Self {
-        Self { context, guard }
+        Self {
+            context,
+            guard,
+            skip_write_policy: false,
+        }
+    }
+
+    /// Stage precomputed scan bytes without a second write-policy pass.
+    #[must_use]
+    pub(crate) fn skip_write_policy(mut self) -> Self {
+        self.skip_write_policy = true;
+        self
     }
 
     /// Construct options from CLI/library global flags (boundary adapter only).
@@ -246,10 +260,34 @@ pub fn execute_precomputed(
 
     for (rel_path, original, new_content) in changes {
         let abs_path = cwd.join(&rel_path);
+        let exists = crate::ops::file::path_entry_exists(&abs_path);
+        if exists {
+            let disk = crate::files::read_text_file(&abs_path).ok_or_else(|| {
+                crate::exit::ConflictsError {
+                    msg: format!("file changed after scan: {rel_path}"),
+                }
+            })?;
+            if disk.as_str() != original {
+                return Err(crate::exit::ConflictsError {
+                    msg: format!("file changed after scan: {rel_path}"),
+                }
+                .into());
+            }
+        } else if !original.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no such file or directory: {rel_path}"),
+            )
+            .into());
+        }
         existed_before.insert(abs_path.clone());
-        let policy = ctx.write_policy(Some(&abs_path));
-        policy.refuse_unsupported_charset()?;
-        let final_content = apply_policy(&new_content, &policy).into_owned();
+        let final_content = if options.skip_write_policy {
+            new_content
+        } else {
+            let policy = ctx.write_policy(Some(&abs_path));
+            policy.refuse_unsupported_charset()?;
+            apply_policy(&new_content, &policy).into_owned()
+        };
         if final_content != original {
             pending.insert(abs_path.clone(), (original.clone(), final_content.clone()));
             result_changes.push((abs_path, original, final_content));
@@ -756,6 +794,67 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), "old\n");
         report.commit().unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "new\n");
+    }
+
+    /// Scan snapshot must not overwrite a file that changed after the scan (#2494).
+    #[test]
+    fn execute_precomputed_rejects_stale_disk() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("stale.txt");
+        fs::write(&path, "old\n").unwrap();
+        let global = GlobalFlags::test_default();
+        fs::write(&path, "other\n").unwrap();
+        let Err(err) = stage(WriteRequest {
+            source: WriteSource::Precomputed(vec![(
+                "stale.txt".to_string(),
+                "old\n".to_string(),
+                "new\n".to_string(),
+            )]),
+            options: test_options(dir.path(), &global),
+        }) else {
+            panic!("stale disk must fail closed");
+        };
+        assert!(
+            crate::exit::is_conflicts(&err),
+            "stale precomputed must be conflicts: {err}"
+        );
+        assert!(
+            err.to_string().contains("stale.txt"),
+            "error must name the path: {err}"
+        );
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "other\n",
+            "stale refuse must not write scan bytes"
+        );
+    }
+
+    /// Deleted after scan must peel not_found, not recreate (#2494).
+    #[test]
+    fn execute_precomputed_rejects_missing_after_scan() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("gone.txt");
+        fs::write(&path, "old\n").unwrap();
+        let global = GlobalFlags::test_default();
+        fs::remove_file(&path).unwrap();
+        let Err(err) = stage(WriteRequest {
+            source: WriteSource::Precomputed(vec![(
+                "gone.txt".to_string(),
+                "old\n".to_string(),
+                "new\n".to_string(),
+            )]),
+            options: test_options(dir.path(), &global),
+        }) else {
+            panic!("missing dest after scan must fail");
+        };
+        assert!(
+            crate::fallback::is_not_found(&err),
+            "missing after scan must be not_found: {err}"
+        );
+        assert!(
+            !path.exists(),
+            "must not recreate a dest deleted after scan"
+        );
     }
 
     /// Engine `commit` must keep `backup_session` on `CommitError` so library

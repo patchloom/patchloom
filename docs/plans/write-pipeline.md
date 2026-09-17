@@ -73,7 +73,7 @@ Binary / case-only renames cannot use the UTF-8 tx engine. They use
 | create, append, prepend, delete, doc writes, md most, ast replace | `run_write_op` / via engine alias | `finalize_execution_result` |
 | ast rename | `stage_for_write(Operations)` | `finalize_execution_result` |
 | replace (scan + context) | `stage_for_write` | `finalize_report` via `replace_output` hooks |
-| tidy fix | `stage_for_write(Operations)` | `finalize_report` via `tidy_fix_output` hooks |
+| tidy fix | `stage(Precomputed)` | `finalize_report` via `tidy_fix_output` hooks |
 | patch apply | `stage_for_write(Operations)` | `finalize_report` hooks |
 | md dedupe-headings | `stage_for_write` | `finalize_report` (`--json` object with `removed`+`applied`; JSONL one string per heading) |
 | rename binary/case-only / special-node plain apply | n/a | `execute_write` / `finalize_callback_write` (path-only; no UTF-8 engine) |
