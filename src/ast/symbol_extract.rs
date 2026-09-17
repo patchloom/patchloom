@@ -121,15 +121,16 @@ fn node_signature(node: tree_sitter_lib::Node, source: &str) -> String {
 
 fn extract_rust(node: tree_sitter_lib::Node, source: &str) -> Option<(SymbolKind, String)> {
     match node.kind() {
-        "function_item" => {
+        "function_item" | "function_signature_item" => {
             let name = child_text_by_kind(node, "identifier", source)?;
-            // Methods live inside impl blocks; free functions stay Function.
+            // Methods live inside impl/trait blocks (including required
+            // trait signatures with no body). Free functions stay Function.
             // Agents filter with --kind method (Python/TS parity).
             let kind = {
                 let mut ancestor = node.parent();
                 let mut is_method = false;
                 while let Some(a) = ancestor {
-                    if a.kind() == "impl_item" {
+                    if a.kind() == "impl_item" || a.kind() == "trait_item" {
                         is_method = true;
                         break;
                     }

@@ -144,6 +144,60 @@ fn extract_rust_static_macro_union() {
     );
 }
 
+/// #2531 leftover: `function_signature_item` inside `trait_item` must list
+/// as Method children (required methods have no body). Defaulted trait
+/// methods are `function_item` and nest the same way as impl methods.
+#[test]
+fn extract_rust_trait_method_signatures() {
+    let source = "trait T { fn req(&self); fn defaulted(&self) {} }\nfn f() {}\n";
+    let symbols = extract_symbols(source, Language::Rust);
+
+    let trait_t = symbols
+        .iter()
+        .find(|s| s.name == "T")
+        .expect("trait T must be listed");
+    assert_eq!(trait_t.kind, SymbolKind::Trait);
+
+    let child_names: Vec<&str> = trait_t.children.iter().map(|c| c.name.as_str()).collect();
+    let req = trait_t
+        .children
+        .iter()
+        .find(|c| c.name == "req")
+        .expect("required trait method req must be a child of T");
+    assert_eq!(
+        req.kind,
+        SymbolKind::Method,
+        "fn req(&self); must be Method, got {:?} (children={child_names:?})",
+        req.kind
+    );
+
+    let defaulted = trait_t
+        .children
+        .iter()
+        .find(|c| c.name == "defaulted")
+        .expect("defaulted trait method must nest under T");
+    assert_eq!(
+        defaulted.kind,
+        SymbolKind::Method,
+        "fn defaulted(&self) {{}} inside trait must be Method, got {:?}",
+        defaulted.kind
+    );
+
+    let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+    assert!(
+        names.contains(&"f"),
+        "free fn f must still be listed, got {names:?}"
+    );
+    assert!(
+        !names.contains(&"req") && !names.contains(&"defaulted"),
+        "trait methods nest under T, not as top-level names: {names:?}"
+    );
+
+    let found = find_symbol(&symbols, "T::req").expect("nesting addresses T::req");
+    assert_eq!(found.name, "req");
+    assert_eq!(found.kind, SymbolKind::Method);
+}
+
 #[test]
 fn extract_python_symbols() {
     let source = r#"
