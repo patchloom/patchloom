@@ -266,6 +266,12 @@ fn parse_range_arg(spec: Option<&str>) -> anyhow::Result<Option<(usize, Option<u
     }
 }
 
+/// Per-file `--nth` candidate total from the first content read (#2549).
+struct NthCandidateCount {
+    display_path: String,
+    total: usize,
+}
+
 /// One replace scan: matches, explicit-list refuses, and the walked paths.
 ///
 /// `file_paths` is the first walk. Miss-path unreadable masking and similar
@@ -274,6 +280,22 @@ struct ReplacementScan {
     replacements: Vec<FileReplacement>,
     zero_match_refused: Option<Vec<RefuseFileResult>>,
     file_paths: Vec<std::path::PathBuf>,
+    nth_candidates: Vec<NthCandidateCount>,
+}
+
+/// Explicit file list: `--files-from`, or no directory roots among positionals.
+fn replace_scan_is_explicit_files(
+    args: &ReplaceArgs,
+    global: &GlobalFlags,
+    cwd: &std::path::Path,
+) -> bool {
+    if global.files_from.is_some() {
+        true
+    } else if args.paths.is_empty() {
+        false
+    } else {
+        args.paths.iter().all(|p| !cwd.join(p).is_dir())
+    }
 }
 
 /// Walk files and collect replacements using parallel file processing.
@@ -336,84 +358,167 @@ fn collect_replacements_with_list(
     let case_insensitive = args.case_insensitive;
 
     let cwd_ref = &cwd;
-    let mut replacements: Vec<FileReplacement> =
-        crate::par_process_files(&file_paths, glob_matcher.as_ref(), &glob_roots, |path| {
-            let content = crate::files::read_text_file_logged(path, "replace", quiet)?;
-            let replacement = crate::ops::replace::build_replacement_text(
-                &crate::ops::replace::ReplacementTextParams {
-                    from,
-                    to: &new_opt,
-                    insert_before: &insert_before,
-                    insert_after: &insert_after,
-                    use_match_anchor,
-                    regex_mode,
-                    file_content: &content,
-                    case_insensitive,
-                },
-            );
-            let (replaced, count) = if command_position {
-                let (out, n) =
-                    crate::ops::shell_token::replace_command_position(&content, from, to);
-                (std::borrow::Cow::Owned(out), n)
-            } else if let Some(ib) = insert_before.as_deref() {
-                crate::ops::replace::replace_insert_before(
-                    &content,
-                    from,
-                    ib,
-                    compiled_re.as_ref(),
-                    nth,
-                    case_insensitive,
-                )
-            } else if let Some(ia) = insert_after.as_deref() {
-                crate::ops::replace::replace_insert_after(
-                    &content,
-                    from,
-                    ia,
-                    compiled_re.as_ref(),
-                    nth,
-                    case_insensitive,
-                )
-            } else if whole_line {
-                replace_whole_lines(
-                    &content,
-                    from,
-                    &replacement,
-                    compiled_re.as_ref(),
-                    nth,
-                    range,
-                )
-            } else {
-                replace_content(&content, from, &replacement, compiled_re.as_ref(), nth)
-            };
-            if count > 0 {
-                let replaced = replaced.into_owned();
-                let display_path = crate::files::relative_display(path, cwd_ref)
-                    .to_string_lossy()
-                    .into_owned();
-                Some(FileReplacement {
-                    path: path.to_string_lossy().into_owned(),
+    let explicit_files = replace_scan_is_explicit_files(args, global, &cwd);
+    let need_nth = nth.is_some();
+    struct ScanRow {
+        replacement: Option<FileReplacement>,
+        nth_total: Option<usize>,
+        display_path: String,
+        refuse: Option<RefuseFileResult>,
+    }
+    // Visit every walked path once. Glob still gates writes; nth/refuse use
+    // this same read so glob-skipped explicit files keep prior kinds (#2549).
+    let rows: Vec<ScanRow> = crate::par_process_files(&file_paths, None, &[], |path| {
+        let display_path = crate::files::relative_display(path, cwd_ref)
+            .to_string_lossy()
+            .into_owned();
+        let content = match crate::files::try_read_text_file_logged(path, "replace", quiet) {
+            Ok(c) => c,
+            Err(skip) => {
+                let refuse = explicit_files.then_some(RefuseFileResult {
+                    path: display_path.clone(),
+                    match_mode: None,
+                    match_score: None,
+                    matched_text: None,
+                    reason: skip.as_reason(),
+                });
+                return Some(ScanRow {
+                    replacement: None,
+                    nth_total: None,
                     display_path,
+                    refuse,
+                });
+            }
+        };
+        let nth_total = need_nth
+            .then(|| count_nth_candidates(&content, from, compiled_re.as_ref(), whole_line, range));
+        let glob_ok =
+            crate::files::matches_glob_with_roots(path, glob_matcher.as_ref(), &glob_roots);
+        if !glob_ok {
+            let refuse = explicit_files.then_some(RefuseFileResult {
+                path: display_path.clone(),
+                match_mode: Some("exact"),
+                match_score: None,
+                matched_text: None,
+                reason: "no_matches",
+            });
+            return Some(ScanRow {
+                replacement: None,
+                nth_total,
+                display_path,
+                refuse,
+            });
+        }
+        let replacement = crate::ops::replace::build_replacement_text(
+            &crate::ops::replace::ReplacementTextParams {
+                from,
+                to: &new_opt,
+                insert_before: &insert_before,
+                insert_after: &insert_after,
+                use_match_anchor,
+                regex_mode,
+                file_content: &content,
+                case_insensitive,
+            },
+        );
+        let (replaced, count) = if command_position {
+            let (out, n) = crate::ops::shell_token::replace_command_position(&content, from, to);
+            (std::borrow::Cow::Owned(out), n)
+        } else if let Some(ib) = insert_before.as_deref() {
+            crate::ops::replace::replace_insert_before(
+                &content,
+                from,
+                ib,
+                compiled_re.as_ref(),
+                nth,
+                case_insensitive,
+            )
+        } else if let Some(ia) = insert_after.as_deref() {
+            crate::ops::replace::replace_insert_after(
+                &content,
+                from,
+                ia,
+                compiled_re.as_ref(),
+                nth,
+                case_insensitive,
+            )
+        } else if whole_line {
+            replace_whole_lines(
+                &content,
+                from,
+                &replacement,
+                compiled_re.as_ref(),
+                nth,
+                range,
+            )
+        } else {
+            replace_content(&content, from, &replacement, compiled_re.as_ref(), nth)
+        };
+        if count > 0 {
+            let replaced = replaced.into_owned();
+            Some(ScanRow {
+                replacement: Some(FileReplacement {
+                    path: path.to_string_lossy().into_owned(),
+                    display_path: display_path.clone(),
                     original: content,
                     replaced,
                     match_count: count,
                     match_mode: Some("exact"),
                     match_score: None,
                     matched_text: None,
-                })
-            } else {
-                None
-            }
-        });
+                }),
+                nth_total,
+                display_path,
+                refuse: None,
+            })
+        } else {
+            let refuse = explicit_files.then_some(RefuseFileResult {
+                path: display_path.clone(),
+                match_mode: Some("exact"),
+                match_score: None,
+                matched_text: None,
+                reason: "no_matches",
+            });
+            Some(ScanRow {
+                replacement: None,
+                nth_total,
+                display_path,
+                refuse,
+            })
+        }
+    });
+
+    let mut replacements = Vec::new();
+    let mut nth_candidates = Vec::new();
+    let mut refused = Vec::new();
+    for row in rows {
+        if let Some(total) = row.nth_total {
+            nth_candidates.push(NthCandidateCount {
+                display_path: row.display_path,
+                total,
+            });
+        }
+        if let Some(r) = row.replacement {
+            replacements.push(r);
+        } else if let Some(f) = row.refuse {
+            refused.push(f);
+        }
+    }
 
     replacements.sort_unstable_by(|a, b| a.path.cmp(&b.path));
-    let zero_match_refused =
-        exact_zero_match_refused_from_paths(args, global, &cwd, &file_paths, &replacements);
+    let zero_match_refused = if explicit_files && !refused.is_empty() {
+        refused.sort_by(|a, b| a.path.cmp(&b.path));
+        Some(refused)
+    } else {
+        None
+    };
     // Caller runs unique against this list (including identity matches), then
     // filters identity so writes/diffs only cover real content changes.
     Ok(ReplacementScan {
         replacements,
         zero_match_refused,
         file_paths,
+        nth_candidates,
     })
 }
 
@@ -483,14 +588,7 @@ fn exact_zero_match_refused_from_paths(
     // Explicit path list: --files-from, or no directory roots among positionals.
     // Missing paths are not dirs (soft-skip via skipped[]); do not disable
     // refused[] for co-listed zero-match files (#1792 + #1793).
-    let explicit_files = if global.files_from.is_some() {
-        true
-    } else if args.paths.is_empty() {
-        false
-    } else {
-        args.paths.iter().all(|p| !cwd.join(p).is_dir())
-    };
-    if !explicit_files {
+    if !replace_scan_is_explicit_files(args, global, cwd) {
         return None;
     }
     let matched: std::collections::HashSet<&str> =
@@ -737,6 +835,7 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         mut replacements,
         zero_match_refused,
         file_paths,
+        nth_candidates,
     } = scan;
     let raw_match_count: usize = replacements.iter().map(|r| r.match_count).sum();
 
@@ -787,34 +886,15 @@ pub fn run(mut args: ReplaceArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     // --nth past the last match in ANY scanned file is fail-closed, even when
     // another file can apply nth successfully. Silent skip of under-matched
     // files hid agent mistakes in multi-path replaces (fixrealloop 2026-07-15).
+    // Totals come from the first read; do not re-open those files (#2549).
     if let Some(n) = args.nth {
-        let compiled_re = compile_replace_regex(
-            &args.old,
-            args.regex,
-            args.case_insensitive,
-            args.multiline,
-            args.word_boundary,
-        )?;
-        let range = parse_range_arg(args.range.as_deref())?;
-        for path in &file_paths {
-            // SoftSkip multi-path (#1894).
-            let Some(content) = crate::files::read_text_file(path) else {
-                continue;
-            };
-            let total = count_nth_candidates(
-                &content,
-                &args.old,
-                compiled_re.as_ref(),
-                args.whole_line,
-                range,
-            );
-            if total > 0 && n > total {
-                let display = crate::files::relative_display(path, &cwd)
-                    .to_string_lossy()
-                    .into_owned();
+        for row in &nth_candidates {
+            if row.total > 0 && n > row.total {
                 let msg = format!(
-                    "nth {n} is out of range in {display}: pattern matches {total} time{}",
-                    if total == 1 { "" } else { "s" }
+                    "nth {n} is out of range in {}: pattern matches {} time{}",
+                    row.display_path,
+                    row.total,
+                    if row.total == 1 { "" } else { "s" }
                 );
                 global.emit_error_json_kind(Some("invalid_input"), &msg)?;
                 return Ok(exit::FAILURE);

@@ -481,6 +481,53 @@ mod replace_tests {
             );
         }
 
+        /// #2548: many hits stay one forward pass; body matches reverse splice.
+        #[test]
+        fn replace_insert_after_many_hits_preserves_per_match_indent() {
+            let file = "a();\n  a();\n    a();\n      a();\n";
+            let (out, n) = replace_insert_after(file, "a();", "b();", None, None, false);
+            assert_eq!(n, 4);
+            assert_eq!(
+                out,
+                "a();\nb();\n  a();\n  b();\n    a();\n    b();\n      a();\n      b();\n"
+            );
+        }
+
+        #[test]
+        fn replace_insert_before_many_hits_preserves_indent_and_eol() {
+            let file = "  a();\n    a();\n      a();\n";
+            let (out, n) = replace_insert_before(file, "a();", "b();", None, None, false);
+            assert_eq!(n, 3);
+            assert_eq!(
+                out,
+                "  b();\n  a();\n    b();\n    a();\n      b();\n      a();\n"
+            );
+        }
+
+        #[test]
+        fn replace_insert_after_nth_picks_only_that_hit() {
+            let file = "a();\n  a();\n    a();\n";
+            let (out, n) = replace_insert_after(file, "a();", "b();", None, Some(2), false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "a();\n  a();\n  b();\n    a();\n");
+        }
+
+        #[test]
+        fn replace_insert_before_nth_picks_only_that_hit() {
+            let file = "  a();\n    a();\n      a();\n";
+            let (out, n) = replace_insert_before(file, "a();", "b();", None, Some(3), false);
+            assert_eq!(n, 1);
+            assert_eq!(out, "  a();\n    a();\n      b();\n      a();\n");
+        }
+
+        #[test]
+        fn replace_insert_after_midline_many_hits_stay_byte_exact() {
+            let file = "xx foo foo foo yy\n";
+            let (out, n) = replace_insert_after(file, "foo", "X", None, None, false);
+            assert_eq!(n, 3);
+            assert_eq!(out, "xx fooX fooX fooX yy\n");
+        }
+
         /// #2510: payload internal EOLs follow the target file's dominant ending.
         #[test]
         fn normalize_line_insert_after_lf_payload_on_crlf_file() {

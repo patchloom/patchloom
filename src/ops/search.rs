@@ -171,6 +171,54 @@ fn stop_after_first_hit(params: &SearchFileParams) -> bool {
     (params.files_with_matches || params.files_without_match) && params.assert_count.is_none()
 }
 
+/// Cheap membership probe so zero-match files skip `Arc` + line split (#2550).
+///
+/// Literal: one memmem over the buffer. Regex: scan lines without collecting
+/// them (`$` on a CR-only line is line-oriented, not a whole-buffer `$`).
+fn forward_buffer_has_hit(matcher: &Matcher, content: &str) -> bool {
+    match matcher {
+        Matcher::Literal(_) => matcher.find(content).is_some(),
+        Matcher::Regex(_) => {
+            crate::ops::file::text_lines(content).any(|line| matcher.find(line).is_some())
+        }
+    }
+}
+
+fn search_display_path(path: &std::path::Path, cwd: &std::path::Path) -> Arc<str> {
+    #[cfg(any(feature = "cli", feature = "files"))]
+    let display = crate::files::relative_display(path, cwd);
+    #[cfg(not(any(feature = "cli", feature = "files")))]
+    let display = path.strip_prefix(cwd).unwrap_or(path);
+    Arc::from(display.to_string_lossy().as_ref())
+}
+
+fn finish_file_result(
+    params: &SearchFileParams,
+    path_str: Arc<str>,
+    matches: Vec<SearchMatch>,
+    count: usize,
+) -> Option<FileResult> {
+    if params.files_without_match {
+        if count == 0 {
+            Some(FileResult {
+                path_str,
+                matches,
+                count: 0,
+            })
+        } else {
+            None
+        }
+    } else if count > 0 {
+        Some(FileResult {
+            path_str,
+            matches,
+            count,
+        })
+    } else {
+        None
+    }
+}
+
 /// Compute a 1-based (line, column) pair from a byte offset into content.
 ///
 /// `newline_offsets` is a list of byte positions where `\n` appears.
@@ -201,15 +249,10 @@ pub fn search_one_file(
     // the first line the same way md/doc already strip for parse (#2311).
     let content = crate::ops::file::strip_utf8_bom(&content);
 
-    #[cfg(any(feature = "cli", feature = "files"))]
-    let display = crate::files::relative_display(path, cwd);
-    #[cfg(not(any(feature = "cli", feature = "files")))]
-    let display = path.strip_prefix(cwd).unwrap_or(path);
-    let path_str: Arc<str> = Arc::from(display.to_string_lossy().as_ref());
-    let mut file_matches: Vec<SearchMatch> = Vec::new();
-    let mut count = 0usize;
-
     if params.multiline {
+        let path_str = search_display_path(path, cwd);
+        let mut file_matches: Vec<SearchMatch> = Vec::new();
+        let mut count = 0usize;
         if params.count_only {
             count = matcher.count_matches(content, stop_after_first_hit(params));
         } else {
@@ -229,118 +272,156 @@ pub fn search_one_file(
                 });
             }
         }
-    } else if params.count_only {
-        // Invert stays line-oriented (lines without a match). Forward match
-        // counts every occurrence so search match_count aligns with replace
-        // (fixrealloop: "hi hi hi" was search=1 / replace=3).
-        for line in crate::ops::file::text_lines(content) {
-            if params.invert_match {
-                if matcher.find(line).is_none() {
-                    count += 1;
-                    if stop_after_first_hit(params) {
-                        break;
-                    }
-                }
-            } else {
-                let n = matcher.count_matches(line, stop_after_first_hit(params));
-                if n > 0 {
-                    count += n;
-                    if stop_after_first_hit(params) {
-                        break;
-                    }
-                }
-            }
-        }
-    } else {
-        let ctx_before = params.before_context.or(params.context).unwrap_or(0);
-        let ctx_after = params.after_context.or(params.context).unwrap_or(0);
-        let has_ctx = ctx_before > 0 || ctx_after > 0;
-        let lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
+        return finish_file_result(params, path_str, file_matches, count);
+    }
 
-        for (i, line) in lines.iter().copied().enumerate() {
-            if params.invert_match {
-                if matcher.find(line).is_some() {
-                    continue;
+    if params.invert_match {
+        return search_one_file_invert(path, matcher, params, cwd, content);
+    }
+
+    if params.count_only {
+        let count = match matcher {
+            // Literal: one memmem over the file, not per line (#2550).
+            Matcher::Literal(_) => matcher.count_matches(content, stop_after_first_hit(params)),
+            Matcher::Regex(_) => {
+                let mut count = 0usize;
+                for line in crate::ops::file::text_lines(content) {
+                    let n = matcher.count_matches(line, stop_after_first_hit(params));
+                    if n > 0 {
+                        count += n;
+                        if stop_after_first_hit(params) {
+                            break;
+                        }
+                    }
                 }
-                count += 1;
-                if skip_match_detail(params, file_matches.len()) {
-                    continue;
-                }
-                let start = i.saturating_sub(ctx_before);
-                let end = (i + 1 + ctx_after).min(lines.len());
-                file_matches.push(SearchMatch {
-                    path: path_str.clone(),
-                    line: i + 1,
-                    column: 1,
-                    text: line.to_string(),
-                    context_before: if has_ctx {
-                        Some(lines[start..i].iter().map(|s| s.to_string()).collect())
-                    } else {
-                        None
-                    },
-                    context_after: if has_ctx {
-                        Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect())
-                    } else {
-                        None
-                    },
-                });
+                count
+            }
+        };
+        if count == 0 && !params.files_without_match {
+            return None;
+        }
+        return finish_file_result(params, search_display_path(path, cwd), Vec::new(), count);
+    }
+
+    if !forward_buffer_has_hit(matcher, content) {
+        if params.files_without_match {
+            return finish_file_result(params, search_display_path(path, cwd), Vec::new(), 0);
+        }
+        return None;
+    }
+    if params.files_without_match {
+        return None;
+    }
+    if stop_after_first_hit(params) {
+        return Some(FileResult {
+            path_str: search_display_path(path, cwd),
+            matches: Vec::new(),
+            count: 1,
+        });
+    }
+
+    let path_str = search_display_path(path, cwd);
+    let mut file_matches: Vec<SearchMatch> = Vec::new();
+    let mut count = 0usize;
+    let ctx_before = params.before_context.or(params.context).unwrap_or(0);
+    let ctx_after = params.after_context.or(params.context).unwrap_or(0);
+    let has_ctx = ctx_before > 0 || ctx_after > 0;
+    let lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
+
+    for (i, line) in lines.iter().copied().enumerate() {
+        // All non-overlapping occurrences on the line (parity with replace).
+        for (start_b, _end_b) in matcher.find_iter_positions(line) {
+            count += 1;
+            if skip_match_detail(params, file_matches.len()) {
                 continue;
             }
+            let column = start_b + 1;
+            let ctx_start = i.saturating_sub(ctx_before);
+            let ctx_end = (i + 1 + ctx_after).min(lines.len());
+            file_matches.push(SearchMatch {
+                path: path_str.clone(),
+                line: i + 1,
+                column,
+                text: line.to_string(),
+                context_before: if has_ctx {
+                    Some(lines[ctx_start..i].iter().map(|s| s.to_string()).collect())
+                } else {
+                    None
+                },
+                context_after: if has_ctx {
+                    Some(
+                        lines[i + 1..ctx_end]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect(),
+                    )
+                } else {
+                    None
+                },
+            });
+        }
+    }
 
-            // All non-overlapping occurrences on the line (parity with replace).
-            for (start_b, _end_b) in matcher.find_iter_positions(line) {
+    finish_file_result(params, path_str, file_matches, count)
+}
+
+fn search_one_file_invert(
+    path: &std::path::Path,
+    matcher: &Matcher,
+    params: &SearchFileParams,
+    cwd: &std::path::Path,
+    content: &str,
+) -> Option<FileResult> {
+    let path_str = search_display_path(path, cwd);
+    let mut file_matches: Vec<SearchMatch> = Vec::new();
+    let mut count = 0usize;
+
+    if params.count_only {
+        for line in crate::ops::file::text_lines(content) {
+            if matcher.find(line).is_none() {
                 count += 1;
-                if skip_match_detail(params, file_matches.len()) {
-                    continue;
+                if stop_after_first_hit(params) {
+                    break;
                 }
-                let column = start_b + 1;
-                let ctx_start = i.saturating_sub(ctx_before);
-                let ctx_end = (i + 1 + ctx_after).min(lines.len());
-                file_matches.push(SearchMatch {
-                    path: path_str.clone(),
-                    line: i + 1,
-                    column,
-                    text: line.to_string(),
-                    context_before: if has_ctx {
-                        Some(lines[ctx_start..i].iter().map(|s| s.to_string()).collect())
-                    } else {
-                        None
-                    },
-                    context_after: if has_ctx {
-                        Some(
-                            lines[i + 1..ctx_end]
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect(),
-                        )
-                    } else {
-                        None
-                    },
-                });
             }
         }
+        return finish_file_result(params, path_str, file_matches, count);
     }
 
-    if params.files_without_match {
-        // Keep scanned files with zero hits so `-L` can list them.
-        if count == 0 {
-            Some(FileResult {
-                path_str,
-                matches: file_matches,
-                count: 0,
-            })
-        } else {
-            None
+    let ctx_before = params.before_context.or(params.context).unwrap_or(0);
+    let ctx_after = params.after_context.or(params.context).unwrap_or(0);
+    let has_ctx = ctx_before > 0 || ctx_after > 0;
+    let lines: Vec<&str> = crate::ops::file::text_lines(content).collect();
+
+    for (i, line) in lines.iter().copied().enumerate() {
+        if matcher.find(line).is_some() {
+            continue;
         }
-    } else if count > 0 {
-        Some(FileResult {
-            path_str,
-            matches: file_matches,
-            count,
-        })
-    } else {
-        None
+        count += 1;
+        if skip_match_detail(params, file_matches.len()) {
+            continue;
+        }
+        let start = i.saturating_sub(ctx_before);
+        let end = (i + 1 + ctx_after).min(lines.len());
+        file_matches.push(SearchMatch {
+            path: path_str.clone(),
+            line: i + 1,
+            column: 1,
+            text: line.to_string(),
+            context_before: if has_ctx {
+                Some(lines[start..i].iter().map(|s| s.to_string()).collect())
+            } else {
+                None
+            },
+            context_after: if has_ctx {
+                Some(lines[i + 1..end].iter().map(|s| s.to_string()).collect())
+            } else {
+                None
+            },
+        });
     }
+
+    finish_file_result(params, path_str, file_matches, count)
 }
 
 /// Merge per-file results into a single [`SearchResults`].
@@ -772,5 +853,52 @@ mod tests {
         let detailed = search_one_file(&file, &matcher, &assert_params, dir.path()).unwrap();
         assert_eq!(detailed.count, 3);
         assert_eq!(detailed.matches.len(), 1);
+    }
+
+    #[test]
+    fn search_one_file_zero_match_literal_is_none() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("miss.txt");
+        std::fs::write(&file, "alpha\nbeta\ngamma\n").unwrap();
+        let matcher = build_matcher("zzz", true, false, false).unwrap();
+        assert!(
+            search_one_file(&file, &matcher, &params_with_cap(None), dir.path()).is_none(),
+            "zero-match search must stay no_matches (no FileResult)"
+        );
+
+        let mut count_params = params_with_cap(None);
+        count_params.count_only = true;
+        assert!(
+            search_one_file(&file, &matcher, &count_params, dir.path()).is_none(),
+            "count-only zero-match must stay no_matches"
+        );
+    }
+
+    #[test]
+    fn search_one_file_files_without_match_keeps_zero_hit() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("miss.txt");
+        std::fs::write(&file, "alpha\nbeta\n").unwrap();
+        let matcher = build_matcher("zzz", true, false, false).unwrap();
+        let mut params = params_with_cap(None);
+        params.files_without_match = true;
+        let result = search_one_file(&file, &matcher, &params, dir.path())
+            .expect("-L must list a zero-hit file");
+        assert_eq!(result.count, 0);
+        assert!(result.matches.is_empty());
+        assert_eq!(result.path_str.as_ref(), "miss.txt");
+    }
+
+    #[test]
+    fn search_one_file_count_only_literal_counts_whole_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("multi.txt");
+        std::fs::write(&file, "hi hi hi\nnope\nhi\n").unwrap();
+        let matcher = build_matcher("hi", true, false, false).unwrap();
+        let mut params = params_with_cap(None);
+        params.count_only = true;
+        let counted = search_one_file(&file, &matcher, &params, dir.path()).unwrap();
+        assert_eq!(counted.count, 4);
+        assert!(counted.matches.is_empty());
     }
 }

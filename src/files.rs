@@ -708,7 +708,10 @@ pub(crate) fn collect_file_paths_opts_with_list(
         .collect();
 
     // File-level excludes (*.rs) and defense-in-depth after walk-time prune.
-    apply_exclude_globs(&mut paths, &global.exclude, root)?;
+    // Reuse the walk matcher; do not compile exclude globs a second time (#2550).
+    if let Some(ref ex) = exclude_set {
+        apply_exclude_globset(&mut paths, ex, root);
+    }
 
     for f in explicit_files {
         if !paths.iter().any(|p| p == &f) {
@@ -1168,28 +1171,37 @@ pub fn read_text_file(path: &Path) -> Option<String> {
     try_read_text_file(path).ok()
 }
 
-/// Internal version with optional diagnostic logging for CLI commands.
-///
-/// Re-opens on unreadable only to print the OS error (tests assert permission
-/// strings); content SoftSkip logs stay reason-only.
+/// Soft-path text load that keeps the skip reason after logging (#2549).
 #[cfg(feature = "cli")]
-pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
+pub(crate) fn try_read_text_file_logged(
+    path: &Path,
+    cmd: &str,
+    quiet: bool,
+) -> Result<String, SoftTextSkip> {
     match try_read_text_file(path) {
-        Ok(s) => Some(s),
-        Err(SoftTextSkip::Binary) => None,
-        Err(SoftTextSkip::InvalidUtf8) => {
+        Ok(s) => Ok(s),
+        Err(skip) => {
+            log_soft_text_skip(path, cmd, quiet, skip);
+            Err(skip)
+        }
+    }
+}
+
+#[cfg(feature = "cli")]
+fn log_soft_text_skip(path: &Path, cmd: &str, quiet: bool, skip: SoftTextSkip) {
+    match skip {
+        SoftTextSkip::Binary => {}
+        SoftTextSkip::InvalidUtf8 => {
             if !quiet {
                 eprintln!("{cmd}: skipping {} (invalid UTF-8)", path.display());
             }
-            None
         }
-        Err(SoftTextSkip::NotRegularFile) => {
+        SoftTextSkip::NotRegularFile => {
             if !quiet {
                 eprintln!("{cmd}: skipping {}: not a regular file", path.display());
             }
-            None
         }
-        Err(SoftTextSkip::Unreadable) => {
+        SoftTextSkip::Unreadable => {
             if !quiet {
                 // Regular-file path only: re-open for OS permission detail.
                 // Specials use NotRegularFile and never reach here.
@@ -1200,9 +1212,17 @@ pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Opti
                     .unwrap_or_else(|| "unreadable".into());
                 eprintln!("{cmd}: skipping {}: {detail}", path.display());
             }
-            None
         }
     }
+}
+
+/// Internal version with optional diagnostic logging for CLI commands.
+///
+/// Re-opens on unreadable only to print the OS error (tests assert permission
+/// strings); content SoftSkip logs stay reason-only.
+#[cfg(feature = "cli")]
+pub(crate) fn read_text_file_logged(path: &Path, cmd: &str, quiet: bool) -> Option<String> {
+    try_read_text_file_logged(path, cmd, quiet).ok()
 }
 
 /// Simple file collection for library use (sequential for simplicity; full parallel in par_process_files).
@@ -1237,13 +1257,15 @@ fn apply_exclude_globset(paths: &mut Vec<PathBuf>, matcher: &GlobSet, root: Opti
 }
 
 /// Apply exclude glob patterns to a list of paths (post-filter).
-/// Shared to avoid duplication between collect_file_paths_with_ignores and
-/// the advanced logic in collect_file_paths_opts.
+///
+/// Production walks reuse the already-built matcher via
+/// [`apply_exclude_globset`]. This wrapper is for tests that start from
+/// pattern strings.
 ///
 /// When `root` is provided, each path is also tested as a relative path
 /// (stripped from the root prefix) so that patterns like `vendor/**` match
 /// files at `<root>/vendor/lib.rs` even though the full path is absolute.
-#[cfg(any(feature = "cli", feature = "files"))]
+#[cfg(all(test, any(feature = "cli", feature = "files")))]
 fn apply_exclude_globs(
     paths: &mut Vec<PathBuf>,
     patterns: &[String],
@@ -1375,7 +1397,9 @@ pub fn collect_file_paths_with_ignores(
         builder.add_custom_ignore_filename(name);
     }
     let mut paths = collect_files_from_walk_builder(builder);
-    apply_exclude_globs(&mut paths, exclude_patterns, Some(root))?;
+    if let Some(ref ex) = exclude_set {
+        apply_exclude_globset(&mut paths, ex, Some(root));
+    }
     Ok(paths)
 }
 
@@ -2924,6 +2948,28 @@ mod tests {
             vec![PathBuf::from("/project/src/main.rs")],
             "vendor/** with root should exclude vendor files"
         );
+    }
+
+    #[test]
+    #[cfg(any(feature = "cli", feature = "files"))]
+    fn apply_exclude_prebuilt_matcher_matches_pattern_rebuild() {
+        let root = PathBuf::from("/project");
+        let start = vec![
+            PathBuf::from("/project/src/main.rs"),
+            PathBuf::from("/project/vendor/lib.rs"),
+            PathBuf::from("/project/keep.md"),
+        ];
+        let pats = vec!["vendor/**".into(), "*.rs".into()];
+        let mut via_patterns = start.clone();
+        apply_exclude_globs(&mut via_patterns, &pats, Some(&root)).unwrap();
+        let mut via_matcher = start;
+        let matcher = build_glob_matcher(&pats).unwrap().unwrap();
+        apply_exclude_globset(&mut via_matcher, &matcher, Some(&root));
+        assert_eq!(
+            via_patterns, via_matcher,
+            "reused exclude matcher must drop the same paths"
+        );
+        assert_eq!(via_patterns, vec![PathBuf::from("/project/keep.md")]);
     }
 }
 
