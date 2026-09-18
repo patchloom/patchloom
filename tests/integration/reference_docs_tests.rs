@@ -18,12 +18,12 @@ fn test_ci_workflow_uses_runner_temp_for_bench_fixtures() {
     let ci = fs::read_to_string(ci_workflow_path()).unwrap();
 
     assert!(
-        ci.contains("\"$RUNNER_TEMP/bench.json\"") || ci.contains("$RUNNER_TEMP/bench.json"),
-        "ci.yml should keep benchmark JSON fixtures under RUNNER_TEMP"
+        ci.contains("make_pr_fixture.py"),
+        "ci.yml should generate the PR-gate corpus via make_pr_fixture.py"
     );
     assert!(
-        ci.contains("\"$RUNNER_TEMP/bench.txt\"") || ci.contains("$RUNNER_TEMP/bench.txt"),
-        "ci.yml should keep benchmark text fixtures under RUNNER_TEMP"
+        ci.contains("$RUNNER_TEMP/corpus"),
+        "ci.yml should keep benchmark fixtures under RUNNER_TEMP/corpus"
     );
     assert!(!ci.contains("/tmp/bench.json"));
     assert!(!ci.contains("/tmp/bench.txt"));

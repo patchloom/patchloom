@@ -48,6 +48,22 @@ impl McpToolMeta {
     pub(super) fn description(&self) -> String {
         crate::schema::mcp_tool_description(self.op_name, self.extra)
     }
+
+    /// Intern the composed description so `Tool::new` stores `Cow::Borrowed`
+    /// instead of a fresh `String` per service (#2551).
+    pub(super) fn interned_description(&self) -> &'static str {
+        use std::collections::HashMap;
+        use std::sync::{Mutex, OnceLock};
+        static CACHE: OnceLock<Mutex<HashMap<&'static str, &'static str>>> = OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        let mut map = cache.lock().expect("description intern mutex");
+        if let Some(existing) = map.get(self.op_name) {
+            return existing;
+        }
+        let leaked: &'static str = Box::leak(self.description().into_boxed_str());
+        map.insert(self.op_name, leaked);
+        leaked
+    }
 }
 
 /// Registry of simple MCP tools that map 1:1 to `Operation` variants.

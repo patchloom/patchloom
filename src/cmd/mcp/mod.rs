@@ -114,7 +114,9 @@ fn validate_operation_paths(
 
 #[derive(Debug, Clone)]
 pub struct PatchloomService {
-    tool_router: ToolRouter<Self>,
+    /// Shared across `blocking()` clones so each tool call does not copy
+    /// the 58-entry `ToolRouter` HashMap (#2551).
+    tool_router: Arc<ToolRouter<Self>>,
     /// Path guard: validates and canonicalizes paths relative to cwd.
     path_guard: crate::containment::PathGuard,
     /// Optional path for logging MCP tool calls as JSONL.
@@ -193,7 +195,11 @@ impl PatchloomService {
             })?;
 
             tool_router.add_route(ToolRoute::new_dyn(
-                Tool::new(meta.tool_name, meta.description(), Arc::new(input_schema)),
+                Tool::new(
+                    meta.tool_name,
+                    meta.interned_description(),
+                    Arc::new(input_schema),
+                ),
                 move |ctx: ToolCallContext<'_, PatchloomService>| {
                     let fields = Arc::clone(&allowed_fields);
                     let svc = ctx.service.clone();
@@ -227,7 +233,7 @@ impl PatchloomService {
         }
 
         Ok(Self {
-            tool_router,
+            tool_router: Arc::new(tool_router),
             path_guard,
             call_log,
             surface,
@@ -269,6 +275,12 @@ impl PatchloomService {
     /// The workspace root directory (non-canonicalized).
     fn cwd(&self) -> &std::path::Path {
         self.path_guard.root()
+    }
+
+    /// True when `clone()` shares the same `ToolRouter` allocation (#2551).
+    #[cfg(test)]
+    pub(crate) fn shares_tool_router_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.tool_router, &other.tool_router)
     }
 
     /// Run a synchronous closure on the blocking thread pool.

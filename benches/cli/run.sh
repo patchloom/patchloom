@@ -93,6 +93,27 @@ EOF
         -n "grep -rE" "grep -rE 'def \w+\(' $DIR" \
         2>/dev/null | tee -a "$OUTFILE"
 
+    # --- AST map / rename (directory) ---
+    echo ""
+    echo "--- AST map (directory) ---"
+    echo "" >> "$OUTFILE"
+    echo "### AST map (directory)" >> "$OUTFILE"
+    echo "" >> "$OUTFILE"
+    hyperfine --warmup 2 --min-runs 8 \
+        --export-markdown /dev/stdout \
+        -n "patchloom ast map" "$PATCHLOOM ast map $DIR" \
+        2>/dev/null | tee -a "$OUTFILE"
+
+    echo ""
+    echo "--- AST rename (directory, check) ---"
+    echo "" >> "$OUTFILE"
+    echo "### AST rename (directory, --check)" >> "$OUTFILE"
+    echo "" >> "$OUTFILE"
+    hyperfine --warmup 2 --min-runs 8 \
+        --export-markdown /dev/stdout \
+        -n "patchloom ast rename" "$PATCHLOOM ast rename foo --new bar $DIR --check" \
+        2>/dev/null | tee -a "$OUTFILE"
+
     # --- Doc set (JSON) ---
     CONFIG_JSON="$DIR/config.json"
     echo ""

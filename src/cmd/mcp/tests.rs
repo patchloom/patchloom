@@ -44,6 +44,39 @@ async fn spawn_test_client_with_log(
     ().serve(client_transport).await.unwrap()
 }
 
+/// #2551: clone must share the ToolRouter allocation.
+#[test]
+fn clone_shares_tool_router() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let svc = PatchloomService::new_with_surface(
+        dir.path().to_path_buf(),
+        None,
+        surface::McpSurface::Full,
+    )
+    .unwrap();
+    let cloned = svc.clone();
+    assert!(
+        svc.shares_tool_router_with(&cloned),
+        "blocking() clones must not copy the ToolRouter HashMap"
+    );
+}
+
+#[test]
+fn interned_description_is_stable() {
+    let meta = super::registry::MCP_TOOL_REGISTRY
+        .iter()
+        .find(|m| m.tool_name == "doc_set")
+        .expect("doc_set registry row");
+    let a = meta.interned_description();
+    let b = meta.interned_description();
+    assert_eq!(
+        a.as_ptr(),
+        b.as_ptr(),
+        "intern must reuse the leaked string"
+    );
+    assert!(a.contains("doc.set") || a.contains("selector") || !a.is_empty());
+}
+
 /// #1838: MCP peels CLI doc-query ok/value envelopes back to bare values.
 #[test]
 fn peel_doc_query_success_value_extracts_value() {

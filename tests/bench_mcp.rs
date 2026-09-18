@@ -738,6 +738,16 @@ mod bench {
             }
         }
 
+        // ── Burst: 50 server_info calls (clone-path probe, #2551) ──
+        let mut info_burst = Duration::ZERO;
+        {
+            for _ in 0..burst_n {
+                let start = Instant::now();
+                call_tool(&client, "server_info", serde_json::json!({})).await;
+                info_burst += start.elapsed();
+            }
+        }
+
         // Shut down server gracefully
         drop(client);
 
@@ -796,6 +806,17 @@ mod bench {
             "MCP amortizes process startup: {} saved over {} calls.",
             format_us(burst_cli_total.saturating_sub(burst_mcp_total)),
             burst_n,
+        );
+        println!();
+        println!(
+            "## Burst test: {} sequential server_info calls (#2551)",
+            burst_n
+        );
+        println!();
+        println!(
+            "server_info total {} (avg {})",
+            format_us(info_burst),
+            format_us(info_burst / burst_n as u32),
         );
     }
 

@@ -39,9 +39,9 @@ pty-test: ## Run PTY-based interactive terminal tests (serial)
 clippy: ## Run clippy linter
 	cargo clippy --all-targets --all-features -- -D warnings
 
-check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test apply-release-notes-test ## Run all checks (full CI gate)
+check: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-patchloom-md check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test apply-release-notes-test pr-bench-test ## Run all checks (full CI gate)
 
-check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test apply-release-notes-test ## Fast check (skips PATCHLOOM.md sync check only; includes README count + release notes + packaging-script tests)
+check-fast: fmt-check clippy test test-no-default test-ast-only test-mcp-no-ast test-library-hygiene integration-test pty-test verify-release-notes audit-test-hygiene check-readme server-json-test verify-homebrew-version-test scoop-manifest-test chocolatey-package-test pack-mcpb-test force-release-version-test workflow-sanity-test apply-release-notes-test pr-bench-test ## Fast check (skips PATCHLOOM.md sync check only; includes README count + release notes + packaging-script tests)
 
 audit-test-hygiene: ## Audit test names/comments for staleness and weak assertions after refactors (addresses post-refactor tech debt)
 	@echo "=== Suspicious test names (same file, core, outdated concepts) ==="
@@ -72,6 +72,9 @@ chocolatey-package-test: ## Unit tests for scripts/update-chocolatey-package.py 
 
 pack-mcpb: ## Pack mcpb/ into target/mcpb/patchloom-<version>.mcpb (Smithery / desktop MCP)
 	bash scripts/pack-mcpb.sh
+
+pr-bench-test: ## Unit tests for PR-gate bench fixture and threshold helpers
+	python3 benches/ci/test_pr_bench.py
 
 pack-mcpb-test: ## Unit tests for scripts/pack-mcpb.sh (VERSION override + pack stamp)
 	python3 scripts/test_pack_mcpb.py
