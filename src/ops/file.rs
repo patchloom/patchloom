@@ -285,11 +285,13 @@ pub fn is_real_directory(path: &Path) -> bool {
     classify_path_entry(path).is_real_directory()
 }
 
-/// Refuse delete/rename targets that are real directories.
+/// Refuse **delete** targets that are real directories.
 ///
 /// Allows regular files, symlinks (unlink the link only), FIFOs, sockets,
 /// and device nodes. Hosts use this so `file_delete` does not dual-path
 /// through `std::fs::remove_file` for special nodes (#2087).
+/// Directory **rename** does not call this helper (`file_rename` may move a
+/// real directory).
 pub fn ensure_unlinkable_not_directory(
     path: &Path,
     display: &str,
