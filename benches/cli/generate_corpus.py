@@ -12,6 +12,19 @@ SCALES = {
     "large": {"files": 5000, "lines_per_file": 100},
 }
 
+# Stable identifier for the release-event `ast rename --check` bench (#2566).
+# Mixed-language random files do not guarantee a `foo` symbol.
+AST_RENAME_IDENT = "bench_rename_target"
+AST_RENAME_FIXTURE = """\
+pub fn bench_rename_target(x: i32) -> i32 {
+    x + 1
+}
+
+pub fn call_bench_rename_target() -> i32 {
+    bench_rename_target(1)
+}
+"""
+
 EXTENSIONS = [".py", ".rs", ".js", ".ts", ".go", ".md", ".txt"]
 
 IMPORTS = [
@@ -113,6 +126,10 @@ def generate_corpus(base: Path, scale_name: str):
         json.dumps({"name": "bench", "version": "v1.0.0", "main": "index.js"}, indent=2)
         + "\n"
     )
+
+    src_dir = corpus_dir / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "bench_rename_target.rs").write_text(AST_RENAME_FIXTURE)
 
     # Generate source files across subdirectories
     dirs = ["src", "lib", "tests", "docs", "scripts"]

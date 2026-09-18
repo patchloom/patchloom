@@ -73,8 +73,9 @@ chocolatey-package-test: ## Unit tests for scripts/update-chocolatey-package.py 
 pack-mcpb: ## Pack mcpb/ into target/mcpb/patchloom-<version>.mcpb (Smithery / desktop MCP)
 	bash scripts/pack-mcpb.sh
 
-pr-bench-test: ## Unit tests for PR-gate bench fixture and threshold helpers
+pr-bench-test: ## Unit tests for PR-gate bench fixture, cli-bench argv, and threshold helpers
 	python3 benches/ci/test_pr_bench.py
+	python3 benches/cli/test_cli_bench.py
 
 pack-mcpb-test: ## Unit tests for scripts/pack-mcpb.sh (VERSION override + pack stamp)
 	python3 scripts/test_pack_mcpb.py

@@ -648,9 +648,11 @@ jobs:
         run: |
           bench_src="$RUNNER_TEMP/corpus/src"
           bench_json="$RUNNER_TEMP/bench-ast-rename-dry-run.json"
+          bash benches/cli/preflight_expected_exit.sh 0,2 -- \
+            ./target/release/patchloom ast rename $bench_src --old foo --new foo2 --check
           hyperfine --warmup 2 --min-runs 8 -N -i \
             --export-json "$bench_json" \
-            "./target/release/patchloom ast rename foo --new foo2 $bench_src --check" \
+            "./target/release/patchloom ast rename $bench_src --old foo --new foo2 --check" \
             --max-runs 20
           python3 benches/ci/check_threshold.py "$bench_json" "ast rename dry-run" 1.0
 

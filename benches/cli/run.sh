@@ -109,10 +109,17 @@ EOF
     echo "" >> "$OUTFILE"
     echo "### AST rename (directory, --check)" >> "$OUTFILE"
     echo "" >> "$OUTFILE"
+    # Live CLI is path-first with --old/--new. --check exits 2 when matches
+    # exist. Preflight keeps clap/invalid_input from becoming a silent
+    # hyperfine fail (#2566).
+    AST_RENAME_OLD="bench_rename_target"
+    AST_RENAME_NEW="bench_rename_target2"
+    bash "$SCRIPT_DIR/preflight_expected_exit.sh" 0,2 -- \
+        "$PATCHLOOM" ast rename "$DIR" --old "$AST_RENAME_OLD" --new "$AST_RENAME_NEW" --check
     hyperfine --warmup 2 --min-runs 8 \
         --export-markdown /dev/stdout \
-        -n "patchloom ast rename" "$PATCHLOOM ast rename foo --new bar $DIR --check" \
-        2>/dev/null | tee -a "$OUTFILE"
+        -n "patchloom ast rename" "bash -c '$PATCHLOOM ast rename $DIR --old $AST_RENAME_OLD --new $AST_RENAME_NEW --check >/dev/null; true'" \
+        | tee -a "$OUTFILE"
 
     # --- Doc set (JSON) ---
     CONFIG_JSON="$DIR/config.json"
