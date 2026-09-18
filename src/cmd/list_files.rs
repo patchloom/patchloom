@@ -153,7 +153,9 @@ pub fn run(args: ListFilesArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     )?;
     if !global.emit_json(&report)? && !global.quiet {
         for path in &report.paths {
-            println!("{path}");
+            if !crate::json_emit::write_stdout_ignore_epipe(path.as_bytes(), true)? {
+                break;
+            }
         }
     }
     Ok(exit::SUCCESS)

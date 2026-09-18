@@ -693,6 +693,36 @@ async fn call_tool_value(
     (is_error, val)
 }
 
+/// Spawn `patchloom <args>`, read 64 bytes of stdout, drop the pipe, and
+/// assert the process does not panic (EPIPE is a clean exit).
+fn assert_cli_broken_pipe_is_not_a_panic(args: &[&str]) {
+    use std::io::Read;
+    use std::process::Stdio;
+
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("patchloom"))
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut out = child.stdout.take().expect("piped stdout");
+        let mut buf = [0u8; 64];
+        let _ = out.read(&mut buf);
+    }
+    let output = child.wait_with_output().unwrap();
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !err.contains("panicked"),
+        "{args:?} must not panic on EPIPE: {err}"
+    );
+    assert!(
+        output.status.success() || output.status.code() == Some(0),
+        "EPIPE should be a clean exit for {args:?}: {:?}",
+        output.status
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Backup pruning integration tests (#371)
 // ---------------------------------------------------------------------------

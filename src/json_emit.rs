@@ -13,6 +13,27 @@
 
 use serde::Serialize;
 use std::cell::Cell;
+use std::io::{self, Write};
+
+/// Write `buf` to stdout, optionally followed by a newline.
+/// Broken pipe is success (`Ok(false)`); stop further writes. `Ok(true)` if written.
+pub(crate) fn write_stdout_ignore_epipe(buf: &[u8], newline: bool) -> anyhow::Result<bool> {
+    write_all_ignore_epipe(&mut io::stdout(), buf, newline)
+}
+
+fn write_all_ignore_epipe(out: &mut impl Write, buf: &[u8], newline: bool) -> anyhow::Result<bool> {
+    let result = out.write_all(buf).and_then(|()| {
+        if newline {
+            out.write_all(b"\n")?;
+        }
+        out.flush()
+    });
+    match result {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Ok(false),
+        Err(e) => Err(e.into()),
+    }
+}
 
 /// True when the primary value serialized; false when the printed body is the
 /// fallback envelope (callers should map that to [`crate::exit::FAILURE`]).
@@ -85,7 +106,7 @@ pub(crate) fn serialize_structured<T: Serialize>(value: &T, compact: bool) -> St
 /// (stdout is the agent contract).
 pub(crate) fn print_structured<T: Serialize>(value: &T, compact: bool) -> bool {
     let emit = serialize_structured(value, compact);
-    println!("{}", emit.json);
+    let _ = write_stdout_ignore_epipe(emit.json.as_bytes(), true);
     emit.primary_ok
 }
 
@@ -212,6 +233,49 @@ mod tests {
         assert_eq!(exit_after_emit(false, 0), crate::exit::FAILURE);
         assert_eq!(exit_after_emit(false, 2), crate::exit::FAILURE);
         assert_eq!(exit_after_emit(false, 3), crate::exit::FAILURE);
+    }
+
+    struct BrokenPipeWriter;
+
+    impl Write for BrokenPipeWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct OtherErrWriter;
+
+    impl Write for OtherErrWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::Other, "nope"))
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn write_all_ignore_epipe_swallows_broken_pipe() {
+        assert!(!write_all_ignore_epipe(&mut BrokenPipeWriter, b"hello", true).unwrap());
+    }
+
+    #[test]
+    fn write_all_ignore_epipe_appends_optional_newline() {
+        let mut buf = Vec::new();
+        assert!(write_all_ignore_epipe(&mut buf, b"hi", true).unwrap());
+        assert_eq!(buf, b"hi\n");
+        buf.clear();
+        assert!(write_all_ignore_epipe(&mut buf, b"hi", false).unwrap());
+        assert_eq!(buf, b"hi");
+    }
+
+    #[test]
+    fn write_all_ignore_epipe_propagates_other_errors() {
+        let err = write_all_ignore_epipe(&mut OtherErrWriter, b"x", false).unwrap_err();
+        assert!(err.to_string().contains("nope"), "{err}");
     }
 
     #[test]

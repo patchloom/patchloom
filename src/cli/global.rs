@@ -613,10 +613,16 @@ impl GlobalFlags {
     /// should handle text-mode output (respecting `--quiet`).
     pub fn emit_json<T: serde::Serialize>(&self, value: &T) -> anyhow::Result<bool> {
         if self.json {
-            println!("{}", serde_json::to_string_pretty(value)?);
+            crate::json_emit::write_stdout_ignore_epipe(
+                serde_json::to_string_pretty(value)?.as_bytes(),
+                true,
+            )?;
             Ok(true)
         } else if self.jsonl {
-            println!("{}", serde_json::to_string(value)?);
+            crate::json_emit::write_stdout_ignore_epipe(
+                serde_json::to_string(value)?.as_bytes(),
+                true,
+            )?;
             Ok(true)
         } else {
             Ok(false)
@@ -672,11 +678,19 @@ impl GlobalFlags {
     /// Returns `true` if structured output was emitted.
     pub fn emit_json_items<T: serde::Serialize>(&self, items: &[T]) -> anyhow::Result<bool> {
         if self.json {
-            println!("{}", serde_json::to_string_pretty(items)?);
+            crate::json_emit::write_stdout_ignore_epipe(
+                serde_json::to_string_pretty(items)?.as_bytes(),
+                true,
+            )?;
             Ok(true)
         } else if self.jsonl {
             for item in items {
-                println!("{}", serde_json::to_string(item)?);
+                if !crate::json_emit::write_stdout_ignore_epipe(
+                    serde_json::to_string(item)?.as_bytes(),
+                    true,
+                )? {
+                    break;
+                }
             }
             Ok(true)
         } else {

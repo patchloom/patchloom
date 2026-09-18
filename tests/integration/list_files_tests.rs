@@ -1,5 +1,18 @@
 use super::*;
 
+/// `list-files | head` must not panic (per-path println).
+#[test]
+fn test_list_files_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    // Exceed a typical 64KiB pipe buffer so the child blocks, then EPIPE.
+    for i in 0..2000 {
+        let name = format!("n{i:04}-{}", "x".repeat(56));
+        fs::write(dir.path().join(&name), b"").unwrap();
+    }
+    let dir = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["--cwd", dir, "list-files"]);
+}
+
 #[test]
 fn test_list_files_temp_dir() {
     let dir = TempDir::new().unwrap();
