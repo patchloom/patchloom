@@ -1,3 +1,4 @@
+//! size-waiver: undo list/preview/restore plus rename-back preview (policy #1408).
 use crate::backup;
 use crate::cli::global::GlobalFlags;
 use crate::exit;

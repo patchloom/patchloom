@@ -248,6 +248,14 @@ fn push_unique_host(hosts: &mut Vec<String>, candidate: &str) {
     }
 }
 
+/// Typed bind/listen failure so `--json` keeps `error_kind: invalid_input`.
+#[cfg(feature = "mcp-http")]
+fn bind_listen_error(addr: impl std::fmt::Display, err: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::InvalidInputError {
+        msg: format!("failed to bind {addr}: {err}"),
+    })
+}
+
 /// Parse `--host` + `--port` into a bind address.
 ///
 /// Accepts hostnames (`localhost`), bare IPv6 (`::1`), bracketed IPv6
@@ -356,7 +364,7 @@ pub(crate) fn run_mcp_http_server(
                 .handle(handle)
                 .serve(app.into_make_service())
                 .await
-                .map_err(|e| anyhow::anyhow!("HTTPS server error: {e}"))?;
+                .map_err(|e| bind_listen_error(addr, e))?;
         } else {
             let ct2 = ct.clone();
             tokio::spawn(async move {
@@ -364,11 +372,9 @@ pub(crate) fn run_mcp_http_server(
                 ct2.cancel();
             });
 
-            let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
-                anyhow::Error::new(crate::exit::InvalidInputError {
-                    msg: format!("failed to bind {addr}: {e}"),
-                })
-            })?;
+            let listener = tokio::net::TcpListener::bind(addr)
+                .await
+                .map_err(|e| bind_listen_error(addr, e))?;
             if show_banner {
                 eprintln!(
                     "MCP HTTP server listening on http://{}/mcp",
@@ -411,8 +417,8 @@ pub(crate) fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyho
 #[cfg(all(test, feature = "mcp-http"))]
 mod bind_host_tests {
     use super::{
-        check_unauthenticated_http_bind, http_allowed_hosts, is_loopback_http_bind_host,
-        parse_http_bind_addr,
+        bind_listen_error, check_unauthenticated_http_bind, http_allowed_hosts,
+        is_loopback_http_bind_host, parse_http_bind_addr,
     };
 
     fn default_http_hosts() -> Vec<String> {
@@ -517,6 +523,24 @@ mod bind_host_tests {
             body.contains("with_allowed_hosts(http_allowed_hosts"),
             "run_mcp_http_server must set allowed hosts via http_allowed_hosts"
         );
+        assert!(
+            body.contains("bind_listen_error"),
+            "HTTP and HTTPS listen failures must use bind_listen_error"
+        );
+    }
+
+    #[test]
+    fn bind_listen_error_is_invalid_input() {
+        let err = bind_listen_error("127.0.0.1:1", "address in use");
+        let typed = err
+            .downcast_ref::<crate::exit::InvalidInputError>()
+            .expect("typed");
+        assert!(
+            typed.msg.contains("failed to bind 127.0.0.1:1"),
+            "{}",
+            typed.msg
+        );
+        assert!(typed.msg.contains("address in use"), "{}", typed.msg);
     }
 
     #[test]
