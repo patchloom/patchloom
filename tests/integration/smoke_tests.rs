@@ -809,6 +809,14 @@ fn test_smoke_embedder_host_notes_tree_sitter_027_links() {
         embedder.contains("tree-sitter-highlight"),
         "embedder-host.md must name tree-sitter-highlight as the common host pin"
     );
+    assert!(
+        !embedder.contains("directories stay refused"),
+        "embedder-host.md must not say directories stay refused after #2538/#2562"
+    );
+    assert!(
+        embedder.contains("`file_rename` can move a real directory"),
+        "embedder-host.md must say file_rename can move a real directory"
+    );
 
     let installation = fs::read_to_string(installation_path()).unwrap();
     assert!(
