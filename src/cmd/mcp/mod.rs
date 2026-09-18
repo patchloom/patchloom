@@ -56,9 +56,9 @@ use validation::*;
 use params::*;
 
 // Re-export transport entry points for use by cmd/mod.rs.
-#[cfg(feature = "mcp-http")]
-pub(crate) use transport::run_mcp_http_server;
 pub(crate) use transport::run_mcp_server;
+#[cfg(feature = "mcp-http")]
+pub(crate) use transport::{McpHttpListen, run_mcp_http_server};
 
 use registry::{MCP_TOOL_REGISTRY, handle_simple_op, inject_strict_into_schema};
 

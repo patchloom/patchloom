@@ -278,30 +278,37 @@ pub(crate) fn parse_http_bind_addr(
         })
 }
 
+/// Streamable HTTP listen options for [`run_mcp_http_server`].
+#[cfg(feature = "mcp-http")]
+pub(crate) struct McpHttpListen<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    pub tls_cert: Option<&'a std::path::Path>,
+    pub tls_key: Option<&'a std::path::Path>,
+    pub allow_unauthenticated: bool,
+    pub allowed_hosts: &'a [String],
+}
+
 /// Run the MCP server over Streamable HTTP (optionally with TLS).
 #[cfg(feature = "mcp-http")]
 pub(crate) fn run_mcp_http_server(
     global: &GlobalFlags,
     log: Option<String>,
-    host: &str,
-    port: u16,
-    tls_cert: Option<&std::path::Path>,
-    tls_key: Option<&std::path::Path>,
-    allow_unauthenticated: bool,
-    allowed_hosts: &[String],
+    listen: McpHttpListen<'_>,
 ) -> anyhow::Result<u8> {
     use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
     use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
     use tokio_util::sync::CancellationToken;
 
-    check_unauthenticated_http_bind(host, allow_unauthenticated).map_err(anyhow::Error::new)?;
+    check_unauthenticated_http_bind(listen.host, listen.allow_unauthenticated)
+        .map_err(anyhow::Error::new)?;
 
     let cwd = global.resolve_cwd()?;
     let ct = CancellationToken::new();
 
     let config = StreamableHttpServerConfig::default()
         .with_cancellation_token(ct.child_token())
-        .with_allowed_hosts(http_allowed_hosts(host, allowed_hosts));
+        .with_allowed_hosts(http_allowed_hosts(listen.host, listen.allowed_hosts));
 
     let log_path = log;
     let service = StreamableHttpService::new(
@@ -311,12 +318,12 @@ pub(crate) fn run_mcp_http_server(
     );
 
     let app = axum::Router::new().nest_service("/mcp", service);
-    let addr = parse_http_bind_addr(host, port).map_err(anyhow::Error::new)?;
+    let addr = parse_http_bind_addr(listen.host, listen.port).map_err(anyhow::Error::new)?;
     let show_banner = !global.quiet && !global.json && !global.jsonl;
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
-        if let (Some(cert), Some(key)) = (tls_cert, tls_key) {
+        if let (Some(cert), Some(key)) = (listen.tls_cert, listen.tls_key) {
             let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key)
                 .await
                 .map_err(|e| {

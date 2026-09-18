@@ -65,9 +65,9 @@ statistical rigor.
 
 The `bench` job in `.github/workflows/ci.yml` builds a multi-megabyte
 corpus (`benches/ci/make_pr_fixture.py`) and times `search`, `doc get`,
-`replace` dry-run, `ast map`, and `ast rename --check`. The 500ms
-ceiling is a sanity bound. Compare-against-baseline (artifact from the
-last green `main` run) is the regression detector.
+`replace` dry-run, `ast map`, and `ast rename --check`. Search, doc, and
+replace use a 500ms sanity bound. AST walks use 1s. Compare-against-baseline
+(artifact from the last green `main` run) is the regression detector.
 
 ### Corpus sizes
 

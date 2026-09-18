@@ -216,12 +216,14 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
                 return mcp::run_mcp_http_server(
                     &global,
                     log,
-                    &host,
-                    port,
-                    tls_cert.as_deref(),
-                    tls_key.as_deref(),
-                    allow_unauthenticated,
-                    &allowed_host,
+                    mcp::McpHttpListen {
+                        host: &host,
+                        port,
+                        tls_cert: tls_cert.as_deref(),
+                        tls_key: tls_key.as_deref(),
+                        allow_unauthenticated,
+                        allowed_hosts: &allowed_host,
+                    },
                 );
             }
             mcp::run_mcp_server(&global, log)
