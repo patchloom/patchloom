@@ -46,6 +46,39 @@ fn test_tidy_check_detects_missing_newline() {
         .code(2);
 }
 
+/// Bare `tidy fix --apply` must unmix mixed EOL so a follow-up check is clean.
+#[test]
+fn test_tidy_fix_defaults_unmix_mixed_eol() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.rs");
+    fs::write(
+        &file,
+        "pub fn area() {}\nfn extra() {}\nfn other() {\r\n    let x = 1;\n}\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tidy", "fix"])
+        .arg(&file)
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let raw = fs::read(&file).unwrap();
+    assert!(
+        !raw.windows(2).any(|w| w == b"\r\n"),
+        "LF-majority mixed file should become LF: {raw:?}"
+    );
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "tidy", "check"])
+        .arg(&file)
+        .assert()
+        .code(0);
+}
+
 #[test]
 fn test_tidy_fix_apply() {
     let dir = TempDir::new().unwrap();

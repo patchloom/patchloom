@@ -70,6 +70,15 @@ pub(crate) fn execute_tidy_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::R
             }
             policy.refuse_unsupported_charset()?;
             let mut new = crate::write::apply_policy(&content, &policy).into_owned();
+            // Match CLI default tidy fix: unmix when neither the op nor
+            // plan write_policy set normalize_eol.
+            let plan_set_eol = tx
+                .plan_write_policy
+                .and_then(|ov| ov.normalize_eol.as_ref())
+                .is_some();
+            if normalize_eol.is_none() && !plan_set_eol {
+                new = crate::write::unmix_eol(&new).into_owned();
+            }
 
             // Apply dedent/indent after policy normalization.
             let line_range = lines

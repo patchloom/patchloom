@@ -270,6 +270,129 @@ fn fix_defaults_match_check_parity() {
     );
 }
 
+/// Bare `tidy fix --apply` must unmix files that `tidy check` flags.
+#[test]
+fn fix_defaults_unmix_mixed_eol() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("mixed.txt");
+    std::fs::write(
+        &file,
+        b"pub fn area() {}\nfn extra() {}\nfn other() {\r\n    let x = 1;\n}\n",
+    )
+    .unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec![".".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+
+    let raw = std::fs::read(&file).unwrap();
+    let has_crlf = raw.windows(2).any(|w| w == b"\r\n");
+    let has_bare_lf = raw
+        .iter()
+        .enumerate()
+        .any(|(i, &b)| b == b'\n' && (i == 0 || raw[i - 1] != b'\r'));
+    assert!(
+        !(has_crlf && has_bare_lf),
+        "bare tidy fix must unmix: {raw:?}"
+    );
+    assert!(
+        !has_crlf,
+        "LF-majority mixed file should become LF after unmix: {raw:?}"
+    );
+
+    let check = TidyArgs {
+        action: TidyAction::Check {
+            paths: vec![".".to_string()],
+        },
+        write: Default::default(),
+    };
+    let check_code = run(check, &global).unwrap();
+    assert_eq!(check_code, exit::SUCCESS, "tidy check after default fix");
+}
+
+/// Uniform CRLF stays CRLF under default tidy fix (keep, not convert).
+#[test]
+fn fix_defaults_keep_uniform_crlf() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("win.txt");
+    std::fs::write(&file, b"line1\r\nline2\r\n").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec![".".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+
+    let raw = std::fs::read(&file).unwrap();
+    assert_eq!(raw, b"line1\r\nline2\r\n");
+}
+
+/// Explicit `--normalize-eol keep` opts out of unmix.
+#[test]
+fn fix_explicit_keep_does_not_unmix() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("mixed.txt");
+    let original = b"a\nb\r\n";
+    std::fs::write(&file, original).unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.apply = true;
+    global.normalize_eol = Some(crate::cli::global::EolMode::Keep);
+
+    let args = TidyArgs {
+        action: TidyAction::Fix {
+            paths: vec![".".to_string()],
+            dedent: None,
+            indent: None,
+            lines: None,
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+    assert_eq!(std::fs::read(&file).unwrap(), original);
+}
+
+/// Explicit `--normalize-eol keep` must not fail tidy check on mixed EOL.
+#[test]
+fn check_explicit_keep_skips_mixed_eol() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("mixed.txt");
+    std::fs::write(&file, b"a\nb\r\n").unwrap();
+
+    let mut global = GlobalFlags::test_with_cwd(tmp.path());
+    global.normalize_eol = Some(crate::cli::global::EolMode::Keep);
+
+    let args = TidyArgs {
+        action: TidyAction::Check {
+            paths: vec![".".to_string()],
+        },
+        write: Default::default(),
+    };
+    let code = run(args, &global).unwrap();
+    assert_eq!(code, exit::SUCCESS);
+}
+
 /// Explicit single-policy flag must not auto-enable the other defaults.
 #[test]
 fn fix_explicit_trim_only_does_not_force_final_newline() {

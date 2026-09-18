@@ -3668,6 +3668,38 @@ fn test_tx_tidy_fix_defaults_trim_and_final_newline() {
     );
 }
 
+/// Bare plan tidy.fix must unmix mixed EOL (same as CLI default tidy fix).
+#[test]
+fn test_tx_tidy_fix_defaults_unmix_mixed_eol() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.txt");
+    fs::write(&file, "a\nb\r\nc\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "tidy.fix",
+            "path": file.to_str().unwrap()
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("tx")
+        .arg(plan_file.to_str().unwrap())
+        .arg("--apply")
+        .assert()
+        .code(0);
+
+    let result = fs::read(&file).unwrap();
+    assert_eq!(
+        result, b"a\nb\nc\n",
+        "bare tidy.fix must unmix LF-majority mixed EOL: {result:?}"
+    );
+}
+
 /// #1840: plan-level write_policy must override tidy.fix CLI-matching defaults.
 #[test]
 fn test_tx_tidy_fix_plan_write_policy_overrides_defaults() {

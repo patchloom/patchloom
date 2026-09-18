@@ -45,6 +45,22 @@ mod detect_eol_tests {
     fn detect_eol_cr_only() {
         assert_eq!(detect_eol("line1\rline2\r"), "\r");
     }
+
+    #[test]
+    fn has_mixed_eol_detects_crlf_and_lf() {
+        assert!(has_mixed_eol(b"a\nb\r\n"));
+        assert!(!has_mixed_eol(b"a\nb\n"));
+        assert!(!has_mixed_eol(b"a\r\nb\r\n"));
+    }
+
+    #[test]
+    fn unmix_eol_flattens_to_majority() {
+        let lf = unmix_eol("a\nb\r\nc\n");
+        assert_eq!(lf.as_ref(), "a\nb\nc\n");
+        let crlf = unmix_eol("a\r\nb\nc\r\n");
+        assert_eq!(crlf.as_ref(), "a\r\nb\r\nc\r\n");
+        assert!(matches!(unmix_eol("a\nb\n"), std::borrow::Cow::Borrowed(_)));
+    }
 }
 
 mod basic {
