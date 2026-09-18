@@ -11,6 +11,19 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.35.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.35.0...patchloom-v0.35.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **api:** commit directory rename and expose doc_set if_exists ([#2572](https://github.com/patchloom/patchloom/issues/2572)) ([92bc7b8](https://github.com/patchloom/patchloom/commit/92bc7b818ca3152a6b408c164076dbbea95b0118)), closes [#2570](https://github.com/patchloom/patchloom/issues/2570) [#2571](https://github.com/patchloom/patchloom/issues/2571)
+* **api:** report directory rename as changed in Preview and Check ([#2574](https://github.com/patchloom/patchloom/issues/2574)) ([36702a4](https://github.com/patchloom/patchloom/commit/36702a4751a7cb88e195ad293768b06d8207214c))
+* **cli:** do not panic when completions stdout is a closed pipe ([#2577](https://github.com/patchloom/patchloom/issues/2577)) ([fdf868e](https://github.com/patchloom/patchloom/commit/fdf868e6806ee7d89bf4a400af6186be667ef4ea))
+* **cli:** treat broken stdout pipe as success for ast deps ([#2579](https://github.com/patchloom/patchloom/issues/2579)) ([cd78205](https://github.com/patchloom/patchloom/commit/cd782055541fcff9d83d89063fc3198905bcbddb)), closes [#2578](https://github.com/patchloom/patchloom/issues/2578) [#2577](https://github.com/patchloom/patchloom/issues/2577)
+* **cli:** treat broken stdout pipe as success for large dumps ([#2578](https://github.com/patchloom/patchloom/issues/2578)) ([6e60606](https://github.com/patchloom/patchloom/commit/6e60606fad43da769b6547501f491c569e9a430a))
+* **doc:** treat dotted .properties keys as one selector ([#2576](https://github.com/patchloom/patchloom/issues/2576)) ([ff74f91](https://github.com/patchloom/patchloom/commit/ff74f91dbbd49c889b5c945619f7ffb9d16210e5))
+* **tidy:** unmix mixed line endings on default tidy fix ([#2575](https://github.com/patchloom/patchloom/issues/2575)) ([3afbcc5](https://github.com/patchloom/patchloom/commit/3afbcc5ea214c98ad6df0e5064040ad1d803ab8d))
+
 ## [0.35.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.34.0...patchloom-v0.35.0) (2026-09-18)
 
 
