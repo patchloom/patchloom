@@ -141,8 +141,23 @@ pub(crate) fn collect_source_files(
     Ok(all_paths)
 }
 
-fn print_line(s: &str) -> anyhow::Result<bool> {
+pub(super) fn print_line(s: &str) -> anyhow::Result<bool> {
     crate::json_emit::write_stdout_ignore_epipe(s.as_bytes(), true)
+}
+
+pub(super) fn print_deps_human(
+    display: &str,
+    imports: &[crate::ast::deps::Import],
+) -> anyhow::Result<bool> {
+    if !print_line(display)? || !print_line("  imports:")? {
+        return Ok(false);
+    }
+    for imp in imports {
+        if !print_line(&format!("    {}", imp.path))? {
+            return Ok(false);
+        }
+    }
+    print_line("")
 }
 
 pub(super) fn print_symbols_human(path: &str, symbols: &[&SymbolDef]) -> anyhow::Result<bool> {
