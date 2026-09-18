@@ -657,7 +657,11 @@ pub use crate::fallback::{
 pub struct WritePolicyOptions {
     /// Ensure non-empty files end with a newline.
     pub ensure_final_newline: bool,
-    /// Normalize line endings. `None` means keep existing (`EolMode::Keep`).
+    /// Normalize line endings.
+    ///
+    /// [`make_write_policy`] maps `None` to [`EolMode::Keep`]. [`tidy`] treats
+    /// `None` as omit (unmix mixed endings, same as bare CLI `tidy fix`); set
+    /// `Some(EolMode::Keep)` to keep mixed endings.
     pub normalize_eol: Option<EolMode>,
     /// Remove trailing whitespace from each line.
     pub trim_trailing_whitespace: bool,
