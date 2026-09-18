@@ -175,6 +175,24 @@ ENVIRONMENT:
     },
 }
 
+/// Generate completions to a buffer, then write stdout. Broken pipe
+/// (`completions zsh | head`) is success, not a clap_complete panic.
+fn emit_completions(shell: clap_complete::Shell) -> anyhow::Result<u8> {
+    let mut cmd = <Cli as clap::CommandFactory>::command();
+    let mut buf = Vec::new();
+    clap_complete::generate(shell, &mut cmd, "patchloom", &mut buf);
+    write_all_ignore_epipe(&mut std::io::stdout(), &buf)?;
+    Ok(crate::exit::SUCCESS)
+}
+
+fn write_all_ignore_epipe(out: &mut impl std::io::Write, buf: &[u8]) -> anyhow::Result<()> {
+    match out.write_all(buf).and_then(|_| out.flush()) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Load and apply project config from `.patchloom.toml`.
 fn load_project_config(global: &mut crate::cli::global::GlobalFlags) -> anyhow::Result<()> {
     let Ok(cwd) = global.resolve_cwd() else {
@@ -239,9 +257,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
                 )?;
                 return Ok(crate::exit::FAILURE);
             }
-            let mut cmd = <Cli as clap::CommandFactory>::command();
-            clap_complete::generate(shell, &mut cmd, "patchloom", &mut std::io::stdout());
-            Ok(crate::exit::SUCCESS)
+            emit_completions(shell)
         }
         Command::Read(args) => {
             load_project_config(&mut global)?;
@@ -354,5 +370,29 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             load_project_config(&mut global)?;
             ast::run(args, &global)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_all_ignore_epipe;
+
+    struct BrokenPipeWriter;
+
+    impl std::io::Write for BrokenPipeWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "broken pipe",
+            ))
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn write_all_ignore_epipe_swallows_broken_pipe() {
+        write_all_ignore_epipe(&mut BrokenPipeWriter, b"hello").unwrap();
     }
 }
