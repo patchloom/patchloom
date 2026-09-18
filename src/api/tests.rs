@@ -9949,6 +9949,30 @@ fn file_rename_moves_real_directory() {
     );
 }
 
+/// Probe: Preview must report a directory rename as a change (#2570 leftover).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_directory_preview_reports_change() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old_pkg");
+    let dst = dir.path().join("new_pkg");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("lib.rs"), "fn a() {}\n").unwrap();
+    let result = file_rename(&src, &dst, false, ApplyMode::Preview, None).expect("ok");
+    assert!(!result.applied);
+    assert!(src.join("lib.rs").is_file(), "preview must not move");
+    assert!(!dst.exists(), "preview must not create dest");
+    assert!(
+        result.changed,
+        "preview changed must be true so hosts do not skip apply; dest={:?} path={}",
+        result.dest_path, result.path
+    );
+    let check = file_rename(&src, &dst, false, ApplyMode::Check, None).expect("check");
+    assert!(check.changed);
+    assert!(!check.applied);
+    assert!(src.join("lib.rs").is_file());
+}
+
 /// Library `execute_plan` used the same `no_effective_changes` skip (#2570).
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]

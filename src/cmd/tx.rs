@@ -694,6 +694,13 @@ pub(crate) fn run_parsed_plan(
         .iter()
         .filter(|p| !result.changes.iter().any(|(c, _, _)| c == *p))
         .count();
+    // Path-only directory rename stages `renames` with no content snapshot.
+    let pending_renames = result
+        .renames
+        .iter()
+        .filter(|(_, to)| !result.changes.iter().any(|(c, _, _)| c == to))
+        .count();
+    let human_change_count = result.changes.len() + pending_deletions + pending_renames;
 
     // 5. Output based on mode.
     if global.check {
@@ -724,10 +731,7 @@ pub(crate) fn run_parsed_plan(
             let ok = emit_output_json(&output, compact);
             return Ok(exit_after_emit(ok, exit_code_from_tx_output(&output)));
         } else if !global.quiet {
-            println!(
-                "{} file(s) would change",
-                result.changes.len() + pending_deletions
-            );
+            println!("{human_change_count} file(s) would change");
         }
         print_human_replace_honesty(&result, &cwd, global.quiet);
         return Ok(exit::CHANGES_DETECTED);
@@ -809,7 +813,12 @@ pub(crate) fn run_parsed_plan(
             .iter()
             .filter(|p| !result.changes.iter().any(|(c, _, _)| c == *p))
             .count();
-        let n = result.changes.len() + extra_deletions;
+        let extra_renames = result
+            .renames
+            .iter()
+            .filter(|(_, to)| !result.changes.iter().any(|(c, _, _)| c == to))
+            .count();
+        let n = result.changes.len() + extra_deletions + extra_renames;
         eprintln!("{n} file(s) changed");
     }
 

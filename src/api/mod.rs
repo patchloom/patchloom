@@ -1408,6 +1408,10 @@ fn execution_result_to_edit_result(
         .filter(|s| !s.is_empty())
         .unwrap_or(path_str);
 
+    // Path-only directory rename has no content snapshot (orig == new == "").
+    let path_only_rename =
+        result.exec_result.changes.is_empty() && !result.exec_result.renames.is_empty();
+
     // Commit for Apply mode; capture backup session for embedder undo (#1686).
     let (applied, backup_session) = if mode == ApplyMode::Apply && has_changes {
         let session = result.commit()?;
@@ -1419,6 +1423,11 @@ fn execution_result_to_edit_result(
     let mut edit = build_edit_result(&path_str, original, new_content, applied, action, dest_path);
     if is_deletion {
         // Empty-file delete has orig == new == ""; still a change (#2288).
+        edit.changed = true;
+    }
+    if path_only_rename {
+        // Preview/Check must not look like a no-op to hosts that branch on
+        // `changed` before Apply.
         edit.changed = true;
     }
     edit.removed = removed;
