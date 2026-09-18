@@ -72,7 +72,9 @@ Do not expose only `doc_set` if agents need list updates by name. See
    binary and invalid UTF-8 with byte backup and PathGuard (no OS dual-path)
    (#2031). Both also handle FIFO/socket/device and symlinks (including
    dangling and symlink-to-dir) as directory-entry moves/unlinks without
-   following the target; directories stay refused (#2087, #2091). Soft-loading a
+   following the target. `file_delete` still refuses a real directory
+   (`invalid_input`). `file_rename` can move a real directory (#2538, #2562).
+   Soft-loading a
    symlink as text then writing would rewrite the **target**; rename uses an
    empty path-only snapshot so write policies never mutate the link target.
    **Entry containment (#2115):** delete and path-only rename use
