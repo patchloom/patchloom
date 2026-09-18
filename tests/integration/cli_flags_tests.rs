@@ -20,31 +20,7 @@ fn test_completions_supported_shells() {
 /// `completions zsh | head` must not panic (clap_complete writes stdout).
 #[test]
 fn test_completions_broken_pipe_is_not_a_panic() {
-    use std::io::Read;
-    use std::process::Stdio;
-
-    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("patchloom"))
-        .args(["completions", "zsh"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    {
-        let mut out = child.stdout.take().expect("piped stdout");
-        let mut buf = [0u8; 64];
-        let _ = out.read(&mut buf);
-    }
-    let output = child.wait_with_output().unwrap();
-    let err = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !err.contains("panicked"),
-        "completions must not panic on EPIPE: {err}"
-    );
-    assert!(
-        output.status.success() || output.status.code() == Some(0),
-        "EPIPE should be a clean exit: {:?}",
-        output.status
-    );
+    assert_cli_broken_pipe_is_not_a_panic(&["completions", "zsh"]);
 }
 
 #[test]

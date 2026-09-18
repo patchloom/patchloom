@@ -76,7 +76,7 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             // Quiet suppresses human pretty-print, not agent envelopes.
             if !global.emit_json(&envelope)? && !global.quiet {
                 let output = serde_json::to_string_pretty(&envelope)?;
-                println!("{output}");
+                crate::json_emit::write_stdout_ignore_epipe(output.as_bytes(), true)?;
             }
         }
         SchemaFormat::Prompt => {

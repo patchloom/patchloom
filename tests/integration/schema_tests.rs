@@ -1,5 +1,17 @@
 use super::*;
 
+/// `schema | head` must not panic (pretty JSON uses stdout).
+#[test]
+fn test_schema_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["schema"]);
+}
+
+/// `--json schema | head` must not panic (`GlobalFlags::emit_json`).
+#[test]
+fn test_schema_json_flag_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["--json", "schema"]);
+}
+
 #[test]
 fn test_schema_json_output() {
     let output = Command::cargo_bin("patchloom")
