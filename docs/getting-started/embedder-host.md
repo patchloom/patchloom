@@ -77,7 +77,7 @@ Library `doc_set` keeps `if_exists: false`. For the CLI/plan soft miss
    dangling and symlink-to-dir) as directory-entry moves/unlinks without
    following the target. `file_delete` still refuses a real directory
    (`invalid_input`). `file_rename` can move a real directory (#2538, #2562,
-   #2570).
+   #2570). Preview and Check set `changed` on that path-only move.
    Soft-loading a
    symlink as text then writing would rewrite the **target**; rename uses an
    empty path-only snapshot so write policies never mutate the link target.
