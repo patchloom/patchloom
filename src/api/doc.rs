@@ -150,10 +150,25 @@ fn doc_write(
     Ok(edit)
 }
 
+/// Options for [`doc_set_with_options`].
+///
+/// Default matches [`doc_set`]: missing file is `not_found`, and a missing
+/// selector creates the key.
+#[derive(Debug, Clone, Default)]
+pub struct DocSetOptions {
+    /// Soft-skip (no write, no error) when the file is missing or the
+    /// selector is not present. Same contract as CLI `doc set --if-exists`
+    /// and plan `doc.set` `if_exists: true`.
+    pub if_exists: bool,
+}
+
 /// Set a value at a selector path in a JSON, JSONC, YAML, TOML, `.env`, `.ini`, or `.properties` file.
 ///
 /// The file format is detected from the extension. The selector uses
 /// patchloom's selector syntax (e.g., `"database.host"`, `"items[0].name"`).
+///
+/// Always uses `if_exists: false`. For the CLI/plan soft miss, call
+/// [`doc_set_with_options`].
 pub fn doc_set(
     path: &Path,
     selector: &str,
@@ -161,11 +176,30 @@ pub fn doc_set(
     mode: ApplyMode,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<EditResult> {
+    doc_set_with_options(
+        path,
+        selector,
+        value,
+        mode,
+        guard,
+        &DocSetOptions::default(),
+    )
+}
+
+/// [`doc_set`] with [`DocSetOptions`] (additive; keeps `doc_set` source-compatible).
+pub fn doc_set_with_options(
+    path: &Path,
+    selector: &str,
+    value: serde_json::Value,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    opts: &DocSetOptions,
+) -> anyhow::Result<EditResult> {
     let op = Operation::DocSet {
         path: path.to_string_lossy().into(),
         selector: selector.into(),
         value,
-        if_exists: false,
+        if_exists: opts.if_exists,
     };
     doc_write(op, path, mode, guard, "doc.set")
 }

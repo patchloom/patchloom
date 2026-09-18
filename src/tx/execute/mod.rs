@@ -1085,7 +1085,8 @@ pub(crate) fn execute_and_collect(
         .iter()
         .filter(|p| !changes.iter().any(|(c, _, _)| c == *p))
         .count();
-    let no_effective_changes = changes.is_empty() && pending_deletions == 0;
+    // Path-only directory rename stages `tx.renames` with no content snapshot.
+    let no_effective_changes = changes.is_empty() && pending_deletions == 0 && renames.is_empty();
     let replace_no_matches =
         has_non_idempotent_replace && total_replace_matches == 0 && no_effective_changes;
 

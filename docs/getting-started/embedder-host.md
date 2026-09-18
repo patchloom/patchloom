@@ -25,6 +25,9 @@ check host `tree-sitter` call sites (`Parser::parse`, `QueryMatch::captures`).
 `doc_set`; predicate or wildcard multi-match uses `doc.update` / `doc_update`.
 Do not expose only `doc_set` if agents need list updates by name. See
 [Comparisons](comparisons.md#doc-set-vs-doc-update-agent-dx).
+Library `doc_set` keeps `if_exists: false`. For the CLI/plan soft miss
+(missing file or missing selector, `Ok` with no write), call
+`doc_set_with_options` with `DocSetOptions { if_exists: true }` (#2571).
 
 ## Minimal checklist
 
@@ -73,7 +76,8 @@ Do not expose only `doc_set` if agents need list updates by name. See
    (#2031). Both also handle FIFO/socket/device and symlinks (including
    dangling and symlink-to-dir) as directory-entry moves/unlinks without
    following the target. `file_delete` still refuses a real directory
-   (`invalid_input`). `file_rename` can move a real directory (#2538, #2562).
+   (`invalid_input`). `file_rename` can move a real directory (#2538, #2562,
+   #2570).
    Soft-loading a
    symlink as text then writing would rewrite the **target**; rename uses an
    empty path-only snapshot so write policies never mutate the link target.
