@@ -288,7 +288,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     // --- Medium tier ---
     OpMeta {
         name: "doc.set",
-        description: "Set a value at a single concrete selector path in a JSON, YAML, or TOML file (keys and indexes such as server.port or items.0.v). Parser-backed; output is always valid. Not for predicates or wildcards (items[name=foo].v, items[*].v); use doc.update for multi-match writes. Default creates a missing key and fails with not_found if the file is missing. Set if_exists=true to soft-skip when the file is missing or the selector is not present (does not create the key).",
+        description: "Set a value at a single concrete selector path in a JSON, JSONC, YAML, TOML, .env, .ini, or .properties file (keys and indexes such as server.port or items.0.v). Parser-backed; output is always valid. Not for predicates or wildcards (items[name=foo].v, items[*].v); use doc.update for multi-match writes. Default creates a missing key and fails with not_found if the file is missing. Set if_exists=true to soft-skip when the file is missing or the selector is not present (does not create the key).",
         tier: Tier::Medium,
         examples: &[
             (

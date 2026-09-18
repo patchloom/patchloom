@@ -1,3 +1,4 @@
+//! size-waiver: undo list/preview/restore plus rename-back preview (policy #1408).
 use crate::backup;
 use crate::cli::global::GlobalFlags;
 use crate::exit;
@@ -70,6 +71,19 @@ pub(crate) struct UndoListOutput {
 pub(crate) struct UndoPreviewEntry {
     pub(crate) path: String,
     pub(crate) action: String,
+}
+
+/// Dry-run label for one backup entry. Directory-rename undo is Created
+/// plus `renamed_from` and restores with `fs::rename`, not a delete.
+pub(crate) fn preview_action(entry: &backup::ManifestEntry) -> String {
+    match entry.action {
+        backup::FileAction::Modified => "restore original".to_string(),
+        backup::FileAction::Created => match entry.renamed_from.as_deref() {
+            Some(from) => format!("rename back to {from}"),
+            None => "delete (was created by apply)".to_string(),
+        },
+        backup::FileAction::Deleted => "recreate (was deleted by apply)".to_string(),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -202,12 +216,7 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             .iter()
             .map(|entry| UndoPreviewEntry {
                 path: entry.path.clone(),
-                action: match entry.action {
-                    backup::FileAction::Modified => "restore original",
-                    backup::FileAction::Created => "delete (was created by apply)",
-                    backup::FileAction::Deleted => "recreate (was deleted by apply)",
-                }
-                .to_string(),
+                action: preview_action(entry),
             })
             .collect();
 
@@ -971,5 +980,40 @@ mod tests {
         assert_eq!(action_label(&backup::FileAction::Modified), "modified");
         assert_eq!(action_label(&backup::FileAction::Created), "created");
         assert_eq!(action_label(&backup::FileAction::Deleted), "deleted");
+    }
+
+    fn preview_entry(
+        action: backup::FileAction,
+        renamed_from: Option<&str>,
+    ) -> backup::ManifestEntry {
+        backup::ManifestEntry {
+            path: "dest".to_string(),
+            action,
+            renamed_from: renamed_from.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn preview_action_created_with_renamed_from_is_rename_back() {
+        let entry = preview_entry(backup::FileAction::Created, Some("src"));
+        assert_eq!(preview_action(&entry), "rename back to src");
+    }
+
+    #[test]
+    fn preview_action_created_only_is_delete() {
+        let entry = preview_entry(backup::FileAction::Created, None);
+        assert_eq!(preview_action(&entry), "delete (was created by apply)");
+    }
+
+    #[test]
+    fn preview_action_modified_is_restore_original() {
+        let entry = preview_entry(backup::FileAction::Modified, None);
+        assert_eq!(preview_action(&entry), "restore original");
+    }
+
+    #[test]
+    fn preview_action_deleted_is_recreate() {
+        let entry = preview_entry(backup::FileAction::Deleted, None);
+        assert_eq!(preview_action(&entry), "recreate (was deleted by apply)");
     }
 }

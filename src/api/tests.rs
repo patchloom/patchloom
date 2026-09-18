@@ -1225,6 +1225,31 @@ fn yaml_doc_set_preserves_comments() {
 }
 
 #[test]
+fn jsonc_doc_set_preserves_comments() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("tsconfig.jsonc");
+    fs::write(
+        &file,
+        "{\n  // keep\n  \"compilerOptions\": {\"strict\": true}\n}\n",
+    )
+    .unwrap();
+
+    let result = doc_set(
+        &file,
+        "compilerOptions.strict",
+        serde_json::json!(false),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+
+    assert!(result.changed);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains("// keep"), "{on_disk}");
+    assert!(on_disk.contains("\"strict\": false"), "{on_disk}");
+}
+
+#[test]
 fn yaml_doc_set_pure_alias_becomes_merge() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.yaml");
