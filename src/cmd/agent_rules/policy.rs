@@ -288,7 +288,7 @@ includes `backup_session` when a backup was created (same field as `format_faile
 `{\"ok\":true,\"value\":...,\"path\":...,\"selector\":...}` (selector omitted for flatten). Text mode stays bare. \
 `doc has` prints `true`/`false` and exits **0** for both (missing key is not `no_matches`; #1843).\n\
              **Plan/batch `tidy.fix` defaults (#1840, #1847):** Omitting write-policy fields matches CLI \
-`tidy fix` (trim trailing whitespace + ensure final newline). Precedence: defaults → plan \
+`tidy fix` (trim trailing whitespace + ensure final newline; mixed EOL flattens to the dominant style). Precedence: defaults → plan \
 `write_policy` → op fields. Op fields stick through commit (plan `write_policy` is not re-applied \
 to that path); a later non-tidy write clears that. Bare example: `{\"op\":\"tidy.fix\",\"path\":\"f.txt\"}`.\n\
              **Replace jsonl multi-file (#1799):** Streams one object per success path \

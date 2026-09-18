@@ -187,9 +187,9 @@ struct TidyFixPolicy {
 
 /// When the user did not pass any write-policy flag and is not only
 /// indenting/dedenting, enable the same normalizations that `tidy check`
-/// always reports (final newline + trailing whitespace). Otherwise
-/// `tidy fix --apply` is a silent no-op while `tidy check` still fails
-/// (fixrealloop feature gap).
+/// always reports (final newline, trailing whitespace, mixed EOL).
+/// Otherwise `tidy fix --apply` is a silent no-op while `tidy check`
+/// still fails (fixrealloop feature gap).
 fn effective_tidy_fix_policy(
     global: &GlobalFlags,
     dedent: Option<&str>,
@@ -332,6 +332,11 @@ pub(super) fn run_fix(
             let charset = policy.charset;
             policy.charset = crate::write::CharsetMode::Keep;
             let mut fixed = apply_policy(&original, &policy).into_owned();
+            // Default tidy (no --normalize-eol) unmixes so tidy check is clean.
+            // Explicit keep / lf / crlf / cr leaves this to normalize_eol.
+            if policy_flags.normalize_eol.is_none() {
+                fixed = crate::write::unmix_eol(&fixed).into_owned();
+            }
             if let Some(spec) = dedent_ref {
                 fixed = crate::write::dedent_content(&fixed, spec, line_range);
             }

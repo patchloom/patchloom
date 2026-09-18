@@ -58,11 +58,13 @@ pub fn tidy_with_indent(
     let result = if !matches!(policy_opts.charset, crate::write::CharsetMode::Keep) {
         tidy_apply_policy_locally(path, caller_path, policy_opts, indent_opts, mode, guard)?
     } else {
-        let eol_str = policy_opts.normalize_eol.map(|eol| match eol {
-            EolMode::Lf => "lf".to_string(),
-            EolMode::Crlf => "crlf".to_string(),
-            EolMode::Cr => "cr".to_string(),
-            EolMode::Keep => "keep".to_string(),
+        // None means keep (do not unmix). Plan tidy.fix omits the field
+        // for CLI-default unmix; library callers pass an explicit policy.
+        let eol_str = Some(match policy_opts.normalize_eol {
+            Some(EolMode::Lf) => "lf".to_string(),
+            Some(EolMode::Crlf) => "crlf".to_string(),
+            Some(EolMode::Cr) => "cr".to_string(),
+            Some(EolMode::Keep) | None => "keep".to_string(),
         });
         let op = Operation::TidyFix {
             path: super::library_op_path(caller_path, path, guard),

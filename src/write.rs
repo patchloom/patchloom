@@ -28,6 +28,29 @@ pub fn detect_eol(text: &str) -> &'static str {
     }
 }
 
+/// True when `data` contains both CRLF and a bare LF.
+pub fn has_mixed_eol(data: &[u8]) -> bool {
+    let has_crlf = memchr::memmem::find(data, b"\r\n").is_some();
+    let has_bare_lf = memchr::memchr_iter(b'\n', data).any(|i| i == 0 || data[i - 1] != b'\r');
+    has_crlf && has_bare_lf
+}
+
+/// If the file mixes line endings, normalize to the dominant style.
+///
+/// Uniform LF or CRLF is left unchanged. Used by default `tidy fix` so
+/// a follow-up `tidy check` is clean.
+pub fn unmix_eol(content: &str) -> std::borrow::Cow<'_, str> {
+    if !has_mixed_eol(content.as_bytes()) {
+        return std::borrow::Cow::Borrowed(content);
+    }
+    let mode = match detect_eol(content) {
+        "\r\n" => EolMode::Crlf,
+        "\r" => EolMode::Cr,
+        _ => EolMode::Lf,
+    };
+    normalize_eol(content, mode)
+}
+
 /// Line ending normalization mode.
 ///
 /// This type is re-exported at the crate root level of `write` for library use

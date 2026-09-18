@@ -64,11 +64,12 @@ pub(super) fn check_file(
         });
     }
 
-    // Check mixed line endings: file has both \r\n and bare \n.
+    // Mixed endings are a default-check issue. Explicit `--normalize-eol keep`
+    // opts out (matching default tidy fix, which unmixes only when keep is
+    // not set).
     let has_crlf = memchr::memmem::find(data, b"\r\n").is_some();
-    // A bare \n is any \n not preceded by \r.
     let has_bare_lf = memchr::memchr_iter(b'\n', data).any(|i| i == 0 || data[i - 1] != b'\r');
-    if has_crlf && has_bare_lf {
+    if has_crlf && has_bare_lf && !matches!(eol_target, Some(crate::write::EolMode::Keep)) {
         issues.push(TidyIssue {
             path: path_str.clone(),
             issue: "mixed line endings",
