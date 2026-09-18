@@ -1024,6 +1024,9 @@ pub fn restore_session_with_guard(
             entry.renamed_from.is_some(),
             guard,
         )?;
+        if let Some(from) = entry.renamed_from.as_deref() {
+            check_restore_policy(project_root, &session_dir, from, true, guard)?;
+        }
         match entry.action {
             FileAction::Modified | FileAction::Deleted => {
                 let backup = session_dir.join(&entry.path);
@@ -2185,6 +2188,39 @@ mod tests {
         assert!(
             result.is_err(),
             "restore should reject path traversal, got: {:?}",
+            result
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("escapes project root"),
+            "error should mention escaping: {err}"
+        );
+    }
+
+    #[test]
+    fn restore_rejects_traversal_in_renamed_from() {
+        let dir = TempDir::new().unwrap();
+        // Dummy dest so a missing renamed_from check would actually fs::rename.
+        std::fs::create_dir(dir.path().join("moved")).unwrap();
+        let ts = "777777777";
+        let session_dir = dir.path().join(BACKUP_DIR).join(ts);
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let manifest = Manifest {
+            timestamp: ts.to_string(),
+            entries: vec![ManifestEntry {
+                path: "moved".to_string(),
+                action: FileAction::Created,
+                renamed_from: Some("../../outside".to_string()),
+            }],
+            created_dirs: Vec::new(),
+        };
+        let json = serde_json::to_string_pretty(&manifest).unwrap();
+        std::fs::write(session_dir.join("manifest.json"), json).unwrap();
+
+        let result = restore_session(dir.path(), ts);
+        assert!(
+            result.is_err(),
+            "restore should reject renamed_from traversal, got: {:?}",
             result
         );
         let err = result.unwrap_err().to_string();

@@ -5101,6 +5101,36 @@ fn test_doc_set_env_keeps_comment() {
 }
 
 #[test]
+fn test_doc_set_jsonc_keeps_comment() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("tsconfig.json");
+    fs::write(
+        &file,
+        "{\n  // keep\n  \"compilerOptions\": {\"strict\": true}\n}\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .args([
+            "doc",
+            "set",
+            "tsconfig.json",
+            "compilerOptions.strict",
+            "false",
+            "--apply",
+        ])
+        .assert()
+        .success();
+
+    let body = fs::read_to_string(&file).unwrap();
+    assert!(body.contains("// keep"), "{body}");
+    assert!(body.contains("false"), "{body}");
+}
+
+#[test]
 fn test_doc_format_nope_is_invalid_input() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("c.json");
