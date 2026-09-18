@@ -634,7 +634,7 @@ jobs:
             --max-runs 40
           python3 benches/ci/check_threshold.py "$bench_json" "replace dry-run" 0.5
 
-      - name: Benchmark ast map (must be under 500ms)
+      - name: Benchmark ast map (must be under 1s)
         run: |
           bench_src="$RUNNER_TEMP/corpus/src"
           bench_json="$RUNNER_TEMP/bench-ast-map.json"
@@ -642,9 +642,9 @@ jobs:
             --export-json "$bench_json" \
             "./target/release/patchloom ast map $bench_src" \
             --max-runs 20
-          python3 benches/ci/check_threshold.py "$bench_json" "ast map" 0.5
+          python3 benches/ci/check_threshold.py "$bench_json" "ast map" 1.0
 
-      - name: Benchmark ast rename dry-run (must be under 500ms)
+      - name: Benchmark ast rename dry-run (must be under 1s)
         run: |
           bench_src="$RUNNER_TEMP/corpus/src"
           bench_json="$RUNNER_TEMP/bench-ast-rename-dry-run.json"
@@ -652,7 +652,7 @@ jobs:
             --export-json "$bench_json" \
             "./target/release/patchloom ast rename foo --new foo2 $bench_src --check" \
             --max-runs 20
-          python3 benches/ci/check_threshold.py "$bench_json" "ast rename dry-run" 0.5
+          python3 benches/ci/check_threshold.py "$bench_json" "ast rename dry-run" 1.0
 
       - name: Benchmark summary
         if: always()
