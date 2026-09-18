@@ -57,5 +57,32 @@ class MakePrFixtureTests(unittest.TestCase):
         self.assertIn("fn foo()", (dest / "src" / "lib_000.rs").read_text(encoding="utf-8"))
 
 
+class CiYmlAstRenameTests(unittest.TestCase):
+    def setUp(self) -> None:
+        root = HERE.parents[1]
+        self.ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    def test_uses_path_first_old_new(self) -> None:
+        self.assertIn(
+            "ast rename $bench_src --old foo --new foo2 --check",
+            self.ci,
+        )
+        self.assertNotIn(
+            "ast rename foo --new foo2 $bench_src --check",
+            self.ci,
+        )
+
+    def test_preflights_before_ignore_exit_status(self) -> None:
+        start = self.ci.index("Benchmark ast rename dry-run")
+        end = self.ci.index("Benchmark summary", start)
+        block = self.ci[start:end]
+        self.assertIn("preflight_expected_exit.sh", block)
+        self.assertLess(
+            block.index("preflight_expected_exit.sh"),
+            block.index("hyperfine"),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -55,7 +55,7 @@ statistical rigor.
 - Replace (multi-file): `patchloom replace` vs `find + sed`
 - Tidy check: `patchloom tidy check` vs shell script (find + grep)
 - AST map: `patchloom ast map` over the generated corpus
-- AST rename: `patchloom ast rename --check` over the generated corpus
+- AST rename: `patchloom ast rename PATH --old X --new Y --check` over the generated corpus (stable ident `bench_rename_target` in `generate_corpus.py`)
 
 **Batched-operation:**
 - 6-file version bump: `patchloom batch` (1 call) vs jq + yq + sed (6 calls)
@@ -65,7 +65,7 @@ statistical rigor.
 
 The `bench` job in `.github/workflows/ci.yml` builds a multi-megabyte
 corpus (`benches/ci/make_pr_fixture.py`) and times `search`, `doc get`,
-`replace` dry-run, `ast map`, and `ast rename --check`. Search, doc, and
+`replace` dry-run, `ast map`, and `ast rename PATH --old X --new Y --check`. Search, doc, and
 replace use a 500ms sanity bound. AST walks use 1s. Compare-against-baseline
 (artifact from the last green `main` run) is the regression detector.
 

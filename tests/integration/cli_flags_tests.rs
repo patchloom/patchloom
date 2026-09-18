@@ -699,6 +699,20 @@ fn test_cli_bench_runner_validates_requested_scales() {
 }
 
 #[test]
+fn test_cli_bench_runner_ast_rename_uses_live_argv() {
+    // #2566: release cli-bench died on `ast rename foo --new bar $DIR`.
+    let runner = fs::read_to_string(repo_root().join("benches/cli/run.sh")).unwrap();
+    assert!(
+        runner.contains("ast rename \"$DIR\" --old"),
+        "cli-bench must invoke live `ast rename PATH --old … --new …`"
+    );
+    assert!(
+        !runner.contains("ast rename foo --new bar $DIR"),
+        "stale identifier-first ast rename argv must not return"
+    );
+}
+
+#[test]
 fn test_completions_powershell() {
     Command::cargo_bin("patchloom")
         .unwrap()
