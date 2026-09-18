@@ -653,6 +653,10 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
 
     let (path, mutation) = crate::plan::op_to_doc_mutation(op)
         .ok_or_else(|| anyhow::anyhow!("execute_doc_op called with non-doc operation"))?;
+    let mutation = match crate::ops::doc::detect_format(path) {
+        Ok(fmt) => crate::ops::doc::rewrite_mutation_for_format(mutation, fmt),
+        Err(_) => mutation,
+    };
     let root = match get_doc_root(tx.pending, tx.existed_before, tx.doc_cache, path, tx.cwd) {
         Ok(root) => root,
         Err(e) if if_exists_set && crate::exit::is_io_not_found(&e) => return Ok(()),
@@ -663,7 +667,11 @@ pub(crate) fn execute_doc_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::Re
             Operation::DocSet { selector, .. } => selector.as_str(),
             _ => "",
         };
-        match crate::ops::doc::query::query_has(root, selector) {
+        let selector = match crate::ops::doc::detect_format(path) {
+            Ok(fmt) => crate::ops::doc::rewrite_selector_for_format(selector, fmt).into_owned(),
+            Err(_) => selector.to_string(),
+        };
+        match crate::ops::doc::query::query_has(root, &selector) {
             Ok(true) => {}
             Ok(false) => return Ok(()),
             Err(e) => return Err(path_err(path)(e)),

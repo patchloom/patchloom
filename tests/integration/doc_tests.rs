@@ -1,5 +1,42 @@
 use super::*;
 
+/// `doc keys` lists `server.port`; get/set must treat that as one key.
+#[test]
+fn test_doc_properties_dotted_key_get_and_set() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("app.properties");
+    fs::write(&file, "server.port=8080\nserver.name=old\n").unwrap();
+
+    let get = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "get"])
+        .arg(&file)
+        .arg("server.port")
+        .output()
+        .unwrap();
+    assert_eq!(get.status.code(), Some(0), "{:?}", get);
+    let parsed: serde_json::Value = serde_json::from_slice(&get.stdout).unwrap();
+    assert_eq!(parsed["value"], "8080", "{parsed}");
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "doc", "set"])
+        .arg(&file)
+        .args(["server.name", "new", "--apply"])
+        .assert()
+        .code(0);
+
+    let body = fs::read_to_string(&file).unwrap();
+    assert!(
+        body.contains("server.name=new") || body.contains("server.name = new"),
+        "dotted key must be set in place: {body:?}"
+    );
+    assert!(
+        body.contains("server.port=8080"),
+        "sibling dotted key must stay: {body:?}"
+    );
+}
+
 #[test]
 fn test_doc_get_jsonl_compound_value_is_single_line_json() {
     let dir = TempDir::new().unwrap();

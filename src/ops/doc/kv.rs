@@ -562,4 +562,25 @@ mod tests {
         assert!(out.contains("! c"));
         assert!(out.contains("a:9") || out.contains("a=9"));
     }
+
+    #[test]
+    fn properties_dotted_selector_is_one_key() {
+        assert_eq!(
+            crate::ops::doc::rewrite_selector_for_format("server.port", FileFormat::Properties)
+                .as_ref(),
+            "\"server.port\""
+        );
+        assert_eq!(
+            crate::ops::doc::rewrite_selector_for_format("name", FileFormat::Properties).as_ref(),
+            "name"
+        );
+        assert_eq!(
+            crate::ops::doc::rewrite_selector_for_format("server.port", FileFormat::Json).as_ref(),
+            "server.port"
+        );
+        assert_eq!(
+            crate::ops::doc::rewrite_selector_for_format("main.name", FileFormat::Ini).as_ref(),
+            "main.name"
+        );
+    }
 }

@@ -109,20 +109,21 @@ fn doc_write(
         Err(e) => return Err(e),
     };
     let value = ops::doc::parse_doc(&original, &format)?;
-    if if_exists_set
-        && let Operation::DocSet { selector, .. } = &op
-        && !ops::doc::query::query_has(&value, selector)?
-    {
-        return Ok(super::build_edit_result(
-            &path_str,
-            original.clone(),
-            original,
-            false,
-            action,
-            None,
-        ));
+    if if_exists_set && let Operation::DocSet { selector, .. } = &op {
+        let selector = ops::doc::rewrite_selector_for_format(selector, format);
+        if !ops::doc::query::query_has(&value, selector.as_ref())? {
+            return Ok(super::build_edit_result(
+                &path_str,
+                original.clone(),
+                original,
+                false,
+                action,
+                None,
+            ));
+        }
     }
     let mut new_value = value.clone();
+    let mutation = ops::doc::rewrite_mutation_for_format(mutation, format);
 
     let result = ops::doc::apply_doc_mutation(&mut new_value, mutation)?;
     if let MutationResult::TypeError(msg) = result {
@@ -272,13 +273,14 @@ pub fn doc_merge(
 /// Load-first: a missing file peels as `not_found`.
 pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value> {
     let value = load_doc_value(path)?;
+    let selector = ops::doc::rewrite_selector_for_path(&path.to_string_lossy(), selector);
 
-    match query_get(&value, selector)? {
+    match query_get(&value, selector.as_ref())? {
         QueryResult::NoMatch => Err(crate::exit::NoMatchError {
             msg: crate::ops::doc::query::with_similar_object_key_hint(
                 format!("selector '{selector}' matched nothing"),
                 &value,
-                selector,
+                selector.as_ref(),
             ),
         }
         .into()),
@@ -293,7 +295,8 @@ pub fn doc_get(path: &Path, selector: &str) -> anyhow::Result<serde_json::Value>
 /// Check whether a selector path exists in a JSON, YAML, or TOML file.
 pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
     let value = load_doc_value(path)?;
-    query_has(&value, selector)
+    let selector = ops::doc::rewrite_selector_for_path(&path.to_string_lossy(), selector);
+    query_has(&value, selector.as_ref())
 }
 
 /// List object keys at a selector path in a JSON, YAML, or TOML file.
@@ -306,7 +309,8 @@ pub fn doc_has(path: &Path, selector: &str) -> anyhow::Result<bool> {
 /// `items[0]` / `items[1]`. A missing file peels as `not_found`.
 pub fn doc_keys(path: &Path, selector: &str) -> anyhow::Result<Vec<String>> {
     let value = load_doc_value(path)?;
-    crate::ops::doc::query::keys_at(&value, selector)
+    let selector = ops::doc::rewrite_selector_for_path(&path.to_string_lossy(), selector);
+    crate::ops::doc::query::keys_at(&value, selector.as_ref())
 }
 
 /// Count items in an array or object at a selector path (`items`, `database`).
@@ -318,7 +322,8 @@ pub fn doc_keys(path: &Path, selector: &str) -> anyhow::Result<Vec<String>> {
 /// `items[0]` / `items[1]`. A missing file peels as `not_found`.
 pub fn doc_len(path: &Path, selector: &str) -> anyhow::Result<usize> {
     let value = load_doc_value(path)?;
-    crate::ops::doc::query::len_at(&value, selector)
+    let selector = ops::doc::rewrite_selector_for_path(&path.to_string_lossy(), selector);
+    crate::ops::doc::query::len_at(&value, selector.as_ref())
 }
 
 /// Append a value to an array at a selector path.
