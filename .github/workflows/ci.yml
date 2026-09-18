@@ -599,39 +599,60 @@ jobs:
         run: cargo build --release
 
       - name: Create test fixtures
-        run: |
-          echo '{"name": "test", "version": "1.0.0"}' > "$RUNNER_TEMP/bench.json"
-          echo "hello world" > "$RUNNER_TEMP/bench.txt"
+        run: python3 benches/ci/make_pr_fixture.py "$RUNNER_TEMP/corpus"
 
-      - name: Benchmark search (must be under 50ms)
+      # Ceiling is 500ms so a multi-MB walk is allowed; compare-vs-baseline
+      # (below) is the real regression gate. Tiny one-line fixtures only
+      # measured process startup (#2552).
+      - name: Benchmark search (must be under 500ms)
         run: |
-          bench_txt="$RUNNER_TEMP/bench.txt"
+          bench_txt="$RUNNER_TEMP/corpus/txt"
           bench_json="$RUNNER_TEMP/bench-search.json"
-          hyperfine --warmup 3 --min-runs 20 -N \
+          hyperfine --warmup 3 --min-runs 10 -N \
             --export-json "$bench_json" \
-            "./target/release/patchloom search hello $bench_txt" \
-            --max-runs 100
-          python3 benches/ci/check_threshold.py "$bench_json" "search"
+            "./target/release/patchloom search needle $bench_txt" \
+            --max-runs 40
+          python3 benches/ci/check_threshold.py "$bench_json" "search" 0.5
 
-      - name: Benchmark doc get (must be under 50ms)
+      - name: Benchmark doc get (must be under 500ms)
         run: |
-          bench_json_file="$RUNNER_TEMP/bench.json"
+          bench_json_file="$RUNNER_TEMP/corpus/pkg.json"
           bench_json="$RUNNER_TEMP/bench-doc-get.json"
-          hyperfine --warmup 3 --min-runs 20 -N \
+          hyperfine --warmup 3 --min-runs 10 -N \
             --export-json "$bench_json" \
             "./target/release/patchloom --json doc get $bench_json_file name" \
-            --max-runs 100
-          python3 benches/ci/check_threshold.py "$bench_json" "doc get"
+            --max-runs 40
+          python3 benches/ci/check_threshold.py "$bench_json" "doc get" 0.5
 
-      - name: Benchmark replace dry-run (must be under 50ms)
+      - name: Benchmark replace dry-run (must be under 500ms)
         run: |
-          bench_txt="$RUNNER_TEMP/bench.txt"
+          bench_txt="$RUNNER_TEMP/corpus/txt"
           bench_json="$RUNNER_TEMP/bench-replace-dry-run.json"
-          hyperfine --warmup 3 --min-runs 20 -N -i \
+          hyperfine --warmup 3 --min-runs 10 -N -i \
             --export-json "$bench_json" \
-            "./target/release/patchloom replace hello --new world $bench_txt" \
-            --max-runs 100
-          python3 benches/ci/check_threshold.py "$bench_json" "replace dry-run"
+            "./target/release/patchloom replace needle --new token $bench_txt" \
+            --max-runs 40
+          python3 benches/ci/check_threshold.py "$bench_json" "replace dry-run" 0.5
+
+      - name: Benchmark ast map (must be under 500ms)
+        run: |
+          bench_src="$RUNNER_TEMP/corpus/src"
+          bench_json="$RUNNER_TEMP/bench-ast-map.json"
+          hyperfine --warmup 2 --min-runs 8 -N \
+            --export-json "$bench_json" \
+            "./target/release/patchloom ast map $bench_src" \
+            --max-runs 20
+          python3 benches/ci/check_threshold.py "$bench_json" "ast map" 0.5
+
+      - name: Benchmark ast rename dry-run (must be under 500ms)
+        run: |
+          bench_src="$RUNNER_TEMP/corpus/src"
+          bench_json="$RUNNER_TEMP/bench-ast-rename-dry-run.json"
+          hyperfine --warmup 2 --min-runs 8 -N -i \
+            --export-json "$bench_json" \
+            "./target/release/patchloom ast rename foo --new foo2 $bench_src --check" \
+            --max-runs 20
+          python3 benches/ci/check_threshold.py "$bench_json" "ast rename dry-run" 0.5
 
       - name: Benchmark summary
         if: always()

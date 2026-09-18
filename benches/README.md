@@ -54,10 +54,20 @@ statistical rigor.
 - Doc set (YAML): `patchloom doc set` (comment-preserving) vs `yq eval`
 - Replace (multi-file): `patchloom replace` vs `find + sed`
 - Tidy check: `patchloom tidy check` vs shell script (find + grep)
+- AST map: `patchloom ast map` over the generated corpus
+- AST rename: `patchloom ast rename --check` over the generated corpus
 
 **Batched-operation:**
 - 6-file version bump: `patchloom batch` (1 call) vs jq + yq + sed (6 calls)
 - Atomic 4-file edit: `patchloom tx` (1 call) vs jq + yq + sed (4 calls)
+
+### PR CI gate
+
+The `bench` job in `.github/workflows/ci.yml` builds a multi-megabyte
+corpus (`benches/ci/make_pr_fixture.py`) and times `search`, `doc get`,
+`replace` dry-run, `ast map`, and `ast rename --check`. The 500ms
+ceiling is a sanity bound. Compare-against-baseline (artifact from the
+last green `main` run) is the regression detector.
 
 ### Corpus sizes
 
@@ -125,7 +135,7 @@ spawn + arg parse + exit for every operation.
 |-----------|-------------|
 | Server startup | Time from process spawn to first tool call ready |
 | Per-call latency | Same operation via MCP (server running) vs CLI (new process) |
-| Burst throughput | 50 sequential doc_set calls: MCP vs 50 CLI process spawns |
+| Burst throughput | 50 sequential `doc_set` calls (MCP vs 50 CLI spawns) plus 50 `server_info` calls (clone-path probe) |
 
 ### Benchmark list
 
