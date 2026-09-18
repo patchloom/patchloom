@@ -141,41 +141,64 @@ pub(crate) fn collect_source_files(
     Ok(all_paths)
 }
 
-pub(super) fn print_symbols_human(path: &str, symbols: &[&SymbolDef]) {
-    println!("{path}");
-    for sym in symbols {
-        print_symbol_human(sym, 1);
-    }
-    println!();
+fn print_line(s: &str) -> anyhow::Result<bool> {
+    crate::json_emit::write_stdout_ignore_epipe(s.as_bytes(), true)
 }
 
-fn print_symbol_human(sym: &SymbolDef, indent: usize) {
+pub(super) fn print_symbols_human(path: &str, symbols: &[&SymbolDef]) -> anyhow::Result<bool> {
+    if !print_line(path)? {
+        return Ok(false);
+    }
+    for sym in symbols {
+        if !print_symbol_human(sym, 1)? {
+            return Ok(false);
+        }
+    }
+    print_line("")
+}
+
+fn print_symbol_human(sym: &SymbolDef, indent: usize) -> anyhow::Result<bool> {
     let pad = "  ".repeat(indent);
-    println!(
+    if !print_line(&format!(
         "{pad}{} {} [{}:{}]",
         sym.kind, sym.name, sym.start_line, sym.end_line
-    );
-    for child in &sym.children {
-        print_symbol_human(child, indent + 1);
+    ))? {
+        return Ok(false);
     }
+    for child in &sym.children {
+        if !print_symbol_human(child, indent + 1)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
-pub(super) fn print_symbols_compact(path: &str, symbols: &[&SymbolDef]) {
-    println!("{path}");
-    println!("|----");
+pub(super) fn print_symbols_compact(path: &str, symbols: &[&SymbolDef]) -> anyhow::Result<bool> {
+    if !print_line(path)? || !print_line("|----")? {
+        return Ok(false);
+    }
     for sym in symbols {
-        print_symbol_compact(sym, 0);
+        if !print_symbol_compact(sym, 0)? {
+            return Ok(false);
+        }
     }
-    println!("|----");
-    println!();
+    if !print_line("|----")? {
+        return Ok(false);
+    }
+    print_line("")
 }
 
-fn print_symbol_compact(sym: &SymbolDef, indent: usize) {
+fn print_symbol_compact(sym: &SymbolDef, indent: usize) -> anyhow::Result<bool> {
     let pad = "  ".repeat(indent);
-    println!("|{pad}{} {}", sym.kind, sym.name);
-    for child in &sym.children {
-        print_symbol_compact(child, indent + 1);
+    if !print_line(&format!("|{pad}{} {}", sym.kind, sym.name))? {
+        return Ok(false);
     }
+    for child in &sym.children {
+        if !print_symbol_compact(child, indent + 1)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Emit symbols in agent-honest structured form.

@@ -1,5 +1,12 @@
 use super::*;
 
+/// `ast list | head` must not panic (human symbol dump uses stdout).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_list_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["ast", "list", "src/lib.rs"]);
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_replace_apply_dispatch() {

@@ -94,9 +94,9 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
             if structured {
                 print_symbols_json(&args.path, &filtered, global)?;
             } else if !global.quiet && args.compact {
-                print_symbols_compact(&args.path, &filtered);
+                print_symbols_compact(&args.path, &filtered)?;
             } else if !global.quiet {
-                print_symbols_human(&args.path, &filtered);
+                print_symbols_human(&args.path, &filtered)?;
             }
         }
     } else if target.is_dir() {
@@ -149,9 +149,11 @@ pub(super) fn run_list(args: ListArgs, global: &GlobalFlags) -> anyhow::Result<u
                     structured_items.push(symbol_to_json(sym, &result.display));
                 }
             } else if !global.quiet && args.compact {
-                print_symbols_compact(&result.display, &filtered);
-            } else if !global.quiet {
-                print_symbols_human(&result.display, &filtered);
+                if !print_symbols_compact(&result.display, &filtered)? {
+                    break;
+                }
+            } else if !global.quiet && !print_symbols_human(&result.display, &filtered)? {
+                break;
             }
         }
         if structured && !structured_items.is_empty() {
