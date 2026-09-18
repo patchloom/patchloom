@@ -190,6 +190,9 @@ run_lib_filter file_rename_binary_path_only
 run_lib_filter file_rename_invalid_utf8_path_only
 run_lib_filter file_delete_binary_path_only
 run_lib_filter file_rename_force_binary_over_existing
+run_lib_filter file_rename_moves_real_directory
+run_lib_filter execute_plan_file_rename_moves_real_directory
+run_lib_filter doc_set_if_exists_missing_file_is_soft_ok
 run_lib_filter apply_fragment_to_file_after
 run_lib_filter content_edit_honesty_constructors
 pass "library path-only rename/delete + apply_fragment + honesty constructors (#2031-#2033)"

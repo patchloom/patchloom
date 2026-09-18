@@ -111,6 +111,63 @@ fn doc_set_respects_guard() {
 }
 
 #[test]
+fn doc_set_if_exists_missing_file_is_soft_ok() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("missing.json");
+    let result = doc_set_with_options(
+        &file,
+        "k",
+        serde_json::json!(1),
+        ApplyMode::Apply,
+        None,
+        &DocSetOptions { if_exists: true },
+    )
+    .expect("if_exists missing file");
+    assert!(!result.applied);
+    assert!(!result.changed);
+    assert!(!file.exists());
+}
+
+#[test]
+fn doc_set_if_exists_missing_selector_does_not_create() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"k":1}"#).unwrap();
+    let result = doc_set_with_options(
+        &file,
+        "missing",
+        serde_json::json!(2),
+        ApplyMode::Apply,
+        None,
+        &DocSetOptions { if_exists: true },
+    )
+    .expect("if_exists missing selector");
+    assert!(!result.applied);
+    assert!(!result.changed);
+    assert_eq!(fs::read_to_string(&file).unwrap(), r#"{"k":1}"#);
+}
+
+#[test]
+fn doc_set_if_exists_existing_key_writes() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("config.json");
+    fs::write(&file, r#"{"k":1}"#).unwrap();
+    let result = doc_set_with_options(
+        &file,
+        "k",
+        serde_json::json!(2),
+        ApplyMode::Apply,
+        None,
+        &DocSetOptions { if_exists: true },
+    )
+    .expect("if_exists existing key");
+    assert!(result.applied);
+    assert!(result.changed);
+    let on_disk = fs::read_to_string(&file).unwrap();
+    assert!(on_disk.contains('2'), "wrote new value: {on_disk}");
+}
+
+#[test]
 fn doc_get_reads_value() {
     let dir = TempDir::new().unwrap();
     let file = dir.path().join("config.json");
@@ -9865,6 +9922,56 @@ fn file_rename_symlink_to_directory() {
         fs::read_to_string(real_dir.join("inside.txt")).unwrap(),
         "x\n"
     );
+}
+
+/// Library `file_rename` must `fs::rename` a real directory (#2570).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_rename_moves_real_directory() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("old_pkg");
+    let dst = dir.path().join("new_pkg");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("lib.rs"), "fn a() {}\n").unwrap();
+
+    let result = file_rename(&src, &dst, false, ApplyMode::Apply, None).expect("ok");
+    assert!(
+        result.applied,
+        "directory rename must commit; applied={}",
+        result.applied
+    );
+    assert!(result.backup_session.is_some(), "undo session for rename");
+    assert!(!src.exists(), "source directory must move");
+    assert!(!src.join("lib.rs").is_file(), "source child must move");
+    assert_eq!(
+        fs::read_to_string(dst.join("lib.rs")).unwrap(),
+        "fn a() {}\n"
+    );
+}
+
+/// Library `execute_plan` used the same `no_effective_changes` skip (#2570).
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn execute_plan_file_rename_moves_real_directory() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    let dst = dir.path().join("moved");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("a.txt"), "hi\n").unwrap();
+
+    let plan = parse_plan(
+        r#"{
+            "version": 1,
+            "operations": [
+                {"op": "file.rename", "from": "folder", "to": "moved"}
+            ]
+        }"#,
+    )
+    .unwrap();
+    let report: crate::api::PlanReport = execute_plan(plan, dir.path(), None).unwrap();
+    assert!(report.ok, "status={} err={:?}", report.status, report.error);
+    assert!(!src.exists(), "source directory must move");
+    assert_eq!(fs::read_to_string(dst.join("a.txt")).unwrap(), "hi\n");
 }
 
 /// Library doc_set keeps block-sequence item indent (`- name` / `value`).
