@@ -11,6 +11,34 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.35.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.34.0...patchloom-v0.35.0) (2026-09-18)
+
+
+### Features
+
+* **doc:** add --if-exists to CLI doc set ([#2556](https://github.com/patchloom/patchloom/issues/2556)) ([4075f62](https://github.com/patchloom/patchloom/commit/4075f623d5ceeecf2956a8b41778b507c97a1749)), closes [#2537](https://github.com/patchloom/patchloom/issues/2537)
+* JSONC/KV docs, directory rename undo, and symbol replace/delete ([#2558](https://github.com/patchloom/patchloom/issues/2558)) ([d5d25f4](https://github.com/patchloom/patchloom/commit/d5d25f48e27397d7c2cedfbf1cfa3f43d02d884c)), closes [#2532](https://github.com/patchloom/patchloom/issues/2532) [#2538](https://github.com/patchloom/patchloom/issues/2538) [#2539](https://github.com/patchloom/patchloom/issues/2539)
+* **mcp:** explain, tidy check, patch dry-run, and CLI list-files ([#2555](https://github.com/patchloom/patchloom/issues/2555)) ([b815271](https://github.com/patchloom/patchloom/commit/b8152719b1dbfdf06fa067bb56a1d4028aed35c3))
+* md/doc include-walk, AST CLI mutators, and plan tree cache ([#2559](https://github.com/patchloom/patchloom/issues/2559)) ([3852a95](https://github.com/patchloom/patchloom/commit/3852a95bc2340cf2e814f9d664678b0fae1693d2))
+* plan tidy.fix on directories and C#/Shell/HCL ast deps ([#2557](https://github.com/patchloom/patchloom/issues/2557)) ([b24a2ff](https://github.com/patchloom/patchloom/commit/b24a2ffdc479f0b3ee97ece24b13989fc7c0a82b)), closes [#2534](https://github.com/patchloom/patchloom/issues/2534) [#2544](https://github.com/patchloom/patchloom/issues/2544)
+
+
+### Bug Fixes
+
+* **ast:** emit Rust trait method signatures in symbol list ([#2554](https://github.com/patchloom/patchloom/issues/2554)) ([7bee60d](https://github.com/patchloom/patchloom/commit/7bee60d98eecf3c1787955194ee222ed62473141))
+* **ast:** publish query parse_timeout helpers for library hosts ([#2447](https://github.com/patchloom/patchloom/issues/2447)) ([b0bab2a](https://github.com/patchloom/patchloom/commit/b0bab2a3a07cdc064fad53d17ea2ca5cbfcb28f8)), closes [#2444](https://github.com/patchloom/patchloom/issues/2444)
+* **ast:** publish remaining query parse_timeout helpers ([#2450](https://github.com/patchloom/patchloom/issues/2450)) ([76607f3](https://github.com/patchloom/patchloom/commit/76607f33d0fbad12432f2cf4e7a2d23b8686fdff)), closes [#2445](https://github.com/patchloom/patchloom/issues/2445) [#2446](https://github.com/patchloom/patchloom/issues/2446) [#2449](https://github.com/patchloom/patchloom/issues/2449)
+* **mcp:** keep Host allowlist on non-loopback HTTP binds ([#2561](https://github.com/patchloom/patchloom/issues/2561)) ([cb05f53](https://github.com/patchloom/patchloom/commit/cb05f534e7aff7961ac60a4d598fd3ae74a31920))
+* review issues 2452-2494 ([#2495](https://github.com/patchloom/patchloom/issues/2495)) ([d33e372](https://github.com/patchloom/patchloom/commit/d33e37212443aa6cf77082ee7449329690c56325))
+* review issues 2497-up ([#2553](https://github.com/patchloom/patchloom/issues/2553)) ([8b7111b](https://github.com/patchloom/patchloom/commit/8b7111b7b7c90891fc9e775272cdf36d6cc7172b))
+* **tidy:** stage scan bytes and refuse stale disk ([#2496](https://github.com/patchloom/patchloom/issues/2496)) ([3e9683b](https://github.com/patchloom/patchloom/commit/3e9683bf7035b9812b784a60d7af6883e53a36b0)), closes [#2494](https://github.com/patchloom/patchloom/issues/2494)
+* **undo:** preview rename-back and document directory rename ([#2562](https://github.com/patchloom/patchloom/issues/2562)) ([1704932](https://github.com/patchloom/patchloom/commit/1704932fb06eab7354eeafe96ef2299d58af8433))
+
+
+### Performance Improvements
+
+* share MCP ToolRouter and measure real work in the PR bench ([#2560](https://github.com/patchloom/patchloom/issues/2560)) ([ad238fa](https://github.com/patchloom/patchloom/commit/ad238fa9dc0ac0920f06a2d6f84560efeb8c4535)), closes [#2551](https://github.com/patchloom/patchloom/issues/2551) [#2552](https://github.com/patchloom/patchloom/issues/2552)
+
 ## [0.34.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.33.0...patchloom-v0.34.0) (2026-09-11)
 
 
