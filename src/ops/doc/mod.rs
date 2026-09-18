@@ -100,6 +100,84 @@ pub fn detect_format_with_override(
     detect_format_from_path(path)
 }
 
+/// Flat `.properties` / `.env` keys may contain dots (`server.port`).
+/// Unquoted selectors split on `.`, so `doc keys` names are not usable
+/// as `doc get` / `doc set` paths. Quote them as one key.
+pub fn rewrite_selector_for_format(
+    selector: &str,
+    format: FileFormat,
+) -> std::borrow::Cow<'_, str> {
+    match format {
+        FileFormat::Properties | FileFormat::Env => {
+            if selector.is_empty()
+                || selector == "."
+                || selector == "/"
+                || selector.starts_with('"')
+                || selector.contains('[')
+                || !selector.contains('.')
+            {
+                return std::borrow::Cow::Borrowed(selector);
+            }
+            let escaped = selector.replace('\\', "\\\\").replace('"', "\\\"");
+            std::borrow::Cow::Owned(format!("\"{escaped}\""))
+        }
+        _ => std::borrow::Cow::Borrowed(selector),
+    }
+}
+
+/// Rewrite using the format detected from `path` (honors `--as`).
+pub fn rewrite_selector_for_path<'a>(path: &str, selector: &'a str) -> std::borrow::Cow<'a, str> {
+    match detect_format(path) {
+        Ok(fmt) => rewrite_selector_for_format(selector, fmt),
+        Err(_) => std::borrow::Cow::Borrowed(selector),
+    }
+}
+
+/// Rewrite every selector on a mutation for a flat kv format.
+pub fn rewrite_mutation_for_format(mutation: DocMutation, format: FileFormat) -> DocMutation {
+    let r = |s: String| rewrite_selector_for_format(&s, format).into_owned();
+    match mutation {
+        DocMutation::Set { selector, value } => DocMutation::Set {
+            selector: r(selector),
+            value,
+        },
+        DocMutation::Delete { selector } => DocMutation::Delete {
+            selector: r(selector),
+        },
+        DocMutation::Merge { selector, value } => DocMutation::Merge {
+            selector: selector.map(r),
+            value,
+        },
+        DocMutation::Append { selector, value } => DocMutation::Append {
+            selector: r(selector),
+            value,
+        },
+        DocMutation::Prepend { selector, value } => DocMutation::Prepend {
+            selector: r(selector),
+            value,
+        },
+        DocMutation::Update { selector, value } => DocMutation::Update {
+            selector: r(selector),
+            value,
+        },
+        DocMutation::Move { from, to } => DocMutation::Move {
+            from: r(from),
+            to: r(to),
+        },
+        DocMutation::Ensure { selector, value } => DocMutation::Ensure {
+            selector: r(selector),
+            value,
+        },
+        DocMutation::DeleteWhere {
+            selector,
+            predicate,
+        } => DocMutation::DeleteWhere {
+            selector: r(selector),
+            predicate,
+        },
+    }
+}
+
 pub fn detect_format_from_path(path: &str) -> anyhow::Result<FileFormat> {
     let p = Path::new(path);
     if let Some(name) = p.file_name().and_then(|n| n.to_str())
