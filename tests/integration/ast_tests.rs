@@ -7,6 +7,13 @@ fn test_ast_list_broken_pipe_is_not_a_panic() {
     assert_cli_broken_pipe_is_not_a_panic(&["ast", "list", "src/lib.rs"]);
 }
 
+/// Directory `ast deps | head` must not panic (human import dump uses stdout).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_deps_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["ast", "deps", "src"]);
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_replace_apply_dispatch() {

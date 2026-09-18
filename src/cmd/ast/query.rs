@@ -4,8 +4,9 @@
 
 use super::common::{
     collect_source_files, display_path, filter_symbols, get_git_file_content, parse_kind_filter,
-    print_symbol_items_json, print_symbols_compact, print_symbols_human, print_symbols_json,
-    resolve_lang, resolve_target_paths, setup_multi_file, setup_single_file, symbol_to_json,
+    print_deps_human, print_line, print_symbol_items_json, print_symbols_compact,
+    print_symbols_human, print_symbols_json, resolve_lang, resolve_target_paths, setup_multi_file,
+    setup_single_file, symbol_to_json,
 };
 use crate::ast::parse_lang_hint;
 use crate::ast::symbols::{self, SymbolDef};
@@ -765,12 +766,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
             }));
             global.emit_json_items(&structured_items)?;
         } else if !global.quiet {
-            println!("{display}");
-            println!("  imports:");
-            for imp in &imports {
-                println!("    {}", imp.path);
-            }
-            println!();
+            print_deps_human(&display, &imports)?;
         }
         return Ok(exit::SUCCESS);
     }
@@ -829,7 +825,7 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
             .into());
         }
 
-        for hit in &hits {
+        'hits: for hit in &hits {
             any_output = true;
             if structured {
                 for imp in &hit.matching {
@@ -842,7 +838,9 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
                 }
             } else if !global.quiet {
                 for imp in &hit.matching {
-                    println!("{}:{}: {}", hit.display, imp.line, imp.raw);
+                    if !print_line(&format!("{}:{}: {}", hit.display, imp.line, imp.raw))? {
+                        break 'hits;
+                    }
                 }
             }
         }
@@ -889,13 +887,8 @@ pub(super) fn run_deps(args: DepsArgs, global: &GlobalFlags) -> anyhow::Result<u
                     "file": result.display,
                     "imports": result.imports,
                 }));
-            } else if !global.quiet {
-                println!("{}", result.display);
-                println!("  imports:");
-                for imp in &result.imports {
-                    println!("    {}", imp.path);
-                }
-                println!();
+            } else if !global.quiet && !print_deps_human(&result.display, &result.imports)? {
+                break;
             }
         }
     }
