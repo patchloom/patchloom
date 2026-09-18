@@ -1281,6 +1281,36 @@ fn test_tx_file_rename_directory_source_moves() {
 }
 
 #[test]
+fn test_tx_file_rename_directory_check_counts_rename() {
+    let dir = TempDir::new().unwrap();
+    let src = dir.path().join("folder");
+    fs::create_dir(&src).unwrap();
+    fs::write(src.join("a.txt"), "hi\n").unwrap();
+
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [
+            {"op": "file.rename", "from": "folder", "to": "new-name"}
+        ]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("tx")
+        .arg(&plan_file)
+        .arg("--check")
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("1 file(s) would change"));
+
+    assert!(src.exists(), "check must not move the directory");
+}
+
+#[test]
 fn test_tx_file_rename_moves_file() {
     let dir = TempDir::new().unwrap();
     let src = dir.path().join("old.txt");
