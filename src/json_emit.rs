@@ -103,11 +103,14 @@ pub(crate) fn serialize_structured<T: Serialize>(value: &T, compact: bool) -> St
 /// Print structured JSON to stdout. Returns whether primary serialization
 /// succeeded. On failure, still prints a non-empty fallback envelope
 /// (`ok: false`, `error_kind: operation_failed`) and does not eprint
-/// (stdout is the agent contract).
+/// (stdout is the agent contract). Broken pipe is success. Other write
+/// errors are treated as a failed emit so callers map to exit 1.
 pub(crate) fn print_structured<T: Serialize>(value: &T, compact: bool) -> bool {
     let emit = serialize_structured(value, compact);
-    let _ = write_stdout_ignore_epipe(emit.json.as_bytes(), true);
-    emit.primary_ok
+    match write_stdout_ignore_epipe(emit.json.as_bytes(), true) {
+        Ok(_) => emit.primary_ok,
+        Err(_) => false,
+    }
 }
 
 /// Minimal agent envelope when primary serialization fails.
