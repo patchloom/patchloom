@@ -496,6 +496,8 @@ By default, the MCP server uses stdio transport (ideal for local IDE/agent integ
 
 Streamable HTTP has no authentication and no token. The default bind is loopback (`127.0.0.1`). Binding a non-loopback address (`0.0.0.0`, a LAN IP, or a public IP) is refused unless you pass `--allow-unauthenticated`.
 
+The Host allowlist stays on for every bind, including non-loopback. Defaults are `localhost`, `127.0.0.1`, and `::1`. A specific bind IP is added automatically. Use `--allowed-host` (repeatable) to add the hostname or IP clients send in the Host header. Binding `0.0.0.0` does not accept every Host value.
+
 ### Basic HTTP
 
 ```bash
@@ -516,6 +518,9 @@ Do not copy-paste `--host 0.0.0.0` as a default. All-interfaces HTTP is unauthen
 ```bash
 # All interfaces: unauthenticated, opt-in required
 patchloom mcp-server --http --host 0.0.0.0 --allow-unauthenticated
+
+# Add the hostname or IP clients send (Host allowlist stays on)
+patchloom mcp-server --http --host 192.168.0.10 --allow-unauthenticated --allowed-host mcp.internal
 ```
 
 ### HTTPS with native TLS
@@ -537,6 +542,7 @@ Both `--tls-cert` and `--tls-key` must be provided together. The server uses rus
 | `--host` | `127.0.0.1` | Bind address (requires `--http`). Non-loopback binds require `--allow-unauthenticated` |
 | `--port` | `8080` | Bind port (requires `--http`). Use `0` for an OS-assigned ephemeral port (printed in the startup banner) |
 | `--allow-unauthenticated` | off | Permit HTTP on a non-loopback bind. Streamable HTTP has no token or other client auth |
+| `--allowed-host` | none (repeatable) | Extra Host header name or IP to accept (requires `--http`). Defaults stay `localhost`, `127.0.0.1`, and `::1`. The allowlist is never disabled. |
 | `--tls-cert` | none | TLS certificate PEM file; enables HTTPS (requires `--http` and `--tls-key`) |
 | `--tls-key` | none | TLS private key PEM file (requires `--http` and `--tls-cert`) |
 

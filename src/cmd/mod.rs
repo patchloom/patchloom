@@ -160,6 +160,11 @@ ENVIRONMENT:
         #[cfg(feature = "mcp-http")]
         #[arg(long, requires = "http")]
         allow_unauthenticated: bool,
+
+        /// Additional Host header name to accept (requires --http). Repeatable.
+        #[cfg(feature = "mcp-http")]
+        #[arg(long, requires = "http", action = clap::ArgAction::Append, value_name = "NAME")]
+        allowed_host: Vec<String>,
     },
     /// Generate shell completions for bash, zsh, fish, or elvish.
     #[command(display_order = 58)]
@@ -202,6 +207,8 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
             tls_key,
             #[cfg(feature = "mcp-http")]
             allow_unauthenticated,
+            #[cfg(feature = "mcp-http")]
+            allowed_host,
         } => {
             load_project_config(&mut global)?;
             #[cfg(feature = "mcp-http")]
@@ -214,6 +221,7 @@ pub fn dispatch(cli: Cli) -> anyhow::Result<u8> {
                     tls_cert.as_deref(),
                     tls_key.as_deref(),
                     allow_unauthenticated,
+                    &allowed_host,
                 );
             }
             mcp::run_mcp_server(&global, log)

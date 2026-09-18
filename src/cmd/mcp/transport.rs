@@ -184,6 +184,70 @@ pub(crate) fn check_unauthenticated_http_bind(
     })
 }
 
+/// Host names accepted in the HTTP `Host` header for Streamable HTTP.
+///
+/// Always includes rmcp defaults (`localhost`, `127.0.0.1`, `::1`). A
+/// specific bind IP (not unspecified `0.0.0.0` / `::`, and not a hostname
+/// that is only localhost) is also included so clients that send that
+/// address are accepted. Extra names come from `--allowed-host` (trimmed;
+/// empty skipped; case-insensitive dedup). The result is never empty
+/// (empty would accept any Host).
+#[cfg(feature = "mcp-http")]
+pub(crate) fn http_allowed_hosts(bind_host: &str, extra: &[String]) -> Vec<String> {
+    let mut hosts = vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+    ];
+    if let Some(bind) = bind_host_as_allowed(bind_host) {
+        push_unique_host(&mut hosts, &bind);
+    }
+    for name in extra {
+        let trimmed = name.trim();
+        if !trimmed.is_empty() {
+            push_unique_host(&mut hosts, trimmed);
+        }
+    }
+    hosts
+}
+
+/// Bind host to add to the Host allowlist, if any.
+///
+/// Unspecified addresses (`0.0.0.0`, `::`) are not client Host values.
+/// `localhost` is already in the rmcp defaults.
+#[cfg(feature = "mcp-http")]
+fn bind_host_as_allowed(bind_host: &str) -> Option<String> {
+    let host = bind_host.trim();
+    if host.is_empty() || host.eq_ignore_ascii_case("localhost") {
+        return None;
+    }
+    let stripped = host
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(host);
+    match stripped.parse::<std::net::IpAddr>() {
+        Ok(ip) if ip_is_unspecified(ip) => None,
+        Ok(_) => Some(stripped.to_string()),
+        Err(_) => Some(host.to_string()),
+    }
+}
+
+#[cfg(feature = "mcp-http")]
+fn ip_is_unspecified(ip: std::net::IpAddr) -> bool {
+    ip.is_unspecified()
+        || match ip {
+            std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().is_some_and(|v4| v4.is_unspecified()),
+            std::net::IpAddr::V4(_) => false,
+        }
+}
+
+#[cfg(feature = "mcp-http")]
+fn push_unique_host(hosts: &mut Vec<String>, candidate: &str) {
+    if !hosts.iter().any(|h| h.eq_ignore_ascii_case(candidate)) {
+        hosts.push(candidate.to_string());
+    }
+}
+
 /// Parse `--host` + `--port` into a bind address.
 ///
 /// Accepts hostnames (`localhost`), bare IPv6 (`::1`), bracketed IPv6
@@ -224,6 +288,7 @@ pub(crate) fn run_mcp_http_server(
     tls_cert: Option<&std::path::Path>,
     tls_key: Option<&std::path::Path>,
     allow_unauthenticated: bool,
+    allowed_hosts: &[String],
 ) -> anyhow::Result<u8> {
     use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
     use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
@@ -234,13 +299,9 @@ pub(crate) fn run_mcp_http_server(
     let cwd = global.resolve_cwd()?;
     let ct = CancellationToken::new();
 
-    let mut config =
-        StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token());
-
-    // When binding to non-loopback, allow any Host header
-    if !is_loopback_http_bind_host(host) {
-        config = config.disable_allowed_hosts();
-    }
+    let config = StreamableHttpServerConfig::default()
+        .with_cancellation_token(ct.child_token())
+        .with_allowed_hosts(http_allowed_hosts(host, allowed_hosts));
 
     let log_path = log;
     let service = StreamableHttpService::new(
@@ -343,8 +404,113 @@ pub(crate) fn run_mcp_server(global: &GlobalFlags, log: Option<String>) -> anyho
 #[cfg(all(test, feature = "mcp-http"))]
 mod bind_host_tests {
     use super::{
-        check_unauthenticated_http_bind, is_loopback_http_bind_host, parse_http_bind_addr,
+        check_unauthenticated_http_bind, http_allowed_hosts, is_loopback_http_bind_host,
+        parse_http_bind_addr,
     };
+
+    fn default_http_hosts() -> Vec<String> {
+        vec![
+            "localhost".to_string(),
+            "127.0.0.1".to_string(),
+            "::1".to_string(),
+        ]
+    }
+
+    #[test]
+    fn http_allowed_hosts_unspecified_bind_is_defaults_only() {
+        let hosts = http_allowed_hosts("0.0.0.0", &[]);
+        assert!(!hosts.is_empty(), "empty allowlist accepts any Host header");
+        assert_eq!(hosts, default_http_hosts());
+        assert!(!hosts.iter().any(|h| h == "0.0.0.0"));
+    }
+
+    #[test]
+    fn http_allowed_hosts_specific_ip_includes_bind() {
+        let hosts = http_allowed_hosts("192.168.0.10", &[]);
+        for expected in ["localhost", "127.0.0.1", "::1", "192.168.0.10"] {
+            assert!(
+                hosts.iter().any(|h| h == expected),
+                "missing {expected} in {hosts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn http_allowed_hosts_unspecified_v6_plus_extra() {
+        let extra = ["mcp.example".to_string()];
+        let hosts = http_allowed_hosts("::", &extra);
+        for expected in ["localhost", "127.0.0.1", "::1", "mcp.example"] {
+            assert!(
+                hosts.iter().any(|h| h == expected),
+                "missing {expected} in {hosts:?}"
+            );
+        }
+        assert!(
+            !hosts.iter().any(|h| h == "::" || h == "0.0.0.0"),
+            "unspecified bind must not be a client Host: {hosts:?}"
+        );
+    }
+
+    #[test]
+    fn http_allowed_hosts_trims_skips_empty_and_dedups() {
+        let extra = [
+            "  mcp.example  ".to_string(),
+            String::new(),
+            "   ".to_string(),
+            "localhost".to_string(),
+            "LOCALHOST".to_string(),
+            "MCP.example".to_string(),
+        ];
+        let hosts = http_allowed_hosts("127.0.0.1", &extra);
+        assert!(!hosts.is_empty());
+        assert_eq!(
+            hosts
+                .iter()
+                .filter(|h| h.eq_ignore_ascii_case("localhost"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            hosts
+                .iter()
+                .filter(|h| h.eq_ignore_ascii_case("mcp.example"))
+                .count(),
+            1
+        );
+        assert!(hosts.iter().any(|h| h == "mcp.example"));
+        assert!(!hosts.iter().any(|h| h.trim().is_empty()));
+    }
+
+    #[test]
+    fn http_allowed_hosts_strips_ipv6_brackets() {
+        let hosts = http_allowed_hosts("[2001:db8::10]", &[]);
+        assert!(
+            hosts.iter().any(|h| h == "2001:db8::10"),
+            "bracketed IPv6 bind should be stored without brackets: {hosts:?}"
+        );
+        assert!(!hosts.iter().any(|h| h == "[2001:db8::10]"));
+    }
+
+    #[test]
+    fn run_mcp_http_server_does_not_disable_allowed_hosts() {
+        let src = include_str!("transport.rs");
+        let start = src
+            .find("pub(crate) fn run_mcp_http_server")
+            .expect("run_mcp_http_server");
+        let rest = &src[start..];
+        let end = rest
+            .find("pub(crate) fn run_mcp_server")
+            .unwrap_or(rest.len());
+        let body = &rest[..end];
+        assert!(
+            !body.contains("disable_allowed_hosts"),
+            "run_mcp_http_server must not call disable_allowed_hosts"
+        );
+        assert!(
+            body.contains("with_allowed_hosts(http_allowed_hosts"),
+            "run_mcp_http_server must set allowed hosts via http_allowed_hosts"
+        );
+    }
 
     #[test]
     fn parse_http_bind_addr_accepts_localhost() {

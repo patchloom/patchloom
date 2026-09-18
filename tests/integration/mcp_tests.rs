@@ -355,6 +355,10 @@ fn test_mcp_setup_does_not_advertise_bare_all_interfaces_http() {
         "mcp-setup must document --allow-unauthenticated"
     );
     assert!(
+        doc.contains("--allowed-host"),
+        "mcp-setup must document --allowed-host for Host allowlist extras"
+    );
+    assert!(
         doc.contains("127.0.0.1"),
         "mcp-setup must show loopback first"
     );
