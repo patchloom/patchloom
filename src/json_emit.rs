@@ -250,7 +250,7 @@ mod tests {
 
     impl Write for OtherErrWriter {
         fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::Other, "nope"))
+            Err(io::Error::other("nope"))
         }
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
