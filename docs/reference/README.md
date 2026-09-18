@@ -332,9 +332,9 @@ These are the main entry points. If you are deciding between commands, start her
 <!-- ref:command:rename -->
 ## `rename`
 
-- **What it does:** Moves (renames) a file, symlink, FIFO, socket, or device node from one path to another. Real directories are refused. Symlinks (including dangling and symlink-to-dir) are moved as directory entries without following the target, so write policies never rewrite the link target. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
-- **Use when:** A file needs to be relocated and no other atomic edits are needed. Use `file.rename` inside `tx` plans when bundling with other edits.
-- **Failure behavior:** Missing source exits `1` with `error_kind: "not_found"`; destination exists without `--force` uses `already_exists`; real directories use `invalid_input`. Pre-write failures under `--json`/`--jsonl` set `applied: false`.
+- **What it does:** Moves (renames) a file, real directory, symlink, FIFO, socket, or device node from one path to another. Files and real directories can be renamed. Destination exists without `--force` is `already_exists`. Symlinks (including dangling and symlink-to-dir) are moved as directory entries without following the target, so write policies never rewrite the link target. When combined with `--confirm` and `--json` or `--jsonl`, the structured output includes `applied: true|false` so callers can tell whether the prompt was accepted.
+- **Use when:** A file or directory needs to be relocated and no other atomic edits are needed. Use `file.rename` inside `tx` plans when bundling with other edits.
+- **Failure behavior:** Missing source exits `1` with `error_kind: "not_found"`; destination exists without `--force` uses `already_exists`. Pre-write failures under `--json`/`--jsonl` set `applied: false`.
 - **Prefer instead:** Use `tx file.rename` when the rename must be bundled atomically with other changes.
 - **Related:** `create`, `delete`, `tx file.rename`
 

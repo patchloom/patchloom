@@ -359,9 +359,11 @@ pub fn file_delete(
     file_write(op, path, mode, guard, "delete")
 }
 
-/// Rename (move) a file, symlink, FIFO, socket, or device node (#2091).
+/// Rename (move) a file, real directory, symlink, FIFO, socket, or device node
+/// (#2091, #2538).
 ///
-/// **Directories are refused.** Symlinks (including dangling and symlink-to-dir)
+/// Files and real directories can be renamed. Destination exists without
+/// `--force` is `already_exists`. Symlinks (including dangling and symlink-to-dir)
 /// are moved as directory entries without following the target. Soft-loading
 /// symlink text and rewriting would mutate the target via `atomic_write`;
 /// special nodes use an empty path-only snapshot so write policies never

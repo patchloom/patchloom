@@ -1381,15 +1381,7 @@ impl PatchloomService {
                     .iter()
                     .map(|entry| crate::cmd::undo::UndoPreviewEntry {
                         path: entry.path.clone(),
-                        action: match entry.action {
-                            crate::backup::FileAction::Modified => "restore original".to_string(),
-                            crate::backup::FileAction::Created => {
-                                "delete (was created by apply)".to_string()
-                            }
-                            crate::backup::FileAction::Deleted => {
-                                "recreate (was deleted by apply)".to_string()
-                            }
-                        },
+                        action: crate::cmd::undo::preview_action(entry),
                     })
                     .collect();
                 let output = crate::cmd::undo::UndoPreviewOutput {

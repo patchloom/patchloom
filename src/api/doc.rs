@@ -150,7 +150,7 @@ fn doc_write(
     Ok(edit)
 }
 
-/// Set a value at a selector path in a JSON, YAML, or TOML file.
+/// Set a value at a selector path in a JSON, JSONC, YAML, TOML, `.env`, `.ini`, or `.properties` file.
 ///
 /// The file format is detected from the extension. The selector uses
 /// patchloom's selector syntax (e.g., `"database.host"`, `"items[0].name"`).

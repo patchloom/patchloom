@@ -317,6 +317,16 @@ fn test_rename_directory_undo_restores() {
     Command::cargo_bin("patchloom")
         .unwrap()
         .arg("undo")
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("rename back to folder"))
+        .stdout(predicate::str::contains("delete (was created").not());
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("undo")
         .arg("--apply")
         .arg("--cwd")
         .arg(dir.path())
