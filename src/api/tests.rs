@@ -2886,6 +2886,82 @@ fn tidy_normalizes_whitespace() {
     );
 }
 
+/// #2580: library `tidy()` with `normalize_eol: None` must unmix, same as
+/// bare CLI `tidy fix` / omitted plan `tidy.fix` field.
+#[test]
+fn tidy_default_none_unmixes_mixed_eol() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.txt");
+    fs::write(&file, "a\nb\r\nc\n").unwrap();
+
+    let result = tidy(
+        &file,
+        &WritePolicyOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(result.changed, "mixed EOL must be a tidy change");
+    assert!(result.applied);
+    let disk = fs::read(&file).unwrap();
+    assert!(
+        !disk.windows(2).any(|w| w == b"\r\n"),
+        "LF-majority mixed file should become LF: {disk:?}"
+    );
+    assert_eq!(disk, b"a\nb\nc\n");
+}
+
+/// #2580: uniform CRLF stays CRLF under library default tidy.
+#[test]
+fn tidy_default_keeps_uniform_crlf() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("win.txt");
+    fs::write(&file, "line1\r\nline2\r\n").unwrap();
+
+    let result = tidy(
+        &file,
+        &WritePolicyOptions::default(),
+        ApplyMode::Apply,
+        None,
+    )
+    .unwrap();
+    assert!(!result.changed, "uniform CRLF is already tidy: {result:?}");
+    assert_eq!(fs::read(&file).unwrap(), b"line1\r\nline2\r\n");
+}
+
+/// #2580: explicit Keep opts out of unmix.
+#[test]
+fn tidy_explicit_keep_does_not_unmix() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.txt");
+    let original = b"a\nb\r\n";
+    fs::write(&file, original).unwrap();
+
+    let opts = WritePolicyOptions {
+        normalize_eol: Some(EolMode::Keep),
+        ..WritePolicyOptions::default()
+    };
+    let result = tidy(&file, &opts, ApplyMode::Apply, None).unwrap();
+    assert!(!result.changed, "Keep must leave mixed EOL: {result:?}");
+    assert_eq!(fs::read(&file).unwrap(), original);
+}
+
+/// #2580: charset-local tidy path must also unmix when EOL is omitted.
+#[test]
+fn tidy_charset_path_none_unmixes_mixed_eol() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("mixed.txt");
+    fs::write(&file, "a\nb\r\nc\n").unwrap();
+
+    let opts = WritePolicyOptions {
+        charset: CharsetMode::Utf8,
+        ..WritePolicyOptions::default()
+    };
+    let result = tidy(&file, &opts, ApplyMode::Apply, None).unwrap();
+    assert!(result.changed, "mixed EOL must be a tidy change");
+    assert_eq!(fs::read(&file).unwrap(), b"a\nb\nc\n");
+}
+
 #[test]
 fn tidy_maps_charset() {
     let dir = TempDir::new().unwrap();

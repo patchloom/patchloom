@@ -27,6 +27,10 @@ pub struct TidyIndentOptions {
 /// consecutive blank lines, and charset (`Utf8Bom` / `Utf8` / `Keep`;
 /// `Unsupported` is `invalid_input`) according to the policy options.
 /// Optionally applies dedent/indent transforms via `indent_opts`.
+///
+/// `WritePolicyOptions::normalize_eol == None` matches bare CLI `tidy fix`:
+/// mixed endings flatten to the dominant style. Set `Some(EolMode::Keep)`
+/// to leave mixed endings unchanged. Uniform CRLF or LF is not converted.
 pub fn tidy(
     path: &Path,
     policy_opts: &WritePolicyOptions,
@@ -58,14 +62,15 @@ pub fn tidy_with_indent(
     let result = if !matches!(policy_opts.charset, crate::write::CharsetMode::Keep) {
         tidy_apply_policy_locally(path, caller_path, policy_opts, indent_opts, mode, guard)?
     } else {
-        // None means keep (do not unmix). Plan tidy.fix omits the field
-        // for CLI-default unmix; library callers pass an explicit policy.
-        let eol_str = Some(match policy_opts.normalize_eol {
-            Some(EolMode::Lf) => "lf".to_string(),
-            Some(EolMode::Crlf) => "crlf".to_string(),
-            Some(EolMode::Cr) => "cr".to_string(),
-            Some(EolMode::Keep) | None => "keep".to_string(),
-        });
+        // None omits the plan field so tidy.fix unmixes (CLI default).
+        // Some(Keep) stays keep so hosts can opt out of unmix.
+        let eol_str = match policy_opts.normalize_eol {
+            Some(EolMode::Lf) => Some("lf".to_string()),
+            Some(EolMode::Crlf) => Some("crlf".to_string()),
+            Some(EolMode::Cr) => Some("cr".to_string()),
+            Some(EolMode::Keep) => Some("keep".to_string()),
+            None => None,
+        };
         let op = Operation::TidyFix {
             path: super::library_op_path(caller_path, path, guard),
             ensure_final_newline: Some(policy_opts.ensure_final_newline),
@@ -117,6 +122,9 @@ fn tidy_apply_policy_locally(
     let path_str = display_path.to_string_lossy();
     let original = crate::files::load_text_strict(path, &path_str)?;
     let mut new_content = crate::write::apply_policy(&original, &policy).into_owned();
+    if policy_opts.normalize_eol.is_none() {
+        new_content = crate::write::unmix_eol(&new_content).into_owned();
+    }
 
     let line_range = indent_opts
         .lines
@@ -187,6 +195,7 @@ fn tidy_write(
         let path_str = display;
         let original = crate::files::load_text_strict(path, &path_str)?;
 
+        let unmix = normalize_eol.is_none();
         let eol = normalize_eol
             .as_deref()
             .map(|s| match s {
@@ -205,6 +214,9 @@ fn tidy_write(
         };
         policy.refuse_unsupported_charset()?;
         let mut new_content = crate::write::apply_policy(&original, &policy).into_owned();
+        if unmix {
+            new_content = crate::write::unmix_eol(&new_content).into_owned();
+        }
 
         // Apply dedent/indent after policy normalization.
         let line_range = lines
