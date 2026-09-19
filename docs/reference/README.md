@@ -1291,7 +1291,7 @@ The operations below are the building blocks inside `operations`.
 
 - **What it does:** Applies tidy normalization inside a transaction. A directory path expands with the same ignore-aware walker as CLI `tidy fix` (one write per text file; #2534). Path globs are not dest-glob expand; use `for_each` for glob batches.
 - **Use when:** Text cleanup should be part of the same atomic success criteria as other edits, including a whole directory the way CLI `tidy fix docs/` works.
-- **Defaults (#1840):** When the op omits write-policy fields, matches bare CLI `tidy fix`: trim trailing whitespace and ensure final newline (`normalize_eol` stays keep unless set). Precedence: tidy defaults → plan `write_policy` → op fields. At commit, plan `write_policy` is not re-applied to paths last written by `tidy.fix` so op fields stick (#1847); CLI/EditorConfig policy still applies. A later non-tidy write clears that and restores full plan policy.
+- **Defaults (#1840):** When the op omits write-policy fields, matches bare CLI `tidy fix`: trim trailing whitespace and ensure final newline; mixed EOL flattens to the dominant style; uniform CRLF/LF stays. Set `normalize_eol: keep` to opt out of flattening. Precedence: tidy defaults → plan `write_policy` → op fields. At commit, plan `write_policy` is not re-applied to paths last written by `tidy.fix` so op fields stick (#1847); CLI/EditorConfig policy still applies. A later non-tidy write clears that and restores full plan policy.
 - **Related:** top level `tidy fix`
 
 <!-- ref:tx-op:file.append -->
