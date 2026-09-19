@@ -15,8 +15,9 @@ use super::{ApplyMode, EditResult};
 ///
 /// Also detects Codex Begin Patch and SEARCH/REPLACE / DiffFenced.
 /// SEARCH/REPLACE is unique-only here (`replace_all` is CLI / MCP / plan).
-/// Dest paths come from the document; `path` only supplies the workspace
-/// parent (same as a relative dest under that parent).
+/// Dest paths come from the document (`-------` after SEARCH). Dest-less
+/// SEARCH/REPLACE applies to `path` (`file_hint`). `path` also supplies
+/// the workspace parent for relative dests.
 ///
 /// Empty-hunk `+++ /dev/null` (git `deleted file mode`, no hunks) unlinks.
 /// A hunked delete applies the minus lines first. Leftover bytes rewrite

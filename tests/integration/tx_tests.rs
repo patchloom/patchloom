@@ -4627,6 +4627,45 @@ fn test_tx_patch_apply_search_replace() {
 }
 
 #[test]
+fn test_tx_patch_apply_destless_search_replace_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.rs"), "only.rs\nthe old text\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "<<<<<<< SEARCH\nonly.rs\nthe old text\n=======\nthe new text\n>>>>>>> REPLACE\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "--apply"])
+        .arg(&plan_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(err.contains("path must not be empty"), "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("only.rs")).unwrap(),
+        "only.rs\nthe old text\n"
+    );
+}
+
+#[test]
 fn test_tx_patch_apply_search_replace_replace_all() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("code.rs"), "x\nx\n").unwrap();

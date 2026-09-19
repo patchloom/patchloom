@@ -109,6 +109,8 @@ Library `doc_set` keeps `if_exists: false`. For the CLI/plan soft miss
 13. **SEARCH/REPLACE / DiffFenced:** `parse_search_replace` /
     `apply_search_replace_blocks` (or `apply_search_replace_document`).
     `apply_patch` / `apply_patch_file` also detect `<<<<<<< SEARCH`.
+    Dest is the path above `-------` after SEARCH. Dest-less blocks apply
+    to `apply_patch`'s path (`file_hint`); `apply_patch_file` still needs dest.
     Dest-deny with `looks_like_search_replace` + `search_replace_declared_paths`.
     Default is unique: multi-match is `ambiguous` and does not write. Pass
     `replace_all: true` (CLI `patch apply --replace-all`, MCP `replace_all`)

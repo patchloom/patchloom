@@ -16,7 +16,8 @@ pub struct ApplySearchReplaceOptions {
     /// When true, update every exact match. Default false (unique, or error).
     pub replace_all: bool,
     /// Remap dest onto this path when dest is that path or a suffix
-    /// (same rule as Begin Patch `file_hint`). Used by [`super::apply_patch`].
+    /// (same rule as Begin Patch `file_hint`). Empty dest (no `-------`
+    /// separator) also uses this path. Used by [`super::apply_patch`].
     pub file_hint: Option<PathBuf>,
 }
 
@@ -75,13 +76,17 @@ pub fn apply_search_replace_blocks(
                     .into(),
             }));
         }
-        if block.path.trim().is_empty() {
+        if block.path.trim().is_empty() && opts.file_hint.is_none() {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
                 msg: "SEARCH/REPLACE path must not be empty".into(),
             }));
         }
         let dest = resolve_search_replace_path(cwd, &block.path, opts.file_hint.as_deref(), guard)?;
-        let display = block.path.clone();
+        let display = if block.path.trim().is_empty() {
+            dest.to_string_lossy().into_owned()
+        } else {
+            block.path.clone()
+        };
 
         if let Some(idx) = planned.iter().position(|p| p.path == dest) {
             let existing = &mut planned[idx];
@@ -148,6 +153,15 @@ fn resolve_search_replace_path(
     file_hint: Option<&Path>,
     guard: Option<&PathGuard>,
 ) -> anyhow::Result<PathBuf> {
+    if dest.trim().is_empty() {
+        let Some(hint) = file_hint else {
+            return Err(anyhow::Error::new(crate::exit::InvalidInputError {
+                msg: "SEARCH/REPLACE path must not be empty".into(),
+            }));
+        };
+        super::ensure_contained_resolved(guard, hint)?;
+        return Ok(hint.to_path_buf());
+    }
     let path = Path::new(dest);
     if path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(anyhow::Error::new(crate::exit::InvalidInputError {
@@ -407,6 +421,89 @@ fn new() {}
             .expect("apply_patch detects SEARCH/REPLACE");
         assert!(result.applied);
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), "fn new() {}\n");
+    }
+
+    #[test]
+    fn apply_patch_destless_search_replace_uses_file_hint() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let dest = src.join("rafter.rs");
+        let original = concat!(
+            "            pub fn set(&mut self, deg: u32) -> Result<u64, Error> {\n",
+            "        if deg == 0 {\n",
+            "            return Err(Error::Zero);\n",
+            "        }\n",
+            "        Ok(deg as u64)\n",
+            "    }\n",
+        );
+        let updated = concat!(
+            "    pub fn set(&mut self, deg: u32) -> Result<u64, Error> {\n",
+            "        if deg == 0 {\n",
+            "            return Err(Error::Zero);\n",
+            "        }\n",
+            "        Ok(deg as u64)\n",
+            "    }\n",
+        );
+        std::fs::write(&dest, original).unwrap();
+        let input = concat!(
+            "<<<<<<< SEARCH\n",
+            "            pub fn set(&mut self, deg: u32) -> Result<u64, Error> {\n",
+            "        if deg == 0 {\n",
+            "=======\n",
+            "    pub fn set(&mut self, deg: u32) -> Result<u64, Error> {\n",
+            "        if deg == 0 {\n",
+            ">>>>>>> REPLACE\n",
+        );
+        crate::api::apply_patch(&dest, input, ApplyMode::Apply, None)
+            .expect("dest-less SEARCH/REPLACE applies to apply_patch path");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), updated);
+        let invented = src.join("pub fn set(&mut self, deg: u32) -> Result<u64, Error> {");
+        assert!(
+            !invented.exists(),
+            "must not join the first SEARCH line under path.parent()"
+        );
+    }
+
+    #[test]
+    fn apply_search_replace_destless_without_file_hint_is_invalid_input() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("only.rs"), "only.rs\nthe old text\n").unwrap();
+        let input = "\
+<<<<<<< SEARCH
+only.rs
+the old text
+=======
+the new text
+>>>>>>> REPLACE
+";
+        let err = apply_search_replace_document(
+            input,
+            dir.path(),
+            &ApplySearchReplaceOptions::default(),
+            ApplyMode::Preview,
+            None,
+        )
+        .expect_err("dest-less needs file_hint or ------- dest");
+        assert!(is_invalid_input(&err), "{err}");
+        assert!(err.to_string().contains("path must not be empty"), "{err}");
+    }
+
+    #[test]
+    fn apply_patch_file_destless_search_replace_is_invalid_input() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("only.rs"), "only.rs\nthe old text\n").unwrap();
+        let input = "\
+<<<<<<< SEARCH
+only.rs
+the old text
+=======
+the new text
+>>>>>>> REPLACE
+";
+        let err = crate::api::apply_patch_file(input, dir.path(), ApplyMode::Preview, None)
+            .expect_err("apply_patch_file still needs ------- dest");
+        assert!(is_invalid_input(&err), "{err}");
     }
 
     #[test]
