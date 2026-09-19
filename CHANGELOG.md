@@ -11,6 +11,13 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.35.2](https://github.com/patchloom/patchloom/compare/patchloom-v0.35.1...patchloom-v0.35.2) (2026-09-19)
+
+
+### Bug Fixes
+
+* **api:** treat tidy() None EOL as unmix ([#2581](https://github.com/patchloom/patchloom/issues/2581)) ([8fc9541](https://github.com/patchloom/patchloom/commit/8fc954165c6bc7be3f5d2e5bbf8cb4b8ed3029b0)), closes [#2580](https://github.com/patchloom/patchloom/issues/2580)
+
 ## [0.35.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.35.0...patchloom-v0.35.1) (2026-09-18)
 
 
