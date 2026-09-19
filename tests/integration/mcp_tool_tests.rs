@@ -6965,6 +6965,31 @@ async fn test_mcp_apply_patch_search_replace_update() {
 }
 
 #[tokio::test]
+async fn test_mcp_apply_patch_destless_search_replace_is_invalid_input() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.rs"), "only.rs\nthe old text\n").unwrap();
+    let diff = "<<<<<<< SEARCH\nonly.rs\nthe old text\n=======\nthe new text\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        is_error,
+        "dest-less MCP apply_patch must fail closed: {val}"
+    );
+    assert_eq!(val["error_kind"], "invalid_input", "{val}");
+    let err = val["error"].as_str().unwrap_or("");
+    assert!(err.contains("path must not be empty"), "{val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("only.rs")).unwrap(),
+        "only.rs\nthe old text\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_apply_patch_search_replace_replace_all() {
     if !has_mcp_support() {
         return;

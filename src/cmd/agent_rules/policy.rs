@@ -125,12 +125,14 @@ binary / mode-only dests are listed then apply refuses (no silent skip on mixed 
 `api::looks_like_begin_patch` + `api::begin_patch_declared_paths`. Do not copy a \
 Begin Patch parser. Mixed Begin Patch + unified-diff is a typed error. Update hunks \
 require a unique exact match.\n\n\
-             **Library SEARCH/REPLACE (#2220 / #2221):** `api::parse_search_replace` / \
+             **Library SEARCH/REPLACE (#2220 / #2221 / #2584):** `api::parse_search_replace` / \
 `api::apply_search_replace_blocks` (DiffFenced is the same parse after fence unwrap). \
 CLI `patch apply` and MCP `apply_patch` detect `<<<<<<< SEARCH` (and fenced DiffFenced). \
-Default unique: multi-match is `ambiguous` and does not write. `replace_all: true` \
-or CLI `--replace-all` updates every exact match. `replace_all` on unified or \
-Begin Patch is `invalid_input`. Empty SEARCH is invalid input. \
+Dest is the path above `-------` after SEARCH. Dest-less blocks apply to \
+`apply_patch`'s path (`file_hint`); multi-file / `apply_patch_file` / CLI / MCP \
+still need dest. Default unique: multi-match is `ambiguous` and does not write. \
+`replace_all: true` or CLI `--replace-all` updates every exact match. `replace_all` \
+on unified or Begin Patch is `invalid_input`. Empty SEARCH is invalid input. \
 Plan `patch.apply` accepts the same document (`replace_all` optional). \
 Do not `replacen` or raw `fs::write`. Do not flip `ReplaceOptions.unique` on \
 generic `replace_text`. Do not invent a native `search_replace` MCP tool.\n\n\

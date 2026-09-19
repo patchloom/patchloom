@@ -72,6 +72,9 @@ pub fn parse_search_replace_document(
 pub fn search_replace_declared_paths(input: &str) -> Result<Vec<String>, SearchReplaceParseError> {
     let mut paths = Vec::new();
     for block in parse_search_replace_document(input)? {
+        if block.path.is_empty() {
+            continue;
+        }
         if !paths.iter().any(|p| p == &block.path) {
             paths.push(block.path);
         }
@@ -186,14 +189,12 @@ fn parse_search_replace_inner(
             let c = search_section[dash_pos + "-------".len()..].trim_start_matches('\n');
             (f.to_string(), c.trim_end_matches('\n').to_string())
         } else {
-            let mut lines = search_section.lines();
-            let f = lines
-                .next()
-                .ok_or_else(|| SearchReplaceParseError::malformed("empty SEARCH section"))?
-                .trim()
-                .to_string();
-            let c: String = lines.collect::<Vec<_>>().join("\n");
-            (f, c)
+            // Dest-less: every SEARCH line is old text. apply_patch supplies
+            // dest via file_hint. Multi-file documents use the ------- form.
+            (
+                String::new(),
+                search_section.trim_end_matches('\n').to_string(),
+            )
         };
 
         let replace_section = after_search_replace_separator(block, separator);
@@ -456,7 +457,7 @@ new
     }
 
     #[test]
-    fn parse_search_replace_first_line_is_path_without_dashes() {
+    fn parse_search_replace_destless_keeps_first_line_as_search() {
         let input = "\
 <<<<<<< SEARCH
 only.rs
@@ -465,9 +466,77 @@ the old text
 the new text
 >>>>>>> REPLACE
 ";
-        let blocks = parse_search_replace(input).expect("no dashes");
-        assert_eq!(blocks[0].path, "only.rs");
-        assert_eq!(blocks[0].old, "the old text");
+        let blocks = parse_search_replace(input).expect("dest-less");
+        assert_eq!(
+            blocks[0].path, "",
+            "no ------- dest: first SEARCH line is body, not dest"
+        );
+        assert_eq!(blocks[0].old, "only.rs\nthe old text");
+        assert_eq!(blocks[0].new, "the new text");
+    }
+
+    #[test]
+    fn parse_search_replace_destless_code_line_is_not_dest() {
+        let input = "\
+<<<<<<< SEARCH
+            pub fn set(&mut self, deg: u32) -> Result<u64, Error> {
+        if deg == 0 {
+=======
+    pub fn set(&mut self, deg: u32) -> Result<u64, Error> {
+        if deg == 0 {
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("dest-less code");
+        assert!(
+            blocks[0].path.is_empty(),
+            "code line must not become dest, got {:?}",
+            blocks[0].path
+        );
+        assert!(
+            blocks[0]
+                .old
+                .contains("pub fn set(&mut self, deg: u32) -> Result<u64, Error> {"),
+            "first SEARCH line stays in old, got {:?}",
+            blocks[0].old
+        );
+    }
+
+    #[test]
+    fn search_replace_declared_paths_skips_destless_blocks() {
+        let destless = "\
+<<<<<<< SEARCH
+only.rs
+the old text
+=======
+the new text
+>>>>>>> REPLACE
+";
+        assert_eq!(
+            search_replace_declared_paths(destless).expect("dest-less"),
+            Vec::<String>::new(),
+            "dest-less must not declare the first SEARCH line as dest"
+        );
+
+        let mixed = "\
+<<<<<<< SEARCH
+keep.rs
+-------
+old
+=======
+new
+>>>>>>> REPLACE
+<<<<<<< SEARCH
+skip.rs
+body
+=======
+other
+>>>>>>> REPLACE
+";
+        assert_eq!(
+            search_replace_declared_paths(mixed).expect("mixed"),
+            vec!["keep.rs".to_string()],
+            "only ------- dests are declared"
+        );
     }
 
     #[test]
