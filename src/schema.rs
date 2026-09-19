@@ -268,7 +268,7 @@ const OPERATION_REGISTRY: &[OpMeta] = &[
     },
     OpMeta {
         name: "tidy.fix",
-        description: "Normalize whitespace in a file or directory. A directory path expands with the same ignore-aware walker as CLI tidy fix (one write per text file). When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; mixed line endings flatten to the dominant style; uniform CRLF/LF stays; normalize_eol stays keep unless set). Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).",
+        description: "Normalize whitespace in a file or directory. A directory path expands with the same ignore-aware walker as CLI tidy fix (one write per text file). When op fields are omitted, defaults match CLI tidy fix (trim trailing whitespace + ensure final newline; mixed line endings flatten to the dominant style; uniform CRLF/LF stays). Set normalize_eol to keep to opt out of flattening. Precedence: defaults → plan write_policy → op fields. Plan write_policy is not re-applied at commit for paths last written by tidy.fix so op fields stick (#1840, #1847).",
         tier: Tier::Weak,
         examples: &[
             (
