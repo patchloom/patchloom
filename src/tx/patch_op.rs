@@ -305,7 +305,7 @@ fn execute_search_replace(
         }
         if block.path.trim().is_empty() {
             return Err(crate::exit::InvalidInputError {
-                msg: "SEARCH/REPLACE path must not be empty".into(),
+                msg: crate::ops::search_replace::SEARCH_REPLACE_EMPTY_PATH.into(),
             }
             .into());
         }

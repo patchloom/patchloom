@@ -135,11 +135,8 @@ fn patch_write(
     use crate::ops;
 
     if let Operation::PatchApply { diff, .. } = _op {
-        let patch_files = ops::patch::parse_patch(&diff).map_err(|e| {
-            anyhow::Error::new(crate::exit::ParseErrorError {
-                msg: format!("patch parse error: {e}"),
-            })
-        })?;
+        let patch_files = ops::patch::parse_patch(&diff)
+            .map_err(|e| crate::ops::search_replace::unified_parse_anyhow(&diff, &e))?;
 
         if patch_files.is_empty() {
             return Err(anyhow::Error::new(crate::exit::ParseErrorError {
@@ -395,11 +392,8 @@ pub fn apply_patch_file(
             guard,
         );
     }
-    let patch_files = crate::ops::patch::parse_patch(patch_text).map_err(|e| {
-        anyhow::Error::new(crate::exit::ParseErrorError {
-            msg: format!("patch parse error: {e}"),
-        })
-    })?;
+    let patch_files = crate::ops::patch::parse_patch(patch_text)
+        .map_err(|e| crate::ops::search_replace::unified_parse_anyhow(patch_text, &e))?;
 
     // Phase 1: preflight load + hunk apply for every file (no disk writes).
     // Kinds: content write, deletion (unlink), path rename (fs::rename then optional rewrite).

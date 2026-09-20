@@ -719,6 +719,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let patch_files = match parse_patch(&diff_text) {
         Ok(pf) => pf,
         Err(msg) => {
+            let msg = crate::ops::search_replace::map_unified_parse_error(&diff_text, &msg);
             emit_error(global, &format!("patch: parse error: {msg}"), "parse_error")?;
             return Ok(exit::PARSE_ERROR);
         }

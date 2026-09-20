@@ -827,9 +827,18 @@ impl PatchloomService {
                 return svc.run_one_op(op, Some(p.strict));
             }
             // Validate paths embedded in the diff.
-            let patch_files = crate::ops::patch::parse_patch(&p.diff).map_err(|e| {
-                McpError::invalid_params(format!("failed to parse diff: {e}"), None)
-            })?;
+            let patch_files = match crate::ops::patch::parse_patch(&p.diff) {
+                Ok(pf) => pf,
+                Err(e) => {
+                    let e = crate::ops::search_replace::map_unified_parse_error(&p.diff, &e);
+                    return json_tool_error(&serde_json::json!({
+                        "ok": false,
+                        "applied": false,
+                        "error_kind": "parse_error",
+                        "error": format!("failed to parse diff: {e}"),
+                    }));
+                }
+            };
             for pf in &patch_files {
                 // Git rename and empty-hunk delete are path-only (entry
                 // mode, #2115); content hunks and leftover hunked-delete

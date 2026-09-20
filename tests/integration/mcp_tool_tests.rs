@@ -7071,9 +7071,45 @@ async fn test_mcp_apply_patch_destless_search_replace_is_invalid_input() {
     assert_eq!(val["error_kind"], "invalid_input", "{val}");
     let err = val["error"].as_str().unwrap_or("");
     assert!(err.contains("path must not be empty"), "{val}");
+    assert!(
+        err.contains("-------"),
+        "dest-less error must name the ------- dest line: {val}"
+    );
     assert_eq!(
         fs::read_to_string(dir.path().join("only.rs")).unwrap(),
         "only.rs\nthe old text\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_prose_before_search_replace_is_parse_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let diff = "here is a patch\n<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        is_error,
+        "prose-before-SEARCH MCP apply_patch must fail closed: {val}"
+    );
+    assert_eq!(val["error_kind"], "parse_error", "{val}");
+    let err = val["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("no files found in patch"),
+        "keep unified no-files parse_error: {val}"
+    );
+    assert!(
+        err.contains("<<<<<<< SEARCH") && err.contains("wrapping fence"),
+        "hint that SEARCH/REPLACE must start with SEARCH or a fence: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
     );
     client.cancel().await.unwrap();
 }

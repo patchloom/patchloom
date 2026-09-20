@@ -2869,9 +2869,65 @@ fn test_patch_apply_destless_search_replace_is_invalid_input() {
     assert_eq!(v["error_kind"], "invalid_input", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(err.contains("path must not be empty"), "{v}");
+    assert!(
+        err.contains("-------"),
+        "dest-less error must name the ------- dest line: {v}"
+    );
     assert_eq!(
         fs::read_to_string(dir.path().join("only.rs")).unwrap(),
         "only.rs\nthe old text\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_prose_before_search_replace_is_parse_error() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        "here is a patch\n<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "prose-before-SEARCH CLI patch apply is parse_error, stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "parse_error", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("no files found in patch"),
+        "keep unified no-files parse_error: {v}"
+    );
+    assert!(
+        err.contains("<<<<<<< SEARCH") && err.contains("wrapping fence"),
+        "hint that SEARCH/REPLACE must start with SEARCH or a fence: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
     );
 }
 

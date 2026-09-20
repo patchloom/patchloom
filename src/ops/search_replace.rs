@@ -8,10 +8,35 @@
 pub(crate) const REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE: &str =
     "replace_all is only valid for SEARCH/REPLACE documents";
 
+/// Dest-less SEARCH/REPLACE without a file hint (CLI / MCP / tx / library).
+pub(crate) const SEARCH_REPLACE_EMPTY_PATH: &str =
+    "SEARCH/REPLACE path must not be empty; put dest on its own line after SEARCH, then -------";
+
 /// True when any line trims to `<<<<<<< SEARCH`.
 #[must_use]
 pub fn has_search_replace_marker(input: &str) -> bool {
     input.lines().any(|l| l.trim() == "<<<<<<< SEARCH")
+}
+
+/// When unified parse finds no files but the document contains SEARCH/REPLACE
+/// markers, hint that the document must start with SEARCH or a wrapping fence.
+/// First-line detect ([`looks_like_search_replace`]) is unchanged so unified
+/// diffs that mention SEARCH later still parse as unified.
+pub(crate) fn map_unified_parse_error(input: &str, err: &str) -> String {
+    if err == "no files found in patch" && has_search_replace_marker(input) {
+        format!(
+            "{err}; SEARCH/REPLACE documents must start with `<<<<<<< SEARCH` (or a wrapping fence)"
+        )
+    } else {
+        err.to_string()
+    }
+}
+
+/// Typed parse_error for apply surfaces that wrap unified-diff parse.
+pub(crate) fn unified_parse_anyhow(input: &str, err: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::ParseErrorError {
+        msg: format!("patch parse error: {}", map_unified_parse_error(input, err)),
+    })
 }
 
 /// True when the payload is a SEARCH/REPLACE or DiffFenced document.
@@ -500,8 +525,29 @@ see >>>>>>> REPLACE in docs
             ),
             "unified diff that mentions SEARCH later is not SEARCH/REPLACE"
         );
+        let prose_first = "here is a patch\n<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n";
+        assert!(
+            !looks_like_search_replace(prose_first),
+            "prose before SEARCH must stay unified (first-line detect unchanged)"
+        );
+        assert!(has_search_replace_marker(prose_first));
         assert!(has_search_replace_marker("--- a/x\n<<<<<<< SEARCH\nkeep\n"));
         assert!(!has_search_replace_marker("--- a/x\n+++ b/x\n"));
+        let mapped = map_unified_parse_error(prose_first, "no files found in patch");
+        assert!(
+            mapped.contains("no files found in patch")
+                && mapped.contains("<<<<<<< SEARCH")
+                && mapped.contains("wrapping fence"),
+            "apply surfaces must hint SEARCH/REPLACE start, got {mapped}"
+        );
+        assert_eq!(
+            map_unified_parse_error("just some text\n", "no files found in patch"),
+            "no files found in patch"
+        );
+        assert_eq!(
+            map_unified_parse_error(prose_first, "no hunks found for file x.rs"),
+            "no hunks found for file x.rs"
+        );
     }
 
     #[test]

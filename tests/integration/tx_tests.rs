@@ -4795,9 +4795,59 @@ fn test_tx_patch_apply_destless_search_replace_is_invalid_input() {
     assert_eq!(v["error_kind"], "invalid_input", "{v}");
     let err = v["error"].as_str().unwrap_or("");
     assert!(err.contains("path must not be empty"), "{v}");
+    assert!(
+        err.contains("-------"),
+        "dest-less error must name the ------- dest line: {v}"
+    );
     assert_eq!(
         fs::read_to_string(dir.path().join("only.rs")).unwrap(),
         "only.rs\nthe old text\n"
+    );
+}
+
+#[test]
+fn test_tx_patch_apply_prose_before_search_replace_is_parse_error() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let plan = serde_json::json!({
+        "version": 1,
+        "operations": [{
+            "op": "patch.apply",
+            "diff": "here is a patch\n<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n"
+        }]
+    });
+    let plan_file = dir.path().join("plan.json");
+    fs::write(&plan_file, serde_json::to_string(&plan).unwrap()).unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["tx", "--apply"])
+        .arg(&plan_file)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["error_kind"], "parse_error", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("no files found in patch"),
+        "keep unified no-files parse_error: {v}"
+    );
+    assert!(
+        err.contains("<<<<<<< SEARCH") && err.contains("wrapping fence"),
+        "hint that SEARCH/REPLACE must start with SEARCH or a fence: {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
     );
 }
 

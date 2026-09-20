@@ -78,7 +78,7 @@ pub fn apply_search_replace_blocks(
         }
         if block.path.trim().is_empty() && opts.file_hint.is_none() {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: "SEARCH/REPLACE path must not be empty".into(),
+                msg: crate::ops::search_replace::SEARCH_REPLACE_EMPTY_PATH.into(),
             }));
         }
         let dest = resolve_search_replace_path(cwd, &block.path, opts.file_hint.as_deref(), guard)?;
@@ -156,7 +156,7 @@ fn resolve_search_replace_path(
     if dest.trim().is_empty() {
         let Some(hint) = file_hint else {
             return Err(anyhow::Error::new(crate::exit::InvalidInputError {
-                msg: "SEARCH/REPLACE path must not be empty".into(),
+                msg: crate::ops::search_replace::SEARCH_REPLACE_EMPTY_PATH.into(),
             }));
         };
         super::ensure_contained_resolved(guard, hint)?;
