@@ -150,6 +150,14 @@ fn preview_apply_patch(
     let results = if crate::ops::begin_patch::looks_like_begin_patch(&p.diff) {
         crate::api::apply_begin_patch(&p.diff, cwd, None, crate::api::ApplyMode::Preview, guard)
     } else if crate::ops::search_replace::looks_like_search_replace(&p.diff) {
+        if crate::ops::begin_patch::has_col0_begin_patch_start(&p.diff) {
+            return json_tool_error(&serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_error",
+                "error": "mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
+            }));
+        }
         crate::api::apply_search_replace_document(
             &p.diff,
             cwd,
@@ -792,6 +800,14 @@ impl PatchloomService {
                 return svc.run_one_op(op, Some(p.strict));
             }
             if crate::ops::search_replace::looks_like_search_replace(&p.diff) {
+                if crate::ops::begin_patch::has_col0_begin_patch_start(&p.diff) {
+                    return json_tool_error(&serde_json::json!({
+                        "ok": false,
+                        "applied": false,
+                        "error_kind": "parse_error",
+                        "error": "mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
+                    }));
+                }
                 let paths = crate::ops::search_replace::search_replace_declared_paths(&p.diff)
                     .map_err(|e| {
                         McpError::invalid_params(format!("failed to parse diff: {e}"), None)
@@ -811,9 +827,18 @@ impl PatchloomService {
                 return svc.run_one_op(op, Some(p.strict));
             }
             // Validate paths embedded in the diff.
-            let patch_files = crate::ops::patch::parse_patch(&p.diff).map_err(|e| {
-                McpError::invalid_params(format!("failed to parse diff: {e}"), None)
-            })?;
+            let patch_files = match crate::ops::patch::parse_patch(&p.diff) {
+                Ok(pf) => pf,
+                Err(e) => {
+                    let e = crate::ops::search_replace::map_unified_parse_error(&p.diff, &e);
+                    return json_tool_error(&serde_json::json!({
+                        "ok": false,
+                        "applied": false,
+                        "error_kind": "parse_error",
+                        "error": format!("failed to parse diff: {e}"),
+                    }));
+                }
+            };
             for pf in &patch_files {
                 // Git rename and empty-hunk delete are path-only (entry
                 // mode, #2115); content hunks and leftover hunked-delete

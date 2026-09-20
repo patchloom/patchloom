@@ -8,10 +8,35 @@
 pub(crate) const REPLACE_ALL_ONLY_FOR_SEARCH_REPLACE: &str =
     "replace_all is only valid for SEARCH/REPLACE documents";
 
+/// Dest-less SEARCH/REPLACE without a file hint (CLI / MCP / tx / library).
+pub(crate) const SEARCH_REPLACE_EMPTY_PATH: &str =
+    "SEARCH/REPLACE path must not be empty; put dest on its own line after SEARCH, then -------";
+
 /// True when any line trims to `<<<<<<< SEARCH`.
 #[must_use]
 pub fn has_search_replace_marker(input: &str) -> bool {
     input.lines().any(|l| l.trim() == "<<<<<<< SEARCH")
+}
+
+/// When unified parse finds no files but the document contains SEARCH/REPLACE
+/// markers, hint that the document must start with SEARCH or a wrapping fence.
+/// First-line detect ([`looks_like_search_replace`]) is unchanged so unified
+/// diffs that mention SEARCH later still parse as unified.
+pub(crate) fn map_unified_parse_error(input: &str, err: &str) -> String {
+    if err == "no files found in patch" && has_search_replace_marker(input) {
+        format!(
+            "{err}; SEARCH/REPLACE documents must start with `<<<<<<< SEARCH` (or a wrapping fence)"
+        )
+    } else {
+        err.to_string()
+    }
+}
+
+/// Typed parse_error for apply surfaces that wrap unified-diff parse.
+pub(crate) fn unified_parse_anyhow(input: &str, err: &str) -> anyhow::Error {
+    anyhow::Error::new(crate::exit::ParseErrorError {
+        msg: format!("patch parse error: {}", map_unified_parse_error(input, err)),
+    })
 }
 
 /// True when the payload is a SEARCH/REPLACE or DiffFenced document.
@@ -24,11 +49,19 @@ pub fn looks_like_search_replace(input: &str) -> bool {
     if !has_search_replace_marker(input) {
         return false;
     }
-    match input.lines().map(str::trim).find(|l| !l.is_empty()) {
+    match first_nonempty_line(input) {
         Some("<<<<<<< SEARCH") => true,
         Some(l) if l.starts_with("```") => true,
         _ => false,
     }
+}
+
+fn first_nonempty_line(input: &str) -> Option<&str> {
+    input.lines().map(str::trim).find(|l| !l.is_empty())
+}
+
+fn first_nonempty_is_fence(input: &str) -> bool {
+    first_nonempty_line(input).is_some_and(|l| l.starts_with("```"))
 }
 
 /// True when SEARCH/REPLACE markers appear with Begin Patch or unified-diff
@@ -38,7 +71,9 @@ pub fn has_mixed_search_replace_grammar(input: &str) -> bool {
     if !looks_like_search_replace(input) {
         return false;
     }
-    crate::ops::begin_patch::looks_like_begin_patch(input) || has_unified_diff_headers(input)
+    crate::ops::begin_patch::looks_like_begin_patch(input)
+        || crate::ops::begin_patch::has_col0_begin_patch_start(input)
+        || has_unified_diff_headers(input)
 }
 
 fn has_unified_diff_headers(input: &str) -> bool {
@@ -57,11 +92,9 @@ pub fn parse_search_replace_document(
             "mixed SEARCH/REPLACE and unified-diff or Begin Patch grammar is not supported",
         ));
     }
-    let fenced = input.lines().any(|l| {
-        let t = l.trim();
-        t == "```" || t.starts_with("```")
-    });
-    if fenced {
+    // DiffFenced unwrap only when the document starts with a fence. Inner
+    // ```rust / ``` lines in SEARCH/REPLACE bodies stay in old/new.
+    if first_nonempty_is_fence(input) {
         parse_diff_fenced(input)
     } else {
         parse_search_replace(input)
@@ -151,65 +184,62 @@ fn parse_search_replace_inner(
     while let Some(start) = remaining.find("<<<<<<< SEARCH") {
         let block = &remaining[start..];
 
-        let (end, end_marker_len) = if let Some(pos) = block.find(">>>>>>> REPLACE") {
-            (pos, ">>>>>>> REPLACE".len())
-        } else if let Some(pos) = block.find(">>>>>>>") {
-            let after = &block[pos + ">>>>>>>".len()..];
-            let trimmed = after.trim_start();
-            if trimmed.is_empty()
-                || trimmed.starts_with('\n')
-                || trimmed.starts_with("<<<<<<< SEARCH")
-            {
-                (pos, ">>>>>>>".len())
+        let (end, end_marker_len) =
+            if let Some(pos) = find_whole_line_marker(block, ">>>>>>> REPLACE") {
+                (pos, ">>>>>>> REPLACE".len())
+            } else if let Some(pos) = find_whole_line_marker(block, ">>>>>>>") {
+                let after = &block[pos + ">>>>>>>".len()..];
+                let trimmed = after.trim_start();
+                if trimmed.is_empty()
+                    || trimmed.starts_with('\n')
+                    || trimmed.starts_with("<<<<<<< SEARCH")
+                {
+                    (pos, ">>>>>>>".len())
+                } else if actions.is_empty() {
+                    return Err(SearchReplaceParseError::malformed(
+                        "missing >>>>>>> REPLACE marker",
+                    ));
+                } else {
+                    return Err(SearchReplaceParseError::truncated(actions));
+                }
             } else if actions.is_empty() {
                 return Err(SearchReplaceParseError::malformed(
                     "missing >>>>>>> REPLACE marker",
                 ));
             } else {
                 return Err(SearchReplaceParseError::truncated(actions));
-            }
-        } else if actions.is_empty() {
-            return Err(SearchReplaceParseError::malformed(
-                "missing >>>>>>> REPLACE marker",
-            ));
-        } else {
-            return Err(SearchReplaceParseError::truncated(actions));
-        };
+            };
 
         let block = &block[..end + end_marker_len];
 
-        let separator = find_search_replace_separator(block)
+        let separator = find_whole_line_marker(block, "=======")
             .ok_or_else(|| SearchReplaceParseError::malformed("missing ======= separator"))?;
 
-        let search_section = &block["<<<<<<< SEARCH".len()..separator];
-        let search_section = search_section.trim_start_matches('\n');
+        let search_section = skip_one_eol(&block["<<<<<<< SEARCH".len()..separator]);
 
-        let (file, old_content) = if let Some(dash_pos) = search_section.find("-------") {
-            let f = search_section[..dash_pos].trim();
-            let c = search_section[dash_pos + "-------".len()..].trim_start_matches('\n');
-            (f.to_string(), c.trim_end_matches('\n').to_string())
-        } else {
-            // Dest-less: every SEARCH line is old text. apply_patch supplies
-            // dest via file_hint. Multi-file documents use the ------- form.
-            (
-                String::new(),
-                search_section.trim_end_matches('\n').to_string(),
-            )
-        };
+        // Dest is a whole line that is exactly `-------` (optional trailing
+        // space / CR). Inline dashes in dest-less SEARCH stay dest-less.
+        let (file, old_content) =
+            if let Some(dash_pos) = find_whole_line_marker(search_section, "-------") {
+                let f = lf_normalize(search_section[..dash_pos].trim());
+                let c = after_whole_line(search_section, dash_pos);
+                (f, lf_normalize(c).trim_end_matches('\n').to_string())
+            } else {
+                // Dest-less: every SEARCH line is old text. apply_patch supplies
+                // dest via file_hint. Multi-file documents use the ------- form.
+                (
+                    String::new(),
+                    lf_normalize(search_section)
+                        .trim_end_matches('\n')
+                        .to_string(),
+                )
+            };
 
-        let replace_section = after_search_replace_separator(block, separator);
-        let new_content = if let Some(stripped) = replace_section.strip_suffix("\n>>>>>>> REPLACE")
-        {
-            stripped.to_string()
-        } else if let Some(stripped) = replace_section.strip_suffix("\n>>>>>>>") {
-            stripped.to_string()
-        } else if let Some(stripped) = replace_section.strip_suffix(">>>>>>> REPLACE") {
-            stripped.to_string()
-        } else if let Some(stripped) = replace_section.strip_suffix(">>>>>>>") {
-            stripped.to_string()
-        } else {
-            replace_section.to_string()
-        };
+        // Suffix-strip the close line (not a mid-line substring).
+        let before_close = &block[..end];
+        let replace_body = after_whole_line(before_close, separator);
+        let new_raw = replace_body.strip_suffix('\n').unwrap_or(replace_body);
+        let new_content = lf_normalize(new_raw);
 
         actions.push(SearchReplaceBlock {
             path: file,
@@ -223,13 +253,13 @@ fn parse_search_replace_inner(
     Ok(actions)
 }
 
-/// Byte offset of a whole line that is exactly `=======` (optional trailing whitespace).
-fn find_search_replace_separator(block: &str) -> Option<usize> {
+/// Byte offset of a whole line that is exactly `marker` (optional trailing whitespace).
+fn find_whole_line_marker(block: &str, marker: &str) -> Option<usize> {
     let mut offset = 0;
     for line in block.split_inclusive('\n') {
         let without_nl = line.strip_suffix('\n').unwrap_or(line);
         let without_eol = without_nl.strip_suffix('\r').unwrap_or(without_nl);
-        if without_eol.trim_end() == "=======" {
+        if without_eol.trim_end() == marker {
             return Some(offset);
         }
         offset += line.len();
@@ -237,12 +267,22 @@ fn find_search_replace_separator(block: &str) -> Option<usize> {
     None
 }
 
-fn after_search_replace_separator(block: &str, separator: usize) -> &str {
-    let rest = &block[separator..];
+fn after_whole_line(block: &str, line_start: usize) -> &str {
+    let rest = &block[line_start..];
     match rest.find('\n') {
         Some(n) => &rest[n + 1..],
         None => "",
     }
+}
+
+fn skip_one_eol(s: &str) -> &str {
+    s.strip_prefix("\r\n")
+        .or_else(|| s.strip_prefix('\n'))
+        .unwrap_or(s)
+}
+
+fn lf_normalize(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "")
 }
 
 fn strip_eos_tokens(response: &str) -> String {
@@ -390,6 +430,85 @@ new
     }
 
     #[test]
+    fn parse_search_replace_document_unwraps_leading_fence() {
+        let input = "\
+```
+<<<<<<< SEARCH
+a.rs
+-------
+old
+=======
+new
+>>>>>>> REPLACE
+```
+";
+        let blocks = parse_search_replace_document(input).expect("leading fence");
+        assert_eq!(blocks[0].path, "a.rs");
+        assert_eq!(blocks[0].old, "old");
+        assert_eq!(blocks[0].new, "new");
+    }
+
+    #[test]
+    fn parse_search_replace_document_keeps_inner_markdown_fences() {
+        let input = "\
+<<<<<<< SEARCH
+README.md
+-------
+before
+```rust
+fn x() {}
+```
+after
+=======
+before
+```rust
+fn y() {}
+```
+after
+>>>>>>> REPLACE
+";
+        assert!(
+            looks_like_search_replace(input),
+            "first line is SEARCH, not a wrapping fence"
+        );
+        let blocks = parse_search_replace_document(input).expect("inner fences stay");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].path, "README.md");
+        assert_eq!(
+            blocks[0].old, "before\n```rust\nfn x() {}\n```\nafter",
+            "SEARCH body fences must not be stripped, got {:?}",
+            blocks[0].old
+        );
+        assert_eq!(
+            blocks[0].new, "before\n```rust\nfn y() {}\n```\nafter",
+            "REPLACE body fences must not be stripped, got {:?}",
+            blocks[0].new
+        );
+    }
+
+    #[test]
+    fn parse_search_replace_inline_close_stays_in_new() {
+        let input = "\
+<<<<<<< SEARCH
+close.rs
+-------
+alpha
+=======
+see >>>>>>> REPLACE in docs
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("inline close");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].path, "close.rs");
+        assert_eq!(blocks[0].old, "alpha");
+        assert_eq!(
+            blocks[0].new, "see >>>>>>> REPLACE in docs",
+            "inline close text must stay in new, got {:?}",
+            blocks[0].new
+        );
+    }
+
+    #[test]
     fn looks_like_search_replace_first_line_or_fence() {
         assert!(looks_like_search_replace(
             "<<<<<<< SEARCH\nfile.rs\n-------\nold\n=======\nnew\n>>>>>>> REPLACE\n"
@@ -406,8 +525,29 @@ new
             ),
             "unified diff that mentions SEARCH later is not SEARCH/REPLACE"
         );
+        let prose_first = "here is a patch\n<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n";
+        assert!(
+            !looks_like_search_replace(prose_first),
+            "prose before SEARCH must stay unified (first-line detect unchanged)"
+        );
+        assert!(has_search_replace_marker(prose_first));
         assert!(has_search_replace_marker("--- a/x\n<<<<<<< SEARCH\nkeep\n"));
         assert!(!has_search_replace_marker("--- a/x\n+++ b/x\n"));
+        let mapped = map_unified_parse_error(prose_first, "no files found in patch");
+        assert!(
+            mapped.contains("no files found in patch")
+                && mapped.contains("<<<<<<< SEARCH")
+                && mapped.contains("wrapping fence"),
+            "apply surfaces must hint SEARCH/REPLACE start, got {mapped}"
+        );
+        assert_eq!(
+            map_unified_parse_error("just some text\n", "no files found in patch"),
+            "no files found in patch"
+        );
+        assert_eq!(
+            map_unified_parse_error(prose_first, "no hunks found for file x.rs"),
+            "no hunks found for file x.rs"
+        );
     }
 
     #[test]
@@ -454,6 +594,82 @@ new
             "expected mixed-grammar refuse, got {}",
             err.message
         );
+    }
+
+    #[test]
+    fn has_mixed_search_replace_then_begin_patch_refused() {
+        let input = "\
+<<<<<<< SEARCH
+code.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+*** Begin Patch
+*** Update File: code.rs
+@@
+-fn new() {}
++fn other() {}
+*** End Patch
+";
+        assert!(looks_like_search_replace(input));
+        assert!(
+            !crate::ops::begin_patch::looks_like_begin_patch(input),
+            "first non-blank is SEARCH, not Begin Patch"
+        );
+        assert!(has_mixed_search_replace_grammar(input));
+        let err = parse_search_replace_document(input).expect_err("mixed SEARCH then Begin Patch");
+        assert!(!err.truncated, "mixed grammar is malformed, not truncated");
+        assert!(
+            err.message.contains("mixed SEARCH/REPLACE"),
+            "expected mixed-grammar refuse, got {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn has_mixed_search_replace_then_update_file_refused() {
+        let input = "\
+<<<<<<< SEARCH
+code.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+*** Update File: code.rs
+";
+        assert!(looks_like_search_replace(input));
+        assert!(has_mixed_search_replace_grammar(input));
+        let err = parse_search_replace_document(input).expect_err("mixed SEARCH then Update File");
+        assert!(
+            err.message.contains("mixed SEARCH/REPLACE"),
+            "expected mixed-grammar refuse, got {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn has_mixed_search_replace_begin_patch_first_stays_begin_patch() {
+        let input = "\
+*** Begin Patch
+<<<<<<< SEARCH
+code.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+*** End Patch
+";
+        assert!(
+            !looks_like_search_replace(input),
+            "Begin-Patch-first is not a SEARCH/REPLACE payload"
+        );
+        assert!(!has_mixed_search_replace_grammar(input));
+        assert!(crate::ops::begin_patch::looks_like_begin_patch(input));
+        assert!(has_search_replace_marker(input));
     }
 
     #[test]
@@ -594,5 +810,98 @@ new
         let blocks = parse_search_replace(input).expect("trailing ws on separator");
         assert_eq!(blocks[0].old, "old");
         assert_eq!(blocks[0].new, "new");
+    }
+
+    #[test]
+    fn parse_search_replace_crlf_dest_present_matches_lf() {
+        let lf = "\
+<<<<<<< SEARCH
+code.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+";
+        let crlf = lf.replace('\n', "\r\n");
+        let lf_blocks = parse_search_replace(lf).expect("lf");
+        let crlf_blocks = parse_search_replace(&crlf).expect("crlf");
+        assert_eq!(crlf_blocks, lf_blocks);
+        assert_eq!(crlf_blocks[0].path, "code.rs");
+        assert_eq!(crlf_blocks[0].old, "fn old() {}");
+        assert_eq!(crlf_blocks[0].new, "fn new() {}");
+        assert!(
+            !crlf_blocks[0].old.contains('\r'),
+            "old must not keep CR: {:?}",
+            crlf_blocks[0].old
+        );
+        assert!(
+            !crlf_blocks[0].new.contains('\r'),
+            "new must not keep CR: {:?}",
+            crlf_blocks[0].new
+        );
+    }
+
+    #[test]
+    fn parse_search_replace_crlf_destless_has_empty_path_without_cr() {
+        let lf = "\
+<<<<<<< SEARCH
+only.rs
+the old text
+=======
+the new text
+>>>>>>> REPLACE
+";
+        let crlf = lf.replace('\n', "\r\n");
+        let blocks = parse_search_replace(&crlf).expect("dest-less crlf");
+        assert_eq!(blocks[0].path, "");
+        assert_eq!(blocks[0].old, "only.rs\nthe old text");
+        assert_eq!(blocks[0].new, "the new text");
+        assert!(
+            !blocks[0].old.contains('\r'),
+            "old must not keep CR: {:?}",
+            blocks[0].old
+        );
+        assert!(
+            !blocks[0].new.contains('\r'),
+            "new must not keep CR: {:?}",
+            blocks[0].new
+        );
+    }
+
+    #[test]
+    fn parse_search_replace_inline_dashes_in_destless_search_are_not_dest() {
+        let input = "\
+<<<<<<< SEARCH
+x = \"-------\"
+=======
+x = \"eq\"
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("inline dashes");
+        assert_eq!(
+            blocks[0].path, "",
+            "inline ------- in SEARCH is not dest, got {:?}",
+            blocks[0].path
+        );
+        assert_eq!(blocks[0].old, "x = \"-------\"");
+        assert_eq!(blocks[0].new, "x = \"eq\"");
+    }
+
+    #[test]
+    fn parse_search_replace_dest_present_old_may_contain_dashes() {
+        let input = "\
+<<<<<<< SEARCH
+code.rs
+-------
+x = \"-------\"
+=======
+x = \"eq\"
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("dest-present dashes in old");
+        assert_eq!(blocks[0].path, "code.rs");
+        assert_eq!(blocks[0].old, "x = \"-------\"");
+        assert_eq!(blocks[0].new, "x = \"eq\"");
     }
 }

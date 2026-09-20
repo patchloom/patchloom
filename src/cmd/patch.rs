@@ -697,6 +697,14 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         return finish_patch_apply(global, op, merge_mode);
     }
     if crate::ops::search_replace::looks_like_search_replace(&diff_text) {
+        if crate::ops::begin_patch::has_col0_begin_patch_start(&diff_text) {
+            emit_error(
+                global,
+                "patch: mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
+                "parse_error",
+            )?;
+            return Ok(exit::PARSE_ERROR);
+        }
         if matches!(args.action, PatchAction::Check { .. }) {
             return run_search_replace_check(global, &cwd, &diff_text, replace_all);
         }
@@ -711,6 +719,7 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     let patch_files = match parse_patch(&diff_text) {
         Ok(pf) => pf,
         Err(msg) => {
+            let msg = crate::ops::search_replace::map_unified_parse_error(&diff_text, &msg);
             emit_error(global, &format!("patch: parse error: {msg}"), "parse_error")?;
             return Ok(exit::PARSE_ERROR);
         }

@@ -1306,11 +1306,8 @@ pub(crate) fn apply_patch_with_loader<F>(
 where
     F: FnMut(&str) -> anyhow::Result<String>,
 {
-    let patch_files = parse_patch(diff_text).map_err(|msg| {
-        anyhow::Error::new(crate::exit::ParseErrorError {
-            msg: format!("patch parse error: {msg}"),
-        })
-    })?;
+    let patch_files = parse_patch(diff_text)
+        .map_err(|msg| crate::ops::search_replace::unified_parse_anyhow(diff_text, &msg))?;
     let mut results = Vec::new();
     for pf in &patch_files {
         if let Some(reason) = pf.unsupported.as_deref() {

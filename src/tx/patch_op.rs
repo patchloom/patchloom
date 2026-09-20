@@ -27,6 +27,12 @@ pub(crate) fn execute_patch_op(op: &Operation, tx: &mut TxState<'_>) -> anyhow::
                 return execute_begin_patch(diff, tx);
             }
             if crate::ops::search_replace::looks_like_search_replace(diff) {
+                if crate::ops::begin_patch::has_col0_begin_patch_start(diff) {
+                    return Err(crate::exit::ParseErrorError {
+                        msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
+                    }
+                    .into());
+                }
                 return execute_search_replace(diff, *replace_all, tx);
             }
             let options = ApplyHunksOptions {
@@ -299,7 +305,7 @@ fn execute_search_replace(
         }
         if block.path.trim().is_empty() {
             return Err(crate::exit::InvalidInputError {
-                msg: "SEARCH/REPLACE path must not be empty".into(),
+                msg: crate::ops::search_replace::SEARCH_REPLACE_EMPTY_PATH.into(),
             }
             .into());
         }
