@@ -14,6 +14,20 @@ fn test_ast_deps_broken_pipe_is_not_a_panic() {
     assert_cli_broken_pipe_is_not_a_panic(&["ast", "deps", "src"]);
 }
 
+/// `ast read | head` must not panic (numbered symbol dump uses stdout).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_read_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["ast", "read", "src/lib.rs", "run"]);
+}
+
+/// `ast map | head` must not panic (ranked tree dump).
+#[test]
+#[cfg(feature = "ast")]
+fn test_ast_map_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["ast", "map", "src"]);
+}
+
 #[test]
 #[cfg(feature = "ast")]
 fn test_ast_replace_apply_dispatch() {

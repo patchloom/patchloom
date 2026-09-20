@@ -258,7 +258,9 @@ pub(super) fn run_read(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u
     {
         for (i, line) in lines[start..end].iter().enumerate() {
             let line_num = start + i + 1;
-            println!("{line_num:>4} | {line}");
+            if !print_line(&format!("{line_num:>4} | {line}"))? {
+                break;
+            }
         }
     }
 
@@ -556,15 +558,19 @@ pub(super) fn run_search(args: SearchArgs, global: &GlobalFlags) -> anyhow::Resu
                     "captures": m.captures,
                 }));
             } else if !global.quiet {
-                println!(
+                if !print_line(&format!(
                     "{}:{}:{}: {}",
                     result.display,
                     m.line,
                     m.column,
                     m.text.lines().next().unwrap_or("")
-                );
+                ))? {
+                    break 'outer;
+                }
                 for cap in &m.captures {
-                    println!("  @{} = \"{}\"", cap.name, cap.text);
+                    if !print_line(&format!("  @{} = \"{}\"", cap.name, cap.text))? {
+                        break 'outer;
+                    }
                 }
             }
             if let Some(max) = args.max_results
@@ -695,7 +701,12 @@ pub(super) fn run_refs(args: RefsArgs, global: &GlobalFlags) -> anyhow::Result<u
                 crate::ast::refs::RefKind::Definition => "def",
                 crate::ast::refs::RefKind::Reference => "ref",
             };
-            println!("{}:{}: [{}] {}", r.file, r.line, kind_label, r.context);
+            if !print_line(&format!(
+                "{}:{}: [{}] {}",
+                r.file, r.line, kind_label, r.context
+            ))? {
+                break;
+            }
         }
     }
 
@@ -973,7 +984,10 @@ pub(super) fn run_map(args: MapArgs, global: &GlobalFlags) -> anyhow::Result<u8>
     }
 
     if !global.emit_json_items(&entries)? && !global.quiet {
-        print!("{}", crate::ast::map::render_tree(&entries));
+        crate::json_emit::write_stdout_ignore_epipe(
+            crate::ast::map::render_tree(&entries).as_bytes(),
+            false,
+        )?;
     }
 
     Ok(exit::SUCCESS)
@@ -1048,10 +1062,10 @@ pub(super) fn run_impact(args: ImpactArgs, global: &GlobalFlags) -> anyhow::Resu
         "direct_count": nodes.len(),
     }))? && !global.quiet
     {
-        print!(
-            "{}",
-            crate::ast::impact::render_impact_tree(&args.symbol, &nodes, 0)
-        );
+        crate::json_emit::write_stdout_ignore_epipe(
+            crate::ast::impact::render_impact_tree(&args.symbol, &nodes, 0).as_bytes(),
+            false,
+        )?;
     }
 
     Ok(exit::SUCCESS)
@@ -1123,7 +1137,10 @@ pub(super) fn run_diff(args: DiffArgs, global: &GlobalFlags) -> anyhow::Result<u
         "changes": changes,
     }))? && !global.quiet
     {
-        print!("{}", crate::ast::diff::render_changes(&args.path, &changes));
+        crate::json_emit::write_stdout_ignore_epipe(
+            crate::ast::diff::render_changes(&args.path, &changes).as_bytes(),
+            false,
+        )?;
     }
 
     Ok(exit::SUCCESS)
