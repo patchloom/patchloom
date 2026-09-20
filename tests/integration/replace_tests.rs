@@ -1,5 +1,18 @@
 use super::*;
 
+/// `replace --jsonl … | head` must not panic (jsonl used `println!`).
+#[test]
+fn test_replace_jsonl_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    for i in 0..12 {
+        fs::write(dir.path().join(format!("f{i}.rs")), "fn foo() {}\n").unwrap();
+    }
+    let dir = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&[
+        "--jsonl", "--cwd", dir, "replace", "fn", "--new", "xx", ".",
+    ]);
+}
+
 #[test]
 fn test_replace_json_no_match_emits_valid_json() {
     let dir = TempDir::new().unwrap();

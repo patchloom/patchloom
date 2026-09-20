@@ -364,10 +364,13 @@ pub(super) fn render_issues(
         }))?;
     } else {
         for issue in issues {
-            if let Some(line) = issue.line {
-                println!("{}:{}: {}", issue.path, line, issue.issue);
+            let line = if let Some(line) = issue.line {
+                format!("{}:{}: {}", issue.path, line, issue.issue)
             } else {
-                println!("{}: {}", issue.path, issue.issue);
+                format!("{}: {}", issue.path, issue.issue)
+            };
+            if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)? {
+                break;
             }
         }
     }

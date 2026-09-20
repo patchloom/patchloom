@@ -698,6 +698,8 @@ async fn call_tool_value(
 ///
 /// Close immediately: dumps smaller than the pipe buffer (~64KiB) finish
 /// a single `write` before a 64-byte read returns, so EPIPE never fires.
+/// Preview / `tidy check` dumps may still exit 2 (`CHANGES_DETECTED`);
+/// that is a clean product exit, not a panic.
 fn assert_cli_broken_pipe_is_not_a_panic(args: &[&str]) {
     use std::process::Stdio;
 
@@ -714,8 +716,9 @@ fn assert_cli_broken_pipe_is_not_a_panic(args: &[&str]) {
         !err.contains("panicked"),
         "{args:?} must not panic on EPIPE: {err}"
     );
+    let code = output.status.code();
     assert!(
-        output.status.success() || output.status.code() == Some(0),
+        output.status.success() || code == Some(0) || code == Some(2),
         "EPIPE should be a clean exit for {args:?}: {:?}",
         output.status
     );

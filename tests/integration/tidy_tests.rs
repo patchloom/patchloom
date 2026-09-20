@@ -1,5 +1,16 @@
 use super::*;
 
+/// `tidy check … | head` must not panic (text listing used `println!`).
+#[test]
+fn test_tidy_check_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    for i in 0..12 {
+        fs::write(dir.path().join(format!("f{i}.txt")), "no newline").unwrap();
+    }
+    let dir = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["tidy", "check", dir]);
+}
+
 /// #2365: `keep.txt\\` is Win32 `keep.txt`. Tidy must not peel not_found.
 #[cfg(windows)]
 #[test]

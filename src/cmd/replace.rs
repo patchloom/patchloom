@@ -1101,37 +1101,41 @@ struct ReplaceJsonlArgs<'a> {
 /// Emit multi-file replace outcomes under `--jsonl` (#1799): one line per
 /// success path, refused soft-miss, skipped missing path, then a summary.
 fn emit_replace_jsonl(args: ReplaceJsonlArgs<'_>) -> anyhow::Result<()> {
-    let emit_line = |v: &serde_json::Value| -> anyhow::Result<()> {
-        // Compact one-line objects; always stdout in jsonl mode.
-        println!("{}", serde_json::to_string(v)?);
-        Ok(())
+    let emit_line = |v: &serde_json::Value| -> anyhow::Result<bool> {
+        crate::json_emit::write_stdout_ignore_epipe(serde_json::to_string(v)?.as_bytes(), true)
     };
     for f in args.files {
-        emit_line(&serde_json::json!({
+        if !emit_line(&serde_json::json!({
             "path": f.path,
             "match_count": f.match_count,
             "match_mode": f.match_mode,
             "status": "ok",
-        }))?;
+        }))? {
+            return Ok(());
+        }
     }
     if let Some(refused) = args.refused {
         for r in refused {
-            emit_line(&serde_json::json!({
+            if !emit_line(&serde_json::json!({
                 "path": r.path,
                 "status": "refused",
                 "reason": r.reason,
                 "match_mode": r.match_mode,
                 "matched_text": r.matched_text,
-            }))?;
+            }))? {
+                return Ok(());
+            }
         }
     }
     if let Some(skipped) = args.skipped {
         for path in skipped {
-            emit_line(&serde_json::json!({
+            if !emit_line(&serde_json::json!({
                 "path": path,
                 "status": "skipped",
                 "reason": "not_found",
-            }))?;
+            }))? {
+                return Ok(());
+            }
         }
     }
     let refused_n = args.refused.map_or(0, |r| r.len());
