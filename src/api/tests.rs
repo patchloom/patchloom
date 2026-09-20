@@ -5696,6 +5696,75 @@ fn replace_in_content_fuzzy_resolves_typo() {
     );
 }
 
+/// #2589: unique-line fuzzy must replace the full line, including indent.
+///
+/// `from` uses a deeper indent than the file so it is not an exact substring
+/// (otherwise the exact path would run and fuzzy would never fire).
+#[test]
+fn replace_in_content_fuzzy_indent_unique_line_uses_new_indent() {
+    let content = "        pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {\n";
+    let from = "            pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {";
+    let to = "    pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {";
+    assert!(
+        !content.contains(from),
+        "from must not be a substring or exact matching skips fuzzy"
+    );
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        allow_absent_old: true,
+        min_fuzzy_score: None,
+        unique: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, from, to, &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_mode, Some(MatchMode::Fuzzy));
+    let line = result.new_content.lines().next().expect("result line");
+    assert_eq!(
+        line.len() - line.trim_start().len(),
+        4,
+        "result indent must be `to`'s 4 spaces, not leftover+new: {line:?}"
+    );
+    assert_eq!(
+        line.matches("pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {")
+            .count(),
+        1,
+        "signature must appear once: {line:?}"
+    );
+    assert!(
+        !line.starts_with("            "),
+        "must not grow to 12 leading spaces: {line:?}"
+    );
+}
+
+/// #2589: same-indent rewrite must not stack leftover indent onto `to`.
+#[test]
+fn replace_in_content_fuzzy_indent_same_style_does_not_grow() {
+    let content = "    pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {\n";
+    let from = "        pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {";
+    let to = "    pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {";
+    assert!(
+        !content.contains(from),
+        "from must not be a substring or exact matching skips fuzzy"
+    );
+    let opts = ReplaceOptions {
+        fuzzy: true,
+        allow_absent_old: true,
+        min_fuzzy_score: None,
+        unique: true,
+        ..Default::default()
+    };
+    let result = replace::replace_in_content(content, from, to, &opts).unwrap();
+    assert!(result.changed);
+    assert_eq!(result.match_mode, Some(MatchMode::Fuzzy));
+    let line = result.new_content.lines().next().expect("result line");
+    assert_eq!(
+        line.len() - line.trim_start().len(),
+        4,
+        "result must stay at 4 spaces, not grow to 8: {line:?}"
+    );
+}
+
 #[test]
 fn replace_in_content_fuzzy_exact_match_preferred() {
     // When the exact match succeeds, fuzzy should not change behavior.
