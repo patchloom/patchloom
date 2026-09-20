@@ -341,10 +341,35 @@ pub fn file_create(
 /// `/etc/passwd`.
 ///
 /// DryRun / Preview / Check report would-delete without unlinking.
+///
+/// Always uses `if_exists: false`. For the plan/batch/MCP soft miss, call
+/// [`file_delete_with_options`].
 pub fn file_delete(
     path: &Path,
     mode: ApplyMode,
     guard: Option<&PathGuard>,
+) -> anyhow::Result<EditResult> {
+    file_delete_with_options(path, mode, guard, &FileDeleteOptions::default())
+}
+
+/// Options for [`file_delete_with_options`].
+///
+/// Default matches [`file_delete`]: missing dest is `not_found`.
+#[derive(Debug, Clone, Default)]
+pub struct FileDeleteOptions {
+    /// Soft-skip (no unlink, no error) when the dest is missing. Same
+    /// contract as plan `file.delete` `if_exists: true` and batch
+    /// `file.delete --if-exists`.
+    pub if_exists: bool,
+}
+
+/// [`file_delete`] with [`FileDeleteOptions`] (additive; keeps `file_delete`
+/// source-compatible).
+pub fn file_delete_with_options(
+    path: &Path,
+    mode: ApplyMode,
+    guard: Option<&PathGuard>,
+    opts: &FileDeleteOptions,
 ) -> anyhow::Result<EditResult> {
     #[cfg(any(feature = "cli", feature = "files"))]
     let abs = super::library_abs_path_entry(path, guard)?;
@@ -354,7 +379,7 @@ pub fn file_delete(
     let op_path = path.to_string_lossy().into_owned();
     let op = Operation::FileDelete {
         path: op_path,
-        if_exists: false,
+        if_exists: opts.if_exists,
     };
     file_write(op, path, mode, guard, "delete")
 }

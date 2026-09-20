@@ -1145,7 +1145,8 @@ pub struct LintIssue {
     /// Heading text related to the issue (if applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heading: Option<String>,
-    /// File this issue was found in (CLI multi-file lint-agents).
+    /// File this issue was found in (CLI multi-file lint-agents and library
+    /// `md_lint_agents` / `md_lint_agents_many`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }

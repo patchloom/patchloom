@@ -4,7 +4,7 @@
 //! Special cases (md_move_section cross-file, md_dedupe_headings with extra return
 //! data) keep direct implementations with feature-gated tx fallbacks.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::containment::PathGuard;
 use crate::ops;
@@ -317,9 +317,25 @@ pub use crate::ops::md::LintIssue;
 ///
 /// Returns a list of lint issues found. This is a read-only operation.
 pub fn md_lint_agents(path: &Path) -> anyhow::Result<Vec<LintIssue>> {
-    let display = path.to_string_lossy();
+    let display = path.to_string_lossy().into_owned();
     let content = crate::files::load_text_strict(path, &display)?;
-    Ok(crate::ops::md::lint_agents_content(&content))
+    let mut issues = crate::ops::md::lint_agents_content(&content);
+    for issue in &mut issues {
+        if issue.path.is_none() {
+            issue.path = Some(display.clone());
+        }
+    }
+    Ok(issues)
+}
+
+/// Lint several markdown files. Each issue is stamped with the path it came
+/// from (same as CLI `md lint-agents A.md B.md`).
+pub fn md_lint_agents_many(paths: &[PathBuf]) -> anyhow::Result<Vec<LintIssue>> {
+    let mut out = Vec::new();
+    for path in paths {
+        out.extend(md_lint_agents(path)?);
+    }
+    Ok(out)
 }
 
 /// Insert content before a markdown heading.

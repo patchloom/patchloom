@@ -2855,6 +2855,45 @@ fn md_lint_agents_finds_issues() {
         !issues.is_empty(),
         "should find duplicate heading lint issue"
     );
+    let expected = file.to_string_lossy();
+    assert!(
+        issues
+            .iter()
+            .all(|i| i.path.as_deref() == Some(expected.as_ref())),
+        "library md_lint_agents must stamp path (#2604): {issues:?}"
+    );
+}
+
+#[test]
+fn md_lint_agents_many_stamps_each_file() {
+    let dir = TempDir::new().unwrap();
+    let a = dir.path().join("A.md");
+    let b = dir.path().join("B.md");
+    fs::write(&a, "# Rules\n\nbody\n\n# Rules\n\ndup\n").unwrap();
+    fs::write(&b, "# Other\n\nbody\n\n# Other\n\ndup\n").unwrap();
+    let issues = md_lint_agents_many(&[a.clone(), b.clone()]).unwrap();
+    assert!(
+        issues
+            .iter()
+            .any(|i| i.path.as_deref() == Some(a.to_string_lossy().as_ref())),
+        "A.md issues must keep A.md: {issues:?}"
+    );
+    assert!(
+        issues
+            .iter()
+            .any(|i| i.path.as_deref() == Some(b.to_string_lossy().as_ref())),
+        "B.md issues must keep B.md: {issues:?}"
+    );
+}
+
+#[test]
+fn lint_agents_content_leaves_path_unset() {
+    let issues = crate::ops::md::lint_agents_content("# Rules\n\nbody\n\n# Rules\n\ndup\n");
+    assert!(!issues.is_empty());
+    assert!(
+        issues.iter().all(|i| i.path.is_none()),
+        "in-memory lint stays path-free: {issues:?}"
+    );
 }
 
 #[test]
@@ -9591,6 +9630,41 @@ fn file_rename_destination_exists_is_already_exists() {
 
 #[cfg(any(feature = "cli", feature = "files"))]
 #[test]
+fn file_delete_if_exists_missing_is_soft_ok() {
+    let dir = TempDir::new().unwrap();
+    let missing = dir.path().join("gone.txt");
+    let result = file_delete_with_options(
+        &missing,
+        ApplyMode::Apply,
+        None,
+        &FileDeleteOptions { if_exists: true },
+    )
+    .expect("if_exists missing dest");
+    assert!(!result.applied);
+    assert!(!result.changed);
+    assert!(!missing.exists());
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
+fn file_delete_if_exists_still_deletes_when_present() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("gone.txt");
+    fs::write(&file, "x\n").unwrap();
+    let result = file_delete_with_options(
+        &file,
+        ApplyMode::Apply,
+        None,
+        &FileDeleteOptions { if_exists: true },
+    )
+    .expect("if_exists present dest");
+    assert!(result.applied);
+    assert!(result.changed);
+    assert!(!file.exists(), "present dest must still unlink");
+}
+
+#[cfg(any(feature = "cli", feature = "files"))]
+#[test]
 fn file_delete_missing_is_not_found() {
     let dir = TempDir::new().unwrap();
     let missing = dir.path().join("gone.txt");
@@ -10790,6 +10864,39 @@ fn apply_patch_hunked_delete_leftover_does_not_unlink() {
     );
     assert_eq!(fs::read_to_string(&file).unwrap(), "line3\n");
     assert_eq!(result.new_content, "line3\n");
+}
+
+#[test]
+fn apply_patch_begin_patch_numbered_git_header_applies() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("stud.rs");
+    fs::write(
+        &path,
+        concat!(
+            "        Self::default()\n",
+            "    }\n",
+            "\n",
+            "    pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {\n",
+        ),
+    )
+    .unwrap();
+    let patch = "\
+*** Begin Patch
+*** Update File: stud.rs
+@@ -27,6 +27,7 @@
+         Self::default()
+     }
+
++    /// rustdoc
+     pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {
+*** End Patch
+";
+    apply_patch(&path, patch, ApplyMode::Apply, None).expect("numbered @@ is a hunk delimiter");
+    let on_disk = fs::read_to_string(&path).unwrap();
+    assert!(
+        on_disk.contains("/// rustdoc"),
+        "Begin Patch numbered git header must apply: {on_disk:?}"
+    );
 }
 
 /// Unified-diff delete of a workspace symlink must not snapshot the outside

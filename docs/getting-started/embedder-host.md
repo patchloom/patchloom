@@ -28,6 +28,11 @@ Do not expose only `doc_set` if agents need list updates by name. See
 Library `doc_set` keeps `if_exists: false`. For the CLI/plan soft miss
 (missing file or missing selector, `Ok` with no write), call
 `doc_set_with_options` with `DocSetOptions { if_exists: true }` (#2571).
+Library `file_delete` keeps `if_exists: false`. For the plan/batch/MCP
+soft miss (missing dest, `Ok` with no unlink), call
+`file_delete_with_options` with `FileDeleteOptions { if_exists: true }`
+(#2605). Library `md_lint_agents` stamps `LintIssue.path`; use
+`md_lint_agents_many` for several files (#2604).
 
 ## Minimal checklist
 
