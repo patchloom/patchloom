@@ -11,6 +11,25 @@ present (applied to the GitHub Release body by the host job). Versioned
 sections below are managed by release-please.
 
 
+## [0.36.0](https://github.com/patchloom/patchloom/compare/patchloom-v0.35.1...patchloom-v0.36.0) (2026-09-20)
+
+
+### Bug Fixes
+
+* **api:** dest-less SEARCH/REPLACE uses apply_patch path ([#2585](https://github.com/patchloom/patchloom/issues/2585)) ([5c7d671](https://github.com/patchloom/patchloom/commit/5c7d6715775bea55bc8cb3eb656c11f098317eab)), closes [#2584](https://github.com/patchloom/patchloom/issues/2584)
+* **api:** treat tidy() None EOL as unmix ([#2581](https://github.com/patchloom/patchloom/issues/2581)) ([8fc9541](https://github.com/patchloom/patchloom/commit/8fc954165c6bc7be3f5d2e5bbf8cb4b8ed3029b0)), closes [#2580](https://github.com/patchloom/patchloom/issues/2580)
+* **cli:** treat broken stdout pipe as success for ast dumps ([#2586](https://github.com/patchloom/patchloom/issues/2586)) ([1c53b05](https://github.com/patchloom/patchloom/commit/1c53b0505ca142392d201d965ffd596183c1f921))
+* **cli:** treat broken stdout pipe as success for search and read ([#2587](https://github.com/patchloom/patchloom/issues/2587)) ([f302698](https://github.com/patchloom/patchloom/commit/f302698c7315d1935de5c6f8556b688b3bbe02f6))
+* ignore EPIPE on remaining doc, undo, and listing dumps ([#2601](https://github.com/patchloom/patchloom/issues/2601)) ([f187dea](https://github.com/patchloom/patchloom/commit/f187dea5de969c5ce957a736b469141aa895244a)), closes [#2600](https://github.com/patchloom/patchloom/issues/2600)
+* ignore replace jsonl EPIPE and attribute md lint-agents paths ([#2599](https://github.com/patchloom/patchloom/issues/2599)) ([ea89eed](https://github.com/patchloom/patchloom/commit/ea89eedc543a510c65a30dfb33739ad691eae3b5))
+* parse SEARCH/REPLACE CRLF and ignore remaining dump EPIPE ([#2594](https://github.com/patchloom/patchloom/issues/2594)) ([ea66225](https://github.com/patchloom/patchloom/commit/ea66225bf4dd35a79e2309bffb38ba59d3f91a89))
+* peel extra stars on Begin Patch and stop fuzzy indent growth ([#2591](https://github.com/patchloom/patchloom/issues/2591)) ([d4a9bf6](https://github.com/patchloom/patchloom/commit/d4a9bf64f34aacebb13389472873d8d6354be386))
+
+
+### Miscellaneous Chores
+
+* release 0.36.0 ([35d7327](https://github.com/patchloom/patchloom/commit/35d73277e33d50a2834bf5c210be1bd8351a5843))
+
 ## [0.35.1](https://github.com/patchloom/patchloom/compare/patchloom-v0.35.0...patchloom-v0.35.1) (2026-09-18)
 
 
