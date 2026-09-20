@@ -12,6 +12,12 @@ fn test_schema_json_flag_broken_pipe_is_not_a_panic() {
     assert_cli_broken_pipe_is_not_a_panic(&["--json", "schema"]);
 }
 
+/// `schema --format prompt | head` must not panic (prompt dump uses stdout).
+#[test]
+fn test_schema_prompt_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["schema", "--format", "prompt"]);
+}
+
 #[test]
 fn test_schema_json_output() {
     let output = Command::cargo_bin("patchloom")

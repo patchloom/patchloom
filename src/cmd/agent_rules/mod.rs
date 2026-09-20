@@ -114,7 +114,7 @@ pub fn run(args: AgentRulesArgs, global: &crate::cli::global::GlobalFlags) -> an
         "content": output,
     }))? && !global.quiet
     {
-        print!("{output}");
+        crate::json_emit::write_stdout_ignore_epipe(output.as_bytes(), false)?;
     }
     Ok(exit::SUCCESS)
 }

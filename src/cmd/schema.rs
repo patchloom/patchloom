@@ -92,7 +92,7 @@ pub fn run(args: SchemaArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 "content": prompt,
             }))? && !global.quiet
             {
-                print!("{prompt}");
+                crate::json_emit::write_stdout_ignore_epipe(prompt.as_bytes(), false)?;
             }
         }
     }

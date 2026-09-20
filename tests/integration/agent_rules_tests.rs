@@ -1,5 +1,11 @@
 use super::*;
 
+/// `agent-rules | head` must not panic (markdown dump uses stdout).
+#[test]
+fn test_agent_rules_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["agent-rules"]);
+}
+
 #[test]
 fn test_agent_rules_outputs_markdown() {
     Command::cargo_bin("patchloom")
