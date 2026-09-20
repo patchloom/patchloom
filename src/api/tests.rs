@@ -10917,6 +10917,29 @@ index 1111111..2222222 100644
     assert_eq!(fs::read_to_string(&path).unwrap(), "fn new() {}\n");
 }
 
+#[test]
+fn apply_patch_begin_patch_git_rename_line_applies() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("code.rs");
+    fs::write(&path, "fn old() {}\n").unwrap();
+    let patch = "\
+*** Begin Patch
+*** Update File: code.rs
+rename from code.rs
+rename to other.rs
+@@
+-fn old() {}
++fn new() {}
+*** End Patch
+";
+    apply_patch(&path, patch, ApplyMode::Apply, None).expect("git rename is metadata");
+    assert_eq!(fs::read_to_string(&path).unwrap(), "fn new() {}\n");
+    assert!(
+        !dir.path().join("other.rs").exists(),
+        "git rename to is metadata, not a Codex Move to"
+    );
+}
+
 /// Unified-diff delete of a workspace symlink must not snapshot the outside
 /// target (same file_delete backup rule as Begin Patch Delete).
 #[cfg(unix)]

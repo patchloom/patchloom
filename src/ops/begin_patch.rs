@@ -403,6 +403,10 @@ fn is_git_file_meta_line(line: &str) -> bool {
         || t.starts_with("new mode ")
         || t.starts_with("similarity index ")
         || t.starts_with("dissimilarity index ")
+        || t.starts_with("rename from ")
+        || t.starts_with("rename to ")
+        || t.starts_with("copy from ")
+        || t.starts_with("copy to ")
 }
 
 fn parse_codex_hunks(body: &str) -> anyhow::Result<Vec<CodexHunk>> {
@@ -822,6 +826,22 @@ dissimilarity index 40%
 +fn new() {}
 ";
         let out = apply_codex_hunks(src, hunks).expect("git mode/similarity is metadata");
+        assert_eq!(out, "fn new() {}\n");
+    }
+
+    #[test]
+    fn apply_codex_hunks_git_rename_and_copy_lines_are_metadata() {
+        let src = "fn old() {}\n";
+        let hunks = "\
+rename from a.rs
+rename to b.rs
+copy from a.rs
+copy to c.rs
+@@
+-fn old() {}
++fn new() {}
+";
+        let out = apply_codex_hunks(src, hunks).expect("git rename/copy is metadata");
         assert_eq!(out, "fn new() {}\n");
     }
 
