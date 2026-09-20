@@ -775,6 +775,80 @@ fn test_md_lint_agents_jsonl_output() {
     assert!(saw_issue && saw_summary, "need issues + dirty summary");
 }
 
+/// Multi-file lint-agents must name the file that actually has the issue,
+/// not the first dest on the command line.
+#[test]
+fn test_md_lint_agents_multi_file_json_attributes_issue_to_source() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("AGENTS.md"), "# Agents\n\nRules here.\n").unwrap();
+    fs::write(
+        dir.path().join("OTHER.md"),
+        "# Agents\n\nFirst.\n\n# Agents\n\nDuplicate.\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--json", "--cwd"])
+        .arg(dir.path())
+        .args(["md", "lint-agents", "AGENTS.md", "OTHER.md"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stdout={}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let issues = parsed["issues"]
+        .as_array()
+        .expect("issues array under envelope");
+    assert!(!issues.is_empty(), "{parsed}");
+    for issue in issues {
+        let path = issue["path"].as_str().unwrap_or("");
+        assert!(
+            path.ends_with("OTHER.md"),
+            "JSON issue must name the dirty file, not the first dest: {issue}"
+        );
+        assert!(
+            !path.contains("AGENTS.md"),
+            "must not attribute OTHER.md issues to AGENTS.md: {issue}"
+        );
+    }
+}
+
+#[test]
+fn test_md_lint_agents_multi_file_text_attributes_issue_to_source() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("AGENTS.md"), "# Agents\n\nRules here.\n").unwrap();
+    fs::write(
+        dir.path().join("OTHER.md"),
+        "# Agents\n\nFirst.\n\n# Agents\n\nDuplicate.\n",
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["--cwd"])
+        .arg(dir.path())
+        .args(["md", "lint-agents", "AGENTS.md", "OTHER.md"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("OTHER.md"),
+        "text must name the dirty file: {stdout}"
+    );
+    assert!(
+        !stdout.contains("AGENTS.md"),
+        "text must not label B's issues as A: {stdout}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // md move-section (CLI)
 // ---------------------------------------------------------------------------

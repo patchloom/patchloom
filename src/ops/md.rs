@@ -1145,6 +1145,9 @@ pub struct LintIssue {
     /// Heading text related to the issue (if applicable).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heading: Option<String>,
+    /// File this issue was found in (CLI multi-file lint-agents).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
@@ -1160,6 +1163,7 @@ pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
                 issue: "duplicate heading".to_string(),
                 line: Some(h.line_start + 1), // 1-based
                 heading: Some(format!("{} {}", "#".repeat(h.level), h.text)),
+                path: None,
             });
         }
     }
@@ -1175,6 +1179,7 @@ pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
                 issue: "dangerous command".to_string(),
                 line: Some(idx + 1),
                 heading: None,
+                path: None,
             });
         }
     }
@@ -1185,6 +1190,7 @@ pub fn lint_agents_content(content: &str) -> Vec<LintIssue> {
             issue: "missing final newline".to_string(),
             line: None,
             heading: None,
+            path: None,
         });
     }
 
