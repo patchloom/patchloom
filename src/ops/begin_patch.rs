@@ -1,6 +1,6 @@
 //! Codex `*** Begin Patch` grammar: detect, dest list, parse, hunk apply.
 //!
-//! size-waiver: Codex Begin Patch parse + apply + git numbered @@ (#2603).
+//! size-waiver: Codex Begin Patch parse + apply + git numbered @@ / file meta (#2603).
 //! Co-located tests. Policy #1408 — do not split for LOC alone.
 //!
 //! Hosts dest-deny with [`begin_patch_declared_paths`] then call
@@ -390,6 +390,21 @@ fn ascii_digits(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Git file-header metadata that models paste into a Codex Begin Patch
+/// hunk. Not a unified-diff file header (`diff --git` / `---` / `+++`),
+/// which stays mixed-grammar fail-closed.
+fn is_git_file_meta_line(line: &str) -> bool {
+    // Column 0 only. A Codex context line is ` index …` (leading space).
+    let t = line.trim_end();
+    (t.starts_with("index ") && t.contains(".."))
+        || t.starts_with("new file mode ")
+        || t.starts_with("deleted file mode ")
+        || t.starts_with("old mode ")
+        || t.starts_with("new mode ")
+        || t.starts_with("similarity index ")
+        || t.starts_with("dissimilarity index ")
+}
+
 fn parse_codex_hunks(body: &str) -> anyhow::Result<Vec<CodexHunk>> {
     let mut hunks = Vec::new();
     let mut current = Vec::new();
@@ -401,6 +416,9 @@ fn parse_codex_hunks(body: &str) -> anyhow::Result<Vec<CodexHunk>> {
         let line = line.trim_end_matches('\r');
         if is_col0_marker(line, "*** End of File") {
             eof_anchored = true;
+            continue;
+        }
+        if is_git_file_meta_line(line) {
             continue;
         }
         if line.starts_with("@@") {
@@ -539,7 +557,7 @@ fn hunk_old_new_lines(hunk: &str) -> anyhow::Result<(Vec<String>, Vec<String>)> 
     let mut old_lines = Vec::new();
     let mut new_lines = Vec::new();
     for line in hunk.lines() {
-        if line.starts_with("@@") {
+        if line.starts_with("@@") || is_git_file_meta_line(line) {
             continue;
         }
         if let Some(rest) = line.strip_prefix('-') {
@@ -774,6 +792,55 @@ mod tests {
         assert!(!is_git_hunk_header_rest("fn b()"));
         assert!(!is_git_hunk_header_rest("impl Foo"));
         assert!(!is_git_hunk_header_rest("-foo"));
+    }
+
+    #[test]
+    fn apply_codex_hunks_git_index_line_is_not_a_hunk_line() {
+        let src = "fn old() {}\n";
+        let hunks = "\
+index 1111111..2222222 100644
+@@
+-fn old() {}
++fn new() {}
+";
+        let out = apply_codex_hunks(src, hunks).expect("git index is metadata");
+        assert_eq!(out, "fn new() {}\n");
+    }
+
+    #[test]
+    fn apply_codex_hunks_git_mode_and_similarity_lines_are_metadata() {
+        let src = "fn old() {}\n";
+        let hunks = "\
+new file mode 100644
+old mode 100644
+new mode 100755
+deleted file mode 100644
+similarity index 95%
+dissimilarity index 40%
+@@
+-fn old() {}
++fn new() {}
+";
+        let out = apply_codex_hunks(src, hunks).expect("git mode/similarity is metadata");
+        assert_eq!(out, "fn new() {}\n");
+    }
+
+    #[test]
+    fn apply_codex_hunks_minus_prefixed_index_line_is_still_content() {
+        let src = "index 1111111..2222222 100644\n";
+        let hunks = "@@\n-index 1111111..2222222 100644\n+kept\n";
+        let out = apply_codex_hunks(src, hunks).expect("minus-prefixed index is content");
+        assert_eq!(out, "kept\n");
+    }
+
+    #[test]
+    fn apply_codex_hunks_space_prefixed_index_line_is_still_content() {
+        // Codex context is ` index …`. Do not trim(); that would treat it as
+        // git file-header metadata and drop the only match line.
+        let src = "index 1111111..2222222 100644\n";
+        let hunks = "@@\n index 1111111..2222222 100644\n+kept\n";
+        let out = apply_codex_hunks(src, hunks).expect("space-prefixed index is content");
+        assert_eq!(out, "index 1111111..2222222 100644\nkept\n");
     }
 
     #[test]
