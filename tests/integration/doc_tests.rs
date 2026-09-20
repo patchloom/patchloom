@@ -1,5 +1,17 @@
 use super::*;
 
+/// `doc get | head` must not panic (`println!` of the query dump).
+#[test]
+fn test_doc_get_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["doc", "get", "Cargo.toml", "package.name"]);
+}
+
+/// `doc keys | head` must not panic (`println!` of the key list).
+#[test]
+fn test_doc_keys_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["doc", "keys", "Cargo.toml"]);
+}
+
 /// `doc keys` lists `server.port`; get/set must treat that as one key.
 #[test]
 fn test_doc_properties_dotted_key_get_and_set() {

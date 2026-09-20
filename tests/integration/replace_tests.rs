@@ -1,5 +1,16 @@
 use super::*;
 
+/// `replace --check | head` must not panic (human summary used `println!`).
+#[test]
+fn test_replace_check_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.rs"), "fn foo() {}\n").unwrap();
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&[
+        "--cwd", cwd, "replace", "fn", "--new", "xx", "f.rs", "--check",
+    ]);
+}
+
 /// `replace --jsonl … | head` must not panic (jsonl used `println!`).
 #[test]
 fn test_replace_jsonl_broken_pipe_is_not_a_panic() {

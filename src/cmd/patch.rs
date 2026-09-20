@@ -897,7 +897,8 @@ pub fn run(args: PatchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 .iter()
                 .filter(|r| r.status == "would_change")
                 .count();
-            println!("{n} file(s) would change");
+            let line = format!("{n} file(s) would change");
+            crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)?;
         }
         // Exit must match JSON error_kind (not_found/invalid_input → 1, not 5).
         return Ok(if any_problem {
@@ -1242,7 +1243,8 @@ fn finish_patch_apply(global: &GlobalFlags, op: Operation, merge_mode: bool) -> 
                     emit_patch_files_output(g, true, &files, Some(false), None)?;
                 }
                 if changed > 0 && !(g.json || g.jsonl || g.quiet) {
-                    println!("{changed} file(s) would change");
+                    let line = format!("{changed} file(s) would change");
+                    crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)?;
                 }
                 Ok(())
             },

@@ -113,19 +113,27 @@ pub fn run(args: ExplainArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
         };
 
     if !global.emit_json(&build_json_summary(&plan, strict))? && !global.quiet {
-        print_human_summary(&plan, strict);
+        print_human_summary(&plan, strict)?;
     }
 
     Ok(exit::SUCCESS)
 }
 
-pub(super) fn print_human_summary(plan: &Plan, strict: bool) {
+fn write_summary_line(line: &str) -> anyhow::Result<bool> {
+    crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)
+}
+
+pub(super) fn print_human_summary(plan: &Plan, strict: bool) -> anyhow::Result<()> {
     let n = plan.operations.len();
     let mode = if strict { "strict" } else { "normal" };
-    println!("Plan: {n} operation(s) ({mode} mode)\n");
+    if !write_summary_line(&format!("Plan: {n} operation(s) ({mode} mode)\n"))? {
+        return Ok(());
+    }
 
     for (i, op) in plan.operations.iter().enumerate() {
-        println!("  {}. {}", i + 1, describe_operation(op));
+        if !write_summary_line(&format!("  {}. {}", i + 1, describe_operation(op)))? {
+            return Ok(());
+        }
     }
 
     if let Some(ref wp) = plan.write_policy {
@@ -150,14 +158,22 @@ pub(super) fn print_human_summary(plan: &Plan, strict: bool) {
         if wp.respect_editorconfig == Some(true) {
             parts.push("respect editorconfig");
         }
-        if !parts.is_empty() {
-            println!("\nWrite policy: {}", parts.join(", "));
+        if !parts.is_empty()
+            && !write_summary_line(&format!("\nWrite policy: {}", parts.join(", ")))?
+        {
+            return Ok(());
         }
     }
 
     if let Some(ref steps) = plan.format {
         for step in steps {
-            println!("Format: {}{}", step.cmd, format_timeout(step.timeout));
+            if !write_summary_line(&format!(
+                "Format: {}{}",
+                step.cmd,
+                format_timeout(step.timeout)
+            ))? {
+                return Ok(());
+            }
         }
     }
 
@@ -168,30 +184,36 @@ pub(super) fn print_human_summary(plan: &Plan, strict: bool) {
             } else {
                 "advisory"
             };
-            println!(
+            if !write_summary_line(&format!(
                 "Validate: {} ({req}){}",
                 step.cmd,
                 format_timeout(step.timeout)
-            );
+            ))? {
+                return Ok(());
+            }
         }
     }
 
     if let Some(ref checks) = plan.verify {
         for check in checks {
-            match check {
+            let line = match check {
                 crate::plan::VerifyCheck::SymbolCount { kind, attr } => {
                     if let Some(a) = attr {
-                        println!("Verify: count {kind} symbols with attr={a}");
+                        format!("Verify: count {kind} symbols with attr={a}")
                     } else {
-                        println!("Verify: count {kind} symbols");
+                        format!("Verify: count {kind} symbols")
                     }
                 }
                 crate::plan::VerifyCheck::Named { check } => {
-                    println!("Verify: {check}");
+                    format!("Verify: {check}")
                 }
+            };
+            if !write_summary_line(&line)? {
+                return Ok(());
             }
         }
     }
+    Ok(())
 }
 
 pub(super) fn format_timeout(timeout: Option<u64>) -> String {

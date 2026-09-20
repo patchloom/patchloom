@@ -1093,7 +1093,8 @@ pub fn run(mut args: DocArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     let (output, code) = execute_with_mode_inner(&args.action, output_mode, global.quiet)?;
     if !output.is_empty() && (global.json || global.jsonl || !global.quiet) {
-        println!("{output}");
+        let newline = !output.ends_with('\n');
+        crate::json_emit::write_stdout_ignore_epipe(output.as_bytes(), newline)?;
     }
     Ok(code)
 }

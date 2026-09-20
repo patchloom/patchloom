@@ -1,5 +1,18 @@
 use super::*;
 
+/// `tx --check | head` must not panic (would-change dump used `println!`).
+#[test]
+fn test_tx_check_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("plan.json"),
+        r#"{"version":1,"operations":[{"op":"file.create","path":"n.txt","content":"x"}]}"#,
+    )
+    .unwrap();
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["--cwd", cwd, "tx", "--check", "plan.json"]);
+}
+
 #[test]
 fn test_tx_replace_empty_from_rejected() {
     let dir = TempDir::new().unwrap();

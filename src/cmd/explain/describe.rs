@@ -718,7 +718,7 @@ mod tests {
             for_each: None,
         };
         // Just ensure it doesn't panic.
-        print_human_summary(&plan, true);
+        print_human_summary(&plan, true).unwrap();
     }
 
     #[test]
@@ -1247,7 +1247,7 @@ mod tests {
         // Capture output by calling the function (it prints to stdout).
         // Just ensure it doesn't panic; the logic is tested by presence of
         // "respect editorconfig" in the parts vector.
-        print_human_summary(&plan, false);
+        print_human_summary(&plan, false).unwrap();
     }
 
     #[test]
@@ -1277,7 +1277,7 @@ mod tests {
             for_each: None,
         };
         // Should not panic; exercises verify display path
-        print_human_summary(&plan, false);
+        print_human_summary(&plan, false).unwrap();
     }
 
     #[test]

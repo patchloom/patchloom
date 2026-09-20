@@ -1,5 +1,21 @@
 use super::*;
 
+/// `create --check | head` must not panic (write_mode check used `println!`).
+#[test]
+fn test_create_check_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&[
+        "--cwd",
+        cwd,
+        "create",
+        "new.txt",
+        "--content",
+        "hi",
+        "--check",
+    ]);
+}
+
 #[test]
 fn test_create_rejects_content_and_stdin_together() {
     let dir = TempDir::new().unwrap();
