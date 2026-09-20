@@ -599,7 +599,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 Err(e) => return map_md_resolve_err(global, e),
             };
             let cwd = global.resolve_cwd()?;
-            let file = files[0].clone();
+            let single_path = (files.len() == 1).then(|| files[0].clone());
             let mut issues = Vec::new();
             for file in &files {
                 let path = cwd.join(file);
@@ -613,7 +613,10 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     }
                     Err(e) => return Err(e).with_context(|| format!("reading {file}")),
                 };
-                issues.extend(lint_agents_content(&content));
+                for mut issue in lint_agents_content(&content) {
+                    issue.path = Some(file.clone());
+                    issues.push(issue);
+                }
             }
 
             // --json: object envelope (tidy check parity, #1854). --jsonl: one
@@ -624,7 +627,8 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     ok: bool,
                     #[serde(skip_serializing_if = "Option::is_none")]
                     error_kind: Option<&'static str>,
-                    path: String,
+                    #[serde(skip_serializing_if = "Option::is_none")]
+                    path: Option<String>,
                     issue_count: usize,
                     issues: Vec<crate::ops::md::LintIssue>,
                 }
@@ -635,7 +639,7 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                     } else {
                         Some("changes_detected")
                     },
-                    path: file.clone(),
+                    path: single_path.clone(),
                     issue_count: issues.len(),
                     issues: issues.clone(),
                 })?;
@@ -643,24 +647,32 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 // Stream issues, then summary with ok/error_kind (parity --json).
                 global.emit_json_items(&issues)?;
                 let dirty = !issues.is_empty();
-                global.emit_json(&serde_json::json!({
+                let mut summary = serde_json::json!({
                     "type": "summary",
                     "ok": !dirty,
-                    "path": file,
                     "issue_count": issues.len(),
                     "error_kind": if dirty { Some("changes_detected") } else { None::<&str> },
-                }))?;
+                });
+                if let Some(path) = &single_path {
+                    summary["path"] = serde_json::Value::String(path.clone());
+                }
+                global.emit_json(&summary)?;
             } else if !global.quiet {
                 for issue in &issues {
+                    let loc = issue
+                        .path
+                        .as_deref()
+                        .or(single_path.as_deref())
+                        .unwrap_or("");
                     match (issue.line, &issue.heading) {
                         (Some(ln), Some(h)) => {
-                            println!("{file}:{ln}: {} {h:?}", issue.issue);
+                            println!("{loc}:{ln}: {} {h:?}", issue.issue);
                         }
                         (Some(ln), None) => {
-                            println!("{file}:{ln}: {}", issue.issue);
+                            println!("{loc}:{ln}: {}", issue.issue);
                         }
                         _ => {
-                            println!("{file}: {}", issue.issue);
+                            println!("{loc}: {}", issue.issue);
                         }
                     }
                 }

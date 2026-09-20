@@ -84,7 +84,9 @@ pub(super) fn tidy_fix_output(
                 )?;
                 if !g.quiet && !g.json && !g.jsonl {
                     for p in dirty_rel_paths {
-                        println!("{p}");
+                        if !crate::json_emit::write_stdout_ignore_epipe(p.as_bytes(), true)? {
+                            break;
+                        }
                     }
                 }
                 Ok(())
