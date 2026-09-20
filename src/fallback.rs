@@ -1096,21 +1096,25 @@ fn best_token_similarity(content: &str, target: &str) -> Option<AnchorMatchResul
 
 /// Whole-line similarity for multi-word / snippet targets.
 ///
-/// Refuses a match when the line is much longer than the target (ratio > 2)
-/// so accidental line expansion stays rare even for long snippets (#1694).
+/// Scores trimmed text so indent does not tank Jaro-Winkler, but the match
+/// span is the full line (including leading whitespace) so a replacement
+/// that also carries indent does not stack (#2589).
+///
+/// Refuses a match when the trimmed line is much longer than the trimmed
+/// target (ratio > 2) so accidental line expansion stays rare (#1694).
 fn best_line_similarity(content: &str, target: &str) -> Option<AnchorMatchResult> {
     let mut best_score = 0.0f64;
     let mut best_match = String::new();
     let mut best_offset = 0usize;
     let mut offset = 0usize;
+    let target_trim = target.trim();
     for line in content.lines() {
         let trimmed = line.trim();
-        let score = strsim::jaro_winkler(trimmed, target);
+        let score = strsim::jaro_winkler(trimmed, target_trim);
         if score > best_score {
             best_score = score;
-            let lead = line.len() - line.trim_start().len();
-            best_match = trimmed.to_string();
-            best_offset = offset + lead;
+            best_match = line.to_string();
+            best_offset = offset;
         }
         offset = advance_line_offset(content, offset, line);
     }
@@ -1118,7 +1122,7 @@ fn best_line_similarity(content: &str, target: &str) -> Option<AnchorMatchResult
         return None;
     }
     let line_len = best_match.trim().len();
-    let target_len = target.len().max(1);
+    let target_len = target_trim.len().max(1);
     if line_len > target_len.saturating_mul(2) && line_len > target_len + 16 {
         // Too expansive: treat as no similarity match (suggestions still help).
         return None;
@@ -1802,30 +1806,30 @@ mod tests {
     }
 
     #[test]
-    fn line_similarity_span_excludes_space_indent() {
+    fn line_similarity_span_includes_space_indent() {
         let content = "    foo(x);\n";
         let r = resolve_with_fallback(content, "foo(x) ;", None, None)
             .expect("indented snippet should fuzzy-match");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
-        assert_eq!(r.matched_text, "foo(x);");
-        assert_eq!(r.start_offset, 4);
+        assert_eq!(r.matched_text, "    foo(x);");
+        assert_eq!(r.start_offset, 0);
         assert_eq!(
             &content[r.start_offset..r.start_offset + r.matched_text.len()],
-            "foo(x);"
+            "    foo(x);"
         );
     }
 
     #[test]
-    fn line_similarity_span_excludes_tab_indent() {
+    fn line_similarity_span_includes_tab_indent() {
         let content = "\tfoo(x);\n";
         let r = resolve_with_fallback(content, "foo(x) ;", None, None)
             .expect("tab-indented snippet should fuzzy-match");
         assert_eq!(r.strategy, MatchStrategy::Similarity);
-        assert_eq!(r.matched_text, "foo(x);");
-        assert_eq!(r.start_offset, 1);
+        assert_eq!(r.matched_text, "\tfoo(x);");
+        assert_eq!(r.start_offset, 0);
         assert_eq!(
             &content[r.start_offset..r.start_offset + r.matched_text.len()],
-            "foo(x);"
+            "\tfoo(x);"
         );
     }
 

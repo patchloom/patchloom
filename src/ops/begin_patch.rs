@@ -4,13 +4,17 @@
 //! [`crate::api::apply_patch`] / [`crate::api::apply_patch_file`]. Do not copy
 //! this parser.
 
-/// True when the first non-blank line trims to `*** Begin Patch`.
+/// True when the first non-blank line trims to `*** Begin Patch` with optional trailing ` ***`.
 ///
 /// Mid-document or unified-diff context/`+` lines that mention the marker
 /// stay unified (#2505).
 #[must_use]
 pub fn looks_like_begin_patch(patch: &str) -> bool {
-    patch.lines().map(str::trim).find(|l| !l.is_empty()) == Some("*** Begin Patch")
+    patch
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .is_some_and(|l| peel_trailing_marker_stars(l) == "*** Begin Patch")
 }
 
 /// True when Begin Patch markers appear with unified-diff file headers.
@@ -107,7 +111,7 @@ pub fn parse_begin_patch(patch: &str) -> anyhow::Result<Vec<BeginPatchOp>> {
             break;
         }
         // `*** End of File` is a hunk EOF-anchor, not an op terminator (#2504).
-        if let Some(path) = strip_marker(trimmed, "*** Add File:") {
+        if let Some(path) = take_marker_dest(trimmed, "*** Add File:")? {
             finish_op(&mut current, &mut ops)?;
             current = Some(OpBuilder::Add {
                 path: path.to_owned(),
@@ -115,14 +119,14 @@ pub fn parse_begin_patch(patch: &str) -> anyhow::Result<Vec<BeginPatchOp>> {
             });
             continue;
         }
-        if let Some(path) = strip_marker(trimmed, "*** Delete File:") {
+        if let Some(path) = take_marker_dest(trimmed, "*** Delete File:")? {
             finish_op(&mut current, &mut ops)?;
             current = Some(OpBuilder::Delete {
                 path: path.to_owned(),
             });
             continue;
         }
-        if let Some(path) = strip_marker(trimmed, "*** Update File:") {
+        if let Some(path) = take_marker_dest(trimmed, "*** Update File:")? {
             finish_op(&mut current, &mut ops)?;
             current = Some(OpBuilder::Update {
                 path: path.to_owned(),
@@ -131,7 +135,7 @@ pub fn parse_begin_patch(patch: &str) -> anyhow::Result<Vec<BeginPatchOp>> {
             });
             continue;
         }
-        if let Some(dest) = strip_marker(trimmed, "*** Move to:") {
+        if let Some(dest) = take_marker_dest(trimmed, "*** Move to:")? {
             match &mut current {
                 Some(OpBuilder::Update { move_to, .. }) => *move_to = Some(dest.to_owned()),
                 _ => {
@@ -275,14 +279,30 @@ enum OpBuilder {
     },
 }
 
+/// Peel optional trailing Codex token ` ***` (space + three asterisks).
+fn peel_trailing_marker_stars(line: &str) -> &str {
+    let t = line.trim_end();
+    t.strip_suffix(" ***").map(str::trim_end).unwrap_or(t)
+}
+
 fn is_col0_marker(line: &str, marker: &str) -> bool {
-    line.trim_end() == marker
+    peel_trailing_marker_stars(line) == marker
 }
 
 fn strip_marker<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
-    line.strip_prefix(marker)
+    peel_trailing_marker_stars(line)
+        .strip_prefix(marker)
         .map(str::trim)
-        .filter(|s| !s.is_empty())
+}
+
+fn take_marker_dest<'a>(line: &'a str, marker: &str) -> anyhow::Result<Option<&'a str>> {
+    let Some(path) = strip_marker(line, marker) else {
+        return Ok(None);
+    };
+    if path.is_empty() {
+        return Err(invalid_err(format!("{marker} dest path must not be empty")));
+    }
+    Ok(Some(path))
 }
 
 fn finish_op(current: &mut Option<OpBuilder>, ops: &mut Vec<BeginPatchOp>) -> anyhow::Result<()> {
@@ -554,6 +574,116 @@ mod tests {
             ),
             "unified + line must stay unified"
         );
+    }
+
+    #[test]
+    fn looks_like_begin_patch_extra_stars() {
+        assert!(looks_like_begin_patch(
+            "*** Begin Patch ***\n*** End Patch ***\n"
+        ));
+        assert!(looks_like_begin_patch("*** Begin Patch\n*** End Patch\n"));
+        // Mid-document trimmed match is not an envelope (#2505).
+        assert!(!looks_like_begin_patch(
+            "preamble\n*** Begin Patch ***\n*** End Patch ***\n"
+        ));
+        assert!(
+            !looks_like_begin_patch(
+                "--- a/u.txt\n+++ b/u.txt\n@@ -1,3 +1,3 @@\n-x\n+X\n *** Begin Patch ***\n y\n"
+            ),
+            "unified context line must stay unified"
+        );
+        assert!(
+            !looks_like_begin_patch(
+                "--- a/u.txt\n+++ b/u.txt\n@@ -1,2 +1,3 @@\n x\n+*** Begin Patch ***\n y\n"
+            ),
+            "unified + line must stay unified"
+        );
+    }
+
+    #[test]
+    fn parse_begin_patch_extra_stars_update_dest() {
+        let patch = "\
+*** Begin Patch ***
+*** Update File: code.rs ***
+@@
+-fn old() {}
++fn new() {}
+*** End Patch ***
+";
+        let ops = parse_begin_patch(patch).expect("parse");
+        assert_eq!(ops.len(), 1);
+        match &ops[0] {
+            BeginPatchOp::Update { path, hunks, .. } => {
+                assert_eq!(path, "code.rs");
+                assert!(!path.ends_with("***"), "dest must not keep trailing stars");
+                assert!(hunks.contains("-fn old() {}"));
+                assert!(hunks.contains("+fn new() {}"));
+            }
+            other => panic!("expected Update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_begin_patch_extra_stars_add_delete_move_dests() {
+        let patch = "\
+*** Begin Patch ***
+*** Add File: new.rs ***
++hello
+*** Update File: src.rs ***
+*** Move to: dest.rs ***
+@@
+-fn a() {}
++fn b() {}
+*** Delete File: gone.rs ***
+*** End Patch ***
+";
+        let paths = begin_patch_declared_paths(patch).expect("paths");
+        assert_eq!(paths, vec!["new.rs", "src.rs", "dest.rs", "gone.rs"]);
+        let ops = parse_begin_patch(patch).expect("parse");
+        assert_eq!(ops.len(), 3);
+        match &ops[0] {
+            BeginPatchOp::Add { path, .. } => assert_eq!(path, "new.rs"),
+            other => panic!("expected Add, got {other:?}"),
+        }
+        match &ops[1] {
+            BeginPatchOp::Update { path, move_to, .. } => {
+                assert_eq!(path, "src.rs");
+                assert_eq!(move_to.as_deref(), Some("dest.rs"));
+            }
+            other => panic!("expected Update, got {other:?}"),
+        }
+        match &ops[2] {
+            BeginPatchOp::Delete { path } => assert_eq!(path, "gone.rs"),
+            other => panic!("expected Delete, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_begin_patch_extra_stars_empty_update_dest_is_invalid_input() {
+        let patch = "\
+*** Begin Patch ***
+*** Update File: ***
+@@
+-a
++b
+*** End Patch ***
+";
+        let err = parse_begin_patch(patch).expect_err("empty dest");
+        assert!(
+            crate::exit::is_invalid_input(&err),
+            "empty dest after peel must be invalid_input, not dest ***: {err}"
+        );
+        assert!(
+            err.to_string().to_lowercase().contains("empty")
+                || err.to_string().to_lowercase().contains("dest"),
+            "error should name empty dest: {err}"
+        );
+    }
+
+    #[test]
+    fn apply_codex_hunks_extra_stars_end_of_file() {
+        let out = apply_codex_hunks("x\nx\n", "-x\n+y\n*** End of File ***\n").expect("eof");
+        assert_eq!(out, "x\ny\n");
     }
 
     #[test]

@@ -387,6 +387,29 @@ mod tests {
     }
 
     #[test]
+    fn apply_begin_patch_extra_stars_update_unique() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+        let patch = "\
+*** Begin Patch ***
+*** Update File: code.rs ***
+@@
+-fn old() {}
++fn new() {}
+*** End Patch ***
+";
+        assert!(looks_like_begin_patch(patch));
+        let results =
+            apply_begin_patch(patch, dir.path(), None, ApplyMode::Apply, None).expect("update");
+        assert_eq!(results.len(), 1);
+        assert!(results[0].applied);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+            "fn new() {}\n"
+        );
+    }
+
+    #[test]
     fn apply_patch_detects_begin_patch_envelope() {
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path().join("code.rs");
