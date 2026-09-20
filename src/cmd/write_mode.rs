@@ -343,7 +343,7 @@ pub fn finalize_execution_result<T: Serialize>(
         WriteMode::Check => {
             let output = make_output(WritePhase::Check(has_changes), None, None);
             if !global.emit_json(&output)? && !global.quiet && has_changes {
-                println!("{}", msgs.check);
+                crate::json_emit::write_stdout_ignore_epipe(msgs.check.as_bytes(), true)?;
             }
             Ok(write_exit_code(has_changes, false))
         }
@@ -360,7 +360,7 @@ pub fn finalize_execution_result<T: Serialize>(
                 if global.diff {
                     print!("{}", render_diffs_colored(&diffs, global.should_color()));
                 } else if !global.quiet {
-                    println!("{}", msgs.apply);
+                    crate::json_emit::write_stdout_ignore_epipe(msgs.apply.as_bytes(), true)?;
                 }
             }
             // Exit SUCCESS for no-op apply; CHANGES_DETECTED never for Apply mode.
@@ -397,7 +397,7 @@ pub fn finalize_execution_result<T: Serialize>(
                 if !diffs.is_empty() {
                     print!("{}", render_diffs_colored(&diffs, global.should_color()));
                 } else if has_changes && !global.quiet {
-                    println!("{}", msgs.check);
+                    crate::json_emit::write_stdout_ignore_epipe(msgs.check.as_bytes(), true)?;
                 }
             }
             let applied = global.should_apply();
@@ -432,7 +432,7 @@ pub fn finalize_callback_write<T: Serialize>(
         WriteMode::Check => {
             let output = make_output(WritePhase::Check(has_changes), None, None);
             if !global.emit_json(&output)? && !global.quiet && has_changes {
-                println!("{}", msgs.check);
+                crate::json_emit::write_stdout_ignore_epipe(msgs.check.as_bytes(), true)?;
             }
             Ok(write_exit_code(has_changes, false))
         }
@@ -450,7 +450,7 @@ pub fn finalize_callback_write<T: Serialize>(
                         print!("{}", f(global.should_color()));
                     }
                 } else if !global.quiet && has_changes {
-                    println!("{}", msgs.apply);
+                    crate::json_emit::write_stdout_ignore_epipe(msgs.apply.as_bytes(), true)?;
                 }
             }
             Ok(write_exit_code(has_changes, has_changes))
@@ -475,7 +475,7 @@ pub fn finalize_callback_write<T: Serialize>(
                 if let Some(f) = diff_fn {
                     print!("{}", f(global.should_color()));
                 } else if has_changes && !global.quiet {
-                    println!("{}", msgs.check);
+                    crate::json_emit::write_stdout_ignore_epipe(msgs.check.as_bytes(), true)?;
                 }
             }
             let applied = global.should_apply();

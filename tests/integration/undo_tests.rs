@@ -1,5 +1,39 @@
 use super::*;
 
+/// `undo --list | head` must not panic (human listing used `println!`).
+#[test]
+fn test_undo_list_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--new", "hi", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .code(0);
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["--cwd", cwd, "undo", "--list"]);
+}
+
+/// Dry-run `undo | head` must not panic (preview listing used `println!`).
+#[test]
+fn test_undo_dry_run_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("test.txt");
+    fs::write(&file, "hello\n").unwrap();
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .args(["replace", "hello", "--new", "hi", "--apply", "--cwd"])
+        .arg(dir.path())
+        .arg(portable_path_str(&file))
+        .assert()
+        .code(0);
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["--cwd", cwd, "undo"]);
+}
+
 #[test]
 fn test_undo_restores_replaced_file() {
     let dir = TempDir::new().unwrap();

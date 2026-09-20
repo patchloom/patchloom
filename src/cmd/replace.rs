@@ -1241,9 +1241,15 @@ fn replace_output(
                         backup_session: None,
                     })?;
                 } else if !g.quiet {
-                    println!("{total_matches} match(es) in {file_count} file(s)");
-                    for f in files {
-                        println!("  {}: {} match(es)", f.path, f.match_count);
+                    let header = format!("{total_matches} match(es) in {file_count} file(s)");
+                    if crate::json_emit::write_stdout_ignore_epipe(header.as_bytes(), true)? {
+                        for f in files {
+                            let line = format!("  {}: {} match(es)", f.path, f.match_count);
+                            if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)?
+                            {
+                                break;
+                            }
+                        }
                     }
                 }
                 if !g.quiet
@@ -1281,9 +1287,16 @@ fn replace_output(
                 } else if g.diff {
                     print!("{}", render_diffs_colored(diffs, g.should_color()));
                 } else if !g.quiet {
-                    println!("replaced {total_matches} match(es) in {file_count} file(s)");
-                    for f in files {
-                        println!("  {}: {} match(es)", f.path, f.match_count);
+                    let header =
+                        format!("replaced {total_matches} match(es) in {file_count} file(s)");
+                    if crate::json_emit::write_stdout_ignore_epipe(header.as_bytes(), true)? {
+                        for f in files {
+                            let line = format!("  {}: {} match(es)", f.path, f.match_count);
+                            if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)?
+                            {
+                                break;
+                            }
+                        }
                     }
                 }
                 if !g.quiet

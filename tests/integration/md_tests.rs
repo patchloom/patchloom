@@ -1,5 +1,19 @@
 use super::*;
 
+/// `md lint-agents | head` must not panic (issue lines used `println!`).
+#[test]
+fn test_md_lint_agents_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("AGENTS.md");
+    fs::write(
+        &file,
+        "# AGENTS.md\n\n## Build\n\nRun make\n\n## Build\n\nDuplicate\n",
+    )
+    .unwrap();
+    let path = file.to_str().expect("utf8 md path");
+    assert_cli_broken_pipe_is_not_a_panic(&["md", "lint-agents", path]);
+}
+
 #[test]
 fn test_md_replace_section() {
     let dir = TempDir::new().unwrap();

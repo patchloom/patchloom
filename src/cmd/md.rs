@@ -664,16 +664,19 @@ pub fn run(args: MdArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                         .as_deref()
                         .or(single_path.as_deref())
                         .unwrap_or("");
-                    match (issue.line, &issue.heading) {
+                    let line = match (issue.line, &issue.heading) {
                         (Some(ln), Some(h)) => {
-                            println!("{loc}:{ln}: {} {h:?}", issue.issue);
+                            format!("{loc}:{ln}: {} {h:?}", issue.issue)
                         }
                         (Some(ln), None) => {
-                            println!("{loc}:{ln}: {}", issue.issue);
+                            format!("{loc}:{ln}: {}", issue.issue)
                         }
                         _ => {
-                            println!("{loc}: {}", issue.issue);
+                            format!("{loc}: {}", issue.issue)
                         }
+                    };
+                    if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)? {
+                        break;
                     }
                 }
             }

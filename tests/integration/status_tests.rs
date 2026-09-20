@@ -1,5 +1,15 @@
 use super::*;
 
+/// `status | head` must not panic when there are changes (`println!` listing).
+#[test]
+fn test_status_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    init_git_repo_with_committed_file(dir.path(), "a.txt", "hello\n");
+    fs::write(dir.path().join("a.txt"), "changed\n").unwrap();
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["--cwd", cwd, "status"]);
+}
+
 #[test]
 fn test_status_clean_repo() {
     let dir = TempDir::new().unwrap();

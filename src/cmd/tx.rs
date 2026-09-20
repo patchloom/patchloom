@@ -731,7 +731,8 @@ pub(crate) fn run_parsed_plan(
             let ok = emit_output_json(&output, compact);
             return Ok(exit_after_emit(ok, exit_code_from_tx_output(&output)));
         } else if !global.quiet {
-            println!("{human_change_count} file(s) would change");
+            let line = format!("{human_change_count} file(s) would change");
+            crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)?;
         }
         print_human_replace_honesty(&result, &cwd, global.quiet);
         return Ok(exit::CHANGES_DETECTED);

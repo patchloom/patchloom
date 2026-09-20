@@ -119,7 +119,8 @@ pub fn run(mut args: RenameArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             backup_session: None,
         };
         if !global.emit_json(&output)? && !global.quiet {
-            println!("source and destination are the same: {}", args.from);
+            let line = format!("source and destination are the same: {}", args.from);
+            crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)?;
         }
         return Ok(exit::SUCCESS);
     }

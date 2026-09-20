@@ -161,14 +161,22 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             }
         }
         if !global.emit_json_items(&list_items)? && !global.quiet {
-            for (root, s) in &sessions {
+            'list: for (root, s) in &sessions {
                 let file_count = s.entries.len();
                 let root_disp = display_root(&cwd, root);
-                println!("{} ({file_count} file(s)) root={root_disp}", s.timestamp);
-                for e in &s.entries {
-                    println!("  {} ({})", e.path, action_label(&e.action));
+                let header = format!("{} ({file_count} file(s)) root={root_disp}", s.timestamp);
+                if !crate::json_emit::write_stdout_ignore_epipe(header.as_bytes(), true)? {
+                    break;
                 }
-                println!();
+                for e in &s.entries {
+                    let line = format!("  {} ({})", e.path, action_label(&e.action));
+                    if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)? {
+                        break 'list;
+                    }
+                }
+                if !crate::json_emit::write_stdout_ignore_epipe(b"", true)? {
+                    break;
+                }
             }
         }
         return Ok(exit::SUCCESS);
@@ -232,14 +240,19 @@ pub fn run(args: UndoArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
             entries,
         };
         if !global.emit_json(&output)? && !global.quiet {
-            println!(
+            let header = format!(
                 "Would restore session {} ({} file(s)) root={}:",
                 timestamp,
                 session.entries.len(),
                 output.project_root
             );
-            for entry in &output.entries {
-                println!("  {} -> {}", entry.path, entry.action);
+            if crate::json_emit::write_stdout_ignore_epipe(header.as_bytes(), true)? {
+                for entry in &output.entries {
+                    let line = format!("  {} -> {}", entry.path, entry.action);
+                    if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)? {
+                        break;
+                    }
+                }
             }
             // Always print when not quiet: agents often capture piped stderr
             // and miss TTY-only show_status() hints (fixrealloop confusion).

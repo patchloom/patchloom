@@ -1,5 +1,20 @@
 use super::*;
 
+/// `patch check | head` must not panic (would-change dump used `println!`).
+#[test]
+fn test_patch_check_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("test.txt"), "line1\nold line\nline3\n").unwrap();
+    let patch = dir.path().join("changes.patch");
+    fs::write(
+        &patch,
+        "--- a/test.txt\n+++ b/test.txt\n@@ -1,3 +1,3 @@\n line1\n-old line\n+new line\n line3\n",
+    )
+    .unwrap();
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["--cwd", cwd, "patch", "check", "changes.patch"]);
+}
+
 #[test]
 fn test_patch_apply_dry_run_does_not_modify_file() {
     let dir = TempDir::new().unwrap();

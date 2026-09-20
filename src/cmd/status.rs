@@ -318,17 +318,29 @@ pub fn run(args: StatusArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
     );
 
     if !global.emit_json(&out)? && !global.quiet {
-        for f in &out.modified {
-            println!("M  {f}");
-        }
-        for f in &out.created {
-            println!("A  {f}");
-        }
-        for f in &out.deleted {
-            println!("D  {f}");
-        }
-        if out.total_changes > 0 {
-            println!("{} file(s) changed", out.total_changes);
+        'status: {
+            for f in &out.modified {
+                let line = format!("M  {f}");
+                if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)? {
+                    break 'status;
+                }
+            }
+            for f in &out.created {
+                let line = format!("A  {f}");
+                if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)? {
+                    break 'status;
+                }
+            }
+            for f in &out.deleted {
+                let line = format!("D  {f}");
+                if !crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)? {
+                    break 'status;
+                }
+            }
+            if out.total_changes > 0 {
+                let line = format!("{} file(s) changed", out.total_changes);
+                crate::json_emit::write_stdout_ignore_epipe(line.as_bytes(), true)?;
+            }
         }
     }
 

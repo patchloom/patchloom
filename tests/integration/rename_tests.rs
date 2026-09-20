@@ -1,5 +1,14 @@
 use super::*;
 
+/// `rename src src | head` must not panic (same-path dump used `println!`).
+#[test]
+fn test_rename_same_path_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("f.txt"), "x\n").unwrap();
+    let cwd = dir.path().to_str().expect("utf8 tempdir");
+    assert_cli_broken_pipe_is_not_a_panic(&["--cwd", cwd, "rename", "f.txt", "f.txt", "--check"]);
+}
+
 #[test]
 fn test_rename_moves_file() {
     let dir = TempDir::new().unwrap();

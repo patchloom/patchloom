@@ -1,5 +1,19 @@
 use super::*;
 
+/// `explain | head` must not panic (human summary used `println!`).
+#[test]
+fn test_explain_broken_pipe_is_not_a_panic() {
+    let dir = TempDir::new().unwrap();
+    let plan = dir.path().join("plan.json");
+    fs::write(
+        &plan,
+        r#"{"version":1,"operations":[{"op":"file.create","path":"t.txt","content":"hi"}]}"#,
+    )
+    .unwrap();
+    let path = plan.to_str().expect("utf8 plan path");
+    assert_cli_broken_pipe_is_not_a_panic(&["explain", path]);
+}
+
 #[test]
 fn test_explain_prints_human_summary() {
     let dir = TempDir::new().unwrap();
