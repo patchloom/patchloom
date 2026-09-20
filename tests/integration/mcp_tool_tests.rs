@@ -6965,6 +6965,73 @@ async fn test_mcp_apply_patch_search_replace_update() {
 }
 
 #[tokio::test]
+async fn test_mcp_apply_patch_search_replace_inner_fences() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("README.md"),
+        "before\n```rust\nfn x() {}\n```\nafter\n",
+    )
+    .unwrap();
+    let diff = "<<<<<<< SEARCH\nREADME.md\n-------\nbefore\n```rust\nfn x() {}\n```\nafter\n=======\nbefore\n```rust\nfn y() {}\n```\nafter\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(!is_error, "inner-fence SEARCH/REPLACE via MCP: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("README.md")).unwrap(),
+        "before\n```rust\nfn y() {}\n```\nafter\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_search_replace_inline_close() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("close.rs"), "alpha\n").unwrap();
+    let diff = "<<<<<<< SEARCH\nclose.rs\n-------\nalpha\n=======\nsee >>>>>>> REPLACE in docs\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(!is_error, "inline close SEARCH/REPLACE via MCP: {val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("close.rs")).unwrap(),
+        "see >>>>>>> REPLACE in docs\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_search_replace_then_begin_patch_is_parse_error() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let diff = "<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n*** Begin Patch\n*** Update File: code.rs\n@@\n-fn new() {}\n+fn other() {}\n*** End Patch\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(is_error, "SEARCH then Begin Patch must fail closed: {val}");
+    assert_eq!(val["error_kind"], "parse_error", "{val}");
+    let err = val["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("mixed") && err.contains("Begin Patch") && err.contains("SEARCH/REPLACE"),
+        "expected mixed-grammar refuse, got {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_apply_patch_search_replace_crlf_update() {
     if !has_mcp_support() {
         return;

@@ -3146,6 +3146,113 @@ fn test_patch_apply_replace_all_on_begin_patch_is_invalid_input() {
 }
 
 #[test]
+fn test_patch_apply_search_replace_inner_fences_writes_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(
+        dir.path().join("README.md"),
+        "before\n```rust\nfn x() {}\n```\nafter\n",
+    )
+    .unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        "<<<<<<< SEARCH\nREADME.md\n-------\nbefore\n```rust\nfn x() {}\n```\nafter\n=======\nbefore\n```rust\nfn y() {}\n```\nafter\n>>>>>>> REPLACE\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("README.md")).unwrap(),
+        "before\n```rust\nfn y() {}\n```\nafter\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_search_replace_inline_close_writes_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("close.rs"), "alpha\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        "<<<<<<< SEARCH\nclose.rs\n-------\nalpha\n=======\nsee >>>>>>> REPLACE in docs\n>>>>>>> REPLACE\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("close.rs")).unwrap(),
+        "see >>>>>>> REPLACE in docs\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_search_replace_then_begin_patch_is_parse_error() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let patch_file = dir.path().join("change.patch");
+    fs::write(
+        &patch_file,
+        "<<<<<<< SEARCH\ncode.rs\n-------\nfn old() {}\n=======\nfn new() {}\n>>>>>>> REPLACE\n*** Begin Patch\n*** Update File: code.rs\n@@\n-fn new() {}\n+fn other() {}\n*** End Patch\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "SEARCH then Begin Patch → parse_error exit 4"
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "parse_error", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(
+        err.contains("mixed") && err.contains("Begin Patch") && err.contains("SEARCH/REPLACE"),
+        "expected mixed-grammar refuse, got {v}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn old() {}\n",
+        "mixed grammar must not apply the SEARCH block"
+    );
+}
+
+#[test]
 fn test_patch_apply_mixed_search_replace_and_begin_patch_is_parse_error() {
     let dir = TempDir::new().unwrap();
     fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();

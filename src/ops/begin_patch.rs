@@ -289,6 +289,18 @@ fn is_col0_marker(line: &str, marker: &str) -> bool {
     peel_trailing_marker_stars(line) == marker
 }
 
+/// True when any column-0 line is `*** Begin Patch` or `*** Update File:`.
+///
+/// Unlike [`looks_like_begin_patch`], this scans the whole document so a
+/// SEARCH/REPLACE payload that later starts a Begin Patch envelope is mixed.
+#[must_use]
+pub(crate) fn has_col0_begin_patch_start(input: &str) -> bool {
+    input.lines().any(|line| {
+        let line = line.trim_end_matches('\r');
+        is_col0_marker(line, "*** Begin Patch") || strip_marker(line, "*** Update File:").is_some()
+    })
+}
+
 fn strip_marker<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
     peel_trailing_marker_stars(line)
         .strip_prefix(marker)

@@ -150,6 +150,14 @@ fn preview_apply_patch(
     let results = if crate::ops::begin_patch::looks_like_begin_patch(&p.diff) {
         crate::api::apply_begin_patch(&p.diff, cwd, None, crate::api::ApplyMode::Preview, guard)
     } else if crate::ops::search_replace::looks_like_search_replace(&p.diff) {
+        if crate::ops::begin_patch::has_col0_begin_patch_start(&p.diff) {
+            return json_tool_error(&serde_json::json!({
+                "ok": false,
+                "applied": false,
+                "error_kind": "parse_error",
+                "error": "mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
+            }));
+        }
         crate::api::apply_search_replace_document(
             &p.diff,
             cwd,
@@ -792,6 +800,14 @@ impl PatchloomService {
                 return svc.run_one_op(op, Some(p.strict));
             }
             if crate::ops::search_replace::looks_like_search_replace(&p.diff) {
+                if crate::ops::begin_patch::has_col0_begin_patch_start(&p.diff) {
+                    return json_tool_error(&serde_json::json!({
+                        "ok": false,
+                        "applied": false,
+                        "error_kind": "parse_error",
+                        "error": "mixed Begin Patch and SEARCH/REPLACE grammar is not supported",
+                    }));
+                }
                 let paths = crate::ops::search_replace::search_replace_declared_paths(&p.diff)
                     .map_err(|e| {
                         McpError::invalid_params(format!("failed to parse diff: {e}"), None)

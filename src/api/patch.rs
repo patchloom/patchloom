@@ -54,6 +54,11 @@ pub fn apply_patch(
         });
     }
     if crate::ops::search_replace::looks_like_search_replace(patch_text) {
+        if crate::ops::begin_patch::has_col0_begin_patch_start(patch_text) {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
+            }));
+        }
         let abs = super::absolute_for_engine(path).map_err(|e| {
             crate::fallback::EditError::new(
                 crate::fallback::EditErrorKind::OperationFailed,
@@ -377,6 +382,11 @@ pub fn apply_patch_file(
         return super::apply_begin_patch(patch_text, cwd, None, mode, guard);
     }
     if crate::ops::search_replace::looks_like_search_replace(patch_text) {
+        if crate::ops::begin_patch::has_col0_begin_patch_start(patch_text) {
+            return Err(anyhow::Error::new(crate::exit::ParseErrorError {
+                msg: "mixed Begin Patch and SEARCH/REPLACE grammar is not supported".into(),
+            }));
+        }
         return super::apply_search_replace_document(
             patch_text,
             cwd,
