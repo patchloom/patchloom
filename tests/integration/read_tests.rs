@@ -1,5 +1,11 @@
 use super::*;
 
+/// `read FILE | head` must not panic (human body dump uses stdout).
+#[test]
+fn test_read_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["read", "tests/integration/tx_tests.rs"]);
+}
+
 /// #2363 sibling: Win32 `keep.txt\\` is `keep.txt`. Read must not OS 267.
 #[cfg(windows)]
 #[test]

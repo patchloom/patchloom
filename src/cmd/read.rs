@@ -217,13 +217,23 @@ pub fn run(args: ReadArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
                 } else if global.json {
                     outputs.push(output);
                 } else if !global.quiet {
-                    if multi && i > 0 {
-                        println!();
+                    if multi && i > 0 && !crate::json_emit::write_stdout_ignore_epipe(b"", true)? {
+                        break;
                     }
-                    if multi {
-                        println!("==> {} <==", path);
+                    if multi
+                        && !crate::json_emit::write_stdout_ignore_epipe(
+                            format!("==> {path} <==").as_bytes(),
+                            true,
+                        )?
+                    {
+                        break;
                     }
-                    print!("{}", output.content);
+                    if !crate::json_emit::write_stdout_ignore_epipe(
+                        output.content.as_bytes(),
+                        false,
+                    )? {
+                        break;
+                    }
                 }
             }
             Err(e) => {

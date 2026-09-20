@@ -744,7 +744,7 @@ pub fn run(args: SearchArgs, global: &GlobalFlags) -> anyhow::Result<u8> {
 
     if global.json || global.jsonl || !global.quiet {
         let output = format_results(results, &args, global, skipped, refused)?;
-        print!("{output}");
+        crate::json_emit::write_stdout_ignore_epipe(output.as_bytes(), false)?;
     }
 
     Ok(exit::SUCCESS)
