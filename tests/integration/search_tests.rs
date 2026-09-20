@@ -1,5 +1,11 @@
 use super::*;
 
+/// `search PATTERN src | head` must not panic (human dump is one stdout write).
+#[test]
+fn test_search_broken_pipe_is_not_a_panic() {
+    assert_cli_broken_pipe_is_not_a_panic(&["search", "fn ", "src"]);
+}
+
 #[test]
 fn test_search_finds_matches() {
     let dir = TempDir::new().unwrap();
