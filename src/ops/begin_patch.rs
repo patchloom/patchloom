@@ -1,5 +1,8 @@
 //! Codex `*** Begin Patch` grammar: detect, dest list, parse, hunk apply.
 //!
+//! size-waiver: Codex Begin Patch parse + apply + git numbered @@ (#2603).
+//! Co-located tests. Policy #1408 — do not split for LOC alone.
+//!
 //! Hosts dest-deny with [`begin_patch_declared_paths`] then call
 //! [`crate::api::apply_patch`] / [`crate::api::apply_patch_file`]. Do not copy
 //! this parser.
@@ -353,6 +356,40 @@ struct CodexHunk {
     eof_anchored: bool,
 }
 
+/// Git unified-diff hunk header after the opening `@@`.
+///
+/// Examples: `-27,6 +27,7 @@`, `-1 +1 @@`, `-1,1 +1,1 @@ fn old`.
+/// Codex scope (`fn b()`, `impl Foo`) does not match.
+fn is_git_hunk_header_rest(rest: &str) -> bool {
+    let rest = rest.trim();
+    let Some(at) = rest.find(" @@") else {
+        return false;
+    };
+    git_count_pair(&rest[..at])
+}
+
+fn git_count_pair(s: &str) -> bool {
+    let Some((old, new)) = s.split_once(' ') else {
+        return false;
+    };
+    git_hunk_count(old, '-') && git_hunk_count(new, '+')
+}
+
+fn git_hunk_count(s: &str, sign: char) -> bool {
+    let Some(rest) = s.strip_prefix(sign) else {
+        return false;
+    };
+    let (n, m) = match rest.split_once(',') {
+        Some((a, b)) => (a, Some(b)),
+        None => (rest, None),
+    };
+    ascii_digits(n) && m.is_none_or(ascii_digits)
+}
+
+fn ascii_digits(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+}
+
 fn parse_codex_hunks(body: &str) -> anyhow::Result<Vec<CodexHunk>> {
     let mut hunks = Vec::new();
     let mut current = Vec::new();
@@ -380,7 +417,7 @@ fn parse_codex_hunks(body: &str) -> anyhow::Result<Vec<CodexHunk>> {
             }
             started = true;
             let rest = line.get(2..).unwrap_or("").trim();
-            hint = if rest.is_empty() {
+            hint = if rest.is_empty() || is_git_hunk_header_rest(rest) {
                 None
             } else {
                 Some(rest.to_owned())
@@ -696,6 +733,47 @@ mod tests {
     fn apply_codex_hunks_extra_stars_end_of_file() {
         let out = apply_codex_hunks("x\nx\n", "-x\n+y\n*** End of File ***\n").expect("eof");
         assert_eq!(out, "x\ny\n");
+    }
+
+    #[test]
+    fn apply_codex_hunks_numbered_git_header_is_delimiter_not_scope() {
+        let src = concat!(
+            "        Self::default()\n",
+            "    }\n",
+            "\n",
+            "    pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {\n",
+        );
+        let hunks = "\
+@@ -27,6 +27,7 @@
+         Self::default()
+     }
+
++    /// rustdoc
+     pub fn set(&mut self, pitch_mm: u32) -> Result<u64, Error> {
+";
+        let out = apply_codex_hunks(src, hunks).expect("numbered @@ is a hunk delimiter");
+        assert!(
+            out.contains("/// rustdoc"),
+            "numbered git header must not become Codex scope: {out:?}"
+        );
+    }
+
+    #[test]
+    fn apply_codex_hunks_numbered_git_header_with_function_suffix() {
+        let src = "fn old() {}\n";
+        let hunks = "@@ -1,1 +1,1 @@ fn old\n-fn old() {}\n+fn new() {}\n";
+        let out = apply_codex_hunks(src, hunks).expect("git suffix after closing @@");
+        assert_eq!(out, "fn new() {}\n");
+    }
+
+    #[test]
+    fn git_hunk_header_rest_detects_counts_not_codex_scope() {
+        assert!(is_git_hunk_header_rest("-27,6 +27,7 @@"));
+        assert!(is_git_hunk_header_rest("-1 +1 @@"));
+        assert!(is_git_hunk_header_rest("-1,1 +1,1 @@ fn old"));
+        assert!(!is_git_hunk_header_rest("fn b()"));
+        assert!(!is_git_hunk_header_rest("impl Foo"));
+        assert!(!is_git_hunk_header_rest("-foo"));
     }
 
     #[test]
