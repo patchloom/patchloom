@@ -178,38 +178,42 @@ fn parse_search_replace_inner(
 
         let block = &block[..end + end_marker_len];
 
-        let separator = find_search_replace_separator(block)
+        let separator = find_whole_line_marker(block, "=======")
             .ok_or_else(|| SearchReplaceParseError::malformed("missing ======= separator"))?;
 
-        let search_section = &block["<<<<<<< SEARCH".len()..separator];
-        let search_section = search_section.trim_start_matches('\n');
+        let search_section = skip_one_eol(&block["<<<<<<< SEARCH".len()..separator]);
 
-        let (file, old_content) = if let Some(dash_pos) = search_section.find("-------") {
-            let f = search_section[..dash_pos].trim();
-            let c = search_section[dash_pos + "-------".len()..].trim_start_matches('\n');
-            (f.to_string(), c.trim_end_matches('\n').to_string())
-        } else {
-            // Dest-less: every SEARCH line is old text. apply_patch supplies
-            // dest via file_hint. Multi-file documents use the ------- form.
-            (
-                String::new(),
-                search_section.trim_end_matches('\n').to_string(),
-            )
-        };
+        // Dest is a whole line that is exactly `-------` (optional trailing
+        // space / CR). Inline dashes in dest-less SEARCH stay dest-less.
+        let (file, old_content) =
+            if let Some(dash_pos) = find_whole_line_marker(search_section, "-------") {
+                let f = lf_normalize(search_section[..dash_pos].trim());
+                let c = after_whole_line(search_section, dash_pos);
+                (f, lf_normalize(c).trim_end_matches('\n').to_string())
+            } else {
+                // Dest-less: every SEARCH line is old text. apply_patch supplies
+                // dest via file_hint. Multi-file documents use the ------- form.
+                (
+                    String::new(),
+                    lf_normalize(search_section)
+                        .trim_end_matches('\n')
+                        .to_string(),
+                )
+            };
 
-        let replace_section = after_search_replace_separator(block, separator);
-        let new_content = if let Some(stripped) = replace_section.strip_suffix("\n>>>>>>> REPLACE")
-        {
-            stripped.to_string()
+        let replace_section = after_whole_line(block, separator);
+        let new_raw = if let Some(stripped) = replace_section.strip_suffix("\n>>>>>>> REPLACE") {
+            stripped
         } else if let Some(stripped) = replace_section.strip_suffix("\n>>>>>>>") {
-            stripped.to_string()
+            stripped
         } else if let Some(stripped) = replace_section.strip_suffix(">>>>>>> REPLACE") {
-            stripped.to_string()
+            stripped
         } else if let Some(stripped) = replace_section.strip_suffix(">>>>>>>") {
-            stripped.to_string()
+            stripped
         } else {
-            replace_section.to_string()
+            replace_section
         };
+        let new_content = lf_normalize(new_raw);
 
         actions.push(SearchReplaceBlock {
             path: file,
@@ -223,13 +227,13 @@ fn parse_search_replace_inner(
     Ok(actions)
 }
 
-/// Byte offset of a whole line that is exactly `=======` (optional trailing whitespace).
-fn find_search_replace_separator(block: &str) -> Option<usize> {
+/// Byte offset of a whole line that is exactly `marker` (optional trailing whitespace).
+fn find_whole_line_marker(block: &str, marker: &str) -> Option<usize> {
     let mut offset = 0;
     for line in block.split_inclusive('\n') {
         let without_nl = line.strip_suffix('\n').unwrap_or(line);
         let without_eol = without_nl.strip_suffix('\r').unwrap_or(without_nl);
-        if without_eol.trim_end() == "=======" {
+        if without_eol.trim_end() == marker {
             return Some(offset);
         }
         offset += line.len();
@@ -237,12 +241,22 @@ fn find_search_replace_separator(block: &str) -> Option<usize> {
     None
 }
 
-fn after_search_replace_separator(block: &str, separator: usize) -> &str {
-    let rest = &block[separator..];
+fn after_whole_line(block: &str, line_start: usize) -> &str {
+    let rest = &block[line_start..];
     match rest.find('\n') {
         Some(n) => &rest[n + 1..],
         None => "",
     }
+}
+
+fn skip_one_eol(s: &str) -> &str {
+    s.strip_prefix("\r\n")
+        .or_else(|| s.strip_prefix('\n'))
+        .unwrap_or(s)
+}
+
+fn lf_normalize(s: &str) -> String {
+    s.replace("\r\n", "\n").replace('\r', "")
 }
 
 fn strip_eos_tokens(response: &str) -> String {
@@ -594,5 +608,98 @@ new
         let blocks = parse_search_replace(input).expect("trailing ws on separator");
         assert_eq!(blocks[0].old, "old");
         assert_eq!(blocks[0].new, "new");
+    }
+
+    #[test]
+    fn parse_search_replace_crlf_dest_present_matches_lf() {
+        let lf = "\
+<<<<<<< SEARCH
+code.rs
+-------
+fn old() {}
+=======
+fn new() {}
+>>>>>>> REPLACE
+";
+        let crlf = lf.replace('\n', "\r\n");
+        let lf_blocks = parse_search_replace(lf).expect("lf");
+        let crlf_blocks = parse_search_replace(&crlf).expect("crlf");
+        assert_eq!(crlf_blocks, lf_blocks);
+        assert_eq!(crlf_blocks[0].path, "code.rs");
+        assert_eq!(crlf_blocks[0].old, "fn old() {}");
+        assert_eq!(crlf_blocks[0].new, "fn new() {}");
+        assert!(
+            !crlf_blocks[0].old.contains('\r'),
+            "old must not keep CR: {:?}",
+            crlf_blocks[0].old
+        );
+        assert!(
+            !crlf_blocks[0].new.contains('\r'),
+            "new must not keep CR: {:?}",
+            crlf_blocks[0].new
+        );
+    }
+
+    #[test]
+    fn parse_search_replace_crlf_destless_has_empty_path_without_cr() {
+        let lf = "\
+<<<<<<< SEARCH
+only.rs
+the old text
+=======
+the new text
+>>>>>>> REPLACE
+";
+        let crlf = lf.replace('\n', "\r\n");
+        let blocks = parse_search_replace(&crlf).expect("dest-less crlf");
+        assert_eq!(blocks[0].path, "");
+        assert_eq!(blocks[0].old, "only.rs\nthe old text");
+        assert_eq!(blocks[0].new, "the new text");
+        assert!(
+            !blocks[0].old.contains('\r'),
+            "old must not keep CR: {:?}",
+            blocks[0].old
+        );
+        assert!(
+            !blocks[0].new.contains('\r'),
+            "new must not keep CR: {:?}",
+            blocks[0].new
+        );
+    }
+
+    #[test]
+    fn parse_search_replace_inline_dashes_in_destless_search_are_not_dest() {
+        let input = "\
+<<<<<<< SEARCH
+x = \"-------\"
+=======
+x = \"eq\"
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("inline dashes");
+        assert_eq!(
+            blocks[0].path, "",
+            "inline ------- in SEARCH is not dest, got {:?}",
+            blocks[0].path
+        );
+        assert_eq!(blocks[0].old, "x = \"-------\"");
+        assert_eq!(blocks[0].new, "x = \"eq\"");
+    }
+
+    #[test]
+    fn parse_search_replace_dest_present_old_may_contain_dashes() {
+        let input = "\
+<<<<<<< SEARCH
+code.rs
+-------
+x = \"-------\"
+=======
+x = \"eq\"
+>>>>>>> REPLACE
+";
+        let blocks = parse_search_replace(input).expect("dest-present dashes in old");
+        assert_eq!(blocks[0].path, "code.rs");
+        assert_eq!(blocks[0].old, "x = \"-------\"");
+        assert_eq!(blocks[0].new, "x = \"eq\"");
     }
 }

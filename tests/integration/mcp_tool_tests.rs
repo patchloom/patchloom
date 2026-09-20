@@ -6965,6 +6965,28 @@ async fn test_mcp_apply_patch_search_replace_update() {
 }
 
 #[tokio::test]
+async fn test_mcp_apply_patch_search_replace_crlf_update() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let diff = "<<<<<<< SEARCH\r\ncode.rs\r\n-------\r\nfn old() {}\r\n=======\r\nfn new() {}\r\n>>>>>>> REPLACE\r\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        !is_error,
+        "CRLF SEARCH/REPLACE via MCP should succeed: {val}"
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_mcp_apply_patch_destless_search_replace_is_invalid_input() {
     if !has_mcp_support() {
         return;
@@ -6985,6 +7007,56 @@ async fn test_mcp_apply_patch_destless_search_replace_is_invalid_input() {
     assert_eq!(
         fs::read_to_string(dir.path().join("only.rs")).unwrap(),
         "only.rs\nthe old text\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_destless_search_replace_crlf_is_invalid_input() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.rs"), "only.rs\nthe old text\n").unwrap();
+    let diff = "<<<<<<< SEARCH\r\nonly.rs\r\nthe old text\r\n=======\r\nthe new text\r\n>>>>>>> REPLACE\r\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        is_error,
+        "dest-less CRLF MCP apply_patch must fail closed: {val}"
+    );
+    assert_eq!(val["error_kind"], "invalid_input", "{val}");
+    let err = val["error"].as_str().unwrap_or("");
+    assert!(err.contains("path must not be empty"), "{val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("only.rs")).unwrap(),
+        "only.rs\nthe old text\n"
+    );
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_mcp_apply_patch_destless_search_replace_inline_dashes_is_invalid_input() {
+    if !has_mcp_support() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x = \"-------\"\n").unwrap();
+    let diff = "<<<<<<< SEARCH\nx = \"-------\"\n=======\nx = \"eq\"\n>>>>>>> REPLACE\n";
+    let client = spawn_mcp_client(dir.path()).await;
+    let (is_error, val) =
+        call_tool_value(&client, "apply_patch", serde_json::json!({"diff": diff})).await;
+    assert!(
+        is_error,
+        "dest-less inline dashes MCP apply_patch must fail closed: {val}"
+    );
+    assert_eq!(val["error_kind"], "invalid_input", "{val}");
+    let err = val["error"].as_str().unwrap_or("");
+    assert!(err.contains("path must not be empty"), "{val}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "x = \"-------\"\n"
     );
     client.cancel().await.unwrap();
 }

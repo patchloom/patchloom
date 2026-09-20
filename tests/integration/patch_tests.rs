@@ -2768,6 +2768,12 @@ fn search_replace_doc(path: &str, old: &str, new: &str) -> String {
     format!("<<<<<<< SEARCH\n{path}\n-------\n{old}\n=======\n{new}\n>>>>>>> REPLACE\n")
 }
 
+fn search_replace_doc_crlf(path: &str, old: &str, new: &str) -> String {
+    format!(
+        "<<<<<<< SEARCH\r\n{path}\r\n-------\r\n{old}\r\n=======\r\n{new}\r\n>>>>>>> REPLACE\r\n"
+    )
+}
+
 #[test]
 fn test_patch_apply_search_replace_writes_file() {
     let dir = TempDir::new().unwrap();
@@ -2776,6 +2782,34 @@ fn test_patch_apply_search_replace_writes_file() {
     fs::write(
         &patch_file,
         search_replace_doc("code.rs", "fn old() {}", "fn new() {}"),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "fn new() {}\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_search_replace_crlf_writes_lf_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "fn old() {}\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        search_replace_doc_crlf("code.rs", "fn old() {}", "fn new() {}"),
     )
     .unwrap();
 
@@ -2838,6 +2872,124 @@ fn test_patch_apply_destless_search_replace_is_invalid_input() {
     assert_eq!(
         fs::read_to_string(dir.path().join("only.rs")).unwrap(),
         "only.rs\nthe old text\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_destless_search_replace_crlf_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("only.rs"), "only.rs\nthe old text\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        "<<<<<<< SEARCH\r\nonly.rs\r\nthe old text\r\n=======\r\nthe new text\r\n>>>>>>> REPLACE\r\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "dest-less CRLF CLI patch apply is invalid_input, stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(err.contains("path must not be empty"), "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("only.rs")).unwrap(),
+        "only.rs\nthe old text\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_destless_search_replace_inline_dashes_is_invalid_input() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x = \"-------\"\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        "<<<<<<< SEARCH\nx = \"-------\"\n=======\nx = \"eq\"\n>>>>>>> REPLACE\n",
+    )
+    .unwrap();
+
+    let out = Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--json")
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "dest-less inline dashes must be invalid_input not not_found, stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+        panic!(
+            "expected JSON stdout, got stdout={} stderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    });
+    assert_eq!(v["error_kind"], "invalid_input", "{v}");
+    let err = v["error"].as_str().unwrap_or("");
+    assert!(err.contains("path must not be empty"), "{v}");
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "x = \"-------\"\n"
+    );
+}
+
+#[test]
+fn test_patch_apply_search_replace_old_containing_dashes_writes_file() {
+    let dir = TempDir::new().unwrap();
+    fs::write(dir.path().join("code.rs"), "x = \"-------\"\n").unwrap();
+    let patch_file = dir.path().join("change.sr");
+    fs::write(
+        &patch_file,
+        search_replace_doc("code.rs", "x = \"-------\"", "x = \"eq\""),
+    )
+    .unwrap();
+
+    Command::cargo_bin("patchloom")
+        .unwrap()
+        .arg("--cwd")
+        .arg(dir.path())
+        .arg("patch")
+        .arg("apply")
+        .arg(&patch_file)
+        .arg("--apply")
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(dir.path().join("code.rs")).unwrap(),
+        "x = \"eq\"\n"
     );
 }
 
