@@ -1504,6 +1504,24 @@ fn read_returns_whole_file_sha256_and_offset_window() {
 }
 
 #[test]
+fn read_past_eof_is_no_matches() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "a\nb\nc\nd\n").unwrap();
+    let plan: crate::plan::Plan = serde_json::from_value(serde_json::json!({
+        "version": 1,
+        "operations": [{"op": "read", "path": "f.txt", "offset": 99, "limit": 1}]
+    }))
+    .unwrap();
+    let report = crate::tx::execute_plan_direct(plan, dir.path(), None).unwrap();
+    assert_eq!(
+        report.error_kind.as_deref(),
+        Some("no_matches"),
+        "{report:?}"
+    );
+    assert!(!report.ok, "{report:?}");
+}
+
+#[test]
 fn expected_sha256_mismatch_is_stale_and_does_not_write() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("f.txt"), "hello\n").unwrap();

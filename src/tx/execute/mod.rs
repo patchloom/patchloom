@@ -619,6 +619,14 @@ pub(crate) fn execute_read_op(
         let range = crate::ops::read::parse_line_range(spec)?;
         crate::ops::read::select_lines(content, range)
     };
+    if selected.start_line == 0 {
+        let n = selected.total_lines;
+        let msg = format!(
+            "{path}: line range outside file ({n} line{})",
+            if n == 1 { "" } else { "s" }
+        );
+        return Err(crate::exit::NoMatchError { msg }.into());
+    }
 
     tx.tx_reads.push(TxReadResult {
         path: path.to_string(),
